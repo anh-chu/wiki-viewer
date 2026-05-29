@@ -48,46 +48,47 @@ function rewriteHtml(html: string, proxyBase: string): string {
 	out = out.replace(/((?:src|href|action|data-src|data-href|content)=")\/(?!\/)/g, `$1${proxyBase}/`);
 	out = out.replace(/(srcset="[^"]*)\/(?!\/)/g, `$1${proxyBase}/`);
 	out = out.replace(/(<head(?:\s[^>]*)?>)/i, `$1\n<base href="${proxyBase}/">`);
-	// Inject before </head>:
-	// 1. Router patch — makes BrowserRouter (and any code reading window.location.pathname)
-	//    see the path WITHOUT the proxy prefix, so routes like "/" and "/s/:id" match.
-	//    history.push/replaceState is also patched to re-add the prefix so the SW can
-	//    intercept subsequent navigations.
-	// 2. SW registration — reloads once on first activation so the SW controls the page
-	//    before the user clicks any link.
+	// Inject before </head>. Works without service workers (non-localhost HTTP):
+	//
+	// 1. replaceState — strips the proxy prefix from the initial URL so
+	//    BrowserRouter sees "/" instead of "/api/app-proxy/apps/X"
+	// 2. fetch/XHR overrides — rewrite absolute-path calls (/api/...) through
+	//    the proxy so they reach the upstream app, not wiki-viewer
+	// 3. SW — best-effort (only works on localhost/HTTPS), provides navigation
+	//    interception for hard-refreshes on sub-routes
 	const patches = `<script>
 (function(){
   var BASE = ${JSON.stringify(proxyBase)};
-  // Strip proxy prefix from Location.prototype.pathname so SPAs with BrowserRouter work
-  try {
-    var _desc = Object.getOwnPropertyDescriptor(Location.prototype, "pathname");
-    Object.defineProperty(Location.prototype, "pathname", {
-      get: function() {
-        var p = _desc.get.call(this);
-        return p.startsWith(BASE) ? (p.slice(BASE.length) || "/") : p;
-      }, configurable: true
-    });
-  } catch(e) {}
-  // Prefix pushState/replaceState so navigated URLs stay inside the proxy scope
-  // (allows the SW to intercept them on reload/refresh)
-  var _push = history.pushState.bind(history);
-  var _replace = history.replaceState.bind(history);
-  function pfx(u) {
-    return (typeof u === "string" && u && u[0] === "/" && !u.startsWith(BASE)) ? BASE + u : u;
+  // 1. Normalize initial URL: BrowserRouter will see "/" not "/api/app-proxy/apps/X"
+  var _loc = location.pathname;
+  if (_loc.startsWith(BASE)) {
+    history.replaceState(history.state, '', _loc.slice(BASE.length) || '/');
   }
-  history.pushState    = function(s,t,u){ return _push(s,t,pfx(u));    };
-  history.replaceState = function(s,t,u){ return _replace(s,t,pfx(u)); };
-  // SW registration — reload once on first activation so SW controls the page
-  // before any JS fetch() call is made. Uses controllerchange which fires when
-  // clients.claim() runs inside the SW, regardless of skipWaiting timing.
-  if ("serviceWorker" in navigator) {
+  // 2. Rewrite fetch() absolute paths through proxy (works on non-localhost HTTP)
+  var _fetch = window.fetch;
+  window.fetch = function(input, init) {
+    if (typeof input === 'string' && input.startsWith('/') && !input.startsWith('/api/app-proxy/')) {
+      input = BASE + input;
+    }
+    return _fetch.call(window, input, init);
+  };
+  // 3. Rewrite XMLHttpRequest absolute paths
+  var _xhrOpen = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function(method, url) {
+    if (typeof url === 'string' && url.startsWith('/') && !url.startsWith('/api/app-proxy/')) {
+      url = BASE + url;
+    }
+    return _xhrOpen.apply(this, [method, url].concat(Array.prototype.slice.call(arguments, 2)));
+  };
+  // 4. SW — best-effort for localhost/HTTPS; reloads once on first activation
+  if ('serviceWorker' in navigator) {
     if (!navigator.serviceWorker.controller) {
-      navigator.serviceWorker.addEventListener("controllerchange", function() {
+      navigator.serviceWorker.addEventListener('controllerchange', function() {
         window.location.reload();
       }, { once: true });
     }
-    navigator.serviceWorker.register(BASE + "/sw-proxy.js?v=2", { scope: BASE + "/" })
-      .catch(function(e){ console.warn("[wiki-viewer proxy] SW:", e); });
+    navigator.serviceWorker.register(BASE + '/sw-proxy.js?v=2', { scope: BASE + '/' })
+      .catch(function(){});
   }
 })();
 </script>`;
