@@ -44,6 +44,9 @@ export function NodeAppViewer({ path, title }: Props) {
 	const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 	const logsEndRef = useRef<HTMLDivElement>(null);
 
+	// Proxy URL — all traffic flows through wiki-viewer (works remotely)
+	const proxyUrl = `/api/app-proxy/${path}/`;
+
 	const stopPolling = () => {
 		if (pollRef.current) {
 			clearInterval(pollRef.current);
@@ -129,13 +132,12 @@ export function NodeAppViewer({ path, title }: Props) {
 		setIframeKey((k) => k + 1);
 	};
 
-	const appUrl = port ? `http://localhost:${port}/` : null;
 	const isTransient = status === "installing" || status === "starting";
 
 	return (
 		<div className="flex-1 flex flex-col overflow-hidden">
 			<ViewerToolbar path={path} badge="Node app">
-				{status === "running" && appUrl && (
+				{status === "running" && (
 					<>
 						<Button
 							variant="ghost"
@@ -150,7 +152,7 @@ export function NodeAppViewer({ path, title }: Props) {
 							variant="ghost"
 							size="sm"
 							className="h-7 gap-1.5 text-xs"
-							onClick={() => window.open(appUrl, "_blank")}
+							onClick={() => window.open(proxyUrl, "_blank")}
 						>
 							<ExternalLink className="h-3.5 w-3.5" />
 							Open in new tab
@@ -227,8 +229,8 @@ export function NodeAppViewer({ path, title }: Props) {
 							{STATUS_LABEL[status]}
 						</p>
 						{port && (
-							<p className="text-xs text-muted-foreground">
-								Port {port}
+							<p className="text-xs text-muted-foreground/60">
+								port {port}
 							</p>
 						)}
 					</div>
@@ -252,10 +254,10 @@ export function NodeAppViewer({ path, title }: Props) {
 					</div>
 				)}
 
-				{status === "running" && appUrl && (
+				{status === "running" && (
 					<iframe
 						key={iframeKey}
-						src={appUrl}
+						src={proxyUrl}
 						className="flex-1 w-full border-0 bg-card"
 						title={title}
 						sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-top-navigation-by-user-activation"

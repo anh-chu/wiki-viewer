@@ -209,3 +209,21 @@ export function listApps(): Array<{ relPath: string; status: AppStatus; port?: n
 		port: a.port || undefined,
 	}));
 }
+
+/**
+ * Given URL path segments, find the longest prefix that matches a running app.
+ * e.g. ["apps", "roadmap-server", "api", "specs"] → { relPath: "apps/roadmap-server", port, rest: "/api/specs" }
+ */
+export function resolveByPrefix(
+	segments: string[],
+): { relPath: string; port: number; rest: string } | null {
+	for (let i = segments.length; i > 0; i--) {
+		const relPath = segments.slice(0, i).join("/");
+		const app = apps.get(relPath);
+		if (app && app.status === "running" && app.port) {
+			const rest = "/" + segments.slice(i).join("/");
+			return { relPath, port: app.port, rest };
+		}
+	}
+	return null;
+}
