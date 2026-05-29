@@ -46,8 +46,8 @@ ROOT_DIR=~/notes pnpm dev
 
 ## Configuration
 
-| Env var    | Description              | Default               |
-|------------|--------------------------|------------------------|
-| `ROOT_DIR` | Directory to serve       | `~/wiki-viewer-files` |
-| `PORT`     | Port to listen on        | `3000`                |
-| `HOSTNAME` | Host/interface to bind   | `localhost`           |
+| Env var    | Description            | Default               |
+| ---------- | ---------------------- | --------------------- |
+| `ROOT_DIR` | Directory to serve     | `~/wiki-viewer-files` |
+| `PORT`     | Port to listen on      | `3000`                |
+| `HOSTNAME` | Host/interface to bind | `localhost`           |
