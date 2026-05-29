@@ -213,7 +213,7 @@ export function DirPicker({ onSelect }: Props) {
 								debounceRef.current = setTimeout(() => {
 									debounceRef.current = null;
 									navigate(val.trim(), false);
-								}, 700);
+								}, 500);
 							}}
 							onKeyDown={handlePathKeyDown}
 							spellCheck={false}
