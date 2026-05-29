@@ -20,6 +20,10 @@ export function setRootDir(dir: string): void {
 	g.__wikiRootDir = path.resolve(dir);
 }
 
+export function clearRootDir(): void {
+	g.__wikiRootDir = undefined;
+}
+
 /** Returns the absolute path for `rel`, or null on traversal / root not set. */
 export function safeRootPath(rel: string): string | null {
 	const root = getRootDir();

@@ -189,11 +189,15 @@ export default function Page() {
 
 	// null = checking, false = not set, true = ready
 	const [rootConfigured, setRootConfigured] = useState<boolean | null>(null);
+	const [rootPath, setRootPath] = useState<string | null>(null);
 
 	useEffect(() => {
 		fetch("/api/system/root-status")
 			.then((r) => r.json())
-			.then((d: { configured: boolean }) => setRootConfigured(d.configured))
+			.then((d: { configured: boolean; path: string | null }) => {
+				setRootConfigured(d.configured);
+				setRootPath(d.path);
+			})
 			.catch(() => setRootConfigured(false));
 	}, []);
 
@@ -470,6 +474,18 @@ export default function Page() {
 			type: "file",
 		} as TreeNode);
 	}, [editorCurrentPath]);
+
+	const handleChangeDir = async () => {
+		await fetch("/api/system/clear-root", { method: "POST" });
+		setOpenFile(null);
+		setFileContent(null);
+		setEditing(false);
+		setRoots([]);
+		setRootLoaded(false);
+		rootLoadingRef.current = false;
+		setRootPath(null);
+		setRootConfigured(false);
+	};
 
 	async function handleSave() {
 		if (!openFile) return;
@@ -831,9 +847,10 @@ export default function Page() {
 				</div>
 			)}
 			{rootConfigured === false && (
-				<DirPicker onSelect={() => {
+				<DirPicker onSelect={(path) => {
 					setRootLoaded(false);
 					rootLoadingRef.current = false;
+					setRootPath(path);
 					setRootConfigured(true);
 				}} />
 			)}
@@ -993,6 +1010,22 @@ export default function Page() {
 						) : (
 							renderNodes(roots)
 						)}
+					</div>
+					<div className="border-t px-3 py-2 flex items-center gap-2 bg-muted shrink-0">
+						<span
+							className="flex-1 text-xs text-muted-foreground font-mono truncate"
+							title={rootPath ?? ""}
+						>
+							{rootPath ?? ""}
+						</span>
+						<Button
+							size="sm"
+							variant="ghost"
+							className="h-6 shrink-0 text-xs px-2 text-muted-foreground hover:text-foreground"
+							onClick={handleChangeDir}
+						>
+							Change
+						</Button>
 					</div>
 				</Card>
 			)}
