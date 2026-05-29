@@ -77,18 +77,17 @@ function rewriteHtml(html: string, proxyBase: string): string {
   }
   history.pushState    = function(s,t,u){ return _push(s,t,pfx(u));    };
   history.replaceState = function(s,t,u){ return _replace(s,t,pfx(u)); };
-  // SW registration — reload once when the SW first takes control
+  // SW registration — reload once on first activation so SW controls the page
+  // before any JS fetch() call is made. Uses controllerchange which fires when
+  // clients.claim() runs inside the SW, regardless of skipWaiting timing.
   if ("serviceWorker" in navigator) {
+    if (!navigator.serviceWorker.controller) {
+      navigator.serviceWorker.addEventListener("controllerchange", function() {
+        window.location.reload();
+      }, { once: true });
+    }
     navigator.serviceWorker.register(BASE + "/sw-proxy.js", { scope: BASE + "/" })
-      .then(function(reg) {
-        if (!navigator.serviceWorker.controller) {
-          // First visit: wait for SW to activate, then reload so it controls this page
-          (reg.installing || reg.waiting || { addEventListener: function(){} })
-            .addEventListener("statechange", function(e) {
-              if (e.target.state === "activated") window.location.reload();
-            });
-        }
-      }).catch(function(e){ console.warn("[wiki-viewer proxy] SW:", e); });
+      .catch(function(e){ console.warn("[wiki-viewer proxy] SW:", e); });
   }
 })();
 </script>`;
