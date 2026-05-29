@@ -86,7 +86,7 @@ function rewriteHtml(html: string, proxyBase: string): string {
         window.location.reload();
       }, { once: true });
     }
-    navigator.serviceWorker.register(BASE + "/sw-proxy.js", { scope: BASE + "/" })
+    navigator.serviceWorker.register(BASE + "/sw-proxy.js?v=2", { scope: BASE + "/" })
       .catch(function(e){ console.warn("[wiki-viewer proxy] SW:", e); });
   }
 })();
