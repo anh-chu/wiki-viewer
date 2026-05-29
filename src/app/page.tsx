@@ -236,6 +236,11 @@ export default function Page() {
 	const dragNodeRef = useRef<TreeNode | null>(null);
 	const [dragOverPath, setDragOverPath] = useState<string | null>(null);
 
+	// Refs for watcher handler (avoids stale closures in the SSE effect)
+	const openFileRef = useRef<typeof openFile>(null);
+	const editingRef = useRef(false);
+	const refreshViewerRef = useRef<() => Promise<void>>(async () => {});
+
 	useEffect(() => {
 		if (rootLoaded || rootLoadingRef.current) return;
 		rootLoadingRef.current = true;
@@ -318,6 +323,78 @@ export default function Page() {
 		}
 		setFileLoading(false);
 	}, [openFile]);
+
+	// Keep watcher refs in sync
+	useEffect(() => {
+		openFileRef.current = openFile;
+	}, [openFile]);
+	useEffect(() => {
+		editingRef.current = editing;
+	}, [editing]);
+	useEffect(() => {
+		refreshViewerRef.current = refreshViewer;
+	}, [refreshViewer]);
+
+	// File watcher: auto-update tree + open file via SSE
+	useEffect(() => {
+		if (!rootConfigured) return;
+
+		const pendingReloads = new Map<string, ReturnType<typeof setTimeout>>();
+
+		function scheduleReload(dir: string) {
+			if (pendingReloads.has(dir)) clearTimeout(pendingReloads.get(dir)!);
+			pendingReloads.set(
+				dir,
+				setTimeout(() => {
+					pendingReloads.delete(dir);
+					void reloadDir(dir);
+				}, 300),
+			);
+		}
+
+		const es = new EventSource("/api/wiki/watch");
+
+		es.onmessage = (event) => {
+			let data: { type: string; path: string };
+			try {
+				data = JSON.parse(event.data as string) as {
+					type: string;
+					path: string;
+				};
+			} catch {
+				return;
+			}
+			const { type, path: relPath } = data;
+
+			// Reload the affected parent dir in the tree
+			const parts = relPath.split("/");
+			const parentDir =
+				parts.length > 1 ? parts.slice(0, -1).join("/") : "";
+			scheduleReload(parentDir);
+
+			// If the open file changed externally and we're not editing, refresh it
+			if (
+				type === "change" &&
+				openFileRef.current?.path === relPath &&
+				!editingRef.current
+			) {
+				const key = `__file__${relPath}`;
+				if (pendingReloads.has(key)) clearTimeout(pendingReloads.get(key)!);
+				pendingReloads.set(
+					key,
+					setTimeout(() => {
+						pendingReloads.delete(key);
+						void refreshViewerRef.current();
+					}, 400),
+				);
+			}
+		};
+
+		return () => {
+			es.close();
+			for (const t of pendingReloads.values()) clearTimeout(t);
+		};
+	}, [rootConfigured, reloadDir]);
 
 	async function toggleFolder(node: TreeNode) {
 		if (node.type !== "dir" && node.type !== "app") return;

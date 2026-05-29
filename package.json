@@ -35,6 +35,7 @@
     "url": "https://github.com/anh-chu/wiki-viewer.git"
   },
   "dependencies": {
+    "chokidar": "^5.0.0",
     "undici": "^8.3.0"
   },
   "devDependencies": {
