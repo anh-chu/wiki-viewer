@@ -271,7 +271,7 @@ export default function Page() {
 	const collectExpandedPaths = useCallback((nodes: TreeNode[]): string[] => {
 		const paths: string[] = [];
 		for (const n of nodes) {
-			if (n.type === "dir" && n.expanded && n.children) {
+			if ((n.type === "dir" || n.type === "app") && n.expanded && n.children) {
 				paths.push(n.path);
 				paths.push(...collectExpandedPaths(n.children));
 			}
@@ -320,7 +320,7 @@ export default function Page() {
 	}, [openFile]);
 
 	async function toggleFolder(node: TreeNode) {
-		if (node.type !== "dir") return;
+		if (node.type !== "dir" && node.type !== "app") return;
 		if (!node.expanded) {
 			if (node.children === undefined) {
 				setRoots((prev) =>
@@ -569,6 +569,7 @@ export default function Page() {
 						if (e.key === "Enter" || e.key === " ") {
 							e.preventDefault();
 							if (node.type === "dir") toggleFolder(node);
+							else if (node.type === "app") { openViewer(node); toggleFolder(node); }
 							else openViewer(node);
 						}
 					}}
@@ -595,10 +596,11 @@ export default function Page() {
 					style={{ paddingLeft: `${depth * 14 + 8}px` }}
 					onClick={() => {
 						if (node.type === "dir") toggleFolder(node);
+						else if (node.type === "app") { openViewer(node); toggleFolder(node); }
 						else openViewer(node);
 					}}
 				>
-					{node.type === "dir" ? (
+					{(node.type === "dir" || node.type === "app") ? (
 						node.loading ? (
 							<Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
 						) : node.expanded ? (
@@ -610,14 +612,12 @@ export default function Page() {
 						<span className="w-3.5 shrink-0" />
 					)}
 
-					{node.type === "dir" ? (
+					{(node.type === "dir" || node.type === "app") ? (
 						node.expanded ? (
 							<FolderOpen className="h-4 w-4 shrink-0 text-warning" />
 						) : (
 							<Folder className="h-4 w-4 shrink-0 text-warning" />
 						)
-					) : node.type === "app" ? (
-						<Globe className="h-4 w-4 shrink-0 text-accent" />
 					) : node.type === "node-app" ? (
 						<Terminal className="h-4 w-4 shrink-0 text-emerald-500" />
 					) : isHtmlFile(node.name) ? (
@@ -723,12 +723,12 @@ export default function Page() {
 					</div>
 				)}
 
-				{node.type === "dir" &&
+				{(node.type === "dir" || node.type === "app") &&
 					node.expanded &&
 					node.children &&
 					node.children.length > 0 &&
 					renderNodes(node.children, depth + 1)}
-				{node.type === "dir" &&
+				{(node.type === "dir" || node.type === "app") &&
 					node.expanded &&
 					node.children?.length === 0 && (
 						<div
