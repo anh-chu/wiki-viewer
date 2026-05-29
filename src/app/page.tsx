@@ -42,6 +42,7 @@ import { SourceViewer } from "@/components/editor/source-viewer";
 import { WebsiteViewer } from "@/components/editor/website-viewer";
 import { NodeAppViewer } from "@/components/editor/node-app-viewer";
 import { DirPicker } from "@/components/dir-picker";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { FrontmatterHeader } from "@/components/wiki/frontmatter-header";
@@ -905,6 +906,7 @@ export default function Page() {
 									<Upload className="h-3.5 w-3.5" />
 								)}
 							</Button>
+							<ThemeToggle />
 							<Button
 								size="sm"
 								variant="ghost"
