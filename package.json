@@ -33,7 +33,9 @@
     "type": "git",
     "url": "https://github.com/anh-chu/wiki-viewer.git"
   },
-  "dependencies": {},
+  "dependencies": {
+    "undici": "^8.3.0"
+  },
   "devDependencies": {
     "@radix-ui/react-collapsible": "^1.1.12",
     "@radix-ui/react-context-menu": "^2.2.16",

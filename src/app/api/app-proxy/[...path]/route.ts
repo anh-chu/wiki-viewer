@@ -1,81 +1,58 @@
 /**
- * Reverse proxy for node-app directories.
- * URL format: /api/app-proxy/<relPath...>/<rest...>
+ * Reverse proxy for node-app directories — built on undici.request()
  *
- * Resolves the running app by the longest-matching relPath prefix,
- * then forwards the request to http://localhost:{port}/{rest}.
+ * Unlike fetch(), undici.request() does NOT auto-decompress, so compressed
+ * assets (gzip/br) stream through with their Content-Encoding intact and the
+ * browser handles decompression itself. No ERR_CONTENT_DECODING_FAILED.
  *
- * HTML:  injects <base> tag, rewrites absolute src/href attrs,
- *        and registers a service worker so JS fetch('/absolute')
- *        calls also flow through the proxy (fixes remote access).
- * CSS:   rewrites url(/...) patterns.
- * JS/bin: streamed as-is.
- *
- * Special path: …/sw-proxy.js — served locally (the service worker script).
+ * For HTML/CSS (which we rewrite) we force accept-encoding:identity upstream
+ * so we always receive plain text we can safely manipulate.
  */
+import { Readable } from "node:stream";
+import { request as undiciRequest } from "undici";
+import type { Dispatcher } from "undici";
 import { NextResponse } from "next/server";
 import { resolveByPrefix } from "@/lib/app-runner";
 
 const HOP_BY_HOP = new Set([
 	"connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
-	"te", "trailers", "transfer-encoding", "upgrade", "content-length",
+	"te", "trailers", "transfer-encoding", "upgrade",
 ]);
 
 // ── service worker ────────────────────────────────────────────────────────────
 
 function makeServiceWorker(proxyBase: string): string {
 	return `
-/* wiki-viewer injected service worker — proxies absolute-path fetches */
+/* wiki-viewer injected service worker */
 const BASE = ${JSON.stringify(proxyBase)};
-
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
-
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
-  // Only same-origin requests that don't already go through proxy
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith(BASE + "/")) return;
   if (url.pathname === BASE + "/sw-proxy.js") return;
-
-  const proxied = BASE + url.pathname + url.search;
-  event.respondWith(
-    fetch(proxied, {
-      method:  event.request.method,
-      headers: event.request.headers,
-      body:    ["GET","HEAD"].includes(event.request.method) ? undefined : event.request.body,
-      credentials: event.request.credentials,
-    })
-  );
-});
-`.trim();
+  event.respondWith(fetch(BASE + url.pathname + url.search, {
+    method: event.request.method,
+    headers: event.request.headers,
+    body: ["GET","HEAD"].includes(event.request.method) ? undefined : event.request.body,
+    credentials: event.request.credentials,
+  }));
+});`.trim();
 }
 
-// ── html / css rewriting ──────────────────────────────────────────────────────
+// ── rewriters ─────────────────────────────────────────────────────────────────
 
 function rewriteHtml(html: string, proxyBase: string): string {
 	let out = html;
-	// 1. Rewrite absolute src/href/action/data-* FIRST (skip protocol-relative //)
-	//    Do this before injecting our own tags so our injections aren't re-rewritten.
-	out = out.replace(
-		/((?:src|href|action|data-src|data-href|content)=")\/(?!\/)/g,
-		`$1${proxyBase}/`,
-	);
-	// 2. Rewrite srcset="/..." entries
+	out = out.replace(/((?:src|href|action|data-src|data-href|content)=")\/(?!\/)/g, `$1${proxyBase}/`);
 	out = out.replace(/(srcset="[^"]*)\/(?!\/)/g, `$1${proxyBase}/`);
-	// 3. Inject <base> after opening <head> tag (handles remaining relative URLs)
-	out = out.replace(
-		/(<head(?:\s[^>]*)?>)/i,
-		`$1\n<base href="${proxyBase}/">`,
-	);
-	// 4. Inject SW registration before </head>
-	const swScript = `<script>
-  if ("serviceWorker" in navigator) {
+	out = out.replace(/(<head(?:\s[^>]*)?>)/i, `$1\n<base href="${proxyBase}/">`);
+	out = out.replace(/<\/head>/i, `<script>
+  if ("serviceWorker" in navigator)
     navigator.serviceWorker.register("${proxyBase}/sw-proxy.js", { scope: "${proxyBase}/" })
       .catch(function(e) { console.warn("[wiki-viewer proxy] SW:", e); });
-  }
-</script>`;
-	out = out.replace(/<\/head>/i, `${swScript}\n</head>`);
+</script>\n</head>`);
 	return out;
 }
 
@@ -83,29 +60,32 @@ function rewriteCss(css: string, proxyBase: string): string {
 	return css.replace(/url\((['"]?)\/(?!\/)/g, `url($1${proxyBase}/`);
 }
 
-// ── helpers ───────────────────────────────────────────────────────────────────
+// ── header helpers ────────────────────────────────────────────────────────────
 
-function forwardHeaders(src: Headers, port: number, reqUrl: URL): Headers {
-	const out = new Headers();
+function upstreamHeaders(
+	src: Headers,
+	port: number,
+	reqUrl: URL,
+	forceIdentity = false,
+): Record<string, string> {
+	const out: Record<string, string> = {};
 	for (const [k, v] of src.entries()) {
 		if (HOP_BY_HOP.has(k.toLowerCase())) continue;
-		out.set(k, v);
+		out[k] = v;
 	}
-	out.set("host", `localhost:${port}`);
-	out.set("x-forwarded-host", reqUrl.host);
-	out.set("x-forwarded-proto", reqUrl.protocol.replace(":", ""));
+	out["host"] = `localhost:${port}`;
+	out["x-forwarded-host"] = reqUrl.host;
+	out["x-forwarded-proto"] = reqUrl.protocol.replace(":", "");
+	if (forceIdentity) out["accept-encoding"] = "identity";
 	return out;
 }
 
-function rewriteResponseHeaders(src: Headers, proxyBase: string): Headers {
+function buildResHeaders(raw: Dispatcher.ResponseData["headers"]): Headers {
 	const out = new Headers();
-	for (const [k, v] of src.entries()) {
-		if (HOP_BY_HOP.has(k.toLowerCase())) continue;
-		if (k.toLowerCase() === "location" && v.startsWith("/") && !v.startsWith("//")) {
-			out.set(k, proxyBase + v);
-			continue;
-		}
-		out.set(k, v);
+	for (const [k, v] of Object.entries(raw)) {
+		if (!v || HOP_BY_HOP.has(k.toLowerCase())) continue;
+		const vals = Array.isArray(v) ? v : [v];
+		for (const val of vals) out.append(k, val);
 	}
 	return out;
 }
@@ -130,7 +110,6 @@ async function handleProxy(
 	const { port, relPath, rest } = resolved;
 	const proxyBase = `/api/app-proxy/${relPath}`;
 
-	// Special: serve the injected service worker script
 	if (rest === "/sw-proxy.js") {
 		return new Response(makeServiceWorker(proxyBase), {
 			status: 200,
@@ -142,39 +121,50 @@ async function handleProxy(
 		});
 	}
 
-	const upstream = `http://localhost:${port}${rest}${reqUrl.search}`;
+	const upstreamUrl = `http://localhost:${port}${rest}${reqUrl.search}`;
+	const method = request.method as Dispatcher.HttpMethod;
+	const isBodyless = ["GET", "HEAD"].includes(request.method);
 
-	let upstreamRes: Response;
 	try {
-		upstreamRes = await fetch(upstream, {
-			method: request.method,
-			headers: forwardHeaders(request.headers, port, reqUrl),
-			body: ["GET", "HEAD"].includes(request.method) ? null : request.body,
-			// @ts-expect-error — Node.js fetch needs duplex for request body streaming
-			duplex: "half",
-			redirect: "manual",
+		// First pass with normal headers to discover content-type
+		const first = await undiciRequest(upstreamUrl, {
+			method,
+			headers: upstreamHeaders(request.headers, port, reqUrl),
+			body: isBodyless ? null : (request.body as unknown as Readable),
 		});
+
+		const contentType = String(first.headers["content-type"] ?? "");
+		const needsRewrite = contentType.includes("text/html") || contentType.includes("text/css");
+
+		if (needsRewrite) {
+			// Drain first response and re-fetch with identity encoding for plain text
+			first.body.resume();
+			const second = await undiciRequest(upstreamUrl, {
+				method: isBodyless ? method : "GET",
+				headers: upstreamHeaders(request.headers, port, reqUrl, true),
+				body: null,
+			});
+			const text = await second.body.text();
+			const resHeaders = buildResHeaders(second.headers);
+			resHeaders.delete("content-encoding");
+
+			if (contentType.includes("text/html")) {
+				resHeaders.set("content-type", "text/html; charset=utf-8");
+				return new Response(rewriteHtml(text, proxyBase), { status: second.statusCode, headers: resHeaders });
+			}
+			resHeaders.set("content-type", contentType);
+			return new Response(rewriteCss(text, proxyBase), { status: second.statusCode, headers: resHeaders });
+		}
+
+		// Stream everything else — compressed bytes + Content-Encoding flow through intact
+		return new Response(Readable.toWeb(first.body) as ReadableStream, {
+			status: first.statusCode,
+			headers: buildResHeaders(first.headers),
+		});
+
 	} catch (e) {
 		return NextResponse.json({ error: `Upstream unreachable: ${e}` }, { status: 502 });
 	}
-
-	const contentType = upstreamRes.headers.get("content-type") ?? "";
-	const resHeaders = rewriteResponseHeaders(upstreamRes.headers, proxyBase);
-
-	if (contentType.includes("text/html")) {
-		const rewritten = rewriteHtml(await upstreamRes.text(), proxyBase);
-		resHeaders.set("content-type", "text/html; charset=utf-8");
-		return new Response(rewritten, { status: upstreamRes.status, headers: resHeaders });
-	}
-
-	if (contentType.includes("text/css")) {
-		const rewritten = rewriteCss(await upstreamRes.text(), proxyBase);
-		resHeaders.set("content-type", contentType);
-		return new Response(rewritten, { status: upstreamRes.status, headers: resHeaders });
-	}
-
-	// Stream JS, images, fonts, JSON, etc. as-is
-	return new Response(upstreamRes.body, { status: upstreamRes.status, headers: resHeaders });
 }
 
 export const GET = handleProxy;
