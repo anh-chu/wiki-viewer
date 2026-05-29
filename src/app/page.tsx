@@ -619,7 +619,7 @@ export default function Page() {
 							<Folder className="h-4 w-4 shrink-0 text-warning" />
 						)
 					) : node.type === "app" ? (
-						<Globe className="h-4 w-4 shrink-0 text-accent" />
+						<Globe className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-accent")} />
 					) : node.type === "node-app" ? (
 						<Terminal className="h-4 w-4 shrink-0 text-emerald-500" />
 					) : isHtmlFile(node.name) ? (
