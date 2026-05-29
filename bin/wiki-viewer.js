@@ -45,10 +45,11 @@ const rootDir = args.find((a) => !a.startsWith("-"));
 let port = process.env.PORT ?? "3000";
 let host = process.env.HOSTNAME ?? "localhost";
 let useHttps = false;
+let userSpecifiedPort = false;
 
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
-  if (a === "-p" || a === "--port") port = args[++i] ?? port;
+  if (a === "-p" || a === "--port") { port = args[++i] ?? port; userSpecifiedPort = true; }
   else if (a === "-H" || a === "--host") host = args[++i] ?? host;
   else if (a === "--https") useHttps = true;
 }
@@ -85,6 +86,23 @@ function ensureCerts() {
   return { key: readFileSync(keyPath), cert: readFileSync(certPath) };
 }
 
+// ── port availability helpers ──────────────────────────────────────────────
+
+function isPortAvailable(p, h) {
+  return new Promise((resolve) => {
+    const s = createNetServer();
+    s.once("error", () => resolve(false));
+    s.once("listening", () => s.close(() => resolve(true)));
+    s.listen(Number(p), h);
+  });
+}
+
+async function findNextAvailablePort(startPort, h) {
+  let p = Number(startPort);
+  while (!(await isPortAvailable(p, h))) p++;
+  return String(p);
+}
+
 // ── free port helper ───────────────────────────────────────────────────────
 
 function freePort() {
@@ -97,13 +115,34 @@ function freePort() {
   });
 }
 
+// ── network address helper ─────────────────────────────────────────────────
+
+function getNetworkAddress() {
+  for (const ifaces of Object.values(os.networkInterfaces())) {
+    for (const iface of ifaces ?? []) {
+      if (iface.family === "IPv4" && !iface.internal) return iface.address;
+    }
+  }
+  return null;
+}
+
 // ── start ──────────────────────────────────────────────────────────────────
 
 async function start() {
   if (resolvedRoot) {
-    console.log(`📂  ${resolvedRoot}`);
+    console.log(`📁  ${resolvedRoot}`);
   } else {
     console.log("📂  No directory specified — open the browser to choose one");
+  }
+
+  // Auto-select next free port when user didn't specify one
+  if (!userSpecifiedPort) {
+    const available = await isPortAvailable(Number(port), host);
+    if (!available) {
+      const original = port;
+      port = await findNextAvailablePort(Number(port) + 1, host);
+      console.log(`⚠️   Port ${original} in use → using ${port} (pass -p <port> to override)`);
+    }
   }
 
   // When HTTPS is requested, run the standalone server on a random internal
@@ -147,11 +186,25 @@ async function start() {
     // Wait a moment for the standalone server to bind before starting proxy
     setTimeout(() => {
       proxy.listen(Number(port), host, () => {
-        console.log(`🌐  https://${host}:${port}`);
+        const scheme = "https";
+        const displayHost = host === "0.0.0.0" ? "localhost" : host;
+        console.log(`\n  ➜  Local:   ${scheme}://${displayHost}:${port}`);
+        const netAddr = getNetworkAddress();
+        if (netAddr && host !== "localhost" && host !== "127.0.0.1") {
+          console.log(`  ➜  Network: ${scheme}://${netAddr}:${port}`);
+        }
+        console.log(`\n  Listening on ${host}:${port}  (--host / -H, --port / -p to rebind)\n`);
       });
     }, 1_000);
   } else {
-    console.log(`🌐  http://${host}:${port}`);
+    const scheme = "http";
+    const displayHost = host === "0.0.0.0" ? "localhost" : host;
+    console.log(`\n  ➜  Local:   ${scheme}://${displayHost}:${port}`);
+    const netAddr = getNetworkAddress();
+    if (netAddr && host !== "localhost" && host !== "127.0.0.1") {
+      console.log(`  ➜  Network: ${scheme}://${netAddr}:${port}`);
+    }
+    console.log(`\n  Listening on ${host}:${port}  (--host / -H, --port / -p to rebind)\n`);
   }
 }
 
