@@ -35,26 +35,28 @@ function findFreePort(): Promise<number> {
 	});
 }
 
-function waitForPort(port: number, timeoutMs = 30_000): Promise<boolean> {
+function canConnect(port: number, host: string): Promise<boolean> {
 	return new Promise((resolve) => {
-		const deadline = Date.now() + timeoutMs;
-		const attempt = () => {
-			const sock = createConnection(port, "127.0.0.1");
-			sock.setTimeout(1_000);
-			sock.on("connect", () => {
-				sock.destroy();
-				resolve(true);
-			});
-			const fail = () => {
-				sock.destroy();
-				if (Date.now() >= deadline) resolve(false);
-				else setTimeout(attempt, 600);
-			};
-			sock.on("error", fail);
-			sock.on("timeout", fail);
-		};
-		attempt();
+		const sock = createConnection(port, host);
+		sock.setTimeout(800);
+		sock.on("connect", () => { sock.destroy(); resolve(true); });
+		sock.on("error",   () => { sock.destroy(); resolve(false); });
+		sock.on("timeout", () => { sock.destroy(); resolve(false); });
 	});
+}
+
+// Probe both IPv4 (127.0.0.1) and IPv6 (::1) — Vite binds to ::1 by default.
+async function waitForPort(port: number, timeoutMs = 30_000): Promise<boolean> {
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline) {
+		const [v4, v6] = await Promise.all([
+			canConnect(port, "127.0.0.1"),
+			canConnect(port, "::1"),
+		]);
+		if (v4 || v6) return true;
+		await new Promise((r) => setTimeout(r, 400));
+	}
+	return false;
 }
 
 type PM = "npm" | "pnpm" | "yarn";
