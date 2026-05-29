@@ -614,22 +614,22 @@ export default function Page() {
 
 					{node.type === "dir" ? (
 						node.expanded ? (
-							<FolderOpen className="h-4 w-4 shrink-0 text-warning" />
+							<FolderOpen className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-warning")} />
 						) : (
-							<Folder className="h-4 w-4 shrink-0 text-warning" />
+							<Folder className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-warning")} />
 						)
 					) : node.type === "app" ? (
 						<Globe className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-accent")} />
 					) : node.type === "node-app" ? (
-						<Terminal className="h-4 w-4 shrink-0 text-emerald-500" />
+						<Terminal className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-emerald-500")} />
 					) : isHtmlFile(node.name) ? (
-						<Globe className="h-4 w-4 shrink-0 text-accent/70" />
+						<Globe className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-accent/70")} />
 					) : isImage(node.name) ? (
-						<ImageIcon className="h-4 w-4 shrink-0 text-sunshine-700" />
+						<ImageIcon className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-sunshine-700")} />
 					) : isText(node.name) ? (
-						<FileText className="h-4 w-4 shrink-0 text-accent" />
+						<FileText className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-accent")} />
 					) : (
-						<File className="h-4 w-4 shrink-0 text-muted-foreground" />
+						<File className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-muted-foreground")} />
 					)}
 
 					<span className="flex-1 truncate">{node.name}</span>
