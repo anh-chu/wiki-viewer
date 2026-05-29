@@ -34,7 +34,7 @@ No cloud. No accounts. No syncing. Your files stay on your machine.
 | **File ops**     | Upload files, create folders, delete, drag-to-move                                                                                                                                                 |
 | **Wiki links**   | `[[page-name]]` links between Markdown files                                                                                                                                                       |
 | **Dark mode**    | System-aware, with manual toggle                                                                                                                                                                   |
-| **HTTPS**        | Self-signed cert via OpenSSL or trusted cert via mkcert — enables service workers on remote hosts                                                                                                  |
+| **HTTPS**        | Required for remote access — self-signed cert (OpenSSL) or trusted cert (mkcert); runs as HTTPS proxy in front of the internal HTTP server |
 
 ---
 
@@ -49,11 +49,13 @@ npx wiki-viewer ~/notes
 # No directory? Pick one in the browser
 npx wiki-viewer
 
-# Need HTTPS? (required for service workers on remote hosts)
+# Running on a remote machine? HTTPS is required (see note below)
 npx wiki-viewer ~/notes --https
 ```
 
 Then open **http://localhost:3000** (or **https://localhost:3000** with `--https`).
+
+> ⚠️ **Running on a remote host?** The app must be accessed over **HTTPS** — not plain HTTP — or several features will silently break (PDF viewer, service workers, and anything that requires a [secure context](https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts)). Use `--https` or put it behind a reverse proxy that handles TLS. Plain HTTP only works correctly on `localhost`.
 
 ### Options
 
@@ -223,18 +225,23 @@ sudo systemctl status wiki-viewer
 
 ### HTTPS on a remote server
 
-If wiki-viewer runs on a remote machine (not `localhost`), service workers require HTTPS. Pass `--https` and wiki-viewer will:
+> ⚠️ **HTTPS is required when wiki-viewer is not on `localhost`.** Browsers restrict several APIs (service workers, PDF.js, and other [secure-context](https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts) features) to HTTPS-only origins. Accessing wiki-viewer over plain HTTP on a remote host will silently break parts of the UI.
 
-1. Try **mkcert** for a locally-trusted certificate (if installed)
-2. Fall back to **OpenSSL** for a self-signed certificate (browser will warn once — click through)
+**How it works under the hood:** `--https` does not make the Next.js server itself speak TLS. Instead it:
+1. Starts the Next.js standalone server on a random internal HTTP port (`127.0.0.1:XXXXX`)
+2. Starts an HTTPS reverse proxy on the user-facing port that forwards all traffic to the internal server
 
-Certificates are stored at `~/.wiki-viewer/certs/` and reused on subsequent starts.
+So the chain is always: **browser → HTTPS proxy → internal HTTP server**. This is why `--https` is the correct flag and not a plain HTTP URL even in "HTTPS mode".
+
+**Certificate generation** (automatic, stored at `~/.wiki-viewer/certs/`):
+- If **mkcert** is installed → locally-trusted cert (no browser warning)
+- Otherwise → OpenSSL self-signed cert (browser warns once — click through)
 
 ```bash
 node bin/wiki-viewer.js /path/to/your/files --https --port 443 --host 0.0.0.0
 ```
 
-> **Tip:** For a proper public-facing deployment with a real domain, put wiki-viewer behind a reverse proxy (nginx / Caddy) that handles TLS termination instead.
+> **Tip for production:** Use a real reverse proxy (nginx / Caddy) with a proper TLS certificate instead of `--https`. Configure it to proxy to wiki-viewer's plain HTTP port, and wiki-viewer will work correctly behind it — no `--https` flag needed.
 
 ---
 
