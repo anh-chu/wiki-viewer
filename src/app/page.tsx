@@ -612,12 +612,14 @@ export default function Page() {
 						<span className="w-3.5 shrink-0" />
 					)}
 
-					{(node.type === "dir" || node.type === "app") ? (
+					{node.type === "dir" ? (
 						node.expanded ? (
 							<FolderOpen className="h-4 w-4 shrink-0 text-warning" />
 						) : (
 							<Folder className="h-4 w-4 shrink-0 text-warning" />
 						)
+					) : node.type === "app" ? (
+						<Globe className="h-4 w-4 shrink-0 text-accent" />
 					) : node.type === "node-app" ? (
 						<Terminal className="h-4 w-4 shrink-0 text-emerald-500" />
 					) : isHtmlFile(node.name) ? (
