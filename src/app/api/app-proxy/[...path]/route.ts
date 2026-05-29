@@ -48,11 +48,51 @@ function rewriteHtml(html: string, proxyBase: string): string {
 	out = out.replace(/((?:src|href|action|data-src|data-href|content)=")\/(?!\/)/g, `$1${proxyBase}/`);
 	out = out.replace(/(srcset="[^"]*)\/(?!\/)/g, `$1${proxyBase}/`);
 	out = out.replace(/(<head(?:\s[^>]*)?>)/i, `$1\n<base href="${proxyBase}/">`);
-	out = out.replace(/<\/head>/i, `<script>
-  if ("serviceWorker" in navigator)
-    navigator.serviceWorker.register("${proxyBase}/sw-proxy.js", { scope: "${proxyBase}/" })
-      .catch(function(e) { console.warn("[wiki-viewer proxy] SW:", e); });
-</script>\n</head>`);
+	// Inject before </head>:
+	// 1. Router patch — makes BrowserRouter (and any code reading window.location.pathname)
+	//    see the path WITHOUT the proxy prefix, so routes like "/" and "/s/:id" match.
+	//    history.push/replaceState is also patched to re-add the prefix so the SW can
+	//    intercept subsequent navigations.
+	// 2. SW registration — reloads once on first activation so the SW controls the page
+	//    before the user clicks any link.
+	const patches = `<script>
+(function(){
+  var BASE = ${JSON.stringify(proxyBase)};
+  // Strip proxy prefix from Location.prototype.pathname so SPAs with BrowserRouter work
+  try {
+    var _desc = Object.getOwnPropertyDescriptor(Location.prototype, "pathname");
+    Object.defineProperty(Location.prototype, "pathname", {
+      get: function() {
+        var p = _desc.get.call(this);
+        return p.startsWith(BASE) ? (p.slice(BASE.length) || "/") : p;
+      }, configurable: true
+    });
+  } catch(e) {}
+  // Prefix pushState/replaceState so navigated URLs stay inside the proxy scope
+  // (allows the SW to intercept them on reload/refresh)
+  var _push = history.pushState.bind(history);
+  var _replace = history.replaceState.bind(history);
+  function pfx(u) {
+    return (typeof u === "string" && u && u[0] === "/" && !u.startsWith(BASE)) ? BASE + u : u;
+  }
+  history.pushState    = function(s,t,u){ return _push(s,t,pfx(u));    };
+  history.replaceState = function(s,t,u){ return _replace(s,t,pfx(u)); };
+  // SW registration — reload once when the SW first takes control
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register(BASE + "/sw-proxy.js", { scope: BASE + "/" })
+      .then(function(reg) {
+        if (!navigator.serviceWorker.controller) {
+          // First visit: wait for SW to activate, then reload so it controls this page
+          (reg.installing || reg.waiting || { addEventListener: function(){} })
+            .addEventListener("statechange", function(e) {
+              if (e.target.state === "activated") window.location.reload();
+            });
+        }
+      }).catch(function(e){ console.warn("[wiki-viewer proxy] SW:", e); });
+  }
+})();
+</script>`;
+	out = out.replace(/<\/head>/i, `${patches}\n</head>`);
 	return out;
 }
 
@@ -156,6 +196,28 @@ async function handleProxy(
 			}
 			resHeaders.set("content-type", contentType);
 			return new Response(rewriteCss(text, proxyBase), { status: second.statusCode, headers: resHeaders });
+		}
+
+		// SPA fallback: if upstream returns 404 for a path with no file extension
+		// (i.e. a client-side route), re-fetch "/" and return index.html so the
+		// SPA's router can handle it client-side.
+		const hasExt = /\.[a-z0-9]{1,8}$/i.test(rest.split("?")[0]);
+		if (first.statusCode === 404 && !hasExt) {
+			first.body.resume();
+			const fallback = await undiciRequest(`http://localhost:${port}/`, {
+				method: "GET",
+				headers: upstreamHeaders(request.headers, port, reqUrl, true),
+				body: null,
+			});
+			const fallbackText = await fallback.body.text();
+			const fallbackHeaders = buildResHeaders(fallback.headers);
+			fallbackHeaders.delete("content-encoding");
+			fallbackHeaders.delete("content-length");
+			fallbackHeaders.set("content-type", "text/html; charset=utf-8");
+			return new Response(rewriteHtml(fallbackText, proxyBase), {
+				status: 200,
+				headers: fallbackHeaders,
+			});
 		}
 
 		// 304/204/205: null-body statuses — Response constructor rejects a stream body
