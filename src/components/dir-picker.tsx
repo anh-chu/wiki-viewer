@@ -111,7 +111,7 @@ export function DirPicker({ onSelect }: Props) {
 		);
 
 	return (
-		<div className="flex h-screen items-center justify-center bg-background p-4">
+		<div className="flex flex-1 items-center justify-center bg-background p-4">
 			<div className="flex w-full max-w-xl flex-col gap-4">
 				{/* Header */}
 				<div className="text-center space-y-1">

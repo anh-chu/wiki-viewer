@@ -5,6 +5,7 @@ const nextConfig: NextConfig = {
   experimental: {
     optimizePackageImports: ["lucide-react"],
   },
+  allowedDevOrigins: ['devvm']
 };
 
 export default nextConfig;
