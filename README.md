@@ -10,9 +10,12 @@ npx wiki-viewer ~/notes
 
 # Without — pick a directory in the browser
 npx wiki-viewer
+
+# With HTTPS (enables service workers on remote hosts)
+npx wiki-viewer ~/notes --https
 ```
 
-Open http://localhost:3000
+Open http://localhost:3000 (or https://localhost:3000 with `--https`)
 
 ## Options
 
