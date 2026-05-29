@@ -43,7 +43,7 @@ export function DirPicker({ onSelect }: Props) {
 	const inputRef = useRef<HTMLInputElement>(null);
 	const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-	const navigate = useCallback(async (dir: string) => {
+	const navigate = useCallback(async (dir: string, updateInput = true) => {
 		if (debounceRef.current) {
 			clearTimeout(debounceRef.current);
 			debounceRef.current = null;
@@ -61,7 +61,7 @@ export function DirPicker({ onSelect }: Props) {
 			}
 			const result: BrowseResult = await res.json();
 			setData(result);
-			setPathInput(result.path);
+			if (updateInput) setPathInput(result.path);
 		} catch {
 			setError("Network error");
 		} finally {
@@ -212,8 +212,8 @@ export function DirPicker({ onSelect }: Props) {
 								if (debounceRef.current) clearTimeout(debounceRef.current);
 								debounceRef.current = setTimeout(() => {
 									debounceRef.current = null;
-									navigate(val.trim());
-								}, 350);
+									navigate(val.trim(), false);
+								}, 700);
 							}}
 							onKeyDown={handlePathKeyDown}
 							spellCheck={false}
