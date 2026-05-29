@@ -859,9 +859,10 @@ export default function Page() {
 			{!sidebarCollapsed && (
 				<Card className="flex flex-col w-72 shrink-0 overflow-hidden rounded-none border-r border-l-0 border-t-0 border-b-0">
 					<div className="flex items-center justify-between px-3 py-2 border-b bg-muted shrink-0">
-						<span className="text-xs font-medium text-muted-foreground">
-							Files
-						</span>
+						<div className="flex items-center gap-1.5">
+							<img src="/logo.svg" alt="Wiki Viewer" className="h-5 w-5" />
+							<span className="text-xs font-semibold tracking-tight">Wiki Viewer</span>
+						</div>
 						<div className="flex items-center gap-1">
 							<Button
 								size="sm"

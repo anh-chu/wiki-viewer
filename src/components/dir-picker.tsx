@@ -190,6 +190,10 @@ export function DirPicker({ onSelect }: Props) {
 			<div className="flex w-full max-w-xl flex-col gap-4">
 				{/* Header */}
 				<div className="text-center space-y-1">
+					<div className="flex items-center justify-center gap-2 mb-1">
+						<img src="/logo.svg" alt="Wiki Viewer" className="h-8 w-8" />
+						<span className="text-xl font-semibold tracking-tight">Wiki Viewer</span>
+					</div>
 					<h1 className="text-xl font-medium">Choose a directory</h1>
 					<p className="text-sm text-muted-foreground">
 						Select the folder wiki-viewer should serve.
