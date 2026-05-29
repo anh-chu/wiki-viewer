@@ -18,6 +18,7 @@ import {
 	PanelLeftOpen,
 	Pencil,
 	RefreshCw,
+	Terminal,
 	Trash2,
 	Upload,
 	X,
@@ -39,6 +40,7 @@ import { XlsxViewer } from "@/components/editor/office/xlsx-viewer";
 import { PdfViewer } from "@/components/editor/pdf-viewer";
 import { SourceViewer } from "@/components/editor/source-viewer";
 import { WebsiteViewer } from "@/components/editor/website-viewer";
+import { NodeAppViewer } from "@/components/editor/node-app-viewer";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { FrontmatterHeader } from "@/components/wiki/frontmatter-header";
@@ -52,7 +54,7 @@ import { useWikiSlugsStore } from "@/stores/wiki-slugs-store";
 interface TreeNode {
 	name: string;
 	path: string;
-	type: "dir" | "file" | "app";
+	type: "dir" | "file" | "app" | "node-app";
 	size?: number;
 	modifiedAt: string;
 	children?: TreeNode[];
@@ -75,6 +77,7 @@ type ViewerKind =
 	| "fallback"
 	| "app"
 	| "html"
+	| "node-app"
 	| "text";
 
 function ext(name: string) {
@@ -83,8 +86,9 @@ function ext(name: string) {
 
 function viewerKindFor(
 	filename: string,
-	nodeType: "file" | "app" | "dir",
+	nodeType: "file" | "app" | "dir" | "node-app",
 ): ViewerKind {
+	if (nodeType === "node-app") return "node-app";
 	if (nodeType === "app") return "app";
 	if (nodeType === "dir") return "fallback";
 	const fileExt = ext(filename);
@@ -205,7 +209,7 @@ export default function Page() {
 	const [openFile, setOpenFile] = useState<{
 		path: string;
 		name: string;
-		nodeType: "file" | "app";
+		nodeType: "file" | "app" | "node-app";
 	} | null>(null);
 	const [appFullscreen, setAppFullscreen] = useState(false);
 	const [appKey, setAppKey] = useState(0);
@@ -340,7 +344,12 @@ export default function Page() {
 		setOpenFile({
 			path: node.path,
 			name: node.name,
-			nodeType: node.type === "app" ? "app" : "file",
+			nodeType:
+				node.type === "app"
+					? "app"
+					: node.type === "node-app"
+					? "node-app"
+					: "file",
 		});
 		setEditing(false);
 		setSaveError(null);
@@ -598,6 +607,8 @@ export default function Page() {
 						)
 					) : node.type === "app" ? (
 						<Globe className="h-4 w-4 shrink-0 text-accent" />
+					) : node.type === "node-app" ? (
+						<Terminal className="h-4 w-4 shrink-0 text-emerald-500" />
 					) : isHtmlFile(node.name) ? (
 						<Globe className="h-4 w-4 shrink-0 text-accent/70" />
 					) : isImage(node.name) ? (
@@ -897,7 +908,9 @@ export default function Page() {
 					</Button>
 				)}
 				{openFile ? (
-					(openFileViewerKind === "app" || openFileViewerKind === "html") ? (
+					openFileViewerKind === "node-app" ? (
+						<NodeAppViewer path={openFile.path} title={openFile.name} />
+					) : (openFileViewerKind === "app" || openFileViewerKind === "html") ? (
 						// html files → direct asset URL; app folders → index.html (default)
 						(() => {
 							const websiteSrc =

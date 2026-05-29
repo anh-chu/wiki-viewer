@@ -1,0 +1,267 @@
+"use client";
+
+import {
+	AlertCircle,
+	ExternalLink,
+	Loader2,
+	Play,
+	RefreshCw,
+	Square,
+	Terminal,
+} from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ViewerToolbar } from "@/components/layout/viewer-toolbar";
+import { Button } from "@/components/ui/button";
+import type { AppStatus } from "@/lib/app-runner";
+
+interface Props {
+	path: string;
+	title: string;
+}
+
+interface StatusResponse {
+	status: AppStatus;
+	port?: number;
+	error?: string;
+	logs: string[];
+}
+
+const STATUS_LABEL: Record<AppStatus, string> = {
+	stopped: "Stopped",
+	installing: "Installing dependencies…",
+	starting: "Starting…",
+	running: "Running",
+	error: "Error",
+};
+
+export function NodeAppViewer({ path, title }: Props) {
+	const [status, setStatus] = useState<AppStatus>("stopped");
+	const [port, setPort] = useState<number | null>(null);
+	const [logs, setLogs] = useState<string[]>([]);
+	const [error, setError] = useState<string | null>(null);
+	const [showLogs, setShowLogs] = useState(false);
+	const [iframeKey, setIframeKey] = useState(0);
+	const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+	const logsEndRef = useRef<HTMLDivElement>(null);
+
+	const stopPolling = () => {
+		if (pollRef.current) {
+			clearInterval(pollRef.current);
+			pollRef.current = null;
+		}
+	};
+
+	const fetchStatus = useCallback(async () => {
+		try {
+			const res = await fetch(`/api/wiki/app?path=${encodeURIComponent(path)}`);
+			if (!res.ok) return;
+			const data: StatusResponse = await res.json();
+			setStatus(data.status);
+			setLogs(data.logs ?? []);
+			if (data.port) setPort(data.port);
+			if (data.error) setError(data.error);
+			if (data.status === "running" || data.status === "stopped" || data.status === "error") {
+				stopPolling();
+			}
+		} catch {}
+	}, [path]);
+
+	// Poll while in transient states
+	useEffect(() => {
+		if (status === "installing" || status === "starting") {
+			if (!pollRef.current) {
+				pollRef.current = setInterval(fetchStatus, 800);
+			}
+		} else {
+			stopPolling();
+		}
+		return stopPolling;
+	}, [status, fetchStatus]);
+
+	// Auto-scroll logs
+	useEffect(() => {
+		logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
+	}, [logs]);
+
+	// Fetch current status on mount (app may already be running)
+	useEffect(() => {
+		fetchStatus();
+	}, [fetchStatus]);
+
+	const handleLaunch = async () => {
+		setError(null);
+		setLogs([]);
+		setStatus("starting");
+		try {
+			const res = await fetch("/api/wiki/app", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ path }),
+			});
+			const data: { port?: number; error?: string } = await res.json();
+			if (!res.ok || data.error) {
+				setStatus("error");
+				setError(data.error ?? "Failed to start");
+				return;
+			}
+			if (data.port) setPort(data.port);
+			// Start polling for readiness
+			await fetchStatus();
+		} catch (e) {
+			setStatus("error");
+			setError(String(e));
+		}
+	};
+
+	const handleStop = async () => {
+		await fetch("/api/wiki/app", {
+			method: "DELETE",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ path }),
+		});
+		setStatus("stopped");
+		setPort(null);
+	};
+
+	const handleRestart = async () => {
+		await handleStop();
+		await handleLaunch();
+		setIframeKey((k) => k + 1);
+	};
+
+	const appUrl = port ? `http://localhost:${port}/` : null;
+	const isTransient = status === "installing" || status === "starting";
+
+	return (
+		<div className="flex-1 flex flex-col overflow-hidden">
+			<ViewerToolbar path={path} badge="Node app">
+				{status === "running" && appUrl && (
+					<>
+						<Button
+							variant="ghost"
+							size="sm"
+							className="h-7 gap-1.5 text-xs"
+							onClick={() => setIframeKey((k) => k + 1)}
+						>
+							<RefreshCw className="h-3.5 w-3.5" />
+							Refresh
+						</Button>
+						<Button
+							variant="ghost"
+							size="sm"
+							className="h-7 gap-1.5 text-xs"
+							onClick={() => window.open(appUrl, "_blank")}
+						>
+							<ExternalLink className="h-3.5 w-3.5" />
+							Open in new tab
+						</Button>
+						<Button
+							variant="ghost"
+							size="sm"
+							className="h-7 gap-1.5 text-xs"
+							onClick={handleRestart}
+						>
+							<RefreshCw className="h-3.5 w-3.5" />
+							Restart
+						</Button>
+						<Button
+							variant="ghost"
+							size="sm"
+							className="h-7 gap-1.5 text-xs text-destructive hover:text-destructive"
+							onClick={handleStop}
+						>
+							<Square className="h-3.5 w-3.5" />
+							Stop
+						</Button>
+					</>
+				)}
+				<Button
+					variant="ghost"
+					size="sm"
+					className="h-7 gap-1.5 text-xs"
+					onClick={() => setShowLogs((v) => !v)}
+				>
+					<Terminal className="h-3.5 w-3.5" />
+					Logs
+				</Button>
+			</ViewerToolbar>
+
+			{/* Logs panel */}
+			{showLogs && (
+				<div className="border-b bg-black/90 text-green-400 font-mono text-xs h-40 overflow-auto p-2 shrink-0">
+					{logs.length === 0 ? (
+						<span className="text-muted-foreground">No output yet.</span>
+					) : (
+						logs.map((l, i) => (
+							// biome-ignore lint/suspicious/noArrayIndexKey: log lines are append-only
+							<div key={i} className="whitespace-pre-wrap leading-5">
+								{l}
+							</div>
+						))
+					)}
+					<div ref={logsEndRef} />
+				</div>
+			)}
+
+			{/* Main content */}
+			<div className="flex-1 flex flex-col overflow-hidden">
+				{status === "stopped" && (
+					<div className="flex-1 flex flex-col items-center justify-center gap-4">
+						<div className="text-center space-y-1">
+							<p className="text-sm font-medium">{title}</p>
+							<p className="text-xs text-muted-foreground">
+								Node.js app — will be started on a local port
+							</p>
+						</div>
+						<Button onClick={handleLaunch} className="gap-2">
+							<Play className="h-4 w-4" />
+							Launch app
+						</Button>
+					</div>
+				)}
+
+				{isTransient && (
+					<div className="flex-1 flex flex-col items-center justify-center gap-3">
+						<Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+						<p className="text-sm text-muted-foreground">
+							{STATUS_LABEL[status]}
+						</p>
+						{port && (
+							<p className="text-xs text-muted-foreground">
+								Port {port}
+							</p>
+						)}
+					</div>
+				)}
+
+				{status === "error" && (
+					<div className="flex-1 flex flex-col items-center justify-center gap-4 p-6">
+						<AlertCircle className="h-8 w-8 text-destructive" />
+						<div className="text-center space-y-1 max-w-md">
+							<p className="text-sm font-medium text-destructive">
+								Failed to start app
+							</p>
+							<p className="text-xs text-muted-foreground break-words">
+								{error ?? "Unknown error"}
+							</p>
+						</div>
+						<Button onClick={handleLaunch} variant="outline" className="gap-2">
+							<RefreshCw className="h-4 w-4" />
+							Try again
+						</Button>
+					</div>
+				)}
+
+				{status === "running" && appUrl && (
+					<iframe
+						key={iframeKey}
+						src={appUrl}
+						className="flex-1 w-full border-0 bg-card"
+						title={title}
+						sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-top-navigation-by-user-activation"
+					/>
+				)}
+			</div>
+		</div>
+	);
+}

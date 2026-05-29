@@ -2,7 +2,7 @@ import { readdir, rmdir, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
 import { ROOT_DIR, safeRootPath } from "@/lib/root-dir";
-import { isAppFolder } from "@/lib/wiki-helpers";
+import { isAppFolder, isNodeApp } from "@/lib/wiki-helpers";
 
 export async function GET(request: Request) {
 	const { searchParams } = new URL(request.url);
@@ -26,6 +26,14 @@ export async function GET(request: Request) {
 				const info = await stat(filePath);
 				if (info.isDirectory()) {
 					const relPath = dir ? `${dir}/${name}` : name;
+					const nodeApp = await isNodeApp(ROOT_DIR, relPath);
+					if (nodeApp) {
+						return {
+							name,
+							type: "node-app" as const,
+							modifiedAt: info.mtime.toISOString(),
+						};
+					}
 					const isApp = await isAppFolder(ROOT_DIR, relPath);
 					return {
 						name,
@@ -43,8 +51,8 @@ export async function GET(request: Request) {
 		);
 
 		entries.sort((a, b) => {
-			const aIsDir = a.type === "dir" || a.type === "app";
-			const bIsDir = b.type === "dir" || b.type === "app";
+			const aIsDir = a.type === "dir" || a.type === "app" || a.type === "node-app";
+			const bIsDir = b.type === "dir" || b.type === "app" || b.type === "node-app";
 			if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
 			return a.name.localeCompare(b.name);
 		});
