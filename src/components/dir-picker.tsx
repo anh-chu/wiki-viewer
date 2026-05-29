@@ -41,8 +41,13 @@ export function DirPicker({ onSelect }: Props) {
 	const [pins, setPins] = useState<string[]>([]);
 	const [pinLoading, setPinLoading] = useState(false);
 	const inputRef = useRef<HTMLInputElement>(null);
+	const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	const navigate = useCallback(async (dir: string) => {
+		if (debounceRef.current) {
+			clearTimeout(debounceRef.current);
+			debounceRef.current = null;
+		}
 		setLoading(true);
 		setError(null);
 		try {
@@ -112,9 +117,17 @@ export function DirPicker({ onSelect }: Props) {
 	const handlePathKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
 		if (e.key === "Enter") {
 			e.preventDefault();
+			if (debounceRef.current) {
+				clearTimeout(debounceRef.current);
+				debounceRef.current = null;
+			}
 			navigate(pathInput.trim());
 		}
 		if (e.key === "Escape") {
+			if (debounceRef.current) {
+				clearTimeout(debounceRef.current);
+				debounceRef.current = null;
+			}
 			setPathInput(data?.path ?? "");
 			inputRef.current?.blur();
 		}
@@ -193,20 +206,20 @@ export function DirPicker({ onSelect }: Props) {
 							ref={inputRef}
 							className="flex-1 bg-transparent text-sm outline-none font-mono min-w-0"
 							value={pathInput}
-							onChange={(e) => setPathInput(e.target.value)}
+							onChange={(e) => {
+								const val = e.target.value;
+								setPathInput(val);
+								if (debounceRef.current) clearTimeout(debounceRef.current);
+								debounceRef.current = setTimeout(() => {
+									debounceRef.current = null;
+									navigate(val.trim());
+								}, 350);
+							}}
 							onKeyDown={handlePathKeyDown}
 							spellCheck={false}
 							placeholder="Enter a path…"
 						/>
-						{pathInput !== (data?.path ?? "") && (
-							<button
-								type="button"
-								className="shrink-0 text-xs text-muted-foreground hover:text-foreground transition-colors px-1.5 py-0.5 rounded border border-border/50"
-								onClick={() => navigate(pathInput.trim())}
-							>
-								Go
-							</button>
-						)}
+
 					</div>
 
 					{/* Breadcrumb bar (click to navigate) */}
