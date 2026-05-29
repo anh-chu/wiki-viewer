@@ -146,7 +146,9 @@ async function handleProxy(
 			});
 			const text = await second.body.text();
 			const resHeaders = buildResHeaders(second.headers);
+			// Body changed size after rewriting — drop these or client truncates
 			resHeaders.delete("content-encoding");
+			resHeaders.delete("content-length");
 
 			if (contentType.includes("text/html")) {
 				resHeaders.set("content-type", "text/html; charset=utf-8");
@@ -154,6 +156,12 @@ async function handleProxy(
 			}
 			resHeaders.set("content-type", contentType);
 			return new Response(rewriteCss(text, proxyBase), { status: second.statusCode, headers: resHeaders });
+		}
+
+		// 304/204/205: null-body statuses — Response constructor rejects a stream body
+		if (new Set([101, 204, 205, 304]).has(first.statusCode)) {
+			first.body.resume();
+			return new Response(null, { status: first.statusCode, headers: buildResHeaders(first.headers) });
 		}
 
 		// Stream everything else — compressed bytes + Content-Encoding flow through intact
