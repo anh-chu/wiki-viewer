@@ -1,7 +1,7 @@
 import { readdir, rmdir, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
-import { ROOT_DIR, safeRootPath } from "@/lib/root-dir";
+import { getRootDir, safeRootPath } from "@/lib/root-dir";
 import { isAppFolder, isNodeApp } from "@/lib/wiki-helpers";
 
 export async function GET(request: Request) {
@@ -26,7 +26,7 @@ export async function GET(request: Request) {
 				const info = await stat(filePath);
 				if (info.isDirectory()) {
 					const relPath = dir ? `${dir}/${name}` : name;
-					const nodeApp = await isNodeApp(ROOT_DIR, relPath);
+					const nodeApp = await isNodeApp(getRootDir(), relPath);
 					if (nodeApp) {
 						return {
 							name,
@@ -34,7 +34,7 @@ export async function GET(request: Request) {
 							modifiedAt: info.mtime.toISOString(),
 						};
 					}
-					const isApp = await isAppFolder(ROOT_DIR, relPath);
+					const isApp = await isAppFolder(getRootDir(), relPath);
 					return {
 						name,
 						type: (isApp ? "app" : "dir") as "app" | "dir",
@@ -73,7 +73,7 @@ export async function DELETE(request: Request) {
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
 
 	const filePath = safeRootPath(rel);
-	if (!filePath || filePath === ROOT_DIR)
+	if (!filePath || filePath === getRootDir())
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
 
 	try {

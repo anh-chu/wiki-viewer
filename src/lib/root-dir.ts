@@ -1,21 +1,31 @@
 import path from "node:path";
-import os from "node:os";
 
-function getRootDir(): string {
-	const env = process.env.ROOT_DIR;
-	if (env) {
-		return path.resolve(env);
-	}
-	// Fallback: ~/wiki-viewer-files
-	return path.join(os.homedir(), "wiki-viewer-files");
+// Use globalThis so the value persists across Next.js hot-reloads in dev.
+const g = globalThis as typeof globalThis & { __wikiRootDir?: string };
+
+// Initialise once from env on first import.
+if (!g.__wikiRootDir && process.env.ROOT_DIR) {
+	g.__wikiRootDir = path.resolve(process.env.ROOT_DIR);
 }
 
-export const ROOT_DIR = getRootDir();
+export function getRootDir(): string {
+	return g.__wikiRootDir ?? "";
+}
 
+export function isRootDirSet(): boolean {
+	return !!g.__wikiRootDir;
+}
+
+export function setRootDir(dir: string): void {
+	g.__wikiRootDir = path.resolve(dir);
+}
+
+/** Returns the absolute path for `rel`, or null on traversal / root not set. */
 export function safeRootPath(rel: string): string | null {
-	if (!rel || rel === ".") return ROOT_DIR;
-	const resolved = path.resolve(ROOT_DIR, rel);
-	if (resolved !== ROOT_DIR && !resolved.startsWith(ROOT_DIR + path.sep))
-		return null;
+	const root = getRootDir();
+	if (!root) return null;
+	if (!rel || rel === ".") return root;
+	const resolved = path.resolve(root, rel);
+	if (resolved !== root && !resolved.startsWith(root + path.sep)) return null;
 	return resolved;
 }

@@ -5,7 +5,11 @@ Local file browser, viewer, and editor. Browse any directory from a clean web UI
 ## Quick start
 
 ```bash
+# With a directory
 npx wiki-viewer ~/notes
+
+# Without — pick a directory in the browser
+npx wiki-viewer
 ```
 
 Open http://localhost:3000

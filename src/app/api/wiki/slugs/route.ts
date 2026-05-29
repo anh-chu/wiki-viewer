@@ -1,7 +1,7 @@
 import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
-import { ROOT_DIR } from "@/lib/root-dir";
+import { getRootDir } from "@/lib/root-dir";
 
 type SlugBuckets = {
 	entities: string[];
@@ -31,10 +31,10 @@ export async function GET() {
 		// Scan root + known dirs (entities, concepts, comparisons for wiki compat)
 		// plus any other immediate subdirectories
 		const [entities, concepts, comparisons, root] = await Promise.all([
-			readMarkdownSlugsFromDir(path.join(ROOT_DIR, "entities")),
-			readMarkdownSlugsFromDir(path.join(ROOT_DIR, "concepts")),
-			readMarkdownSlugsFromDir(path.join(ROOT_DIR, "comparisons")),
-			readMarkdownSlugsFromDir(ROOT_DIR),
+			readMarkdownSlugsFromDir(path.join(getRootDir(), "entities")),
+			readMarkdownSlugsFromDir(path.join(getRootDir(), "concepts")),
+			readMarkdownSlugsFromDir(path.join(getRootDir(), "comparisons")),
+			readMarkdownSlugsFromDir(getRootDir()),
 		]);
 
 		const body: SlugBuckets = { entities, concepts, comparisons, root };

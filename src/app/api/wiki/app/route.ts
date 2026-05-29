@@ -1,7 +1,7 @@
 import path from "node:path";
 import { NextResponse } from "next/server";
 import { getStatus, startApp, stopApp } from "@/lib/app-runner";
-import { ROOT_DIR, safeRootPath } from "@/lib/root-dir";
+import { getRootDir, safeRootPath } from "@/lib/root-dir";
 
 // GET /api/wiki/app?path=relative/path
 export async function GET(request: Request) {

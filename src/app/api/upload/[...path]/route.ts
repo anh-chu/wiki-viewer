@@ -1,7 +1,7 @@
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
-import { ROOT_DIR } from "@/lib/root-dir";
+import { getRootDir } from "@/lib/root-dir";
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 
@@ -35,10 +35,10 @@ export async function POST(
 	const { path: segments } = await params;
 	const subPath = (segments ?? []).join("/");
 
-	// Save images in _uploads/ within ROOT_DIR, mirroring the page path
-	const uploadsDir = path.join(ROOT_DIR, "_uploads", subPath);
+	// Save images in _uploads/ within getRootDir(), mirroring the page path
+	const uploadsDir = path.join(getRootDir(), "_uploads", subPath);
 	const resolved = path.resolve(uploadsDir);
-	if (!resolved.startsWith(ROOT_DIR + path.sep) && resolved !== ROOT_DIR)
+	if (!resolved.startsWith(getRootDir() + path.sep) && resolved !== getRootDir())
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
 
 	let form: FormData;

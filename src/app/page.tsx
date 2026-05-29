@@ -41,6 +41,7 @@ import { PdfViewer } from "@/components/editor/pdf-viewer";
 import { SourceViewer } from "@/components/editor/source-viewer";
 import { WebsiteViewer } from "@/components/editor/website-viewer";
 import { NodeAppViewer } from "@/components/editor/node-app-viewer";
+import { DirPicker } from "@/components/dir-picker";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { FrontmatterHeader } from "@/components/wiki/frontmatter-header";
@@ -185,6 +186,16 @@ export default function Page() {
 		void useWikiSlugsStore.getState().load();
 	}, []);
 	void slugsLoadedAt;
+
+	// null = checking, false = not set, true = ready
+	const [rootConfigured, setRootConfigured] = useState<boolean | null>(null);
+
+	useEffect(() => {
+		fetch("/api/system/root-status")
+			.then((r) => r.json())
+			.then((d: { configured: boolean }) => setRootConfigured(d.configured))
+			.catch(() => setRootConfigured(false));
+	}, []);
 
 	const editorCurrentPath = useEditorStore((s) => s.currentPath);
 
@@ -735,6 +746,15 @@ export default function Page() {
 
 	return (
 		<div className="flex h-screen gap-0 overflow-hidden bg-background">
+			{rootConfigured === null && (
+				<div className="flex-1 flex items-center justify-center">
+					<Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+				</div>
+			)}
+			{rootConfigured === false && (
+				<DirPicker onSelect={() => setRootConfigured(true)} />
+			)}
+			{rootConfigured === true && <>
 			{/* Tree sidebar */}
 			{!sidebarCollapsed && (
 				<Card className="flex flex-col w-72 shrink-0 overflow-hidden rounded-none border-r border-l-0 border-t-0 border-b-0">
@@ -1364,6 +1384,7 @@ export default function Page() {
 				}
 				onConfirm={handleDelete}
 			/>
+			</>}
 		</div>
 	);
 }

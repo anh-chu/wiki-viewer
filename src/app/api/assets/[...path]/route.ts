@@ -1,7 +1,7 @@
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
-import { ROOT_DIR } from "@/lib/root-dir";
+import { getRootDir } from "@/lib/root-dir";
 
 const MIME_MAP: Record<string, string> = {
 	jpg: "image/jpeg",
@@ -45,8 +45,8 @@ export async function GET(
 	const rel = segments.join("/");
 
 	// Path traversal guard
-	const resolved = path.resolve(ROOT_DIR, rel);
-	if (resolved !== ROOT_DIR && !resolved.startsWith(ROOT_DIR + path.sep)) {
+	const resolved = path.resolve(getRootDir(), rel);
+	if (resolved !== getRootDir() && !resolved.startsWith(getRootDir() + path.sep)) {
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
 	}
 
