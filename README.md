@@ -7,9 +7,7 @@
   </p>
 
   <p>
-    <!-- npm badge placeholder — will activate once package is published -->
-    <!-- <a href="https://www.npmjs.com/package/wiki-viewer"><img src="https://img.shields.io/npm/v/wiki-viewer" alt="npm version" /></a> -->
-    <img src="https://img.shields.io/badge/npm-not%20yet%20published-lightgrey" alt="npm not yet published" />
+    <a href="https://www.npmjs.com/package/wiki-viewer"><img src="https://img.shields.io/npm/v/wiki-viewer" alt="npm version" /></a>
     <img src="https://img.shields.io/badge/node-%3E%3D18-brightgreen" alt="Node.js ≥18" />
     <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license" />
   </p>
@@ -34,13 +32,11 @@ No cloud. No accounts. No syncing. Your files stay on your machine.
 | **File ops**     | Upload files, create folders, delete, drag-to-move                                                                                                                                                 |
 | **Wiki links**   | `[[page-name]]` links between Markdown files                                                                                                                                                       |
 | **Dark mode**    | System-aware, with manual toggle                                                                                                                                                                   |
-| **HTTPS**        | Required for remote access — self-signed cert (OpenSSL) or trusted cert (mkcert); runs as HTTPS proxy in front of the internal HTTP server |
+| **HTTPS**        | Required for remote access — self-signed cert (OpenSSL) or trusted cert (mkcert); runs as HTTPS proxy in front of the internal HTTP server                                                         |
 
 ---
 
 ## Quick start
-
-> **Note:** The npm package is not yet published. Use the [dev setup](#-dev-setup) below to run locally from source. The `npx` commands below will work once the package is on npm.
 
 ```bash
 # Point it at a directory
@@ -228,12 +224,14 @@ sudo systemctl status wiki-viewer
 > ⚠️ **HTTPS is required when wiki-viewer is not on `localhost`.** Browsers restrict several APIs (service workers, PDF.js, and other [secure-context](https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts) features) to HTTPS-only origins. Accessing wiki-viewer over plain HTTP on a remote host will silently break parts of the UI.
 
 **How it works under the hood:** `--https` does not make the Next.js server itself speak TLS. Instead it:
+
 1. Starts the Next.js standalone server on a random internal HTTP port (`127.0.0.1:XXXXX`)
 2. Starts an HTTPS reverse proxy on the user-facing port that forwards all traffic to the internal server
 
 So the chain is always: **browser → HTTPS proxy → internal HTTP server**. This is why `--https` is the correct flag and not a plain HTTP URL even in "HTTPS mode".
 
 **Certificate generation** (automatic, stored at `~/.wiki-viewer/certs/`):
+
 - If **mkcert** is installed → locally-trusted cert (no browser warning)
 - Otherwise → OpenSSL self-signed cert (browser warns once — click through)
 
