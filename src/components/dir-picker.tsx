@@ -4,10 +4,12 @@ import {
 	ChevronRight,
 	Folder,
 	FolderOpen,
-	Home,
-	Keyboard,
-	Loader2,
 	HardDrive,
+	Home,
+	Loader2,
+	Pin,
+	PinOff,
+	X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -34,9 +36,10 @@ export function DirPicker({ onSelect }: Props) {
 	const [data, setData] = useState<BrowseResult | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
-	const [manualPath, setManualPath] = useState("");
-	const [manualMode, setManualMode] = useState(false);
+	const [pathInput, setPathInput] = useState("");
 	const [selecting, setSelecting] = useState(false);
+	const [pins, setPins] = useState<string[]>([]);
+	const [pinLoading, setPinLoading] = useState(false);
 	const inputRef = useRef<HTMLInputElement>(null);
 
 	const navigate = useCallback(async (dir: string) => {
@@ -53,7 +56,7 @@ export function DirPicker({ onSelect }: Props) {
 			}
 			const result: BrowseResult = await res.json();
 			setData(result);
-			setManualPath(result.path);
+			setPathInput(result.path);
 		} catch {
 			setError("Network error");
 		} finally {
@@ -61,9 +64,27 @@ export function DirPicker({ onSelect }: Props) {
 		}
 	}, []);
 
+	// On mount: load config (last opened + pins), then navigate
 	useEffect(() => {
-		navigate("");
-	}, [navigate]);
+		let cancelled = false;
+		(async () => {
+			try {
+				const res = await fetch("/api/system/config");
+				if (res.ok && !cancelled) {
+					const cfg: { pinnedPaths: string[]; lastOpenedPath: string | null } =
+						await res.json();
+					setPins(cfg.pinnedPaths ?? []);
+					await navigate(cfg.lastOpenedPath ?? "");
+					return;
+				}
+			} catch {
+				/* fallthrough to default */
+			}
+			if (!cancelled) await navigate("");
+		})();
+		return () => { cancelled = true; };
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
 
 	const handleSelect = async (dir?: string) => {
 		const target = dir ?? data?.path;
@@ -88,12 +109,53 @@ export function DirPicker({ onSelect }: Props) {
 		}
 	};
 
-	const handleManualSubmit = () => {
-		if (manualMode) {
-			if (manualPath.trim()) navigate(manualPath.trim());
-		} else {
-			setManualMode(true);
-			setTimeout(() => inputRef.current?.select(), 50);
+	const handlePathKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+		if (e.key === "Enter") {
+			e.preventDefault();
+			navigate(pathInput.trim());
+		}
+		if (e.key === "Escape") {
+			setPathInput(data?.path ?? "");
+			inputRef.current?.blur();
+		}
+	};
+
+	const isPinned = data ? pins.includes(data.path) : false;
+
+	const togglePin = async () => {
+		if (!data) return;
+		setPinLoading(true);
+		try {
+			const action = isPinned ? "unpin" : "pin";
+			const res = await fetch("/api/system/pins", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ path: data.path, action }),
+			});
+			if (res.ok) {
+				setPins((prev) =>
+					action === "pin"
+						? [...prev, data.path]
+						: prev.filter((p) => p !== data.path),
+				);
+			}
+		} catch {
+			/* ignore */
+		} finally {
+			setPinLoading(false);
+		}
+	};
+
+	const removePin = async (p: string) => {
+		try {
+			const res = await fetch("/api/system/pins", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ path: p, action: "unpin" }),
+			});
+			if (res.ok) setPins((prev) => prev.filter((x) => x !== p));
+		} catch {
+			/* ignore */
 		}
 	};
 
@@ -125,64 +187,52 @@ export function DirPicker({ onSelect }: Props) {
 
 				{/* Main browser card */}
 				<div className="rounded-lg border bg-card shadow-sm overflow-hidden">
-					{/* Breadcrumb bar */}
-					<div className="flex items-center gap-1 border-b px-3 py-2 bg-muted overflow-x-auto shrink-0 min-h-[40px]">
-						{manualMode ? (
-							<input
-								ref={inputRef}
-								className="flex-1 bg-transparent text-sm outline-none font-mono"
-								value={manualPath}
-								onChange={(e) => setManualPath(e.target.value)}
-								onKeyDown={(e) => {
-									if (e.key === "Enter") {
-										navigate(manualPath.trim());
-										setManualMode(false);
-									}
-									if (e.key === "Escape") {
-										setManualPath(data?.path ?? "");
-										setManualMode(false);
-									}
-								}}
-								onBlur={() => {
-									setManualPath(data?.path ?? "");
-									setManualMode(false);
-								}}
-								spellCheck={false}
-							/>
-						) : (
-							<>
-								{breadcrumbs.map((seg, i) => (
-									<span key={seg.path} className="flex items-center gap-1 shrink-0">
-										{i > 0 && (
-											<ChevronRight className="h-3 w-3 text-muted-foreground/50" />
-										)}
-										<button
-											type="button"
-											className="text-xs hover:text-foreground text-muted-foreground transition-colors rounded px-0.5"
-											onClick={() => navigate(seg.path)}
-										>
-											{i === 0 ? (
-												<HardDrive className="h-3.5 w-3.5" />
-											) : (
-												seg.label
-											)}
-										</button>
-									</span>
-								))}
-							</>
+					{/* Path input bar — always visible, reactive with browser */}
+					<div className="flex items-center gap-2 border-b px-3 py-2 bg-muted">
+						<input
+							ref={inputRef}
+							className="flex-1 bg-transparent text-sm outline-none font-mono min-w-0"
+							value={pathInput}
+							onChange={(e) => setPathInput(e.target.value)}
+							onKeyDown={handlePathKeyDown}
+							spellCheck={false}
+							placeholder="Enter a path…"
+						/>
+						{pathInput !== (data?.path ?? "") && (
+							<button
+								type="button"
+								className="shrink-0 text-xs text-muted-foreground hover:text-foreground transition-colors px-1.5 py-0.5 rounded border border-border/50"
+								onClick={() => navigate(pathInput.trim())}
+							>
+								Go
+							</button>
 						)}
-						<button
-							type="button"
-							className="ml-auto shrink-0 p-1 rounded text-muted-foreground/50 hover:text-muted-foreground transition-colors"
-							title="Type a path"
-							onClick={handleManualSubmit}
-						>
-							<Keyboard className="h-3.5 w-3.5" />
-						</button>
+					</div>
+
+					{/* Breadcrumb bar (click to navigate) */}
+					<div className="flex items-center gap-1 border-b px-3 py-1.5 bg-muted/50 overflow-x-auto shrink-0 min-h-[32px]">
+						{breadcrumbs.map((seg, i) => (
+							<span key={seg.path} className="flex items-center gap-1 shrink-0">
+								{i > 0 && (
+									<ChevronRight className="h-3 w-3 text-muted-foreground/50" />
+								)}
+								<button
+									type="button"
+									className="text-xs hover:text-foreground text-muted-foreground transition-colors rounded px-0.5"
+									onClick={() => navigate(seg.path)}
+								>
+									{i === 0 ? (
+										<HardDrive className="h-3.5 w-3.5" />
+									) : (
+										seg.label
+									)}
+								</button>
+							</span>
+						))}
 					</div>
 
 					{/* Directory list */}
-					<div className="max-h-72 overflow-y-auto">
+					<div className="max-h-60 overflow-y-auto">
 						{loading ? (
 							<div className="flex justify-center py-8">
 								<Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -224,14 +274,29 @@ export function DirPicker({ onSelect }: Props) {
 						)}
 					</div>
 
-					{/* Select button */}
+					{/* Select footer */}
 					<div className="border-t px-3 py-2 flex items-center justify-between gap-2 bg-muted">
-						<span
-							className="text-xs text-muted-foreground truncate font-mono"
-							title={data?.path}
+						<button
+							type="button"
+							className={cn(
+								"flex items-center gap-1.5 text-xs transition-colors rounded px-1.5 py-1",
+								isPinned
+									? "text-foreground hover:text-destructive"
+									: "text-muted-foreground hover:text-foreground",
+							)}
+							title={isPinned ? "Unpin this path" : "Pin this path for quick access"}
+							onClick={togglePin}
+							disabled={pinLoading || !data}
 						>
-							{data?.path ?? "—"}
-						</span>
+							{pinLoading ? (
+								<Loader2 className="h-3.5 w-3.5 animate-spin" />
+							) : isPinned ? (
+								<PinOff className="h-3.5 w-3.5" />
+							) : (
+								<Pin className="h-3.5 w-3.5" />
+							)}
+							{isPinned ? "Unpin" : "Pin"}
+						</button>
 						<Button
 							size="sm"
 							className="shrink-0 gap-1.5"
@@ -247,6 +312,42 @@ export function DirPicker({ onSelect }: Props) {
 						</Button>
 					</div>
 				</div>
+
+				{/* Pinned paths */}
+				{pins.length > 0 && (
+					<div className="rounded-lg border bg-card shadow-sm overflow-hidden">
+						<div className="px-3 py-2 border-b bg-muted">
+							<span className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+								<Pin className="h-3 w-3" /> Pinned
+							</span>
+						</div>
+						<div className="max-h-40 overflow-y-auto">
+							{pins.map((p) => (
+								<div
+									key={p}
+									className="flex items-center gap-2 px-3 py-1.5 hover:bg-accent group"
+								>
+									<button
+										type="button"
+										className="flex-1 flex items-center gap-2 text-sm text-left min-w-0"
+										onClick={() => navigate(p)}
+									>
+										<Folder className="h-4 w-4 shrink-0 text-warning" />
+										<span className="truncate font-mono text-xs">{p}</span>
+									</button>
+									<button
+										type="button"
+										className="shrink-0 text-muted-foreground/50 hover:text-destructive opacity-0 group-hover:opacity-100 transition-all"
+										onClick={() => removePin(p)}
+										title="Remove pin"
+									>
+										<X className="h-3.5 w-3.5" />
+									</button>
+								</div>
+							))}
+						</div>
+					</div>
+				)}
 
 				{/* Shortcuts */}
 				{data?.shortcuts && data.shortcuts.length > 0 && (

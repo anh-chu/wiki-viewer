@@ -752,7 +752,11 @@ export default function Page() {
 				</div>
 			)}
 			{rootConfigured === false && (
-				<DirPicker onSelect={() => setRootConfigured(true)} />
+				<DirPicker onSelect={() => {
+					setRootLoaded(false);
+					rootLoadingRef.current = false;
+					setRootConfigured(true);
+				}} />
 			)}
 			{rootConfigured === true && <>
 			{/* Tree sidebar */}

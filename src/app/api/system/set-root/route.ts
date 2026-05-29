@@ -1,5 +1,6 @@
 import { stat } from "node:fs/promises";
 import { NextResponse } from "next/server";
+import { writeConfig } from "@/lib/config";
 import { setRootDir } from "@/lib/root-dir";
 
 export async function POST(request: Request) {
@@ -17,5 +18,6 @@ export async function POST(request: Request) {
 	}
 
 	setRootDir(dir);
+	await writeConfig({ lastOpenedPath: dir });
 	return NextResponse.json({ ok: true, path: dir });
 }
