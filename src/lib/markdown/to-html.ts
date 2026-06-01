@@ -1,3 +1,4 @@
+import rehypeParse from "rehype-parse";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import rehypeStringify from "rehype-stringify";
@@ -148,10 +149,12 @@ const processor = unified()
 	.use(rehypeStringify, { allowDangerousHtml: true })
 	.freeze();
 
-// Sanitize-only pipeline: takes a fully assembled HTML string,
-// parses it back into hast via rehype-raw, then strips unsafe nodes.
-// Runs LAST so all string post-processing is covered by sanitize.
+// Sanitize-only pipeline: takes a fully assembled HTML string, parses it back
+// into hast (rehype-parse as a fragment), expands any raw nodes (rehype-raw),
+// then strips unsafe nodes (rehype-sanitize). Runs LAST so all string
+// post-processing is covered by sanitize.
 const sanitizerOnly = unified()
+	.use(rehypeParse, { fragment: true })
 	.use(rehypeRaw)
 	.use(rehypeSanitize, previewSanitizeSchema)
 	.use(rehypeStringify)
