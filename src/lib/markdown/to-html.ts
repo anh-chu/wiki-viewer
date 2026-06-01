@@ -1,9 +1,12 @@
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
 import rehypeStringify from "rehype-stringify";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 import { detectEmbed } from "@/lib/embeds/detect";
+import { previewSanitizeSchema } from "@/lib/markdown/sanitize-schema";
 
 // Canonical wiki-link regex (llm-wiki-pm ground truth).
 // Groups: 1=slug  2=alias  3=anchor
@@ -133,8 +136,11 @@ function resolveRelativeUrls(html: string, pagePath: string): string {
 }
 
 // Unified's plugin resolution + processor freeze runs on every `unified()`
-// call. Reuse a single frozen pipeline across every page render so
+// call. Reuse single frozen pipelines across every page render so
 // navigation doesn't pay that cost on the hot path.
+
+// Base pipeline: produces HTML with raw nodes passed through as-is.
+// Used for both editor and (pre-sanitize) viewer passes.
 const processor = unified()
 	.use(remarkParse)
 	.use(remarkGfm)
@@ -142,26 +148,55 @@ const processor = unified()
 	.use(rehypeStringify, { allowDangerousHtml: true })
 	.freeze();
 
+// Sanitize-only pipeline: takes a fully assembled HTML string,
+// parses it back into hast via rehype-raw, then strips unsafe nodes.
+// Runs LAST so all string post-processing is covered by sanitize.
+const sanitizerOnly = unified()
+	.use(rehypeRaw)
+	.use(rehypeSanitize, previewSanitizeSchema)
+	.use(rehypeStringify)
+	.freeze();
+
+export interface MarkdownToHtmlOptions {
+	/** File path used to resolve relative URLs (./image.png etc.). */
+	pagePath?: string;
+	/** Run rehype-sanitize on output. Use true for read-only viewer. Default false. */
+	sanitize?: boolean;
+}
+
 export async function markdownToHtml(
 	markdown: string,
-	pagePath?: string,
+	optsOrPagePath?: string | MarkdownToHtmlOptions,
 ): Promise<string> {
+	const opts: MarkdownToHtmlOptions =
+		typeof optsOrPagePath === "string"
+			? { pagePath: optsOrPagePath }
+			: (optsOrPagePath ?? {});
+
 	// Pre-process wiki-links before remark (which would treat [[ as text)
 	const preprocessed = convertWikiLinks(markdown);
 
+	// Always use the base pipeline first.
 	const result = await processor.process(preprocessed);
-
 	let html = String(result);
 
-	// Post-process task lists for Tiptap compatibility
+	// Post-process task lists for Tiptap compatibility.
 	html = fixTaskListHtml(html);
 
-	// Heal <video src="youtube-url"> into real iframe embeds
+	// Heal <video src="youtube-url"> into real iframe embeds.
+	// Must run before sanitize so <video src> attr is still present.
 	html = upgradeProviderVideos(html);
 
-	// Resolve relative URLs if page path is provided
-	if (pagePath) {
-		html = resolveRelativeUrls(html, pagePath);
+	// Resolve relative URLs if page path is provided.
+	// Must run before sanitize so interpolated paths are covered.
+	if (opts.pagePath) {
+		html = resolveRelativeUrls(html, opts.pagePath);
+	}
+
+	// Sanitize last, after all string post-processing, so no injected
+	// content escapes the sanitizer.
+	if (opts.sanitize) {
+		html = String(await sanitizerOnly.process(html));
 	}
 
 	return html;

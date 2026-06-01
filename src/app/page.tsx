@@ -27,10 +27,7 @@ import {
 	X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import rehypeRaw from "rehype-raw";
-import rehypeSanitize from "rehype-sanitize";
+
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { CsvViewer } from "@/components/editor/csv-viewer";
 import { KBEditor } from "@/components/editor/editor";
@@ -57,9 +54,9 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { FrontmatterHeader } from "@/components/wiki/frontmatter-header";
+import { MarkdownPreview } from "@/components/wiki/markdown-preview";
 import { parseFrontmatter } from "@/lib/markdown/parse-frontmatter";
-import { previewSanitizeSchema } from "@/lib/markdown/sanitize-schema";
-import remarkWikilinks from "@/lib/markdown/remark-wikilinks";
+
 import { showError } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { AIPanel } from "@/components/ai-panel/ai-panel";
@@ -1520,166 +1517,24 @@ export default function Page() {
 														<FrontmatterHeader
 															data={data as Record<string, never>}
 														/>
-														<ReactMarkdown
-															remarkPlugins={[remarkGfm, remarkWikilinks]}
-															rehypePlugins={[rehypeRaw, [rehypeSanitize, previewSanitizeSchema]]}
-															components={{
-																h1: ({ children }) => (
-																	<h1 className="text-2xl font-normal mt-6 mb-3 pb-1 border-b">
-																		{children}
-																	</h1>
-																),
-																h2: ({ children }) => (
-																	<h2 className="text-xl font-normal mt-5 mb-2 pb-1 border-b">
-																		{children}
-																	</h2>
-																),
-																h3: ({ children }) => (
-																	<h3 className="text-lg font-normal mt-4 mb-2">
-																		{children}
-																	</h3>
-																),
-																h4: ({ children }) => (
-																	<h4 className="text-base font-normal mt-3 mb-1">
-																		{children}
-																	</h4>
-																),
-																p: ({ children }) => (
-																	<p className="text-sm leading-relaxed mb-3">
-																		{children}
-																	</p>
-																),
-																ul: ({ children }) => (
-																	<ul className="list-disc pl-5 mb-3 space-y-1 text-sm">
-																		{children}
-																	</ul>
-																),
-																ol: ({ children }) => (
-																	<ol className="list-decimal pl-5 mb-3 space-y-1 text-sm">
-																		{children}
-																	</ol>
-																),
-																li: ({ children }) => (
-																	<li className="leading-relaxed">
-																		{children}
-																	</li>
-																),
-																blockquote: ({ children }) => (
-																	<blockquote className="border-l-4 border-muted-foreground/30 pl-4 italic text-muted-foreground my-3 text-sm">
-																		{children}
-																	</blockquote>
-																),
-																code: ({ className, children, ...props }) => (
-																	<code
-																		className={`md-code ${className ?? ""}`.trim()}
-																		{...props}
-																	>
-																		{children}
-																	</code>
-																),
-																pre: ({ children }) => (
-																	<pre className="md-pre">
-																		{children}
-																	</pre>
-																),
-																a: ({ href, children, ...rest }) => {
-																	const props = rest as Record<
-																		string,
-																		unknown
-																	>;
-																	if (props["data-wiki-link"] === "true") {
-																		const slug =
-																			(props["data-slug"] as string) ?? "";
-																		const anchor = props["data-anchor"] as
-																			| string
-																			| undefined;
-																		const broken =
-																			slug &&
-																			!useWikiSlugsStore
-																				.getState()
-																				.has(slug);
-																		return (
-																			<a
-																				href={href}
-																				className="wiki-link"
-																				data-wiki-link="true"
-																				data-slug={slug}
-																				data-anchor={anchor}
-																				data-broken={
-																					broken ? "true" : undefined
-																				}
-																				onClick={(e) => {
-																					e.preventDefault();
-																					if (!slug) return;
-																					const dir = useWikiSlugsStore
-																						.getState()
-																						.getDir(slug);
-																					if (!dir) return;
-																					const targetPath =
-																						dir === "root"
-																							? `${slug}.md`
-																							: `${dir}/${slug}.md`;
-																					void openViewer({
-																						path: targetPath,
-																						name: `${slug}.md`,
-																						type: "file",
-																					} as TreeNode);
-																					if (anchor) {
-																						setTimeout(() => {
-																							document
-																								.getElementById(anchor)
-																								?.scrollIntoView({
-																									behavior: "smooth",
-																								});
-																						}, 200);
-																					}
-																				}}
-																			>
-																				{children}
-																			</a>
-																		);
-																	}
-																	return (
-																		<a
-																			href={href}
-																			className="text-primary underline hover:no-underline"
-																			target="_blank"
-																			rel="noreferrer"
-																		>
-																			{children}
-																		</a>
-																	);
-																},
-																strong: ({ children }) => (
-																	<strong className="font-normal">
-																		{children}
-																	</strong>
-																),
-																em: ({ children }) => (
-																	<em className="italic">{children}</em>
-																),
-																hr: () => <hr className="my-4 border-border" />,
-																table: ({ children }) => (
-																	<div className="overflow-x-auto my-3">
-																		<table className="w-full text-sm border-collapse">
-																			{children}
-																		</table>
-																	</div>
-																),
-																th: ({ children }) => (
-																	<th className="border border-border px-3 py-1.5 bg-muted font-normal text-left">
-																		{children}
-																	</th>
-																),
-																td: ({ children }) => (
-																	<td className="border border-border px-3 py-1.5">
-																		{children}
-																	</td>
-																),
+														<MarkdownPreview
+															markdown={body}
+															pagePath={openFile.path}
+															onNavigate={(targetPath, anchor) => {
+																void openViewer({
+																	path: targetPath,
+																	name: targetPath.split('/').pop() ?? targetPath,
+																	type: 'file',
+																} as TreeNode);
+																if (anchor) {
+																	setTimeout(() => {
+																		document
+																			.getElementById(anchor)
+																			?.scrollIntoView({ behavior: 'smooth' });
+																	}, 200);
+																}
 															}}
-														>
-															{body}
-														</ReactMarkdown>
+														/>
 													</>
 												);
 											})()
