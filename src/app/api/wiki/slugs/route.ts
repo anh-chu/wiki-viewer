@@ -1,6 +1,7 @@
 import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
+import { requireUser } from "@/lib/auth/server";
 import { getRootDir } from "@/lib/root-dir";
 
 type SlugBuckets = {
@@ -26,7 +27,10 @@ async function readMarkdownSlugsFromDir(dirPath: string): Promise<string[]> {
 	}
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+	const auth = await requireUser(request);
+	if (!auth.ok) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+
 	try {
 		// Scan root + known dirs (entities, concepts, comparisons for wiki compat)
 		// plus any other immediate subdirectories

@@ -1,6 +1,8 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
+import { checkOrigin } from "@/lib/auth/csrf";
+import { requireUser } from "@/lib/auth/server";
 import { safeRootPath } from "@/lib/root-dir";
 
 const ALLOWED_MIME_TYPES = new Set([
@@ -35,6 +37,11 @@ function sanitizeFilename(name: string): string {
 }
 
 export async function POST(request: Request) {
+	const csrf = checkOrigin(request);
+	if (csrf) return csrf;
+	const auth = await requireUser(request);
+	if (!auth.ok) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+
 	let formData: FormData;
 	try {
 		formData = await request.formData();

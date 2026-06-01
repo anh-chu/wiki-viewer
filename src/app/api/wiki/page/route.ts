@@ -1,6 +1,8 @@
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
+import { checkOrigin } from "@/lib/auth/csrf";
+import { requireUser } from "@/lib/auth/server";
 import { safeRootPath } from "@/lib/root-dir";
 
 const VALID_DIRS = new Set(["entities", "concepts", "comparisons"]);
@@ -33,6 +35,11 @@ function singularType(
 }
 
 export async function POST(request: Request) {
+	const csrf = checkOrigin(request);
+	if (csrf) return csrf;
+	const auth = await requireUser(request);
+	if (!auth.ok) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+
 	const body: PageBody = await request.json();
 	const { dir, slug } = body;
 

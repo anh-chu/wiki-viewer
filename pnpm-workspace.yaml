@@ -1,2 +1,8 @@
 allowBuilds:
-  sharp: set this to true or false
+  '@prisma/client': set this to true or false
+  better-sqlite3: true
+  esbuild: true
+  sharp: true
+
+overrides:
+  kysely: 0.28.5

@@ -1,8 +1,15 @@
 import { stat } from "node:fs/promises";
 import { NextResponse } from "next/server";
+import { checkOrigin } from "@/lib/auth/csrf";
+import { requireUser } from "@/lib/auth/server";
 import { readConfig, writeConfig } from "@/lib/config";
 
 export async function POST(request: Request) {
+	const csrf = checkOrigin(request);
+	if (csrf) return csrf;
+	const auth = await requireUser(request);
+	if (!auth.ok) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+
 	const body: { path?: string; action?: "pin" | "unpin" } = await request.json();
 	const p = body.path?.trim();
 	const action = body.action ?? "pin";

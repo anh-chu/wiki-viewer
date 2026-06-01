@@ -2,6 +2,7 @@ import { readdir, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { NextResponse } from "next/server";
+import { requireUser } from "@/lib/auth/server";
 
 interface BrowseEntry {
 	name: string;
@@ -10,6 +11,9 @@ interface BrowseEntry {
 }
 
 export async function GET(request: Request) {
+	const auth = await requireUser(request);
+	if (!auth.ok) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+
 	const { searchParams } = new URL(request.url);
 	const rawPath = searchParams.get("path");
 

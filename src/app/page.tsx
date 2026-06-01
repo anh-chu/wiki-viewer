@@ -2,6 +2,7 @@
 
 import {
 	AlertCircle,
+	Bot,
 	Check,
 	ChevronDown,
 	ChevronRight,
@@ -50,6 +51,8 @@ import { parseFrontmatter } from "@/lib/markdown/parse-frontmatter";
 import remarkWikilinks from "@/lib/markdown/remark-wikilinks";
 import { showError } from "@/lib/toast";
 import { cn } from "@/lib/utils";
+import { AIPanel } from "@/components/ai-panel/ai-panel";
+import { useAIPanelStore } from "@/stores/ai-panel-store";
 import { useEditorStore } from "@/stores/editor-store";
 import { useWikiSlugsStore } from "@/stores/wiki-slugs-store";
 
@@ -911,6 +914,15 @@ export default function Page() {
 								size="sm"
 								variant="ghost"
 								className="h-7 w-7 p-0"
+								title="AI Agent panel"
+								onClick={() => useAIPanelStore.getState().toggle()}
+							>
+								<Bot className="h-3.5 w-3.5" />
+							</Button>
+							<Button
+								size="sm"
+								variant="ghost"
+								className="h-7 w-7 p-0"
 								title="Collapse sidebar"
 								onClick={() => setSidebarCollapsed(true)}
 							>
@@ -1480,6 +1492,7 @@ export default function Page() {
 				)}
 			</div>
 
+			<AIPanel currentPath={openFile?.path} />
 			<input
 				ref={fileInputRef}
 				type="file"

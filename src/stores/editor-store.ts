@@ -19,6 +19,7 @@ interface PageData {
 	path: string;
 	content: string;
 	frontmatter: FrontMatter | null;
+	revision: number | null;
 }
 
 async function fetchPageFromApi(path: string): Promise<PageData> {
@@ -27,23 +28,57 @@ async function fetchPageFromApi(path: string): Promise<PageData> {
 		throw new FetchPageError(`Failed to fetch page: ${path}`, res.status);
 	}
 	const data: { content: string } = await res.json();
-	return { path, content: data.content, frontmatter: null };
+	const revHeader = res.headers.get("X-Wiki-Revision");
+	const revision = revHeader !== null ? Number(revHeader) : null;
+	return { path, content: data.content, frontmatter: null, revision };
 }
 
-async function savePageToApi(path: string, content: string): Promise<void> {
+interface SaveResult {
+	revision: number | null;
+}
+
+/** Error thrown when the server reports a stale revision (409). */
+export class StaleRevisionError extends Error {
+	constructor(
+		public readonly currentRevision: number,
+		public readonly serverContent: string,
+	) {
+		super("File was modified externally. Reloaded with latest content.");
+		this.name = "StaleRevisionError";
+	}
+}
+
+async function savePageToApi(
+	path: string,
+	content: string,
+	baseRevision: number | null,
+): Promise<SaveResult> {
+	const body: Record<string, unknown> = { path, content };
+	if (baseRevision !== null) body.baseRevision = baseRevision;
 	const res = await fetch("/api/wiki/content", {
 		method: "PUT",
 		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ path, content }),
+		body: JSON.stringify(body),
 	});
+	if (res.status === 409) {
+		// Server has a newer revision. Fetch current content and surface the conflict.
+		const conflictData = (await res.json()) as { currentRevision?: number };
+		const freshRes = await fetch(`/api/wiki/content?path=${encodeURIComponent(path)}`);
+		const freshContent = freshRes.ok
+			? ((await freshRes.json()) as { content: string }).content
+			: content;
+		throw new StaleRevisionError(conflictData.currentRevision ?? 0, freshContent);
+	}
 	if (!res.ok) {
 		throw new Error("Failed to save page");
 	}
+	const data = (await res.json()) as { revision?: number };
+	return { revision: data.revision ?? null };
 }
 
 async function createPageInApi(path: string, content = ""): Promise<void> {
 	// ccmc has no dedicated create endpoint; saving empty content creates the file.
-	await savePageToApi(path, content);
+	await savePageToApi(path, content, null);
 }
 
 const PAGE_CACHE_KEY = "kb-page-cache";
@@ -87,6 +122,8 @@ interface EditorState {
 	isDirty: boolean;
 	isLoading: boolean;
 	lastSavedAt: number | null;
+	/** Last confirmed revision from the server. null until first save/sync. */
+	currentRevision: number | null;
 
 	loadPage: (path: string) => Promise<void>;
 	updateContent: (content: string) => void;
@@ -94,6 +131,8 @@ interface EditorState {
 	save: () => Promise<void>;
 	createMissingPage: (title: string) => Promise<void>;
 	clear: () => void;
+	/** Sync the known revision from an external source (e.g. proof-store snapshot). */
+	syncRevision: (revision: number) => void;
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -108,6 +147,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 	isDirty: false,
 	isLoading: false,
 	lastSavedAt: null,
+	currentRevision: null,
 
 	loadPage: async (path: string) => {
 		const currentState = get();
@@ -126,6 +166,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 			loadStatus: "loading",
 			isDirty: false,
 			content: "",
+			currentRevision: null,
 		});
 
 		// Paint from cache immediately so the editor feels instant.
@@ -148,6 +189,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 				frontmatter: page.frontmatter,
 				isLoading: false,
 				loadStatus: "ok",
+				currentRevision: page.revision,
 			});
 			saveCachedPage({
 				path,
@@ -188,13 +230,18 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 	},
 
 	save: async () => {
-		const { currentPath, content, isDirty } = get();
+		const { currentPath, content, isDirty, currentRevision } = get();
 		if (!currentPath || !isDirty) return;
 
 		set({ saveStatus: "saving" });
 		try {
-			await savePageToApi(currentPath, content);
-			set({ saveStatus: "saved", isDirty: false, lastSavedAt: Date.now() });
+			const result = await savePageToApi(currentPath, content, currentRevision);
+			set({
+				saveStatus: "saved",
+				isDirty: false,
+				lastSavedAt: Date.now(),
+				currentRevision: result.revision ?? currentRevision,
+			});
 			saveCachedPage({
 				path: currentPath,
 				content,
@@ -205,8 +252,23 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 			statusTimer = setTimeout(() => {
 				if (get().saveStatus === "saved") set({ saveStatus: "idle" });
 			}, 2000);
-		} catch {
-			set({ saveStatus: "error" });
+		} catch (err) {
+			if (err instanceof StaleRevisionError) {
+				// Server has a newer revision: reload editor with fresh content.
+				set({
+					content: err.serverContent,
+					isDirty: false,
+					saveStatus: "error",
+					currentRevision: err.currentRevision,
+				});
+				saveCachedPage({
+					path: currentPath,
+					content: err.serverContent,
+					frontmatter: get().frontmatter,
+				});
+			} else {
+				set({ saveStatus: "error" });
+			}
 		}
 	},
 
@@ -239,6 +301,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 			isDirty: false,
 			isLoading: false,
 			lastSavedAt: null,
+			currentRevision: null,
 		});
+	},
+
+	syncRevision: (revision: number) => {
+		set({ currentRevision: revision });
 	},
 }));

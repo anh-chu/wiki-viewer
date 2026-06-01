@@ -49,6 +49,20 @@ turndown.addRule("wikiLink", {
 	},
 });
 
+// Preserve <proof-span> provenance marks — must run before styledSpan so the
+// custom tag is matched first. DOM uppercases custom tag names, so check PROOF-SPAN.
+turndown.addRule("proofSpan", {
+	filter: (node) => node.nodeName === "PROOF-SPAN",
+	replacement: (content, node) => {
+		const el = node as HTMLElement;
+		const attrs: string[] = [];
+		for (const a of Array.from(el.attributes)) {
+			attrs.push(`${a.name}="${a.value.replace(/"/g, "&quot;")}"`);
+		}
+		return `<proof-span${attrs.length ? " " + attrs.join(" ") : ""}>${content}</proof-span>`;
+	},
+});
+
 // Preserve inline styled spans (text color, background color, font weight, etc.)
 // so colors and highlights survive markdown roundtrip.
 turndown.addRule("styledSpan", {

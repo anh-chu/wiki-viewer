@@ -2,9 +2,14 @@ export const runtime = "nodejs";
 
 import { watch } from "chokidar";
 import path from "node:path";
+import { NextResponse } from "next/server";
+import { requireUser } from "@/lib/auth/server";
 import { getRootDir } from "@/lib/root-dir";
 
-export async function GET() {
+export async function GET(request: Request) {
+	const auth = await requireUser(request);
+	if (!auth.ok) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+
 	const rootDir = getRootDir();
 	if (!rootDir) {
 		return new Response("Root not configured", { status: 503 });

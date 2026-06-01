@@ -3,7 +3,7 @@
 import { cellAround, isInTable } from "@tiptap/pm/tables";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { Code2, FilePlus, Loader2, Sparkles } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { findNodeByPath } from "@/lib/cabinets/tree";
 import { markdownToHtml } from "@/lib/markdown/to-html";
 import { htmlToMarkdown } from "@/lib/markdown/to-markdown";
@@ -12,10 +12,15 @@ import { useEditorStore } from "@/stores/editor-store";
 import { useTreeStore } from "@/stores/tree-store";
 import { useWikiSlugsStore } from "@/stores/wiki-slugs-store";
 import type { TreeNode } from "@/types";
+import { useProofStore } from "@/stores/proof-store";
 import { EditorBubbleMenu } from "./bubble-menu";
 import { EditorToolbar } from "./editor-toolbar";
 import { editorExtensions } from "./extensions";
 import { FolderIndex } from "./folder-index";
+import { CommentPip } from "./comment-pip";
+import { CommentThread } from "./comment-thread";
+import { ProofSpanPopover } from "./proof-span-popover";
+import { SuggestionCard } from "./suggestion-card";
 import { SlashCommands } from "./slash-commands";
 import { TableMenu } from "./table-menu";
 import {
@@ -166,6 +171,126 @@ export function KBEditor() {
 	useEffect(() => {
 		void useWikiSlugsStore.getState().load();
 	}, []);
+
+	// Load sidecar when the current path changes.
+	useEffect(() => {
+		if (!currentPath) return;
+		void useProofStore.getState().loadSidecar(currentPath);
+	}, [currentPath]);
+
+	// Subscribe to chokidar SSE: when current file changes on disk, reload sidecar.
+	useEffect(() => {
+		if (typeof window === "undefined") return;
+		const es = new EventSource("/api/wiki/watch");
+		es.onmessage = (evt: MessageEvent<string>) => {
+			try {
+				const data = JSON.parse(evt.data) as { type: string; path: string };
+				const activePath = useEditorStore.getState().currentPath;
+				if (
+					(data.type === "change" || data.type === "add") &&
+					activePath &&
+					data.path === activePath
+				) {
+					// loadSnapshot first so server-side readSnapshot detects
+					// fingerprint mismatch, emits file.externallyEdited, and persists
+					// the sidecar. Then loadSidecar to refresh comments/suggestions.
+					void useProofStore
+						.getState()
+						.loadSnapshot(activePath)
+						.then(() => useProofStore.getState().loadSidecar(activePath));
+				}
+			} catch {
+				// ignore malformed events
+			}
+		};
+		return () => {
+			es.close();
+		};
+	}, []);
+
+	// Proof-span popover state.
+	const [proofTarget, setProofTarget] = useState<HTMLElement | null>(null);
+
+	/**
+	 * Ref to the editor scroll container. Used to compute block positions
+	 * relative to the scrollable area for suggestion cards and comment pips.
+	 *
+	 * Phase D coordination: comment-pip positioning uses this same ref and the
+	 * same blockRefPositions map computed below.
+	 */
+	const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+	/** Map of block ref → position relative to scroll container */
+	const [blockRefPositions, setBlockRefPositions] = useState<
+		Map<string, { top: number; left: number; width: number; bottom: number }>
+	>(new Map());
+
+	// Subscribe to snapshot data for suggestion cards.
+	const snapshotBlocks = useProofStore((s) =>
+		currentPath ? (s.byPath[currentPath]?.snapshotBlocks ?? []) : []
+	);
+	const pendingSuggestions = useProofStore((s) =>
+		currentPath
+			? (s.byPath[currentPath]?.sidecar?.suggestions.filter((sg) => sg.status === "pending") ?? [])
+			: []
+	);
+	const snapshotRevision = useProofStore((s) =>
+		currentPath ? (s.byPath[currentPath]?.snapshotRevision ?? 0) : 0
+	);
+
+	const comments = useProofStore((s) =>
+		currentPath ? (s.byPath[currentPath]?.sidecar?.comments ?? []) : []
+	);
+
+	/** Group comments by block ref for pip rendering. */
+	const commentsByRef = useMemo(() => {
+		const map: Record<string, typeof comments> = {};
+		for (const c of comments) {
+			(map[c.ref] ??= []).push(c);
+		}
+		return map;
+	}, [comments]);
+
+	/** Tracks which block's comment thread is open and its anchor element. */
+	const [threadTarget, setThreadTarget] = useState<{ blockRef: string; el: HTMLElement } | null>(null);
+
+	// Load snapshot (ordered block list) when path changes so suggestion cards
+	// can look up block content by ref.
+	useEffect(() => {
+		if (!currentPath) return;
+		void useProofStore.getState().loadSnapshot(currentPath);
+	}, [currentPath]);
+
+	/**
+	 * After content renders, walk `.ProseMirror > *` to build ref→position map.
+	 * Matches by index: the i-th ProseMirror child = snapshotBlocks[i].
+	 *
+	 * Phase D coordination: this effect also annotates each child element with
+	 * data-block-ref for any consumer that needs CSS/query-based lookup.
+	 */
+	useEffect(() => {
+		if (!currentPath || snapshotBlocks.length === 0 || !scrollContainerRef.current) return;
+		const container = scrollContainerRef.current;
+		const proseMirror = container.querySelector(".ProseMirror");
+		if (!proseMirror) return;
+		const children = Array.from(proseMirror.children) as HTMLElement[];
+		const containerRect = container.getBoundingClientRect();
+		const next = new Map<string, { top: number; left: number; width: number; bottom: number }>();
+		for (let i = 0; i < Math.min(children.length, snapshotBlocks.length); i++) {
+			const el = children[i];
+			const block = snapshotBlocks[i];
+			// Annotate DOM element — Phase D comment-pip and other consumers read this
+			el.setAttribute("data-block-ref", block.ref);
+			const rect = el.getBoundingClientRect();
+			next.set(block.ref, {
+				top: rect.top - containerRect.top + container.scrollTop,
+				left: rect.left - containerRect.left,
+				width: rect.width,
+				bottom: rect.bottom - containerRect.top + container.scrollTop,
+			});
+		}
+		setBlockRefPositions(next);
+	}, [currentPath, snapshotBlocks]);
 
 	const handleUpdate = useCallback(
 		({ editor }: { editor: ReturnType<typeof useEditor> }) => {
@@ -564,10 +689,111 @@ export function KBEditor() {
 						) : (
 							<div className="flex-1 relative" dir={isRtl ? "rtl" : undefined}>
 								<div
+									ref={scrollContainerRef}
 									className="absolute inset-0 overflow-y-auto"
 									data-editor-scroll
 								>
+									{/* Absolutely-positioned overlay for comment pips and suggestion cards.
+									     height:0 so it doesn't push content; children overflow freely.
+									     Positions from blockRefPositions are relative to scroll container top. */}
+									<div
+										aria-hidden="true"
+										className="relative pointer-events-none"
+										style={{ height: 0 }}
+									>
+										{/* Comment pips — one per block with at least one comment */}
+										{Object.entries(commentsByRef).map(([blockRef, blockComments]) => {
+											const pos = blockRefPositions.get(blockRef);
+											if (!pos) return null;
+											return (
+												<div key={`pip-${blockRef}`} style={{ pointerEvents: "auto" }}>
+													<CommentPip
+														blockRef={blockRef}
+														comments={blockComments}
+														top={pos.top + 4}
+														left={Math.max(0, pos.left - 20)}
+														onClick={() => {
+															const el = scrollContainerRef.current?.querySelector(
+																`[data-block-ref="${blockRef}"]`,
+															) as HTMLElement | null;
+															if (el) setThreadTarget({ blockRef, el });
+														}}
+													/>
+												</div>
+											);
+										})}
+
+										{/* Suggestion cards — one per pending suggestion */}
+										{currentPath && pendingSuggestions.map((sg) => {
+											const pos = blockRefPositions.get(sg.ref);
+											const currentBlock = snapshotBlocks.find((b) => b.ref === sg.ref);
+											if (!pos || !currentBlock) return null;
+											const cardTop =
+												sg.kind === "insertAfter" ? pos.bottom + 4 :
+												sg.kind === "insertBefore" ? Math.max(0, pos.top - 80) :
+												pos.top;
+											return (
+												<div key={`sug-${sg.id}`} style={{ pointerEvents: "auto" }}>
+													<SuggestionCard
+														path={currentPath}
+														suggestion={sg}
+														currentMarkdown={currentBlock.markdown}
+														baseRevision={snapshotRevision}
+														getLatestRevision={() =>
+															useProofStore.getState().byPath[currentPath]?.snapshotRevision ?? 0
+														}
+														top={cardTop}
+														left={pos.left}
+														width={pos.width}
+														onSettled={() => {
+															void useProofStore.getState().loadSidecar(currentPath);
+															void useProofStore.getState().loadSnapshot(currentPath);
+														}}
+													/>
+												</div>
+											);
+										})}
+									</div>
+
+									{/* Comment thread — Portal-rendered, driven by threadTarget */}
+									{threadTarget && currentPath && (
+										<CommentThread
+											path={currentPath}
+											blockRef={threadTarget.blockRef}
+											comments={commentsByRef[threadTarget.blockRef] ?? []}
+											anchorEl={threadTarget.el}
+											onClose={() => setThreadTarget(null)}
+										/>
+									)}
+
 									<EditorContent editor={editor} />
+									{/* Proof-span hover delegation */}
+									<div
+										aria-hidden="true"
+										className="contents"
+										onMouseOver={(e) => {
+											const span = (e.target as HTMLElement).closest<HTMLElement>(".proof-span");
+											if (span && span !== proofTarget) setProofTarget(span);
+										}}
+										onMouseOut={(e) => {
+											const related = e.relatedTarget as HTMLElement | null;
+											if (!related?.closest(".proof-span")) setProofTarget(null);
+										}}
+									/>
+									{currentPath && (
+										<ProofSpanPopover
+											targetEl={proofTarget}
+											path={currentPath}
+											onClose={() => setProofTarget(null)}
+											onComment={() => {
+												if (!proofTarget) return;
+												const blockEl = proofTarget.closest<HTMLElement>("[data-block-ref]");
+												if (!blockEl) return;
+												const blockRef = blockEl.getAttribute("data-block-ref");
+												if (blockRef) setThreadTarget({ blockRef, el: blockEl });
+											}}
+										/>
+									)}
 									<EditorBubbleMenu editor={editor} />
 									<TableMenu editor={editor} />
 									<SlashCommands editor={editor} />

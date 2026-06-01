@@ -1,10 +1,15 @@
 import { readdir, rmdir, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
+import { checkOrigin } from "@/lib/auth/csrf";
+import { requireUser } from "@/lib/auth/server";
 import { getRootDir, safeRootPath } from "@/lib/root-dir";
 import { isAppFolder, isNodeApp } from "@/lib/wiki-helpers";
 
 export async function GET(request: Request) {
+	const auth = await requireUser(request);
+	if (!auth.ok) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+
 	const { searchParams } = new URL(request.url);
 	const dir = searchParams.get("dir") ?? "";
 
@@ -67,6 +72,11 @@ export async function GET(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+	const csrf = checkOrigin(request);
+	if (csrf) return csrf;
+	const auth = await requireUser(request);
+	if (!auth.ok) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+
 	const body: { path?: string } = await request.json();
 	const rel = body.path;
 	if (!rel || typeof rel !== "string")

@@ -714,3 +714,43 @@ nextjs-portal {
 .wiki-link[data-broken="true"]:hover {
 	background: color-mix(in srgb, var(--destructive) 10%, transparent);
 }
+
+/* Proof-span provenance marks */
+proof-span.proof-span,
+.proof-span {
+	background: linear-gradient(
+		to right,
+		rgba(165, 180, 252, 0.08),
+		rgba(165, 180, 252, 0)
+	);
+	border-left: 2px solid rgb(165, 180, 252);
+	padding-left: 4px;
+	border-radius: 2px;
+	cursor: pointer;
+	transition: background 120ms ease;
+}
+proof-span.proof-span[origin="human"],
+.proof-span[origin="human"] {
+	border-left-color: rgb(110, 231, 183);
+	background: linear-gradient(
+		to right,
+		rgba(110, 231, 183, 0.08),
+		rgba(110, 231, 183, 0)
+	);
+}
+proof-span.proof-span:hover,
+.proof-span:hover {
+	background: linear-gradient(
+		to right,
+		rgba(165, 180, 252, 0.18),
+		rgba(165, 180, 252, 0.04)
+	);
+}
+.dark proof-span.proof-span,
+.dark .proof-span {
+	background: linear-gradient(
+		to right,
+		rgba(165, 180, 252, 0.14),
+		rgba(165, 180, 252, 0)
+	);
+}
