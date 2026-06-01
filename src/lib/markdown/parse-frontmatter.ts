@@ -41,6 +41,19 @@ export function parseFrontmatter(text: string): ParsedFrontmatter {
 
 	const block = match[1];
 	const body = text.slice(match[0].length);
+
+	// Guard against runaway capture. BLOCK_RE matches from the opening `---`
+	// to the FIRST `\n---\n`, which may be a markdown horizontal rule far down
+	// the document rather than a real closing fence. If the block does not look
+	// like YAML (a markdown heading or HTML on the first non-empty line, or a
+	// blank line gap typical of body content), bail out and treat the whole
+	// text as body so the document still renders.
+	const blockLines = block.split(/\r?\n/);
+	const firstContent = blockLines.find((l) => l.trim() !== "") ?? "";
+	if (/^\s*(#{1,6}\s|<|>|-\s|\*\s|\d+\.\s)/.test(firstContent)) {
+		return { data: {}, body: text };
+	}
+
 	const data: Record<string, unknown> = {};
 
 	const lines = block.split(/\r?\n/);
@@ -78,6 +91,13 @@ export function parseFrontmatter(text: string): ParsedFrontmatter {
 		}
 		data[key] = parseScalar(rest);
 		i += 1;
+	}
+
+	// A valid frontmatter block always yields at least one key. Zero keys means
+	// BLOCK_RE consumed body content up to a stray `---` (e.g. a horizontal
+	// rule). Reject so the body is not swallowed.
+	if (Object.keys(data).length === 0) {
+		return { data: {}, body: text };
 	}
 
 	return { data, body };

@@ -29,6 +29,8 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { CsvViewer } from "@/components/editor/csv-viewer";
 import { KBEditor } from "@/components/editor/editor";
@@ -56,6 +58,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { FrontmatterHeader } from "@/components/wiki/frontmatter-header";
 import { parseFrontmatter } from "@/lib/markdown/parse-frontmatter";
+import { previewSanitizeSchema } from "@/lib/markdown/sanitize-schema";
 import remarkWikilinks from "@/lib/markdown/remark-wikilinks";
 import { showError } from "@/lib/toast";
 import { cn } from "@/lib/utils";
@@ -1519,6 +1522,7 @@ export default function Page() {
 														/>
 														<ReactMarkdown
 															remarkPlugins={[remarkGfm, remarkWikilinks]}
+															rehypePlugins={[rehypeRaw, [rehypeSanitize, previewSanitizeSchema]]}
 															components={{
 																h1: ({ children }) => (
 																	<h1 className="text-2xl font-normal mt-6 mb-3 pb-1 border-b">
