@@ -11,6 +11,8 @@ import {
 	Code,
 	Italic,
 	Link as LinkIcon,
+	MessageCircle,
+	MessageSquarePlus,
 	Strikethrough,
 	Subscript as SubIcon,
 	Superscript as SuperIcon,
@@ -22,6 +24,10 @@ import { LinkPopover } from "./link-popover";
 
 interface Props {
 	editor: Editor | null;
+	/** Open the human "suggest edit" flow for the current selection's block. */
+	onSuggestEdit?: () => void;
+	/** Open a comment thread on the current selection's block. */
+	onComment?: () => void;
 }
 
 type OpenPopover =
@@ -34,7 +40,7 @@ type OpenPopover =
 			anchor: { top: number; left: number };
 	  };
 
-export function EditorBubbleMenu({ editor }: Props) {
+export function EditorBubbleMenu({ editor, onSuggestEdit, onComment }: Props) {
 	const [popover, setPopover] = useState<OpenPopover>(null);
 
 	useEffect(() => {
@@ -58,7 +64,7 @@ export function EditorBubbleMenu({ editor }: Props) {
 
 	const btn = (active: boolean) =>
 		cn(
-			"h-7 w-7 flex items-center justify-center rounded hover:bg-accent text-foreground/80 transition-colors",
+			"h-9 w-9 sm:h-7 sm:w-7 flex items-center justify-center rounded hover:bg-accent text-foreground/80 transition-colors",
 			active && "bg-accent text-foreground",
 		);
 
@@ -205,6 +211,39 @@ export function EditorBubbleMenu({ editor }: Props) {
 				>
 					<LinkIcon className="w-3.5 h-3.5" />
 				</button>
+				{(onSuggestEdit || onComment) && (
+					<div className="w-px h-5 bg-border mx-1" />
+				)}
+				{onComment && (
+					<button
+						type="button"
+						className={btn(false)}
+						onMouseDown={(e) => e.preventDefault()}
+						onClick={(e) => {
+							e.preventDefault();
+							onComment();
+						}}
+						aria-label="Comment"
+						title="Comment"
+					>
+						<MessageCircle className="w-3.5 h-3.5" />
+					</button>
+				)}
+				{onSuggestEdit && (
+					<button
+						type="button"
+						className={btn(false)}
+						onMouseDown={(e) => e.preventDefault()}
+						onClick={(e) => {
+							e.preventDefault();
+							onSuggestEdit();
+						}}
+						aria-label="Suggest edit"
+						title="Suggest edit"
+					>
+						<MessageSquarePlus className="w-3.5 h-3.5" />
+					</button>
+				)}
 				<div className="w-px h-5 bg-border mx-1" />
 				<div className="relative">
 					<button

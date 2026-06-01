@@ -113,6 +113,15 @@ function saveCachedPage(page: CachedPage) {
 
 export type LoadStatus = "idle" | "loading" | "ok" | "missing" | "error";
 
+/**
+ * Editor interaction mode.
+ * - "editing": human edits write directly to the file (full-file PUT).
+ * - "suggesting": human block edits are captured as suggestions (block ops,
+ *   by: "human") and the editor block reverts to the snapshot. The file is
+ *   not changed until a suggestion is accepted.
+ */
+export type EditMode = "editing" | "suggesting";
+
 interface EditorState {
 	currentPath: string | null;
 	content: string;
@@ -124,6 +133,8 @@ interface EditorState {
 	lastSavedAt: number | null;
 	/** Last confirmed revision from the server. null until first save/sync. */
 	currentRevision: number | null;
+	/** Current interaction mode. Persisted in localStorage. */
+	editMode: EditMode;
 
 	loadPage: (path: string) => Promise<void>;
 	updateContent: (content: string) => void;
@@ -133,6 +144,17 @@ interface EditorState {
 	clear: () => void;
 	/** Sync the known revision from an external source (e.g. proof-store snapshot). */
 	syncRevision: (revision: number) => void;
+	/** Switch interaction mode (editing | suggesting). */
+	setEditMode: (mode: EditMode) => void;
+}
+
+const EDIT_MODE_KEY = "kb-edit-mode";
+
+function loadEditMode(): EditMode {
+	if (typeof window === "undefined") return "editing";
+	return localStorage.getItem(EDIT_MODE_KEY) === "suggesting"
+		? "suggesting"
+		: "editing";
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -148,6 +170,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 	isLoading: false,
 	lastSavedAt: null,
 	currentRevision: null,
+	editMode: loadEditMode(),
+
+	setEditMode: (mode: EditMode) => {
+		if (typeof window !== "undefined") {
+			localStorage.setItem(EDIT_MODE_KEY, mode);
+		}
+		set({ editMode: mode });
+	},
 
 	loadPage: async (path: string) => {
 		const currentState = get();
@@ -208,6 +238,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 	},
 
 	updateContent: (content: string) => {
+		// In suggesting mode, human edits never write the file directly. They are
+		// captured as suggestions (block ops) and the editor reverts. Skip the
+		// dirty flag + autosave entirely so no full-file PUT is scheduled.
+		if (get().editMode === "suggesting") {
+			set({ content });
+			return;
+		}
 		set({ content, isDirty: true });
 
 		// Auto-save after 500 ms of inactivity.
@@ -230,8 +267,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 	},
 
 	save: async () => {
-		const { currentPath, content, isDirty, currentRevision } = get();
+		const { currentPath, content, isDirty, currentRevision, editMode } = get();
 		if (!currentPath || !isDirty) return;
+		// Suggesting mode must never write the file via full-file PUT.
+		if (editMode === "suggesting") return;
 
 		set({ saveStatus: "saving" });
 		try {

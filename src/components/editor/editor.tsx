@@ -13,6 +13,7 @@ import { useTreeStore } from "@/stores/tree-store";
 import { useWikiSlugsStore } from "@/stores/wiki-slugs-store";
 import type { TreeNode } from "@/types";
 import { useProofStore } from "@/stores/proof-store";
+import { captureSuggestion } from "@/lib/proof/suggest-capture";
 import { EditorBubbleMenu } from "./bubble-menu";
 import { EditorToolbar } from "./editor-toolbar";
 import { editorExtensions } from "./extensions";
@@ -21,6 +22,7 @@ import { CommentPip } from "./comment-pip";
 import { CommentThread } from "./comment-thread";
 import { ProofSpanPopover } from "./proof-span-popover";
 import { SuggestionCard } from "./suggestion-card";
+import { SuggestEditPopover } from "./suggest-edit-popover";
 import { SlashCommands } from "./slash-commands";
 import { TableMenu } from "./table-menu";
 import {
@@ -141,6 +143,8 @@ export function KBEditor() {
 		isLoading,
 		loadStatus,
 		createMissingPage,
+		editMode,
+		setEditMode,
 	} = useEditorStore();
 	const nodes = useTreeStore((s) => s.nodes);
 	const isRtl = frontmatter?.dir === "rtl";
@@ -226,20 +230,28 @@ export function KBEditor() {
 	>(new Map());
 
 	// Subscribe to snapshot data for suggestion cards.
-	const snapshotBlocks = useProofStore((s) =>
-		currentPath ? (s.byPath[currentPath]?.snapshotBlocks ?? []) : []
+	// NOTE: select the RAW stored references here — returning a freshly built
+	// array (e.g. `?? []` or `.filter(...)`) on every call makes
+	// useSyncExternalStore think the snapshot changed each render, which spins
+	// into a "Maximum update depth exceeded" loop. Derive defaults/filters below.
+	const snapshotBlocksRaw = useProofStore((s) =>
+		currentPath ? s.byPath[currentPath]?.snapshotBlocks : undefined
 	);
-	const pendingSuggestions = useProofStore((s) =>
-		currentPath
-			? (s.byPath[currentPath]?.sidecar?.suggestions.filter((sg) => sg.status === "pending") ?? [])
-			: []
+	const suggestionsRaw = useProofStore((s) =>
+		currentPath ? s.byPath[currentPath]?.sidecar?.suggestions : undefined
 	);
 	const snapshotRevision = useProofStore((s) =>
 		currentPath ? (s.byPath[currentPath]?.snapshotRevision ?? 0) : 0
 	);
+	const commentsRaw = useProofStore((s) =>
+		currentPath ? s.byPath[currentPath]?.sidecar?.comments : undefined
+	);
 
-	const comments = useProofStore((s) =>
-		currentPath ? (s.byPath[currentPath]?.sidecar?.comments ?? []) : []
+	const snapshotBlocks = useMemo(() => snapshotBlocksRaw ?? [], [snapshotBlocksRaw]);
+	const comments = useMemo(() => commentsRaw ?? [], [commentsRaw]);
+	const pendingSuggestions = useMemo(
+		() => suggestionsRaw?.filter((sg) => sg.status === "pending") ?? [],
+		[suggestionsRaw],
 	);
 
 	/** Group comments by block ref for pip rendering. */
@@ -253,6 +265,186 @@ export function KBEditor() {
 
 	/** Tracks which block's comment thread is open and its anchor element. */
 	const [threadTarget, setThreadTarget] = useState<{ blockRef: string; el: HTMLElement } | null>(null);
+
+	/** Tracks the open human "suggest edit" popover (block + anchor + content). */
+	const [suggestTarget, setSuggestTarget] = useState<
+		{ blockRef: string; markdown: string; anchor: { top: number; left: number } } | null
+	>(null);
+
+	/**
+	 * Resolve the current editor selection to a top-level block.
+	 *
+	 * Primary strategy: map the selection to its top-level ProseMirror child
+	 * INDEX, then look up snapshotBlocks[index] — the same index-based mapping
+	 * used by the position-tracker effect. This is robust even when the DOM
+	 * `data-block-ref` annotation has not been applied yet (e.g. snapshot still
+	 * loading), which previously made the suggest/comment buttons silently
+	 * no-op. Falls back to walking the DOM for an existing [data-block-ref].
+	 */
+	const resolveSelectionBlock = useCallback((): {
+		blockRef: string;
+		blockEl: HTMLElement;
+		markdown: string;
+	} | null => {
+		if (!editorRef.current) return null;
+		const view = editorRef.current.view;
+		const { from } = view.state.selection;
+		const path = useEditorStore.getState().currentPath ?? "";
+		const blocks = useProofStore.getState().byPath[path]?.snapshotBlocks ?? [];
+
+		// Find the top-level child index containing the selection head.
+		const $pos = view.state.doc.resolve(from);
+		const topIndex = $pos.depth > 0 ? $pos.index(0) : 0;
+
+		const proseMirror = scrollContainerRef.current?.querySelector(".ProseMirror");
+		const children = proseMirror
+			? (Array.from(proseMirror.children) as HTMLElement[])
+			: [];
+		const blockEl = children[topIndex] ?? null;
+
+		// Prefer the index-aligned snapshot block; fall back to the DOM attr.
+		const block = blocks[topIndex];
+		let blockRef: string | null =
+			block?.ref ?? blockEl?.getAttribute("data-block-ref") ?? null;
+		const markdown = block?.markdown ?? "";
+
+		if (!blockRef && blockEl) {
+			// Last-resort: DOM walk from selection anchor.
+			const domAt = view.domAtPos(from);
+			const node: HTMLElement | null =
+				domAt.node.nodeType === Node.ELEMENT_NODE
+					? (domAt.node as HTMLElement)
+					: domAt.node.parentElement;
+			const found = node?.closest<HTMLElement>("[data-block-ref]") ?? null;
+			blockRef = found?.getAttribute("data-block-ref") ?? null;
+		}
+
+		if (!blockRef || !blockEl) return null;
+		return { blockRef, blockEl, markdown };
+	}, []);
+
+	const openSuggestForSelection = useCallback(() => {
+		const resolved = resolveSelectionBlock();
+		if (!resolved) return;
+		const rect = resolved.blockEl.getBoundingClientRect();
+		setSuggestTarget({
+			blockRef: resolved.blockRef,
+			markdown: resolved.markdown,
+			anchor: { top: rect.bottom + 4, left: rect.left },
+		});
+	}, [resolveSelectionBlock]);
+
+	const openCommentForSelection = useCallback(() => {
+		const resolved = resolveSelectionBlock();
+		if (!resolved) return;
+		setThreadTarget({ blockRef: resolved.blockRef, el: resolved.blockEl });
+	}, [resolveSelectionBlock]);
+
+	// ── Suggesting mode: capture human block edits as suggestions ──────────────
+	//
+	// In suggesting mode the editor stays editable but edits never touch the
+	// file. On flush (leaving a block or blurring the editor) we diff each
+	// top-level block against the snapshot, emit a human `suggestion.add` for
+	// every changed/added/removed block, then revert the editor to the snapshot
+	// so the pending suggestion cards render over the original content.
+
+	/** Set true whenever the user edits while in suggesting mode. */
+	const suggestDirtyRef = useRef(false);
+	/** Guards against re-entrant flushes (capture is async). */
+	const flushingRef = useRef(false);
+	/** Top-level block index that currently holds the selection. */
+	const activeBlockIndexRef = useRef<number | null>(null);
+
+	const normalizeMd = (s: string): string => s.replace(/\s+$/g, "").trimStart();
+
+	const flushSuggestions = useCallback(async () => {
+		if (flushingRef.current) return;
+		if (useEditorStore.getState().editMode !== "suggesting") return;
+		if (!suggestDirtyRef.current) return;
+		const ed = editorRef.current;
+		const path = useEditorStore.getState().currentPath;
+		if (!ed || !path) return;
+
+		const proseMirror = scrollContainerRef.current?.querySelector(".ProseMirror");
+		if (!proseMirror) return;
+		const children = Array.from(proseMirror.children) as HTMLElement[];
+		const snapBlocks =
+			useProofStore.getState().byPath[path]?.snapshotBlocks ?? [];
+		if (snapBlocks.length === 0) return;
+
+		flushingRef.current = true;
+		suggestDirtyRef.current = false;
+		try {
+			const getRevision = () =>
+				useProofStore.getState().byPath[path]?.snapshotRevision ?? 0;
+			const refresh = async () => {
+				await useProofStore.getState().loadSnapshot(path);
+				await useProofStore.getState().loadSidecar(path);
+			};
+
+			const count = Math.max(children.length, snapBlocks.length);
+			let captured = false;
+			for (let i = 0; i < count; i++) {
+				const el = children[i];
+				const snap = snapBlocks[i];
+				const curMd = el ? htmlToMarkdown(el.outerHTML).trim() : null;
+
+				if (snap && curMd !== null) {
+					if (normalizeMd(curMd) !== normalizeMd(snap.markdown)) {
+						const ok = await captureSuggestion({
+							path,
+							ref: snap.ref,
+							kind: "replace",
+							markdown: curMd,
+							getRevision,
+							refresh,
+						});
+						captured = captured || ok;
+					}
+				} else if (snap && curMd === null) {
+					const ok = await captureSuggestion({
+						path,
+						ref: snap.ref,
+						kind: "delete",
+						getRevision,
+						refresh,
+					});
+					captured = captured || ok;
+				} else if (!snap && curMd !== null && curMd.length > 0) {
+					// New trailing block: suggest inserting after the last known block.
+					const lastRef = snapBlocks[snapBlocks.length - 1]?.ref;
+					if (lastRef) {
+						const ok = await captureSuggestion({
+							path,
+							ref: lastRef,
+							kind: "insertAfter",
+							markdown: curMd,
+							getRevision,
+							refresh,
+						});
+						captured = captured || ok;
+					}
+				}
+			}
+
+			if (captured) {
+				// Reload sidecar so the new pending suggestion cards appear, then
+				// revert the editor to the snapshot (file unchanged).
+				await refresh();
+				const freshSnap =
+					useProofStore.getState().byPath[path]?.snapshotBlocks ?? snapBlocks;
+				const snapshotMarkdown = freshSnap.map((b) => b.markdown).join("\n\n");
+				isLoadingRef.current = true;
+				const html = await markdownToHtml(snapshotMarkdown, path);
+				ed.commands.setContent(html);
+				setTimeout(() => {
+					isLoadingRef.current = false;
+				}, 50);
+			}
+		} finally {
+			flushingRef.current = false;
+		}
+	}, []);
 
 	// Load snapshot (ordered block list) when path changes so suggestion cards
 	// can look up block content by ref.
@@ -295,6 +487,12 @@ export function KBEditor() {
 	const handleUpdate = useCallback(
 		({ editor }: { editor: ReturnType<typeof useEditor> }) => {
 			if (isLoadingRef.current || !editor) return;
+			// In suggesting mode, mark the edit dirty so the next block-change or
+			// blur flushes it into suggestions. Still push content to the store so
+			// the store guard (no autosave in suggesting mode) keeps it in sync.
+			if (useEditorStore.getState().editMode === "suggesting") {
+				suggestDirtyRef.current = true;
+			}
 			const html = editor.getHTML();
 			const md = htmlToMarkdown(html);
 			useEditorStore.getState().updateContent(md);
@@ -306,6 +504,21 @@ export function KBEditor() {
 		extensions: editorExtensions,
 		content: "",
 		onUpdate: handleUpdate,
+		onBlur: () => {
+			void flushSuggestions();
+		},
+		onSelectionUpdate: ({ editor: ed }) => {
+			if (useEditorStore.getState().editMode !== "suggesting") return;
+			const { from } = ed.state.selection;
+			const $pos = ed.state.doc.resolve(from);
+			const idx = $pos.depth > 0 ? $pos.index(0) : 0;
+			const prev = activeBlockIndexRef.current;
+			activeBlockIndexRef.current = idx;
+			// Moved to a different top-level block — flush edits to the prior one.
+			if (prev !== null && prev !== idx && suggestDirtyRef.current) {
+				void flushSuggestions();
+			}
+		},
 		editorProps: {
 			attributes: {
 				class:
@@ -472,6 +685,10 @@ export function KBEditor() {
 		},
 		immediatelyRender: false,
 	});
+
+	// Stable ref to the editor so callbacks with empty deps reach the live instance.
+	const editorRef = useRef<typeof editor>(editor);
+	editorRef.current = editor;
 
 	// When content updates from store (after loadPage), set it in editor
 	const prevPathRef = useRef<string | null>(null);
@@ -688,9 +905,16 @@ export function KBEditor() {
 							</div>
 						) : (
 							<div className="flex-1 relative" dir={isRtl ? "rtl" : undefined}>
+								{editMode === "suggesting" && (
+									<div className="absolute top-0 inset-x-0 z-20 flex items-center justify-center gap-2 px-3 py-1 bg-primary/10 border-b border-primary/20 text-[11px] text-primary pointer-events-none">
+										Suggesting mode · your edits become suggestions for review
+									</div>
+								)}
 								<div
 									ref={scrollContainerRef}
-									className="absolute inset-0 overflow-y-auto"
+									className={`absolute inset-0 overflow-y-auto ${
+										editMode === "suggesting" ? "pt-7" : ""
+								}`}
 									data-editor-scroll
 								>
 									{/* Absolutely-positioned overlay for comment pips and suggestion cards.
@@ -766,6 +990,17 @@ export function KBEditor() {
 										/>
 									)}
 
+									{/* Human suggest-edit popover — driven by suggestTarget */}
+									{suggestTarget && currentPath && (
+										<SuggestEditPopover
+											path={currentPath}
+											blockRef={suggestTarget.blockRef}
+											currentMarkdown={suggestTarget.markdown}
+											anchor={suggestTarget.anchor}
+											onClose={() => setSuggestTarget(null)}
+										/>
+									)}
+
 									<EditorContent editor={editor} />
 									{/* Proof-span hover delegation */}
 									<div
@@ -794,7 +1029,11 @@ export function KBEditor() {
 											}}
 										/>
 									)}
-									<EditorBubbleMenu editor={editor} />
+									<EditorBubbleMenu
+										editor={editor}
+										onSuggestEdit={openSuggestForSelection}
+										onComment={openCommentForSelection}
+									/>
 									<TableMenu editor={editor} />
 									<SlashCommands editor={editor} />
 									<WikiLinkPicker
@@ -844,11 +1083,46 @@ export function KBEditor() {
 								</kbd>{" "}
 								commands
 							</span>
-							<span>
-								{saveStatus === "saving" && "Saving..."}
-								{saveStatus === "saved" && "Saved"}
-								{saveStatus === "error" && "Save failed"}
-							</span>
+							<div className="flex items-center gap-3">
+								{/* Mode toggle */}
+								<div
+									className="flex items-center rounded-md border border-border overflow-hidden text-[10.5px]"
+									role="radiogroup"
+									aria-label="Edit mode"
+								>
+									<button
+										type="button"
+										role="radio"
+										aria-checked={editMode === "editing"}
+										onClick={() => setEditMode("editing")}
+										className={`px-2 py-0.5 transition-colors ${
+											editMode === "editing"
+												? "bg-primary text-primary-foreground"
+												: "text-muted-foreground hover:bg-accent"
+										}`}
+									>
+										Editing
+									</button>
+									<button
+										type="button"
+										role="radio"
+										aria-checked={editMode === "suggesting"}
+										onClick={() => setEditMode("suggesting")}
+										className={`px-2 py-0.5 transition-colors ${
+											editMode === "suggesting"
+												? "bg-primary text-primary-foreground"
+												: "text-muted-foreground hover:bg-accent"
+										}`}
+									>
+										Suggesting
+									</button>
+								</div>
+								<span>
+									{saveStatus === "saving" && "Saving..."}
+									{saveStatus === "saved" && "Saved"}
+									{saveStatus === "error" && "Save failed"}
+								</span>
+							</div>
 						</div>
 					</>
 				)}
