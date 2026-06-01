@@ -754,3 +754,33 @@ proof-span.proof-span:hover,
 		rgba(165, 180, 252, 0)
 	);
 }
+
+/* Read-only markdown viewer code styling */
+.md-pre {
+	background: var(--muted);
+	color: var(--foreground);
+	padding: 0.75rem 0.9rem;
+	border-radius: calc(var(--radius) * 2);
+	overflow-x: auto;
+	font-size: 0.8125rem;
+	line-height: 1.55;
+	margin: 0.75rem 0;
+}
+.md-pre .md-code,
+.md-pre code {
+	background: transparent;
+	color: inherit;
+	padding: 0;
+	border-radius: 0;
+	font-size: inherit;
+	white-space: pre;
+	display: block;
+}
+.md-code {
+	background: var(--muted);
+	color: var(--foreground);
+	padding: 0.1rem 0.3rem;
+	border-radius: var(--radius);
+	font-size: 0.85em;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}

@@ -7,6 +7,7 @@ import {
 	ChevronDown,
 	ChevronRight,
 	File,
+	FilePlus,
 	FileText,
 	Folder,
 	FolderOpen,
@@ -131,9 +132,21 @@ function viewerKindFor(
 	return "fallback";
 }
 
+const TEXT_EDITABLE_EXTS = new Set([
+	"txt", "md", "markdown", "json", "yaml", "yml", "toml", "csv", "tsv",
+	"xml", "html", "css", "js", "ts", "tsx", "jsx", "sh", "bash", "zsh",
+	"rb", "py", "go", "rs", "java", "c", "cpp", "h", "php", "swift", "kt",
+	"lua", "sql", "scss", "mmd", "mermaid", "ini", "env", "log", "conf",
+]);
+
 function isText(name: string) {
 	const kind = viewerKindFor(name, "file");
-	return kind === "editor" || kind === "text";
+	if (kind === "editor" || kind === "text") return true;
+	return TEXT_EDITABLE_EXTS.has(ext(name));
+}
+
+function isMarkdown(name: string) {
+	return ["md", "markdown"].includes(ext(name));
 }
 function isImage(name: string) {
 	return viewerKindFor(name, "file") === "image";
@@ -221,6 +234,10 @@ export default function Page() {
 	const [newFolderParent, setNewFolderParent] = useState<string | null>(null);
 	const [newFolderName, setNewFolderName] = useState("");
 	const [folderError, setFolderError] = useState<string | null>(null);
+
+	const [newFileParent, setNewFileParent] = useState<string | null>(null);
+	const [newFileName, setNewFileName] = useState("");
+	const [fileCreateError, setFileCreateError] = useState<string | null>(null);
 
 	const [deletingPath, setDeletingPath] = useState<string | null>(null);
 	const [deletingIsDir, setDeletingIsDir] = useState(false);
@@ -316,7 +333,7 @@ export default function Page() {
 	const refreshViewer = useCallback(async () => {
 		if (!openFile) return;
 		const kind = viewerKindFor(openFile.name, openFile.nodeType);
-		if (!["editor", "text"].includes(kind)) return;
+		if (!["editor", "text"].includes(kind) && !isText(openFile.name)) return;
 		setFileLoading(true);
 		try {
 			const res = await fetch(
@@ -451,7 +468,7 @@ export default function Page() {
 		setSaveError(null);
 		setFileContent(null);
 		const kind = viewerKindFor(node.name, node.type);
-		if (!["editor", "text"].includes(kind)) return;
+		if (!["editor", "text"].includes(kind) && !isText(node.name)) return;
 		setFileLoading(true);
 		try {
 			const res = await fetch(
@@ -570,6 +587,39 @@ export default function Page() {
 		} else {
 			const e: { error?: string } = await res.json();
 			setFolderError(e.error ?? "Failed");
+		}
+	}
+
+	async function handleCreateFile() {
+		const raw = newFileName.trim();
+		if (!raw || newFileParent === null) return;
+		setFileCreateError(null);
+		const name = raw.includes(".") ? raw : `${raw}.md`;
+		const rel = newFileParent ? `${newFileParent}/${name}` : name;
+		const res = await fetch("/api/wiki/new-file", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ path: rel }),
+		});
+		if (res.ok) {
+			const parent = newFileParent;
+			setNewFileParent(null);
+			setNewFileName("");
+			await reloadDir(parent);
+			if (parent !== "") {
+				setRoots((prev) =>
+					updateNodes(prev, parent, (n) => ({ ...n, expanded: true })),
+				);
+			}
+			void openViewer({
+				path: rel,
+				name,
+				type: "file",
+				modifiedAt: new Date().toISOString(),
+			} as TreeNode);
+		} else {
+			const e: { error?: string } = await res.json();
+			setFileCreateError(e.error ?? "Failed");
 		}
 	}
 
@@ -742,6 +792,20 @@ export default function Page() {
 									size="sm"
 									variant="ghost"
 									className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+									title="New file here (default .md)"
+									onClick={async () => {
+										if (!node.expanded) await toggleFolder(node);
+										setNewFileParent(node.path);
+										setNewFileName("");
+										setFileCreateError(null);
+									}}
+								>
+									<FilePlus className="h-3 w-3" />
+								</Button>
+								<Button
+									size="sm"
+									variant="ghost"
+									className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
 									title="Upload here"
 									onClick={() => triggerUpload(node.path)}
 								>
@@ -815,6 +879,52 @@ export default function Page() {
 							onClick={() => {
 								setNewFolderParent(null);
 								setNewFolderName("");
+							}}
+						>
+							<X className="h-3 w-3" />
+						</Button>
+					</div>
+				)}
+
+				{newFileParent === node.path && node.type === "dir" && (
+					<div
+						className="flex items-center gap-1.5 px-2 py-1"
+						style={{ paddingLeft: `${(depth + 1) * 14 + 8}px` }}
+					>
+						<span className="w-3.5 shrink-0" />
+						<FileText className="h-4 w-4 shrink-0 text-accent" />
+						<input
+							autoFocus
+							className="flex-1 bg-transparent text-sm outline-none border-b border-border min-w-0"
+							placeholder="filename (default .md)"
+							value={newFileName}
+							onChange={(e) => setNewFileName(e.target.value)}
+							onKeyDown={(e) => {
+								if (e.key === "Enter") handleCreateFile();
+								if (e.key === "Escape") {
+									setNewFileParent(null);
+									setNewFileName("");
+								}
+							}}
+						/>
+						{fileCreateError && (
+							<span className="text-xs text-destructive">{fileCreateError}</span>
+						)}
+						<Button
+							size="sm"
+							variant="ghost"
+							className="h-6 w-6 p-0"
+							onClick={handleCreateFile}
+						>
+							<Check className="h-3 w-3" />
+						</Button>
+						<Button
+							size="sm"
+							variant="ghost"
+							className="h-6 w-6 p-0"
+							onClick={() => {
+								setNewFileParent(null);
+								setNewFileName("");
 							}}
 						>
 							<X className="h-3 w-3" />
@@ -972,6 +1082,48 @@ export default function Page() {
 								onClick={() => {
 									setNewFolderParent(null);
 									setNewFolderName("");
+								}}
+							>
+								<X className="h-3 w-3" />
+							</Button>
+						</div>
+					)}
+
+					{newFileParent === "" && (
+						<div className="flex items-center gap-1.5 px-2 py-1 border-b shrink-0">
+							<FileText className="h-4 w-4 shrink-0 text-accent" />
+							<input
+								autoFocus
+								className="flex-1 bg-transparent text-sm outline-none border-b border-border min-w-0"
+								placeholder="filename (default .md)"
+								value={newFileName}
+								onChange={(e) => setNewFileName(e.target.value)}
+								onKeyDown={(e) => {
+									if (e.key === "Enter") handleCreateFile();
+									if (e.key === "Escape") {
+										setNewFileParent(null);
+										setNewFileName("");
+									}
+								}}
+							/>
+							{fileCreateError && (
+								<span className="text-xs text-destructive">{fileCreateError}</span>
+							)}
+							<Button
+								size="sm"
+								variant="ghost"
+								className="h-6 w-6 p-0"
+								onClick={handleCreateFile}
+							>
+								<Check className="h-3 w-3" />
+							</Button>
+							<Button
+								size="sm"
+								variant="ghost"
+								className="h-6 w-6 p-0"
+								onClick={() => {
+									setNewFileParent(null);
+									setNewFileName("");
 								}}
 							>
 								<X className="h-3 w-3" />
@@ -1156,9 +1308,11 @@ export default function Page() {
 													setEditing(true);
 													setEditContent(fileContent);
 													setSaveError(null);
-													void useEditorStore
-														.getState()
-														.loadPage(openFile.path);
+													if (isMarkdown(openFile.name)) {
+														void useEditorStore
+															.getState()
+															.loadPage(openFile.path);
+													}
 												}}
 											>
 												<Pencil className="h-3.5 w-3.5" />
@@ -1199,7 +1353,16 @@ export default function Page() {
 
 							{editing ? (
 								<div className="flex-1 flex flex-col overflow-hidden min-h-0">
-									<KBEditor />
+									{isMarkdown(openFile.name) ? (
+										<KBEditor />
+									) : (
+										<textarea
+											value={editContent}
+											onChange={(e) => setEditContent(e.target.value)}
+											spellCheck={false}
+											className="flex-1 w-full min-h-0 resize-none bg-background text-foreground px-4 py-3 font-mono text-[13px] leading-relaxed outline-none border-0"
+										/>
+									)}
 								</div>
 							) : (
 								<div className="flex-1 overflow-auto p-4 min-h-0">
@@ -1308,27 +1471,16 @@ export default function Page() {
 																		{children}
 																	</blockquote>
 																),
-																code: ({ className, children, ...props }) => {
-																	const isBlock =
-																		className?.includes("language-");
-																	return isBlock ? (
-																		<code
-																			className={`block bg-muted rounded-sm px-3 py-2 text-xs font-mono overflow-x-auto my-3 ${className ?? ""}`}
-																			{...props}
-																		>
-																			{children}
-																		</code>
-																	) : (
-																		<code
-																			className="bg-muted rounded-sm px-1 py-0.5 text-xs font-mono"
-																			{...props}
-																		>
-																			{children}
-																		</code>
-																	);
-																},
+																code: ({ className, children, ...props }) => (
+																	<code
+																		className={`md-code ${className ?? ""}`.trim()}
+																		{...props}
+																	>
+																		{children}
+																	</code>
+																),
 																pre: ({ children }) => (
-																	<pre className="my-3 overflow-x-auto">
+																	<pre className="md-pre">
 																		{children}
 																	</pre>
 																),

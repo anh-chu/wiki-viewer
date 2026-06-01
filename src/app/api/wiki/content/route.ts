@@ -11,10 +11,11 @@ import { SIDECAR_EVENT_TRIM_SIZE } from "@/lib/proof-config";
 import { getRootDir, safeRootPath } from "@/lib/root-dir";
 
 const TEXT_EXTS = new Set([
-	"txt", "md", "markdown", "json", "yaml", "yml", "toml", "csv",
+	"txt", "md", "markdown", "json", "yaml", "yml", "toml", "csv", "tsv",
 	"xml", "html", "css", "js", "ts", "tsx", "jsx", "sh", "bash",
 	"zsh", "rb", "py", "go", "rs", "java", "c", "cpp", "h", "php",
-	"swift", "kt", "lua", "sql", "scss",
+	"swift", "kt", "lua", "sql", "scss", "mmd", "mermaid", "ini",
+	"env", "log", "conf",
 ]);
 const MARKDOWN_EXTS = new Set(["md", "markdown"]);
 const MAX_EDIT_SIZE = 1 * 1024 * 1024; // 1MB
