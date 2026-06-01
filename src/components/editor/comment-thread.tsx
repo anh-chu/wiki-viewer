@@ -177,8 +177,9 @@ export function CommentThread({ path, blockRef, comments, anchorEl, onClose }: P
 					side="bottom"
 					align="start"
 					sideOffset={4}
+					collisionPadding={8}
 					onInteractOutside={onClose}
-					className="z-50 w-72 bg-popover border border-border rounded-lg shadow-xl p-3 space-y-2 text-[12px] focus:outline-none"
+					className="z-50 w-[min(18rem,calc(100vw-1rem))] bg-popover border border-border rounded-lg shadow-xl p-3 space-y-2 text-[12px] focus:outline-none"
 				>
 					{/* Header */}
 					<div className="flex items-center justify-between">

@@ -110,8 +110,9 @@ export function ProofSpanPopover({ targetEl, path, onClose, onComment }: Props) 
 					side="bottom"
 					align="start"
 					sideOffset={4}
+					collisionPadding={8}
 					onInteractOutside={onClose}
-					className="z-50 w-64 bg-popover border border-border rounded-lg shadow-xl p-3 space-y-2 text-[12px] focus:outline-none"
+					className="z-50 w-[min(16rem,calc(100vw-1rem))] bg-popover border border-border rounded-lg shadow-xl p-3 space-y-2 text-[12px] focus:outline-none"
 				>
 					<div className="space-y-0.5">
 						<p className="font-medium text-foreground truncate">

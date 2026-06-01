@@ -39,7 +39,7 @@ export function CommentPip({ blockRef, comments, top, left, onClick }: Props) {
 				left,
 				transform: "translateY(2px)",
 			}}
-			className="z-10 p-0.5 rounded transition-colors hover:bg-accent focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+			className="z-10 p-2 sm:p-0.5 -m-1.5 sm:m-0 rounded transition-colors hover:bg-accent focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
 			aria-label={`Comment thread for block ${blockRef}`}
 		>
 			{variant === "check" && (
