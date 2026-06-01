@@ -19,6 +19,7 @@ import {
 	PanelLeftClose,
 	PanelLeftOpen,
 	Pencil,
+	Plus,
 	RefreshCw,
 	Terminal,
 	Trash2,
@@ -44,6 +45,12 @@ import { SourceViewer } from "@/components/editor/source-viewer";
 import { WebsiteViewer } from "@/components/editor/website-viewer";
 import { NodeAppViewer } from "@/components/editor/node-app-viewer";
 import { DirPicker } from "@/components/dir-picker";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -972,12 +979,76 @@ export default function Page() {
 			{/* Tree sidebar */}
 			{!sidebarCollapsed && (
 				<Card className="flex flex-col w-72 shrink-0 overflow-hidden rounded-none border-r border-l-0 border-t-0 border-b-0">
-					<div className="flex items-center justify-between px-3 py-2 border-b bg-muted shrink-0">
-						<div className="flex items-center gap-1.5">
-							<img src="/logo.svg" alt="Wiki Viewer" className="h-5 w-5" />
-							<span className="text-xs font-semibold tracking-tight">Wiki Viewer</span>
+					{/* Row 1: brand + collapse */}
+					<div className="flex items-center justify-between gap-2 px-3 py-2 border-b bg-muted shrink-0">
+						<div className="flex min-w-0 items-center gap-1.5">
+							<img src="/logo.svg" alt="Wiki Viewer" className="h-5 w-5 shrink-0" />
+							<span className="truncate text-xs font-semibold tracking-tight">
+								Wiki Viewer
+							</span>
 						</div>
-						<div className="flex items-center gap-1">
+						<Button
+							size="sm"
+							variant="ghost"
+							className="h-7 w-7 p-0 shrink-0"
+							title="Collapse sidebar"
+							onClick={() => setSidebarCollapsed(true)}
+						>
+							<PanelLeftClose className="h-3.5 w-3.5" />
+						</Button>
+					</div>
+
+					{/* Row 2: actions toolbar */}
+					<div className="flex items-center justify-between gap-1 px-3 py-1.5 border-b bg-muted/50 shrink-0">
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<Button
+									size="sm"
+									variant="ghost"
+									className="h-7 gap-1 px-2 text-xs"
+									disabled={uploading}
+								>
+									{uploading ? (
+										<Loader2 className="h-3.5 w-3.5 animate-spin" />
+									) : (
+										<Plus className="h-3.5 w-3.5" />
+									)}
+									New
+									<ChevronDown className="h-3 w-3 opacity-60" />
+								</Button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="start" className="w-44">
+								<DropdownMenuItem
+									onClick={() => {
+										setNewFileParent("");
+										setNewFileName("");
+										setFileCreateError(null);
+									}}
+								>
+									<FilePlus className="mr-2 h-3.5 w-3.5" />
+									New file
+								</DropdownMenuItem>
+								<DropdownMenuItem
+									onClick={() => {
+										setNewFolderParent("");
+										setNewFolderName("");
+										setFolderError(null);
+									}}
+								>
+									<FolderPlus className="mr-2 h-3.5 w-3.5" />
+									New folder
+								</DropdownMenuItem>
+								<DropdownMenuItem
+									onClick={() => triggerUpload("")}
+									disabled={uploading}
+								>
+									<Upload className="mr-2 h-3.5 w-3.5" />
+									Upload
+								</DropdownMenuItem>
+							</DropdownMenuContent>
+						</DropdownMenu>
+
+						<div className="flex items-center gap-0.5">
 							<Button
 								size="sm"
 								variant="ghost"
@@ -992,33 +1063,6 @@ export default function Page() {
 									<RefreshCw className="h-3.5 w-3.5" />
 								)}
 							</Button>
-							<Button
-								size="sm"
-								variant="ghost"
-								className="h-7 w-7 p-0"
-								title="New root folder"
-								onClick={() => {
-									setNewFolderParent("");
-									setNewFolderName("");
-									setFolderError(null);
-								}}
-							>
-								<FolderPlus className="h-3.5 w-3.5" />
-							</Button>
-							<Button
-								size="sm"
-								variant="ghost"
-								className="h-7 w-7 p-0"
-								title="Upload to root"
-								onClick={() => triggerUpload("")}
-								disabled={uploading}
-							>
-								{uploading ? (
-									<Loader2 className="h-3.5 w-3.5 animate-spin" />
-								) : (
-									<Upload className="h-3.5 w-3.5" />
-								)}
-							</Button>
 							<ThemeToggle />
 							<Button
 								size="sm"
@@ -1028,15 +1072,6 @@ export default function Page() {
 								onClick={() => useAIPanelStore.getState().toggle()}
 							>
 								<Bot className="h-3.5 w-3.5" />
-							</Button>
-							<Button
-								size="sm"
-								variant="ghost"
-								className="h-7 w-7 p-0"
-								title="Collapse sidebar"
-								onClick={() => setSidebarCollapsed(true)}
-							>
-								<PanelLeftClose className="h-3.5 w-3.5" />
 							</Button>
 						</div>
 					</div>
