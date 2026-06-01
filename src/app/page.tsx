@@ -1276,6 +1276,23 @@ export default function Page() {
 											</span>
 										</div>
 										<div className="flex items-center gap-1 shrink-0">
+											{openFileViewerKind === "html" &&
+												!editing &&
+												fileContent !== null && (
+													<Button
+														size="sm"
+														variant="ghost"
+														className="h-7 w-7 p-0"
+														title="Edit source"
+														onClick={() => {
+															setEditing(true);
+															setEditContent(fileContent);
+															setSaveError(null);
+														}}
+													>
+														<Pencil className="h-3.5 w-3.5" />
+													</Button>
+												)}
 											<Button
 												size="sm"
 												variant="ghost"
@@ -1298,18 +1315,60 @@ export default function Page() {
 												size="sm"
 												variant="ghost"
 												className="h-7 w-7 p-0"
-												onClick={() => setOpenFile(null)}
+												onClick={() => {
+													setOpenFile(null);
+													setEditing(false);
+												}}
 											>
 												<X className="h-3.5 w-3.5" />
 											</Button>
 										</div>
 									</div>
-									<WebsiteViewer
-										key={appKey}
-										path={openFile.path}
-										title={openFile.name}
-										src={websiteSrc}
-									/>
+									{editing && openFileViewerKind === "html" ? (
+										<div className="flex-1 flex flex-col overflow-hidden min-h-0">
+											<textarea
+												value={editContent}
+												onChange={(e) => setEditContent(e.target.value)}
+												spellCheck={false}
+												className="flex-1 w-full min-h-0 resize-none bg-background text-foreground px-4 py-3 font-mono text-[13px] leading-relaxed outline-none border-0"
+											/>
+											<div className="border-t px-4 py-2 flex items-center justify-end gap-2 bg-muted shrink-0">
+												{saveError && (
+													<span className="text-xs text-destructive mr-auto">
+														{saveError}
+													</span>
+												)}
+												<Button
+													size="sm"
+													variant="ghost"
+													onClick={() => {
+														setEditing(false);
+														setSaveError(null);
+													}}
+												>
+													Cancel
+												</Button>
+												<Button
+													size="sm"
+													className="gap-1"
+													onClick={handleSave}
+													disabled={saving}
+												>
+													{saving && (
+														<Loader2 className="h-3 w-3 animate-spin" />
+													)}
+													Save
+												</Button>
+											</div>
+										</div>
+									) : (
+										<WebsiteViewer
+											key={appKey}
+											path={openFile.path}
+											title={openFile.name}
+											src={websiteSrc}
+										/>
+									)}
 								</div>
 							);
 						})()
