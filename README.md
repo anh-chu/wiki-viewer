@@ -139,11 +139,11 @@ Do not place wiki-viewer behind a reverse proxy that rewrites `Host`. The Origin
 
 ### Rate limits
 
-| Endpoint            | Default                  |
-| ------------------- | ------------------------ |
-| `/sign-in/email`    | 20 requests / 60 seconds |
-| `/sign-up/email`    | 10 requests / 60 seconds |
-| Other auth routes   | 100 requests / 60 seconds |
+| Endpoint          | Default                   |
+| ----------------- | ------------------------- |
+| `/sign-in/email`  | 20 requests / 60 seconds  |
+| `/sign-up/email`  | 10 requests / 60 seconds  |
+| Other auth routes | 100 requests / 60 seconds |
 
 Rate limiting is disabled in development (`NODE_ENV !== "production"`).
 
@@ -236,13 +236,13 @@ Anonymous:
 
 Owner-only (session cookie):
 
-| Method | Path                                             | Description                  |
-| ------ | ------------------------------------------------ | ---------------------------- |
-| `GET`  | `/api/agent/admin/registrations`                 | List pending registrations.  |
-| `POST` | `/api/agent/admin/registrations/<regId>/approve` | Approve, mint token.         |
-| `POST` | `/api/agent/admin/registrations/<regId>/deny`    | Deny.                        |
-| `GET`  | `/api/agent/admin/agents`                        | List your approved agents.   |
-| `POST` | `/api/agent/admin/agents/<id>/revoke`            | Revoke an agent.             |
+| Method | Path                                             | Description                 |
+| ------ | ------------------------------------------------ | --------------------------- |
+| `GET`  | `/api/agent/admin/registrations`                 | List pending registrations. |
+| `POST` | `/api/agent/admin/registrations/<regId>/approve` | Approve, mint token.        |
+| `POST` | `/api/agent/admin/registrations/<regId>/deny`    | Deny.                       |
+| `GET`  | `/api/agent/admin/agents`                        | List your approved agents.  |
+| `POST` | `/api/agent/admin/agents/<id>/revoke`            | Revoke an agent.            |
 
 Agent routes (bearer + `X-Agent-Id`, scope-checked):
 
@@ -331,31 +331,31 @@ The dev server supports hot reload.
 
 ### Scripts
 
-| Command          | Description                              |
-| ---------------- | ---------------------------------------- |
-| `pnpm dev`       | Next.js development server               |
-| `pnpm dev:https` | Dev server with experimental HTTPS       |
-| `pnpm build`     | Production build                         |
-| `pnpm start`     | Production server (after `build`)        |
-| `pnpm wiki`      | CLI entry point (after `build`)          |
-| `pnpm test`      | Run the proof + auth test suite (180+)   |
+| Command          | Description                            |
+| ---------------- | -------------------------------------- |
+| `pnpm dev`       | Next.js development server             |
+| `pnpm dev:https` | Dev server with experimental HTTPS     |
+| `pnpm build`     | Production build                       |
+| `pnpm start`     | Production server (after `build`)      |
+| `pnpm wiki`      | CLI entry point (after `build`)        |
+| `pnpm test`      | Run the proof + auth test suite (180+) |
 
 ### All environment variables
 
-| Variable                  | Description                                                              | Default               |
-| ------------------------- | ------------------------------------------------------------------------ | --------------------- |
-| `ROOT_DIR`                | Directory to serve                                                       | `~/wiki-viewer-files` |
-| `PORT`                    | Port to listen on                                                        | `3000`                |
-| `HOSTNAME`                | Host / interface to bind                                                 | `localhost`           |
-| `BETTER_AUTH_URL`         | Public origin (required in production, must be `https://`)               | unset                 |
-| `BETTER_AUTH_SECRET`      | Override for the auto-generated session signing secret                   | file-stored           |
-| `GOOGLE_CLIENT_ID`        | Enable Google OAuth button                                               | unset                 |
-| `GOOGLE_CLIENT_SECRET`    | Enable Google OAuth button                                               | unset                 |
-| `AUTH_ALLOWED_EMAILS`     | csv: only these emails can sign up                                       | unset (open)          |
-| `AUTH_ALLOWED_DOMAIN`     | csv: only emails on these domains can sign up                            | unset (open)          |
-| `WIKI_OWNER_HOSTS`        | csv: extra hostnames trusted for CSRF Origin check                       | `localhost,127.0.0.1` |
-| `WIKI_ALLOW_INSECURE`     | Set to `1` to bypass the prod-https guard (dev / CI only)                | unset                 |
-| `AGENT_RATE_LIMIT`        | Max mutation ops per minute per agent identity                           | `60`                  |
+| Variable               | Description                                                | Default               |
+| ---------------------- | ---------------------------------------------------------- | --------------------- |
+| `ROOT_DIR`             | Directory to serve                                         | `~/wiki-viewer-files` |
+| `PORT`                 | Port to listen on                                          | `3000`                |
+| `HOSTNAME`             | Host / interface to bind                                   | `localhost`           |
+| `BETTER_AUTH_URL`      | Public origin (required in production, must be `https://`) | unset                 |
+| `BETTER_AUTH_SECRET`   | Override for the auto-generated session signing secret     | file-stored           |
+| `GOOGLE_CLIENT_ID`     | Enable Google OAuth button                                 | unset                 |
+| `GOOGLE_CLIENT_SECRET` | Enable Google OAuth button                                 | unset                 |
+| `AUTH_ALLOWED_EMAILS`  | csv: only these emails can sign up                         | unset (open)          |
+| `AUTH_ALLOWED_DOMAIN`  | csv: only emails on these domains can sign up              | unset (open)          |
+| `WIKI_OWNER_HOSTS`     | csv: extra hostnames trusted for CSRF Origin check         | `localhost,127.0.0.1` |
+| `WIKI_ALLOW_INSECURE`  | Set to `1` to bypass the prod-https guard (dev / CI only)  | unset                 |
+| `AGENT_RATE_LIMIT`     | Max mutation ops per minute per agent identity             | `60`                  |
 
 ---
 
