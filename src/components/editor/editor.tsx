@@ -184,6 +184,44 @@ export function KBEditor() {
 		void useProofStore.getState().loadSidecar(currentPath);
 	}, [currentPath]);
 
+	// Human edit-lease heartbeat: tell the server a human has this markdown doc
+	// open so computeCollabState() reports "active" even before the first
+	// suggestion/comment. This is what makes raw-fs writes from agents defer to
+	// the collaborative (Tier-2) path while a human is editing. Only markdown
+	// files participate in the collab-state machine.
+	useEffect(() => {
+		if (typeof window === "undefined") return;
+		if (!currentPath) return;
+		if (!/\.(md|markdown)$/i.test(currentPath)) return;
+
+		const path = currentPath;
+		const ping = (action: "open" | "heartbeat" | "close") => {
+			// keepalive lets the "close" beacon survive page unload.
+			void fetch("/api/wiki/presence", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ path, action }),
+				keepalive: action === "close",
+			}).catch(() => {
+				/* presence is best-effort; ignore failures */
+			});
+		};
+
+		ping("open");
+		// Refresh well within the 90s server lease TTL.
+		const id = setInterval(() => ping("heartbeat"), 30_000);
+		const onHidden = () => {
+			if (document.visibilityState === "hidden") ping("heartbeat");
+		};
+		document.addEventListener("visibilitychange", onHidden);
+
+		return () => {
+			clearInterval(id);
+			document.removeEventListener("visibilitychange", onHidden);
+			ping("close");
+		};
+	}, [currentPath]);
+
 	// Subscribe to chokidar SSE: when current file changes on disk, reload sidecar.
 	useEffect(() => {
 		if (typeof window === "undefined") return;
