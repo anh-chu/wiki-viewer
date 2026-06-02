@@ -703,6 +703,7 @@ const WIZARD_ENV_VARS = [
   { key: "GOOGLE_CLIENT_ID", hint: "Google OAuth client ID (enables Google sign-in)" },
   { key: "GOOGLE_CLIENT_SECRET", hint: "Google OAuth client secret" },
   { key: "AUTH_DISABLE_PASSWORD", hint: "Set to 1 to allow Google sign-in only (requires Google keys)" },
+  { key: "AUTH_TRUSTED_PROVIDERS", hint: "Auto-link these providers to existing accounts, e.g. google" },
   { key: "WIKI_OWNER_HOSTS", hint: "Extra hostnames trusted for the AI panel owner cookie" },
   { key: "AGENT_RATE_LIMIT", hint: "Per-minute agent API rate limit (default 60)" },
 ];

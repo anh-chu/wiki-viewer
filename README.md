@@ -192,6 +192,19 @@ wiki-viewer service restart
 
 The sign-in page then shows only the Google button. As a safety guard, this is ignored unless a Google provider is configured, so you cannot lock yourself out: if `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` are missing, email/password stays on and a warning is logged.
 
+### Linking Google to an existing account
+
+Better Auth only auto-links a Google sign-in to an existing account when both sides have a verified email. If you created a password account first (with an unverified email) and then try Google sign-in with the same address, you get an `account_not_linked` error.
+
+To force linking, list the provider in `AUTH_TRUSTED_PROVIDERS`:
+
+```bash
+wiki-viewer config set AUTH_TRUSTED_PROVIDERS=google
+wiki-viewer service restart
+```
+
+This links Google to the existing account even when its email is unverified. It slightly raises account-takeover risk, so enable it only when you control the accounts (for example, consolidating your own login onto Google).
+
 ### Email allowlist
 
 By default any email can sign up. Lock it down before exposing the server.

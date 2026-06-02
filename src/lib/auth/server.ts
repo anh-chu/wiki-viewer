@@ -92,10 +92,27 @@ if (passwordDisabled && !hasSocialProvider) {
 	);
 }
 
+// Forced account linking. By default Better Auth only auto-links a social
+// login to an existing account when both sides have a verified email. A
+// pre-existing password account with an unverified email blocks Google sign-in
+// with account_not_linked. Listing a provider here links it even when the
+// existing account is unverified. This trades a little account-takeover risk
+// for the ability to consolidate onto Google sign-in, so it is opt-in.
+const trustedProviders = (process.env.AUTH_TRUSTED_PROVIDERS ?? "")
+	.split(",")
+	.map((p) => p.trim())
+	.filter(Boolean);
+
 export const auth = betterAuth({
 	database: db,
 	secret: resolveSecret(),
 	baseURL: process.env.BETTER_AUTH_URL,
+	account: {
+		accountLinking: {
+			enabled: true,
+			...(trustedProviders.length ? { trustedProviders } : {}),
+		},
+	},
 	emailAndPassword: {
 		enabled: passwordAuthEnabled,
 		requireEmailVerification: false,
