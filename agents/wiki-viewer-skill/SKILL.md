@@ -10,10 +10,10 @@ You are working with **wiki-viewer**, a local-first markdown viewer that exposes
 
 ## Quick orientation: two tiers
 
-| Tier | Routes | File types | When to use |
-|------|--------|------------|-------------|
-| **Tier 1 — Raw FS** | `/api/agent/fs/*` | All types (markdown, code, binary…) | Fast filework. Read, write, list, move, delete, search. Audited but no review UI. |
-| **Tier 2 — Collab** | `/api/agent/files/*.md` | Markdown only | Reviewable prose. Edits become proof-spans the human can accept/revert. |
+| Tier                | Routes                  | File types                          | When to use                                                                       |
+| ------------------- | ----------------------- | ----------------------------------- | --------------------------------------------------------------------------------- |
+| **Tier 1 — Raw FS** | `/api/agent/fs/*`       | All types (markdown, code, binary…) | Fast filework. Read, write, list, move, delete, search. Audited but no review UI. |
+| **Tier 2 — Collab** | `/api/agent/files/*.md` | Markdown only                       | Reviewable prose. Edits become proof-spans the human can accept/revert.           |
 
 Both tiers use the same auth (TOFU token). Pick the tier based on `X-Collab-State` (see [Which tier do I use?](#which-tier-do-i-use)).
 
@@ -234,11 +234,13 @@ All Tier-1 routes require `Authorization: Bearer <token>` + `X-Agent-Id: ai:<nam
 ### Scope ops
 
 When registering, `scope.ops` can include:
+
 - `read` — read files + list + search
 - `mutate` — create / overwrite / move
 - `delete` — remove files/dirs (separate from mutate so a human can grant edit-but-never-delete)
 
 Example registration with full access:
+
 ```json
 {
   "id": "ai:claude",
@@ -253,6 +255,7 @@ GET /api/agent/fs/file/<path>
 ```
 
 Returns raw bytes. Metadata in response headers:
+
 ```
 ETag: "<sha256>"
 X-File-Size: <bytes>
@@ -280,14 +283,23 @@ Content-Type: <mime>
 - `?force=true` — bypass `If-Match` check (audited; use sparingly).
 
 For `.md` files, also send:
+
 ```
 If-Collab-Match: <X-Collab-Revision>   # prevents writing into a live collab session
 ```
+
 (See [Which tier do I use?](#which-tier-do-i-use).)
 
 Response:
+
 ```json
-{ "path": "...", "sha256": "...", "size": 1234, "mtime": "...", "created": false }
+{
+  "path": "...",
+  "sha256": "...",
+  "size": 1234,
+  "mtime": "...",
+  "created": false
+}
 ```
 
 ### Delete a file
@@ -338,16 +350,16 @@ Server-side: one call replaces dozens of `ls`+`read` round-trips. Results are sc
 
 ### Error codes (Tier 1)
 
-| Status | Code | Meaning |
-|--------|------|---------|
-| 400 | BAD_REQUEST | Invalid path or body |
-| 401 | UNAUTHORIZED | Bad/missing token or X-Agent-Id |
-| 403 | FORBIDDEN | Scope mismatch or missing `delete` op |
-| 404 | NOT_FOUND | Path doesn't exist |
-| 409 | COLLAB_ACTIVE | Raw PUT rejected — doc is active-collab; use Tier-2 or send If-Collab-Match |
-| 412 | PRECONDITION_FAILED | If-Match sha mismatch (concurrent modification) |
-| 413 | PAYLOAD_TOO_LARGE | File exceeds 50 MB limit |
-| 429 | RATE_LIMITED | Honor `Retry-After` |
+| Status | Code                | Meaning                                                                     |
+| ------ | ------------------- | --------------------------------------------------------------------------- |
+| 400    | BAD_REQUEST         | Invalid path or body                                                        |
+| 401    | UNAUTHORIZED        | Bad/missing token or X-Agent-Id                                             |
+| 403    | FORBIDDEN           | Scope mismatch or missing `delete` op                                       |
+| 404    | NOT_FOUND           | Path doesn't exist                                                          |
+| 409    | COLLAB_ACTIVE       | Raw PUT rejected — doc is active-collab; use Tier-2 or send If-Collab-Match |
+| 412    | PRECONDITION_FAILED | If-Match sha mismatch (concurrent modification)                             |
+| 413    | PAYLOAD_TOO_LARGE   | File exceeds 50 MB limit                                                    |
+| 429    | RATE_LIMITED        | Honor `Retry-After`                                                         |
 
 ---
 
@@ -355,16 +367,17 @@ Server-side: one call replaces dozens of `ls`+`read` round-trips. Results are sc
 
 Every `GET /api/agent/fs/file/<path>` (and every Tier-2 snapshot read) returns `X-Collab-State`.
 
-| `X-Collab-State` | Meaning | Use |
-|------------------|---------|-----|
-| `active` | Human has this `.md` open in the editor, OR it has pending suggestions / unresolved comments. | **Tier 2 block-ops only.** A raw `PUT` returns `409 COLLAB_ACTIVE`. |
-| `tracked` | `.md` has a sidecar (prior collab history), no active session. | Prefer Tier-2 for prose/semantic edits. Raw ok for mechanical/whole-file ops (reformat, regenerate). |
-| `untracked` | `.md`, no sidecar yet. | Raw is fine. Tier-2 creates a sidecar (starts provenance tracking). |
-| `not-markdown` | Any non-`.md` file. | **Tier-1 raw only.** Tier 2 does not apply. |
+| `X-Collab-State` | Meaning                                                                                       | Use                                                                                                  |
+| ---------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `active`         | Human has this `.md` open in the editor, OR it has pending suggestions / unresolved comments. | **Tier 2 block-ops only.** A raw `PUT` returns `409 COLLAB_ACTIVE`.                                  |
+| `tracked`        | `.md` has a sidecar (prior collab history), no active session.                                | Prefer Tier-2 for prose/semantic edits. Raw ok for mechanical/whole-file ops (reformat, regenerate). |
+| `untracked`      | `.md`, no sidecar yet.                                                                        | Raw is fine. Tier-2 creates a sidecar (starts provenance tracking).                                  |
+| `not-markdown`   | Any non-`.md` file.                                                                           | **Tier-1 raw only.** Tier 2 does not apply.                                                          |
 
 **Rule (one sentence):** Read the file, check `X-Collab-State`, use Tier-2 if `active`, else use Tier-1. For non-markdown, always Tier-1.
 
 **Editing a `.md` safely:**
+
 ```
 1. GET /api/agent/fs/file/<path>.md
    → note ETag (sha256) and X-Collab-Revision + X-Collab-State

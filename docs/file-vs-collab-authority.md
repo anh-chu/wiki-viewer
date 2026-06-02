@@ -72,7 +72,7 @@ X-Collab-Snapshot: /api/agent/files/<path>.md   # present when not not-markdown
 
 ## R6 — atomic TOCTOU race fix
 
-`If-Match` (sha256) protects *bytes*. But a human could open the doc between the agent's read and its raw `PUT`, making it `active` while bytes are unchanged — so `If-Match` passes but the write clobbers a live session.
+`If-Match` (sha256) protects _bytes_. But a human could open the doc between the agent's read and its raw `PUT`, making it `active` while bytes are unchanged — so `If-Match` passes but the write clobbers a live session.
 
 **Fix:** a raw `PUT` to any `.md` re-checks `collabState` **inside the same `withFileMutex` call, immediately before writing**. If the state is now `active` and the request did not supply a matching `If-Collab-Match: <revision>`, the write is **rejected 409 `COLLAB_ACTIVE`** with the Tier-2 URL. This check is atomic with the write — not advisory.
 
@@ -115,10 +115,10 @@ The presence lease map lives in the Node.js process memory. In a multi-process d
 
 ## Sidecar lifecycle rules
 
-| Raw-fs op | On non-`.md` | On `.md` |
-|-----------|-------------|---------|
-| `PUT` (create/overwrite) | plain write | acquire mutex → write → reconcile sidecar → emit `file.rawWritten` |
-| `DELETE` | plain delete | delete file + delete `.proof/<path>.json` sidecar |
-| `POST /fs/move` | plain rename | rename file + rename `.proof/<old>.json` → `.proof/<new>.json` |
+| Raw-fs op                | On non-`.md` | On `.md`                                                           |
+| ------------------------ | ------------ | ------------------------------------------------------------------ |
+| `PUT` (create/overwrite) | plain write  | acquire mutex → write → reconcile sidecar → emit `file.rawWritten` |
+| `DELETE`                 | plain delete | delete file + delete `.proof/<path>.json` sidecar                  |
+| `POST /fs/move`          | plain rename | rename file + rename `.proof/<old>.json` → `.proof/<new>.json`     |
 
 The human `wiki/move` route was previously a bare `rename` that orphaned sidecars. It now uses the same shared `moveSidecar` helper (fixed in Phase 1).
