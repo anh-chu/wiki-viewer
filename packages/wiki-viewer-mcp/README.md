@@ -4,23 +4,97 @@ MCP filesystem adapter for [wiki-viewer](https://github.com/anh-chu/wiki-viewer)
 
 Maps standard MCP filesystem tools onto the wiki-viewer agent HTTP API so Claude Code, Cursor, and Codex get native-feeling file tools against a **remote** wiki-viewer instance.
 
+## First-time setup (register)
+
+Before connecting an agent, register it with your wiki-viewer instance.
+The human operator approves the request in the wiki-viewer AI Panel.
+
+**Using the built-in CLI (recommended):**
+
+```bash
+# Once published to npm:
+npx wiki-viewer-mcp register \
+  --url https://notes.example.com \
+  --id ai:myagent \
+  --name "My Agent" \
+  --scope-paths "**/*" \
+  --ops read,mutate,delete \
+  --timeout 300
+
+# Or from a local build (after cd packages/wiki-viewer-mcp && npm run build):
+node ./dist/index.js register \
+  --url http://localhost:3000 \
+  --id ai:myagent \
+  --name "My Agent"
+```
+
+The CLI will:
+
+1. POST the registration to wiki-viewer and print the registration ID.
+2. Print `⏳ Waiting for approval. Open the wiki-viewer AI Panel and approve agent "ai:myagent".`
+3. Poll every 3 s until the human approves (or timeout).
+4. On approval, print your `WIKI_VIEWER_TOKEN` and `WIKI_VIEWER_AGENT_ID`, then print a ready-to-paste `mcp.json` snippet.
+
+```
+✅ Approved!
+
+Agent ID : ai:myagent
+Token    : wv_tok_…
+
+Paste this into your mcp.json:
+
+{
+  "servers": {
+    "wiki-viewer": {
+      "command": "npx",
+      "args": ["wiki-viewer-mcp"],
+      "env": {
+        "WIKI_VIEWER_URL": "https://notes.example.com",
+        "WIKI_VIEWER_TOKEN": "wv_tok_…",
+        "WIKI_VIEWER_AGENT_ID": "ai:myagent"
+      }
+    }
+  }
+}
+```
+
+**CLI options:**
+
+| Flag            | Required | Default       | Description                                               |
+| --------------- | -------- | ------------- | --------------------------------------------------------- |
+| `--url`         | yes      | —             | Base URL of wiki-viewer, e.g. `https://notes.example.com` |
+| `--id`          | yes      | —             | Agent ID, must match `ai:[a-z][a-z0-9-]{0,30}`            |
+| `--name`        | yes      | —             | Human-readable display name                               |
+| `--scope-paths` | no       | `**/*`        | Comma-separated path globs the agent can access           |
+| `--ops`         | no       | `read,mutate` | Comma-separated: `read`, `mutate`, `delete`               |
+| `--timeout`     | no       | `300`         | Seconds to wait for approval before giving up             |
+
+---
+
 ## Installation
 
 ```bash
+# Once published to npm:
 npx wiki-viewer-mcp
 # or install globally
 npm i -g wiki-viewer-mcp
+
+# From a local build:
+cd packages/wiki-viewer-mcp
+npm run build
+node dist/index.js   # start MCP server
 ```
 
 ## Configuration
 
-Set three environment variables before starting the MCP server:
+Set three environment variables before starting the MCP server
+(the `register` command prints them for you after approval):
 
-| Var                    | Description                                                             |
-| ---------------------- | ----------------------------------------------------------------------- |
-| `WIKI_VIEWER_URL`      | Base URL of your wiki-viewer instance, e.g. `https://notes.example.com` |
-| `WIKI_VIEWER_TOKEN`    | Bearer token from TOFU registration (`GET /api/agents/install`)         |
-| `WIKI_VIEWER_AGENT_ID` | Your agent ID, sent as `X-Agent-Id` on every request                    |
+| Var                    | Description                                                              |
+| ---------------------- | ------------------------------------------------------------------------ |
+| `WIKI_VIEWER_URL`      | Base URL of your wiki-viewer instance, e.g. `https://notes.example.com`  |
+| `WIKI_VIEWER_TOKEN`    | Bearer token obtained via `wiki-viewer-mcp register`                     |
+| `WIKI_VIEWER_AGENT_ID` | Your agent ID (e.g. `ai:myagent`), sent as `X-Agent-Id` on every request |
 
 ## Usage in Claude Code / Cursor / Codex
 

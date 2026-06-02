@@ -26,8 +26,16 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import * as z from "zod";
 
+import { parseArgs } from "node:util";
 import { WikiViewerClient, IfMatchError, CollabActiveError, WikiViewerError } from "./http-client.js";
 import * as stateCache from "./state-cache.js";
+import {
+  register,
+  RegisterScope,
+  RegistrationDeniedError,
+  RegistrationExpiredError,
+  RegistrationTimeoutError,
+} from "./register.js";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -422,7 +430,7 @@ function buildJsonSchema(val: AnyZodVal): Record<string, unknown> {
   }
 }
 
-// ─── Entrypoint ──────────────────────────────────────────────────────────────
+// ─── Entrypoints ─────────────────────────────────────────────────────────────
 
 async function main() {
   const client = createClient();
@@ -432,9 +440,125 @@ async function main() {
   // Server runs until stdin closes
 }
 
+/**
+ * CLI entry: routes to `register` subcommand or MCP stdio server.
+ * Only called when the file is the actual entry point (not imported in tests).
+ */
+async function runCli() {
+  // Detect subcommand: first positional arg
+  const positional = process.argv.slice(2).filter((a) => !a.startsWith("-"));
+  const subcommand = positional[0];
+
+  if (subcommand === "register") {
+    await runRegister();
+  } else {
+    await main();
+  }
+}
+
+async function runRegister() {
+  const { values } = parseArgs({
+    args: process.argv.slice(2),
+    options: {
+      url: { type: "string" },
+      id: { type: "string" },
+      name: { type: "string" },
+      "scope-paths": { type: "string", default: "**/*" },
+      ops: { type: "string", default: "read,mutate" },
+      timeout: { type: "string", default: "300" },
+    },
+    allowPositionals: true,
+  });
+
+  if (!values.url) {
+    console.error("Error: --url is required (e.g. https://notes.example.com)");
+    process.exit(1);
+  }
+  if (!values.id) {
+    console.error("Error: --id is required (e.g. ai:myagent)");
+    process.exit(1);
+  }
+  if (!values.name) {
+    console.error("Error: --name is required (e.g. \"My Agent\")");
+    process.exit(1);
+  }
+  if (!values.id.match(/^ai:[a-z][a-z0-9-]{0,30}$/)) {
+    console.error("Error: --id must match ^ai:[a-z][a-z0-9-]{0,30}$ (e.g. ai:myagent)");
+    process.exit(1);
+  }
+
+  const scopePaths = (values["scope-paths"] ?? "**/*").split(",").map((p) => p.trim());
+  const rawOps = (values.ops ?? "read,mutate").split(",").map((o) => o.trim());
+  const validOps = ["read", "mutate", "delete"] as const;
+  const ops = rawOps.filter((o): o is typeof validOps[number] => (validOps as readonly string[]).includes(o));
+  if (ops.length === 0) {
+    console.error("Error: --ops must include at least one of: read, mutate, delete");
+    process.exit(1);
+  }
+  const scope: RegisterScope = { paths: scopePaths, ops };
+  const timeoutMs = parseInt(values.timeout ?? "300", 10) * 1000;
+
+  console.log(`Registering agent ${values.id} with ${values.url} …`);
+  console.log(`Scope: paths=${JSON.stringify(scopePaths)}, ops=${JSON.stringify(ops)}`);
+  console.log();
+
+  try {
+    const result = await register({
+      baseUrl: values.url,
+      id: values.id,
+      displayName: values.name,
+      scope,
+      timeoutMs,
+      onPending: (_id, attempt) => {
+        if (attempt === 1) {
+          console.log(
+            `⏳ Waiting for approval. Open the wiki-viewer AI Panel and approve agent "${values.id}".`,
+          );
+        } else if (attempt % 10 === 0) {
+          console.log(`   Still waiting… (${attempt * 3}s elapsed)`);
+        }
+      },
+    });
+
+    console.log();
+    console.log("✅ Approved!");
+    console.log();
+    console.log(`Agent ID : ${result.agentId}`);
+    console.log(`Token    : ${result.token}`);
+    console.log();
+    console.log("Paste this into your mcp.json:");
+    console.log();
+    console.log(JSON.stringify({
+      servers: {
+        "wiki-viewer": {
+          command: "npx",
+          args: ["wiki-viewer-mcp"],
+          env: {
+            WIKI_VIEWER_URL: values.url,
+            WIKI_VIEWER_TOKEN: result.token,
+            WIKI_VIEWER_AGENT_ID: result.agentId,
+          },
+        },
+      },
+    }, null, 2));
+    process.exit(0);
+  } catch (e) {
+    if (
+      e instanceof RegistrationDeniedError ||
+      e instanceof RegistrationExpiredError ||
+      e instanceof RegistrationTimeoutError
+    ) {
+      console.error(`\n❌ ${e.message}`);
+    } else {
+      console.error("\n❌ Unexpected error:", e);
+    }
+    process.exit(1);
+  }
+}
+
 // Only auto-start when this file is the entry point, not when imported in tests.
 if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\/dist\//, "/src/").replace(/\.js$/, ".ts"))) {
-  main().catch((e) => {
+  runCli().catch((e) => {
     console.error("wiki-viewer-mcp fatal:", e);
     process.exit(1);
   });
@@ -444,7 +568,7 @@ if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\/dist\
   (process.argv[1].endsWith("wiki-viewer-mcp") || process.argv[1].endsWith("index.js")) &&
   !process.argv[1].includes("__tests__")
 ) {
-  main().catch((e) => {
+  runCli().catch((e) => {
     console.error("wiki-viewer-mcp fatal:", e);
     process.exit(1);
   });

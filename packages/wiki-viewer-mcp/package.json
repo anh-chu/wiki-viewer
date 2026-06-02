@@ -15,9 +15,11 @@
   ],
   "scripts": {
     "build": "tsc",
+    "postbuild": "node -e \"const fs=require('fs'),f='dist/index.js',c=fs.readFileSync(f,'utf8');if(!c.startsWith('#!'))fs.writeFileSync(f,'#!/usr/bin/env node\\n'+c);fs.chmodSync(f,'755');\"",
     "dev": "tsc --watch",
     "start": "node dist/index.js",
-    "test": "tsx --test src/__tests__/*.test.ts"
+    "test": "tsx --test src/__tests__/*.test.ts",
+    "prepublishOnly": "npm run build"
   },
   "engines": {
     "node": ">=18.0.0"
