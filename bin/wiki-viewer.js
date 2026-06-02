@@ -41,17 +41,18 @@ if (args.includes("--help") || args.includes("-h")) {
   process.exit(0);
 }
 
-const rootDir = args.find((a) => !a.startsWith("-"));
 let port = process.env.PORT ?? "3000";
 let host = process.env.HOSTNAME ?? "localhost";
 let useHttps = false;
 let userSpecifiedPort = false;
+let rootDir;
 
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
   if (a === "-p" || a === "--port") { port = args[++i] ?? port; userSpecifiedPort = true; }
   else if (a === "-H" || a === "--host") host = args[++i] ?? host;
   else if (a === "--https") useHttps = true;
+  else if (!a.startsWith("-") && rootDir === undefined) rootDir = a;
 }
 
 const resolvedRoot = rootDir ? path.resolve(rootDir) : null;
@@ -148,7 +149,9 @@ async function start() {
   // When HTTPS is requested, run the standalone server on a random internal
   // HTTP port and stand up an HTTPS reverse-proxy on the user-facing port.
   const internalPort = useHttps ? String(await freePort()) : port;
-  const internalHost = "127.0.0.1";
+  // In HTTPS mode the standalone server sits behind the proxy on loopback.
+  // Otherwise it must bind to the user-requested host directly.
+  const internalHost = useHttps ? "127.0.0.1" : host;
 
   const child = spawn(process.execPath, [serverJs], {
     cwd: path.join(appRoot, ".next", "standalone"),
