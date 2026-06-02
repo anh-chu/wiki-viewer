@@ -290,12 +290,12 @@ wiki-viewer exposes an HTTP API so agents (Claude, Cursor, ChatGPT desktop, cust
 
 Before editing a Markdown file, an agent reads it and checks the **`X-Collab-State`** response header:
 
-| `X-Collab-State` | Meaning | Agent uses |
-| ---------------- | ------- | ---------- |
+| `X-Collab-State` | Meaning                                                          | Agent uses                                                                      |
+| ---------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------- |
 | `active`         | A human has the doc open, or it has pending suggestions/comments | **Tier-2 block-ops** (reviewable). A raw write is rejected `409 COLLAB_ACTIVE`. |
-| `tracked`        | Has a collab sidecar, nobody editing now | Prefer Tier-2 for prose; raw OK for mechanical edits |
-| `untracked`      | Plain Markdown, never collaborated on | Either tier |
-| `not-markdown`   | Any non-`.md` file | **Tier-1 raw only** |
+| `tracked`        | Has a collab sidecar, nobody editing now                         | Prefer Tier-2 for prose; raw OK for mechanical edits                            |
+| `untracked`      | Plain Markdown, never collaborated on                            | Either tier                                                                     |
+| `not-markdown`   | Any non-`.md` file                                               | **Tier-1 raw only**                                                             |
 
 This is enforced, not advisory: the collab state is re-checked atomically inside the write lock, so an agent can never silently clobber a doc you just opened. The browser editor sends a presence heartbeat to drive the `active` state. See [`docs/file-vs-collab-authority.md`](docs/file-vs-collab-authority.md) for the full authority model.
 
