@@ -62,6 +62,8 @@ import { cn } from "@/lib/utils";
 import { AIPanel } from "@/components/ai-panel/ai-panel";
 import { useAIPanelStore } from "@/stores/ai-panel-store";
 import { useEditorStore } from "@/stores/editor-store";
+import { useViewWidthStore, VIEW_WIDTH_CLASS } from "@/stores/view-width-store";
+import { ViewWidthToggle } from "@/components/view-width-toggle";
 import { useWikiSlugsStore } from "@/stores/wiki-slugs-store";
 
 interface TreeNode {
@@ -711,6 +713,17 @@ export default function Page() {
 	const openFileViewerKind = openFile
 		? viewerKindFor(openFile.name, openFile.nodeType)
 		: null;
+
+	const viewWidth = useViewWidthStore((s) => s.width);
+	// Width toggle only meaningful for text-flow viewers (long prose lines).
+	const widthAwareViewer =
+		openFileViewerKind === null ||
+		openFileViewerKind === "editor" ||
+		openFileViewerKind === "text" ||
+		openFileViewerKind === "source" ||
+		openFileViewerKind === "notebook" ||
+		openFileViewerKind === "fallback";
+	const contentWidthClass = widthAwareViewer ? VIEW_WIDTH_CLASS[viewWidth] : "";
 
 	function renderNodes(nodes: TreeNode[], depth = 0): React.ReactNode {
 		return nodes.map((node) => (
@@ -1430,6 +1443,7 @@ export default function Page() {
 												)}
 											</Button>
 										)}
+									{widthAwareViewer && <ViewWidthToggle />}
 									<Button
 										size="sm"
 										variant="ghost"
@@ -1460,6 +1474,7 @@ export default function Page() {
 								</div>
 							) : (
 								<div className="flex-1 overflow-auto p-4 min-h-0">
+									<div className={cn("mx-auto w-full", contentWidthClass)}>
 									{fileLoading ? (
 										<div className="flex justify-center py-8">
 											<Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -1552,6 +1567,7 @@ export default function Page() {
 											Preview not available for this file type.
 										</p>
 									)}
+									</div>
 								</div>
 							)}
 

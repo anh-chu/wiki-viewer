@@ -10,6 +10,7 @@ import { htmlToMarkdown } from "@/lib/markdown/to-markdown";
 import { useAIPanelStore } from "@/stores/ai-panel-store";
 import { useEditorStore } from "@/stores/editor-store";
 import { useTreeStore } from "@/stores/tree-store";
+import { useViewWidthStore, VIEW_WIDTH_CSS } from "@/stores/view-width-store";
 import { useWikiSlugsStore } from "@/stores/wiki-slugs-store";
 import type { TreeNode } from "@/types";
 import { useProofStore } from "@/stores/proof-store";
@@ -147,6 +148,7 @@ export function KBEditor() {
 		setEditMode,
 	} = useEditorStore();
 	const nodes = useTreeStore((s) => s.nodes);
+	const editorMaxW = useViewWidthStore((s) => VIEW_WIDTH_CSS[s.width]);
 	const isRtl = frontmatter?.dir === "rtl";
 	const { open: openAI, clearMessages } = useAIPanelStore();
 	const { open: openWikiCreate, Dialog: WikiCreateDialog } =
@@ -522,7 +524,7 @@ export function KBEditor() {
 		editorProps: {
 			attributes: {
 				class:
-					"focus:outline-none min-h-[calc(100vh-12rem)] px-4 sm:px-8 py-6 max-w-3xl mx-auto",
+					"focus:outline-none min-h-[calc(100vh-12rem)] px-4 sm:px-8 py-6 max-w-[var(--editor-max-w,48rem)] mx-auto",
 			},
 			handleKeyDown: (view, event) => {
 				if (
@@ -915,6 +917,7 @@ export function KBEditor() {
 									className={`absolute inset-0 overflow-y-auto ${
 										editMode === "suggesting" ? "pt-7" : ""
 								}`}
+									style={{ ["--editor-max-w" as string]: editorMaxW }}
 									data-editor-scroll
 								>
 									{/* Absolutely-positioned overlay for comment pips and suggestion cards.
@@ -1042,7 +1045,7 @@ export function KBEditor() {
 									/>
 
 									{/* AI Edit Prompt + slash hint */}
-									<div className="max-w-3xl mx-auto px-8 pb-8 flex items-center gap-4">
+									<div className="max-w-[var(--editor-max-w,48rem)] mx-auto px-8 pb-8 flex items-center gap-4">
 										<button
 											onClick={handleOpenAI}
 											className="group flex items-center gap-2 text-[13px] text-muted-foreground/50 hover:text-muted-foreground transition-colors cursor-pointer"
