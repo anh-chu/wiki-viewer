@@ -25,6 +25,7 @@ import {
 	atomicWrite,
 	ensureParentDir,
 } from "@/lib/proof/raw-fs";
+import { computeCollabState } from "@/lib/proof/collab-state";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -80,6 +81,17 @@ export async function GET(
 		"Content-Type": mimeByExt(relPath),
 		"Accept-Ranges": "bytes",
 	};
+
+	// X-Collab-* headers (§3.5 mode signal)
+	const rootDir = getRootDir();
+	const collab = await computeCollabState(rootDir, relPath);
+	if (collab.state !== "not-markdown") {
+		baseHeaders["X-Collab-State"] = collab.state;
+		baseHeaders["X-Collab-Revision"] = String(collab.revision);
+		baseHeaders["X-Collab-Snapshot"] = collab.snapshotUrl!;
+	} else {
+		baseHeaders["X-Collab-State"] = collab.state;
+	}
 
 	const rangeHeader = req.headers.get("range");
 	if (rangeHeader) {
@@ -180,14 +192,31 @@ export async function PUT(
 		}
 	}
 
-	// TODO(Phase 3): Re-check X-Collab-State here inside the write mutex for .md files.
-	// If state is now "active" and request lacks If-Collab-Match, reject 409 COLLAB_ACTIVE.
-
 	const rootDir = getRootDir();
+	// R6: for .md, re-check collab state atomically inside write mutex
+	const ifCollabMatch = req.headers.get("if-collab-match");
 
 	if (isMarkdown(relPath)) {
 		// R1: acquire shared mutex; R2: reconcile eagerly inside it
 		return await withFileMutex(relPath, async () => {
+			// R6: atomic collab-state check (closes TOCTOU race)
+			const { state, revision, snapshotUrl } = await computeCollabState(rootDir, relPath);
+			if (state === "active") {
+				const matchVal = ifCollabMatch?.trim();
+				if (!force && (!matchVal || matchVal !== String(revision))) {
+					return NextResponse.json(
+						{
+							error: "COLLAB_ACTIVE",
+							message:
+								"File is in active collaborative session. Use block-ops (Tier-2) or supply a matching If-Collab-Match header. Use ?force=true to override (audited).",
+							snapshotUrl,
+							revision,
+						},
+						{ status: 409 },
+					);
+				}
+			}
+
 			await atomicWrite(absPath, bodyBuf);
 
 			const content = bodyBuf.toString("utf-8");
