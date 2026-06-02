@@ -5,6 +5,10 @@ import path from "node:path";
 interface WikiViewerConfig {
 	pinnedPaths?: string[];
 	lastOpenedPath?: string;
+	/** Email allowlist for signup. Empty/undefined = no email restriction. */
+	allowedEmails?: string[];
+	/** Domain allowlist for signup. Empty/undefined = no domain restriction. */
+	allowedDomains?: string[];
 }
 
 function configPath() {

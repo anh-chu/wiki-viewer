@@ -21,6 +21,7 @@ import {
 	Pencil,
 	Plus,
 	RefreshCw,
+	Settings,
 	Terminal,
 	Trash2,
 	Upload,
@@ -51,6 +52,7 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { AuthSettingsSheet } from "@/components/auth-settings-sheet";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { FrontmatterHeader } from "@/components/wiki/frontmatter-header";
@@ -268,6 +270,7 @@ export default function Page() {
 	const [appFullscreen, setAppFullscreen] = useState(false);
 	const [appKey, setAppKey] = useState(0);
 	const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+	const [settingsOpen, setSettingsOpen] = useState(false);
 	const [fileContent, setFileContent] = useState<string | null>(null);
 	const [fileLoading, setFileLoading] = useState(false);
 	const [editing, setEditing] = useState(false);
@@ -1183,6 +1186,15 @@ export default function Page() {
 							>
 								<Bot className="h-3.5 w-3.5" />
 							</Button>
+							<Button
+								size="sm"
+								variant="ghost"
+								className="h-7 w-7 p-0"
+								title="Settings"
+								onClick={() => setSettingsOpen(true)}
+							>
+								<Settings className="h-3.5 w-3.5" />
+							</Button>
 						</div>
 					</div>
 
@@ -1710,6 +1722,7 @@ export default function Page() {
 				)}
 			</div>
 
+			<AuthSettingsSheet open={settingsOpen} onOpenChange={setSettingsOpen} />
 			<AIPanel currentPath={openFile?.path} />
 			<input
 				ref={fileInputRef}

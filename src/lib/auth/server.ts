@@ -102,7 +102,7 @@ export const auth = betterAuth({
 		user: {
 			create: {
 				before: async (user: { email: string }) => {
-					if (!isEmailAllowed(user.email)) {
+					if (!(await isEmailAllowed(user.email))) {
 						throw new Error("SIGNUP_NOT_ALLOWED");
 					}
 					return { data: user };
