@@ -77,6 +77,14 @@ Options:
   -H, --host <host>   Host to bind to     (default: localhost)
       --https         Enable HTTPS        (self-signed cert, required on remote)
   -h, --help          Show this help message
+
+Commands:
+  service install [dir] [options]   Install as a user service (persists across reboot)
+  service uninstall                 Remove the user service
+  service status                    Show service status
+  service logs                      Tail service logs
+  service restart                   Restart the service
+  update                            Update to the latest version and restart the service
 ```
 
 Examples:
@@ -91,6 +99,35 @@ npx wiki-viewer ~/notes -H 0.0.0.0
 # HTTPS on a custom port
 npx wiki-viewer ~/notes --https -p 8443
 ```
+
+### Run as a service (reboot persistence)
+
+Install wiki-viewer as a user service so it starts at boot and restarts on failure. Linux uses `systemd --user`, macOS uses a launchd LaunchAgent. No root needed.
+
+```bash
+# Install with the run config you want (dir, host, port, https)
+wiki-viewer service install ~/notes -H 0.0.0.0 -p 3003 --https
+
+# Manage it
+wiki-viewer service status
+wiki-viewer service logs
+wiki-viewer service restart
+wiki-viewer service uninstall
+```
+
+The run config is saved to `~/.wiki-viewer/config.json`. Edit that file and run `wiki-viewer service restart` to change settings without reinstalling. To change just the served directory at runtime, you can also click **Change** in the sidebar.
+
+On Linux, install enables lingering (`loginctl enable-linger`) so the service runs without an active login session and survives reboot. If that step needs privileges, the installer prints the command to run manually.
+
+> Ad-hoc runs like `wiki-viewer ~/docs` ignore the saved config. Only the service (and `wiki-viewer service run`) reads `config.json`.
+
+### Update
+
+```bash
+wiki-viewer update
+```
+
+Updates the global install to the latest version (npm/pnpm/yarn auto-detected) and restarts the service if one is installed.
 
 ---
 
