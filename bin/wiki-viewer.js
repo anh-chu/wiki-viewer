@@ -31,12 +31,18 @@ function printUsage() {
   console.error("  -H, --host <host>   Host to bind to (default: localhost)");
   console.error("  --https             Enable HTTPS (self-signed cert, enables service workers)");
   console.error("");
+  console.error("  -e, --env <KEY=VALUE>  Set an app env var (repeatable; persisted with service install)");
+  console.error("");
   console.error("Commands:");
   console.error("  service install [dir] [options]   Install as a user service (persists across reboot)");
   console.error("  service uninstall                 Remove the user service");
   console.error("  service status                    Show service status");
   console.error("  service logs                      Tail service logs");
+  console.error("  service restart                   Restart the service");
   console.error("  service run                       Run from saved config (used internally by the service)");
+  console.error("  config show                       Print the saved config");
+  console.error("  config set KEY=VALUE              Set an app env var in the config");
+  console.error("  config unset KEY                  Remove an app env var from the config");
   console.error("  update                            Update wiki-viewer to the latest version and restart");
   console.error("");
   console.error("Examples:");
@@ -44,6 +50,8 @@ function printUsage() {
   console.error("  wiki-viewer ~/notes --https");
   console.error("  wiki-viewer ~/notes -p 8080 -H 0.0.0.0");
   console.error("  wiki-viewer service install ~/notes -H 0.0.0.0 -p 3003 --https");
+  console.error("  wiki-viewer service install ~/notes --env GOOGLE_CLIENT_ID=... --env GOOGLE_CLIENT_SECRET=...");
+  console.error("  wiki-viewer config set AUTH_ALLOWED_DOMAIN=example.com");
   console.error("  wiki-viewer update");
 }
 
@@ -60,6 +68,7 @@ function parseServeArgs(args) {
     const a = args[i];
     if (a === "-p" || a === "--port") { port = args[++i] ?? port; userSpecifiedPort = true; }
     else if (a === "-H" || a === "--host") host = args[++i] ?? host;
+    else if (a === "-e" || a === "--env") { i++; } // consumed by parseEnvFlags
     else if (a === "--https") useHttps = true;
     else if (!a.startsWith("-") && rootDir === undefined) rootDir = a;
   }
@@ -84,16 +93,21 @@ function saveConfig(cfg) {
   writeFileSync(configPath, JSON.stringify(cfg, null, 2) + "\n");
 }
 
-// Ad-hoc serve: pure CLI flags + built-in defaults. Does NOT read the config
-// file, so an installed service never silently alters a one-off invocation.
+// Ad-hoc serve: CLI flags + built-in defaults. The run *shape* (dir/host/port)
+// does NOT read the config file, so an installed service never silently alters
+// a one-off invocation. App-level env (config.env) is still read, because those
+// are settings about the app itself (allowlists, OAuth) rather than the bind.
 function resolveServeOptions(args) {
   const cli = parseServeArgs(args);
+  const cfg = loadConfig();
   return {
     rootDir: cli.rootDir ? path.resolve(cli.rootDir) : null,
     port: String(cli.port ?? "3000"),
     host: cli.host ?? "localhost",
     useHttps: Boolean(cli.useHttps),
     userSpecifiedPort: cli.userSpecifiedPort,
+    // App env: config.env as base, ad-hoc --env flags override per run.
+    configEnv: { ...(cfg.env ?? {}), ...parseEnvFlags(args) },
   };
 }
 
@@ -117,7 +131,75 @@ function resolveRunOptions(args) {
     host,
     useHttps: Boolean(useHttps),
     userSpecifiedPort,
+    configEnv: { ...(cfg.env ?? {}), ...parseEnvFlags(args) },
   };
+}
+
+// ── environment resolution ───────────────────────────────────────────────────
+
+// Env vars the app reads that the bin can derive or manage on the user's behalf.
+// Everything else in config.env is passed through verbatim.
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", ""]);
+
+function isLocalHost(h) {
+  return LOCAL_HOSTS.has(h);
+}
+
+// Build the env for the spawned server.
+// Precedence (highest first):
+//   1. the shell environment the user launched us with (explicit override)
+//   2. config.env from ~/.wiki-viewer/config.json
+//   3. values derived by the bin from the run options (e.g. BETTER_AUTH_URL)
+//
+// Returns { env, warnings } where warnings are human-readable strings to print
+// before the server starts.
+function computeServerEnv({ host, port, useHttps, configEnv }) {
+  const warnings = [];
+  const derived = {};
+
+  const scheme = useHttps ? "https" : "http";
+  const urlHost = isLocalHost(host) || host === "0.0.0.0" ? "localhost" : host;
+  const isSecureContext = useHttps || isLocalHost(host);
+
+  // BETTER_AUTH_URL: the app requires this in production so cookies and OAuth
+  // callbacks resolve. Derive it from the bind so the common case needs no
+  // config at all.
+  derived.BETTER_AUTH_URL = `${scheme}://${urlHost}:${port}`;
+
+  // The app refuses to boot in production over an insecure context unless
+  // WIKI_ALLOW_INSECURE=1. localhost http is fine (browsers treat it as secure).
+  // Remote http is not: auth cookies and service workers will silently break.
+  if (!isSecureContext) {
+    derived.WIKI_ALLOW_INSECURE = "1";
+    warnings.push(
+      `Serving plain HTTP on a non-local host (${host}). Browsers treat this as\n` +
+      `   an insecure context: login cookies, service workers and PDF.js will not\n` +
+      `   work reliably, and OAuth callbacks will fail.\n` +
+      `   Fix: re-run with --https, or put a TLS-terminating proxy in front and set\n` +
+      `   BETTER_AUTH_URL to its public https:// URL (see "env" in ${configPath}).`,
+    );
+  } else if (isLocalHost(host) && !useHttps) {
+    // localhost http is a secure context for the browser, but the app's prod
+    // guard still wants the bypass flag set explicitly. Do it for the user.
+    derived.WIKI_ALLOW_INSECURE = "1";
+  }
+
+  // Layer: derived < config.env < shell env.
+  const env = { ...derived, ...configEnv };
+
+  // Note when the shell or config overrode a derived value so the user isn't
+  // surprised that --host/--port didn't change the auth URL.
+  if (configEnv.BETTER_AUTH_URL && configEnv.BETTER_AUTH_URL !== derived.BETTER_AUTH_URL) {
+    // config wins over derived; that's intentional, no warning needed.
+  }
+  if (process.env.BETTER_AUTH_URL && process.env.BETTER_AUTH_URL !== env.BETTER_AUTH_URL) {
+    warnings.push(
+      `BETTER_AUTH_URL is set in your shell (${process.env.BETTER_AUTH_URL}) and\n` +
+      `   overrides the derived/config value.`,
+    );
+  }
+
+  return { env, warnings };
 }
 
 // ── HTTPS cert generation ──────────────────────────────────────────────────
@@ -189,7 +271,7 @@ function getNetworkAddress() {
 // ── start ──────────────────────────────────────────────────────────────────
 
 async function start(opts) {
-  const { rootDir: resolvedRoot, useHttps } = opts;
+  const { rootDir: resolvedRoot, useHttps, configEnv = {} } = opts;
   let { port, host, userSpecifiedPort } = opts;
 
   if (!existsSync(serverJs)) {
@@ -221,11 +303,18 @@ async function start(opts) {
   // Otherwise it must bind to the user-requested host directly.
   const internalHost = useHttps ? "127.0.0.1" : host;
 
+  // Resolve the app environment (config.env + shell overrides + derived
+  // BETTER_AUTH_URL etc.) against the user-facing host/port, then print any
+  // guidance before the server boots.
+  const { env: appEnv, warnings } = computeServerEnv({ host, port, useHttps, configEnv });
+  for (const w of warnings) console.log(`\n⚠️   ${w}`);
+
   const child = spawn(process.execPath, [serverJs], {
     cwd: path.join(appRoot, ".next", "standalone"),
     stdio: "inherit",
     env: {
-      ...process.env,
+      ...appEnv,         // derived defaults + config.env
+      ...process.env,    // shell env always wins over derived/config
       ...(resolvedRoot ? { ROOT_DIR: resolvedRoot } : {}),
       PORT: internalPort,
       HOSTNAME: internalHost,
@@ -310,17 +399,38 @@ function runQuiet(cmd, args) {
 
 // ── service: install ──────────────────────────────────────────────────────────
 
+// Pull repeatable `--env KEY=VALUE` (or `-e KEY=VALUE`) pairs out of an argv
+// list. Returns the collected map; the caller has already parsed the rest.
+function parseEnvFlags(args) {
+  const env = {};
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--env" || args[i] === "-e") {
+      const pair = args[++i];
+      if (!pair || !pair.includes("=")) {
+        console.error(`Error: --env expects KEY=VALUE (got: ${pair ?? "(nothing)"})`);
+        process.exit(1);
+      }
+      const idx = pair.indexOf("=");
+      env[pair.slice(0, idx)] = pair.slice(idx + 1);
+    }
+  }
+  return env;
+}
+
 function serviceInstall(args) {
   const p = requireSupportedPlatform();
 
   // Capture the run config from flags (falling back to existing config), persist it.
   const cli = parseServeArgs(args);
+  const envFlags = parseEnvFlags(args);
   const existing = loadConfig();
+  const mergedEnv = { ...(existing.env ?? {}), ...envFlags };
   const cfg = {
     rootDir: cli.rootDir != null ? path.resolve(cli.rootDir) : existing.rootDir ?? null,
     host: cli.host ?? existing.host ?? "localhost",
     port: cli.port ?? existing.port ?? "3000",
     https: cli.useHttps ?? existing.https ?? false,
+    ...(Object.keys(mergedEnv).length ? { env: mergedEnv } : {}),
   };
   saveConfig(cfg);
   console.log(`Saved config to ${configPath}`);
@@ -328,10 +438,70 @@ function serviceInstall(args) {
   console.log(`  host:  ${cfg.host}`);
   console.log(`  port:  ${cfg.port}`);
   console.log(`  https: ${cfg.https}`);
+  if (cfg.env) {
+    console.log(`  env:   ${Object.keys(cfg.env).join(", ")}`);
+  }
   console.log("");
+
+  // Surface the same secure-context guidance the server would, at install time.
+  const { warnings } = computeServerEnv({
+    host: cfg.host, port: String(cfg.port), useHttps: Boolean(cfg.https), configEnv: cfg.env ?? {},
+  });
+  for (const w of warnings) console.log(`⚠️   ${w}\n`);
 
   if (p === "linux") installSystemd();
   else installLaunchd();
+}
+
+// `wiki-viewer config` — show or edit the saved config (incl. env).
+function configCommand(args) {
+  const cfg = loadConfig();
+
+  if (args.length === 0 || args[0] === "show" || args[0] === "list") {
+    if (!existsSync(configPath)) {
+      console.log(`No config yet at ${configPath}`);
+      console.log(`Create one with: wiki-viewer service install [dir] [options] [--env KEY=VALUE]`);
+      return;
+    }
+    console.log(configPath);
+    console.log(JSON.stringify(cfg, null, 2));
+    return;
+  }
+
+  if (args[0] === "set") {
+    const pairs = args.slice(1);
+    if (pairs.length === 0) {
+      console.error("Usage: wiki-viewer config set KEY=VALUE [KEY=VALUE ...]");
+      process.exit(1);
+    }
+    cfg.env = cfg.env ?? {};
+    for (const pair of pairs) {
+      const idx = pair.indexOf("=");
+      if (idx < 0) { console.error(`Error: expected KEY=VALUE (got: ${pair})`); process.exit(1); }
+      cfg.env[pair.slice(0, idx)] = pair.slice(idx + 1);
+    }
+    saveConfig(cfg);
+    console.log(`Updated env in ${configPath}: ${pairs.map((p) => p.split("=")[0]).join(", ")}`);
+    if (serviceIsInstalled()) console.log("Run `wiki-viewer service restart` to apply.");
+    return;
+  }
+
+  if (args[0] === "unset") {
+    const keys = args.slice(1);
+    if (keys.length === 0) { console.error("Usage: wiki-viewer config unset KEY [KEY ...]"); process.exit(1); }
+    cfg.env = cfg.env ?? {};
+    for (const k of keys) delete cfg.env[k];
+    saveConfig(cfg);
+    console.log(`Removed from env: ${keys.join(", ")}`);
+    if (serviceIsInstalled()) console.log("Run `wiki-viewer service restart` to apply.");
+    return;
+  }
+
+  if (args[0] === "path") { console.log(configPath); return; }
+
+  console.error(`Unknown config command: ${args[0]}`);
+  console.error("Try: show | set KEY=VALUE | unset KEY | path");
+  process.exit(1);
 }
 
 function installSystemd() {
@@ -547,6 +717,9 @@ switch (cmd) {
     }
     break;
   }
+  case "config":
+    configCommand(rest);
+    break;
   case "update":
     update();
     break;

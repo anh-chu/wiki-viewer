@@ -119,7 +119,42 @@ The run config is saved to `~/.wiki-viewer/config.json`. Edit that file and run 
 
 On Linux, install enables lingering (`loginctl enable-linger`) so the service runs without an active login session and survives reboot. If that step needs privileges, the installer prints the command to run manually.
 
-> Ad-hoc runs like `wiki-viewer ~/docs` ignore the saved config. Only the service (and `wiki-viewer service run`) reads `config.json`.
+> Ad-hoc runs like `wiki-viewer ~/docs` ignore the saved bind (dir/host/port), but still read app env from `config.json`. Only the service (and `wiki-viewer service run`) reads the full config.
+
+### App configuration (env)
+
+App settings (OAuth keys, allowlists, rate limits) are env vars. You can keep them in the config file instead of exporting them, and the service will load them on every start.
+
+```bash
+# Set at install time
+wiki-viewer service install ~/notes --env GOOGLE_CLIENT_ID=... --env GOOGLE_CLIENT_SECRET=...
+
+# Or manage them later
+wiki-viewer config set AUTH_ALLOWED_DOMAIN=example.com
+wiki-viewer config set AGENT_RATE_LIMIT=120
+wiki-viewer config unset AGENT_RATE_LIMIT
+wiki-viewer config show
+wiki-viewer service restart   # apply changes
+```
+
+These land in the `env` block of `config.json`:
+
+```json
+{
+  "rootDir": "/home/you/notes",
+  "host": "0.0.0.0",
+  "port": "3003",
+  "https": true,
+  "env": {
+    "GOOGLE_CLIENT_ID": "...",
+    "AUTH_ALLOWED_DOMAIN": "example.com"
+  }
+}
+```
+
+**Precedence:** a variable exported in your shell always wins, then the `env` block in `config.json`, then values the CLI derives for you. So you can still override anything per run with `KEY=VALUE wiki-viewer ...` or `--env KEY=VALUE`.
+
+**`BETTER_AUTH_URL` is derived automatically** from the host, port, and scheme you run with, so the common case needs no config. On `localhost` over HTTP the CLI also sets `WIKI_ALLOW_INSECURE=1` for you (browsers treat localhost as a secure context). If you serve plain HTTP on a non-local host the CLI prints a warning, because login cookies and service workers will not work there. Use `--https`, or terminate TLS in a proxy and set `BETTER_AUTH_URL` to its public `https://` URL via `config set` or your shell.
 
 ### Update
 
