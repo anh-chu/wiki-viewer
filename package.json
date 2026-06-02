@@ -1,6 +1,6 @@
 {
   "name": "wiki-viewer",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Local file viewer and wiki — view markdown, HTML, PDFs, notebooks, office docs, and more from any directory",
   "license": "MIT",
   "type": "module",
@@ -17,7 +17,8 @@
     "build": "next build",
     "start": "next start",
     "wiki": "node bin/wiki-viewer.js",
-    "prepublishOnly": "npm run build && cp -r .next/static .next/standalone/.next/static && cp -r public .next/standalone/public && rm -f .next/standalone/.gitignore",
+    "postbuild": "node bin/postbuild.js",
+    "prepublishOnly": "npm run build",
     "test": "tsx --test src/tests/proof/*.test.ts"
   },
   "engines": {
