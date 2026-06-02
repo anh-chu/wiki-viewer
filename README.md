@@ -59,6 +59,8 @@ npx wiki-viewer ~/notes --https
 
 Open **http://localhost:3000** (or **https://localhost:3000** with `--https`).
 
+To switch the served directory later, click **Change** at the bottom of the sidebar and pick a new folder. No restart needed.
+
 On first run with no users in the database, the app works in single-user mode and any visitor on `localhost` can sign up. Set `AUTH_ALLOWED_DOMAIN` or `AUTH_ALLOWED_EMAILS` before exposing the server to anyone else.
 
 > ⚠️ **Running on a remote host?** The app must be accessed over **HTTPS**. Browsers gate several APIs (service workers, PDF.js, secure-context features) behind HTTPS. Plain HTTP only works on `localhost`.
@@ -348,20 +350,20 @@ The dev server supports hot reload.
 
 ### All environment variables
 
-| Variable               | Description                                                | Default               |
-| ---------------------- | ---------------------------------------------------------- | --------------------- |
-| `ROOT_DIR`             | Directory to serve                                         | `~/wiki-viewer-files` |
-| `PORT`                 | Port to listen on                                          | `3000`                |
-| `HOSTNAME`             | Host / interface to bind                                   | `localhost`           |
-| `BETTER_AUTH_URL`      | Public origin (required in production, must be `https://`) | unset                 |
-| `BETTER_AUTH_SECRET`   | Override for the auto-generated session signing secret     | file-stored           |
-| `GOOGLE_CLIENT_ID`     | Enable Google OAuth button                                 | unset                 |
-| `GOOGLE_CLIENT_SECRET` | Enable Google OAuth button                                 | unset                 |
-| `AUTH_ALLOWED_EMAILS`  | csv: only these emails can sign up (overridden by UI allowlist if set) | unset (open) |
-| `AUTH_ALLOWED_DOMAIN`  | csv: only emails on these domains can sign up (overridden by UI allowlist if set) | unset (open) |
-| `WIKI_OWNER_HOSTS`     | csv: extra hostnames trusted for CSRF Origin check         | `localhost,127.0.0.1` |
-| `WIKI_ALLOW_INSECURE`  | Set to `1` to bypass the prod-https guard (dev / CI only)  | unset                 |
-| `AGENT_RATE_LIMIT`     | Max mutation ops per minute per agent identity             | `60`                  |
+| Variable               | Description                                                                       | Default               |
+| ---------------------- | --------------------------------------------------------------------------------- | --------------------- |
+| `ROOT_DIR`             | Directory to serve                                                                | `~/wiki-viewer-files` |
+| `PORT`                 | Port to listen on                                                                 | `3000`                |
+| `HOSTNAME`             | Host / interface to bind                                                          | `localhost`           |
+| `BETTER_AUTH_URL`      | Public origin (required in production, must be `https://`)                        | unset                 |
+| `BETTER_AUTH_SECRET`   | Override for the auto-generated session signing secret                            | file-stored           |
+| `GOOGLE_CLIENT_ID`     | Enable Google OAuth button                                                        | unset                 |
+| `GOOGLE_CLIENT_SECRET` | Enable Google OAuth button                                                        | unset                 |
+| `AUTH_ALLOWED_EMAILS`  | csv: only these emails can sign up (overridden by UI allowlist if set)            | unset (open)          |
+| `AUTH_ALLOWED_DOMAIN`  | csv: only emails on these domains can sign up (overridden by UI allowlist if set) | unset (open)          |
+| `WIKI_OWNER_HOSTS`     | csv: extra hostnames trusted for CSRF Origin check                                | `localhost,127.0.0.1` |
+| `WIKI_ALLOW_INSECURE`  | Set to `1` to bypass the prod-https guard (dev / CI only)                         | unset                 |
+| `AGENT_RATE_LIMIT`     | Max mutation ops per minute per agent identity                                    | `60`                  |
 
 ---
 
