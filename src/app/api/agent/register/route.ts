@@ -12,7 +12,7 @@ import { checkRegisterRateLimit } from "@/lib/proof/register-rate-limit";
 export const runtime = "nodejs";
 
 const AGENT_ID_RE = /^ai:[a-z][a-z0-9-]{0,30}$/i;
-const VALID_OPS = new Set(["read", "mutate"]);
+const VALID_OPS = new Set(["read", "mutate", "delete"]);
 
 function validateScope(s: Record<string, unknown>): AgentScope | { error: string } {
 	if (!Array.isArray(s.paths) || s.paths.length === 0 || s.paths.length > 20) {
@@ -28,10 +28,10 @@ function validateScope(s: Record<string, unknown>): AgentScope | { error: string
 	}
 	for (const op of s.ops) {
 		if (!VALID_OPS.has(op as string)) {
-			return { error: `scope.ops values must be "read" or "mutate"` };
+			return { error: `scope.ops values must be "read", "mutate", or "delete"` };
 		}
 	}
-	return { paths: s.paths as string[], ops: s.ops as Array<"read" | "mutate"> };
+	return { paths: s.paths as string[], ops: s.ops as Array<"read" | "mutate" | "delete"> };
 }
 
 /** Exported for reuse in approve route. */
