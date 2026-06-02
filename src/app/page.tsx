@@ -229,6 +229,15 @@ export default function Page() {
 
 	const editorCurrentPath = useEditorStore((s) => s.currentPath);
 
+	// Path captured from the URL at first render, before any effect can clear it.
+	// Restore reads from this ref (never the live URL) so URL sync can't break it.
+	const initialUrlPathRef = useRef<string | null>(
+		typeof window !== "undefined"
+			? new URLSearchParams(window.location.search).get("path")
+			: null,
+	);
+	const didRestoreRef = useRef(false);
+
 	const [roots, setRoots] = useState<TreeNode[]>([]);
 	const [rootLoaded, setRootLoaded] = useState(false);
 	const [rootLoading, setRootLoading] = useState(false);
@@ -292,10 +301,58 @@ export default function Page() {
 			});
 	}, [rootLoaded]);
 
+	// Expand every ancestor folder of `p` so the file is visible in the tree.
+	// Best-effort: requires the root nodes to already be loaded.
+	const revealPath = useCallback(async (p: string) => {
+		const parts = p.split("/");
+		if (parts.length <= 1) return;
+
+		// Fetch every ancestor's children first. We must NOT apply them with one
+		// setRoots per level: those updaters run against the same stale `prev`
+		// snapshot, so a nested prefix isn't in the tree yet and updateNodes
+		// silently no-ops (only the top level ever matched). Collect all levels,
+		// then splice them in a single pass so each parent's children exist before
+		// the next level is inserted.
+		const levels: { prefix: string; children: TreeNode[] }[] = [];
+		let prefix = "";
+		for (let i = 0; i < parts.length - 1; i++) {
+			prefix = prefix ? `${prefix}/${parts[i]}` : parts[i];
+			levels.push({ prefix, children: await fetchDir(prefix) });
+		}
+
+		setRoots((prev) => {
+			let next = prev;
+			for (const { prefix: pfx, children } of levels) {
+				next = updateNodes(next, pfx, (n) => ({
+					...n,
+					children,
+					expanded: true,
+				}));
+			}
+			return next;
+		});
+	}, []);
+
 	const reloadDir = useCallback(async (dir: string) => {
 		const fresh = await fetchDir(dir);
 		if (dir === "") {
-			setRoots(fresh);
+			// Merge: keep expanded state + loaded children for nodes that still
+			// exist. A blind setRoots(fresh) would collapse the tree and wipe any
+			// expansion done by revealPath on reload (watcher fires this often).
+			setRoots((prev) => {
+				const prevByPath = new Map(prev.map((n) => [n.path, n]));
+				return fresh.map((n) => {
+					const old = prevByPath.get(n.path);
+					if (old && (old.type === "dir" || old.type === "app")) {
+						return {
+							...n,
+							expanded: old.expanded,
+							children: old.children,
+						};
+					}
+					return n;
+				});
+			});
 		} else {
 			setRoots((prev) =>
 				updateNodes(prev, dir, (n) => ({
@@ -504,6 +561,46 @@ export default function Page() {
 			type: "file",
 		} as TreeNode);
 	}, [editorCurrentPath]);
+
+	// Persist the open file to the URL (?path=) so reloads restore it.
+	// replaceState avoids polluting history on every file switch.
+	useEffect(() => {
+		if (typeof window === "undefined") return;
+		const url = new URL(window.location.href);
+		if (openFile) url.searchParams.set("path", openFile.path);
+		else url.searchParams.delete("path");
+		window.history.replaceState(null, "", url.toString());
+	}, [openFile]);
+
+	// Restore the open file from the URL once the root tree is loaded.
+	// Resolves node type from the parent dir listing (file vs app vs node-app).
+	// biome-ignore lint/correctness/useExhaustiveDependencies: openViewer is a hoisted stable fn; restore runs once
+	useEffect(() => {
+		if (didRestoreRef.current) return;
+		if (!rootLoaded) return;
+		const target = initialUrlPathRef.current;
+		if (!target) {
+			didRestoreRef.current = true;
+			return;
+		}
+		didRestoreRef.current = true;
+
+		void (async () => {
+			const parts = target.split("/");
+			const name = parts[parts.length - 1];
+			const parentDir = parts.slice(0, -1).join("/");
+			const siblings = await fetchDir(parentDir);
+			const match = siblings.find((s) => s.path === target);
+			if (!match) return; // file no longer exists; leave home view
+			await revealPath(target);
+			void openViewer({
+				path: target,
+				name,
+				type: match.type,
+				modifiedAt: match.modifiedAt,
+			} as TreeNode);
+		})();
+	}, [rootLoaded, revealPath]);
 
 	const handleChangeDir = async () => {
 		await fetch("/api/system/clear-root", { method: "POST" });
