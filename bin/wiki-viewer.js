@@ -7,6 +7,8 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync } from "node
 import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
+import { createInterface } from "node:readline";
+import { stdin, stdout } from "node:process";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.resolve(__dirname, "..");
@@ -34,6 +36,7 @@ function printUsage() {
   console.error("  -e, --env <KEY=VALUE>  Set an app env var (repeatable; persisted with service install)");
   console.error("");
   console.error("Commands:");
+  console.error("  init                              Interactive setup wizard (dir, host/port, https, env, service)");
   console.error("  service install [dir] [options]   Install as a user service (persists across reboot)");
   console.error("  service uninstall                 Remove the user service");
   console.error("  service status                    Show service status");
@@ -46,6 +49,7 @@ function printUsage() {
   console.error("  update                            Update wiki-viewer to the latest version and restart");
   console.error("");
   console.error("Examples:");
+  console.error("  wiki-viewer init");
   console.error("  wiki-viewer ~/notes");
   console.error("  wiki-viewer ~/notes --https");
   console.error("  wiki-viewer ~/notes -p 8080 -H 0.0.0.0");
@@ -689,6 +693,170 @@ function update() {
   console.log("Update complete.");
 }
 
+// ── interactive setup wizard ──────────────────────────────────────────────
+
+// Common app env vars worth offering during setup. Anything not listed can
+// still be added later with `wiki-viewer config set KEY=VALUE`.
+const WIZARD_ENV_VARS = [
+  { key: "AUTH_ALLOWED_DOMAIN", hint: "Restrict signup to an email domain, e.g. example.com" },
+  { key: "AUTH_ALLOWED_EMAILS", hint: "Restrict signup to specific emails (comma-separated)" },
+  { key: "GOOGLE_CLIENT_ID", hint: "Google OAuth client ID (enables Google sign-in)" },
+  { key: "GOOGLE_CLIENT_SECRET", hint: "Google OAuth client secret" },
+  { key: "WIKI_OWNER_HOSTS", hint: "Extra hostnames trusted for the AI panel owner cookie" },
+  { key: "AGENT_RATE_LIMIT", hint: "Per-minute agent API rate limit (default 60)" },
+];
+
+// A prompt helper that survives piped (non-TTY) stdin. node:readline/promises
+// closes the stream between awaited questions when input is piped, so we buffer
+// every line via the 'line' event and hand them out one at a time instead.
+function makePrompter() {
+  const rl = createInterface({ input: stdin, output: stdout });
+  const queue = [];
+  const waiters = [];
+  let closed = false;
+
+  rl.on("line", (line) => {
+    if (waiters.length) waiters.shift()(line);
+    else queue.push(line);
+  });
+  rl.on("close", () => {
+    closed = true;
+    while (waiters.length) waiters.shift()(null);
+  });
+
+  const nextLine = () =>
+    new Promise((resolve) => {
+      if (queue.length) resolve(queue.shift());
+      else if (closed) resolve(null);
+      else waiters.push(resolve);
+    });
+
+  const prompt = async (text) => {
+    stdout.write(text);
+    const line = await nextLine();
+    return line == null ? "" : line;
+  };
+
+  return { prompt, close: () => rl.close() };
+}
+
+async function runWizard() {
+  const io = makePrompter();
+  const existing = loadConfig();
+
+  const ask = async (label, def) => {
+    const suffix = def ? ` [${def}]` : "";
+    const answer = (await io.prompt(`${label}${suffix}: `)).trim();
+    return answer || def || "";
+  };
+  const askYesNo = async (label, defYes) => {
+    const def = defYes ? "Y/n" : "y/N";
+    const answer = (await io.prompt(`${label} [${def}]: `)).trim().toLowerCase();
+    if (!answer) return defYes;
+    return answer === "y" || answer === "yes";
+  };
+
+  try {
+    console.log("\nwiki-viewer setup\n");
+    console.log("Answer a few questions. Press Enter to accept the [default].\n");
+
+    // 1. directory
+    const dirInput = await ask(
+      "Directory to serve (blank = choose later in the browser)",
+      existing.rootDir ?? process.cwd(),
+    );
+    const rootDir = dirInput ? path.resolve(dirInput) : null;
+    if (rootDir && !existsSync(rootDir)) {
+      console.log(`  Note: ${rootDir} does not exist yet; it will be served once created.`);
+    }
+
+    // 2. host
+    const host = await ask(
+      "Host to bind (localhost for this machine only, 0.0.0.0 for the network)",
+      existing.host ?? "localhost",
+    );
+
+    // 3. port
+    const port = await ask("Port", String(existing.port ?? "3000"));
+
+    // 4. https
+    const httpsDefault = existing.https ?? (!isLocalHost(host) && host !== "0.0.0.0");
+    const useHttps = await askYesNo(
+      "Enable HTTPS? (recommended for any non-localhost access)",
+      Boolean(httpsDefault),
+    );
+
+    // 5. app env vars
+    const env = { ...(existing.env ?? {}) };
+    const wantEnv = await askYesNo(
+      "\nConfigure app settings now? (OAuth, signup allowlist, rate limit)",
+      false,
+    );
+    if (wantEnv) {
+      console.log("Leave blank to skip a setting.\n");
+      for (const { key, hint } of WIZARD_ENV_VARS) {
+        const cur = env[key];
+        const val = await ask(`  ${key} — ${hint}`, cur);
+        if (val) env[key] = val;
+        else delete env[key];
+      }
+    }
+
+    // Build and preview the config.
+    const cfg = {
+      rootDir,
+      host,
+      port,
+      https: useHttps,
+      ...(Object.keys(env).length ? { env } : {}),
+    };
+
+    console.log("\nConfiguration:");
+    console.log(`  directory : ${rootDir ?? "(choose in browser)"}`);
+    console.log(`  host      : ${host}`);
+    console.log(`  port      : ${port}`);
+    console.log(`  https     : ${useHttps}`);
+    if (cfg.env) console.log(`  app env   : ${Object.keys(cfg.env).join(", ")}`);
+
+    // Secure-context guidance before committing.
+    const { warnings } = computeServerEnv({ host, port: String(port), useHttps, configEnv: cfg.env ?? {} });
+    for (const w of warnings) console.log(`\n⚠️   ${w}`);
+
+    // 6. what to do now
+    console.log("");
+    console.log("What next?");
+    console.log("  1) Install as a service (starts now and on every reboot)");
+    console.log("  2) Run once now (foreground)");
+    console.log("  3) Save config only");
+    const choice = (await io.prompt("Choose [1/2/3]: ")).trim() || "1";
+
+    saveConfig(cfg);
+    console.log(`\nSaved ${configPath}`);
+
+    io.close();
+
+    if (choice === "1") {
+      const p = platform();
+      if (!p) {
+        console.log("Service install is only supported on Linux and macOS.");
+        console.log("Run it yourself with: wiki-viewer service run");
+        return;
+      }
+      if (p === "linux") installSystemd();
+      else installLaunchd();
+    } else if (choice === "2") {
+      start(resolveRunOptions([]));
+    } else {
+      console.log("\nStart it any time with:");
+      console.log("  wiki-viewer service install   # persistent service");
+      console.log("  wiki-viewer service run       # run from this config");
+    }
+  } finally {
+    // io may already be closed; closing twice is a no-op.
+    io.close();
+  }
+}
+
 // ── dispatch ──────────────────────────────────────────────────────────────
 
 const argv = process.argv.slice(2);
@@ -720,10 +888,23 @@ switch (cmd) {
   case "config":
     configCommand(rest);
     break;
+  case "init":
+  case "setup":
+    runWizard();
+    break;
   case "update":
     update();
     break;
   default:
+    if (argv.includes("--setup") || argv.includes("--init")) {
+      runWizard();
+      break;
+    }
     // No recognized command → ad-hoc serve (directory + flags only).
+    // On a bare interactive run, point users at the guided setup first.
+    if (argv.length === 0 && stdin.isTTY) {
+      console.log("Tip: run `wiki-viewer init` for guided setup (directory, host/port, HTTPS,");
+      console.log("     app settings, and optional install as a reboot-persistent service).\n");
+    }
     start(resolveServeOptions(argv));
 }

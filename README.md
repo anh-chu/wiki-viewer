@@ -47,7 +47,11 @@ Single-user, no-auth mode still works. Auth turns on automatically once anyone s
 ## Quick start
 
 ```bash
-# Point it at a directory
+# Guided setup: directory, host/port, HTTPS, app settings, and optional
+# install as a reboot-persistent service. Recommended for first run.
+npx wiki-viewer init
+
+# Or run directly. Point it at a directory
 npx wiki-viewer ~/notes
 
 # No directory? Pick one in the browser
@@ -56,6 +60,8 @@ npx wiki-viewer
 # Running on a remote machine? HTTPS is required (see note below)
 npx wiki-viewer ~/notes --https
 ```
+
+The wizard walks you through every option and writes `~/.wiki-viewer/config.json`, so you do not have to remember flags. You can re-run it any time, or edit the config with `wiki-viewer config set`.
 
 Open **http://localhost:3000** (or **https://localhost:3000** with `--https`).
 
