@@ -8,6 +8,17 @@ license: MIT
 
 You are working with **wiki-viewer**, a local-first markdown viewer that exposes a Proof-SDK-compatible HTTP API for agents. Files on disk are the source of truth. Every AI-authored edit is wrapped in an inline `<proof-span>` mark so the human can see, accept, or revert your contribution.
 
+## Quick orientation: two tiers
+
+| Tier                | Routes                  | File types                          | When to use                                                                       |
+| ------------------- | ----------------------- | ----------------------------------- | --------------------------------------------------------------------------------- |
+| **Tier 1 — Raw FS** | `/api/agent/fs/*`       | All types (markdown, code, binary…) | Fast filework. Read, write, list, move, delete, search. Audited but no review UI. |
+| **Tier 2 — Collab** | `/api/agent/files/*.md` | Markdown only                       | Reviewable prose. Edits become proof-spans the human can accept/revert.           |
+
+Both tiers use the same auth (TOFU token). Pick the tier based on `X-Collab-State` (see [Which tier do I use?](#which-tier-do-i-use)).
+
+---
+
 ## Discovery
 
 The server publishes everything you need at one URL:
@@ -214,6 +225,180 @@ Acks are advisory; events are never deleted.
 | 422    | INVALID_MARKDOWN       | op's markdown failed to parse                      |
 | 429    | RATE_LIMITED           | bucket exhausted, honor `Retry-After` header       |
 
+---
+
+## Working with files (raw filesystem — Tier 1)
+
+All Tier-1 routes require `Authorization: Bearer <token>` + `X-Agent-Id: ai:<name>` (same as Tier 2). The agent's `scope.paths` glob applies to every surface (reads, ls results, search results, move, delete).
+
+### Scope ops
+
+When registering, `scope.ops` can include:
+
+- `read` — read files + list + search
+- `mutate` — create / overwrite / move
+- `delete` — remove files/dirs (separate from mutate so a human can grant edit-but-never-delete)
+
+Example registration with full access:
+
+```json
+{
+  "id": "ai:claude",
+  "scope": { "paths": ["**/*"], "ops": ["read", "mutate", "delete"] }
+}
+```
+
+### Read a file
+
+```
+GET /api/agent/fs/file/<path>
+```
+
+Returns raw bytes. Metadata in response headers:
+
+```
+ETag: "<sha256>"
+X-File-Size: <bytes>
+X-File-Mtime: <ISO-8601>
+Content-Type: <mime>
+X-Collab-State: active | tracked | untracked | not-markdown
+X-Collab-Revision: <n>
+X-Collab-Snapshot: /api/agent/files/<path>.md   # when applicable
+```
+
+Supports `Range` header for large/binary files.
+
+### Write a file
+
+```
+PUT /api/agent/fs/file/<path>
+If-Match: "<sha256>"          # required for overwrites; omit for creates
+Content-Type: <mime>
+<raw bytes body>
+```
+
+- **Create** (file doesn't exist): omit `If-Match`. Creating a file that already exists without `If-Match` → 412 (no blind clobber).
+- **Overwrite** (file exists): send `If-Match` with the sha256 you read. Mismatch → 412.
+- `?mkdirs=true` — create parent directories.
+- `?force=true` — bypass `If-Match` check (audited; use sparingly).
+
+For `.md` files, also send:
+
+```
+If-Collab-Match: <X-Collab-Revision>   # prevents writing into a live collab session
+```
+
+(See [Which tier do I use?](#which-tier-do-i-use).)
+
+Response:
+
+```json
+{
+  "path": "...",
+  "sha256": "...",
+  "size": 1234,
+  "mtime": "...",
+  "created": false
+}
+```
+
+### Delete a file
+
+```
+DELETE /api/agent/fs/file/<path>
+If-Match: "<sha256>"    # required — you must have read the file first
+```
+
+Requires `delete` in `scope.ops`. Deletes the `.proof/` sidecar too for `.md` files. For directories: `?recursive=true`.
+
+### List a directory
+
+```
+GET /api/agent/fs/ls/<path>?recursive=true&limit=500&depth=3
+```
+
+Returns `{ entries: [{name, type, path, size, mtime}] }`. Unauthorized paths silently omitted. Excludes `.proof/`.
+
+### Move / rename
+
+```
+POST /api/agent/fs/move
+Content-Type: application/json
+
+{ "from": "notes/old.md", "to": "notes/new.md", "ifMatch": "<sha256>" }
+```
+
+Moves the `.proof/` sidecar for `.md` files automatically.
+
+### Search (grep / glob)
+
+```
+POST /api/agent/fs/search
+Content-Type: application/json
+
+{ "kind": "grep", "query": "TODO", "path": "src", "glob": "*.ts", "limit": 100 }
+```
+
+```
+POST /api/agent/fs/search
+Content-Type: application/json
+
+{ "kind": "glob", "query": "**/*.test.ts" }
+```
+
+Server-side: one call replaces dozens of `ls`+`read` round-trips. Results are scope-filtered. Glob dialect: `**`, `*`, `?` only (no braces/negation in v1).
+
+### Error codes (Tier 1)
+
+| Status | Code                | Meaning                                                                     |
+| ------ | ------------------- | --------------------------------------------------------------------------- |
+| 400    | BAD_REQUEST         | Invalid path or body                                                        |
+| 401    | UNAUTHORIZED        | Bad/missing token or X-Agent-Id                                             |
+| 403    | FORBIDDEN           | Scope mismatch or missing `delete` op                                       |
+| 404    | NOT_FOUND           | Path doesn't exist                                                          |
+| 409    | COLLAB_ACTIVE       | Raw PUT rejected — doc is active-collab; use Tier-2 or send If-Collab-Match |
+| 412    | PRECONDITION_FAILED | If-Match sha mismatch (concurrent modification)                             |
+| 413    | PAYLOAD_TOO_LARGE   | File exceeds 50 MB limit                                                    |
+| 429    | RATE_LIMITED        | Honor `Retry-After`                                                         |
+
+---
+
+## Which tier do I use?
+
+Every `GET /api/agent/fs/file/<path>` (and every Tier-2 snapshot read) returns `X-Collab-State`.
+
+| `X-Collab-State` | Meaning                                                                                       | Use                                                                                                  |
+| ---------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `active`         | Human has this `.md` open in the editor, OR it has pending suggestions / unresolved comments. | **Tier 2 block-ops only.** A raw `PUT` returns `409 COLLAB_ACTIVE`.                                  |
+| `tracked`        | `.md` has a sidecar (prior collab history), no active session.                                | Prefer Tier-2 for prose/semantic edits. Raw ok for mechanical/whole-file ops (reformat, regenerate). |
+| `untracked`      | `.md`, no sidecar yet.                                                                        | Raw is fine. Tier-2 creates a sidecar (starts provenance tracking).                                  |
+| `not-markdown`   | Any non-`.md` file.                                                                           | **Tier-1 raw only.** Tier 2 does not apply.                                                          |
+
+**Rule (one sentence):** Read the file, check `X-Collab-State`, use Tier-2 if `active`, else use Tier-1. For non-markdown, always Tier-1.
+
+**Editing a `.md` safely:**
+
+```
+1. GET /api/agent/fs/file/<path>.md
+   → note ETag (sha256) and X-Collab-Revision + X-Collab-State
+
+2a. If X-Collab-State == "active":
+    → POST /api/agent/files/<path>.md  (block-ops, Tier-2)
+      Use the X-Collab-Snapshot URL. See "Mutating" section below.
+
+2b. Otherwise (tracked / untracked):
+    → PUT /api/agent/fs/file/<path>.md  (raw Tier-1)
+         If-Match: "<ETag from step 1>"
+         If-Collab-Match: <X-Collab-Revision from step 1>
+
+3. If you get 409 COLLAB_ACTIVE: the doc became active after your read.
+   Switch to Tier-2 (block-ops) using the URL in the response body.
+```
+
+**MCP-capable agents:** run `npx wiki-viewer-mcp` — it reads `X-Collab-State` automatically and routes to the correct tier. Set env vars `WIKI_VIEWER_URL`, `WIKI_VIEWER_TOKEN`, `WIKI_VIEWER_AGENT_ID`.
+
+---
+
 ## Working style
 
 - Read before write. Always GET a fresh snapshot to capture current `revision` and block `ref`s.
@@ -226,11 +411,19 @@ Acks are advisory; events are never deleted.
 ## Sample first interaction
 
 ```
-1. GET /api/agents/install                      # discovery
-2. POST /api/agent/register                     # register
+1. GET /api/agents/install                               # discovery
+2. POST /api/agent/register                              # register (include "delete" in ops if needed)
 3. tell human: "approve me in the AI Panel"
-4. GET /api/agent/register/<regId>              # poll until approved
-5. GET /api/agent/files/<path>.md               # read
-6. POST /api/agent/files/<path>.md              # suggest or mutate
-7. GET /api/agent/events/<path>.md?after=<id>   # listen for replies
+4. GET /api/agent/register/<regId>                       # poll until approved
+
+# Working mode (Tier-1, e.g. code files or untracked .md)
+5. GET /api/agent/fs/ls/src?recursive=true               # list
+6. GET /api/agent/fs/file/src/main.ts                    # read -> capture ETag
+7. PUT /api/agent/fs/file/src/main.ts (If-Match: <sha>) # write
+
+# Collaborating mode (Tier-2, active .md)
+5. GET /api/agent/fs/file/notes/plan.md                  # read -> X-Collab-State: active
+6. GET /api/agent/files/notes/plan.md                    # read snapshot (Tier-2)
+7. POST /api/agent/files/notes/plan.md                   # suggest or mutate (Tier-2)
+8. GET /api/agent/events/notes/plan.md?after=<id>        # listen for replies
 ```

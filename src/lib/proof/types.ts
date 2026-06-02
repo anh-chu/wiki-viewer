@@ -40,6 +40,8 @@ export interface Comment {
 	resolved: boolean;
 	createdAt: string;
 	turns: CommentTurn[];
+	/** Set true when a raw .md overwrite orphans the anchor ref (R2 collab-anchor safety). */
+	stale?: boolean;
 }
 
 export type SuggestionKind =
@@ -61,11 +63,21 @@ export interface Suggestion {
 	createdAt: string;
 	resolvedAt?: string; // when accepted/rejected
 	resolvedBy?: string;
+	/** Set true when a raw .md overwrite orphans the anchor ref (R2 collab-anchor safety). */
+	stale?: boolean;
 }
 
 export interface ProofEvent {
 	id: number;
-	type: string; // see §4.6 list
+	/**
+	 * Known event types:
+	 *   block.replaced | block.inserted | block.deleted
+	 *   comment.added | comment.replied | comment.resolved | comment.reopened
+	 *   suggestion.added | suggestion.accepted | suggestion.rejected
+	 *   file.externallyEdited  — writer unknown (chokidar / external tool)
+	 *   file.rawWritten        — writer known (by: "ai:<id>"), emitted by Tier-1 raw-fs write
+	 */
+	type: string;
 	at: string;
 	by: string;
 	[k: string]: unknown;

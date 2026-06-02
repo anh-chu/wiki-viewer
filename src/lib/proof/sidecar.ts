@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir, rename } from "node:fs/promises";
+import { readFile, writeFile, mkdir, rename, unlink } from "node:fs/promises";
 import path from "node:path";
 import type { Sidecar } from "./types";
 
@@ -42,6 +42,43 @@ export async function writeSidecar(
 	const tmp = dest + ".tmp";
 	await writeFile(tmp, JSON.stringify(sc, null, 2), "utf-8");
 	await rename(tmp, dest);
+}
+
+/**
+ * Move a sidecar file alongside a renamed .md file.
+ * No-op if the sidecar does not exist.
+ */
+export async function moveSidecar(
+	rootDir: string,
+	fromMdPath: string,
+	toMdPath: string,
+): Promise<void> {
+	const src = sidecarPath(rootDir, fromMdPath);
+	const dest = sidecarPath(rootDir, toMdPath);
+	try {
+		await mkdir(path.dirname(dest), { recursive: true });
+		await rename(src, dest);
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException).code === "ENOENT") return; // no sidecar — ok
+		throw err;
+	}
+}
+
+/**
+ * Delete a sidecar file for a removed .md file.
+ * No-op if the sidecar does not exist.
+ */
+export async function deleteSidecar(
+	rootDir: string,
+	mdPath: string,
+): Promise<void> {
+	const filePath = sidecarPath(rootDir, mdPath);
+	try {
+		await unlink(filePath);
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException).code === "ENOENT") return; // already gone — ok
+		throw err;
+	}
 }
 
 export function emptySidecar(mdPath: string): Sidecar {

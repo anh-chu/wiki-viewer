@@ -21,6 +21,7 @@ import { idempotency } from "@/lib/proof/idempotency";
 import { getRootDir, safeRootPath } from "@/lib/root-dir";
 import type { Op } from "@/lib/proof/types";
 import { checkAndConsume } from "@/lib/proof/rate-limit";
+import { computeCollabState } from "@/lib/proof/collab-state";
 
 export const runtime = "nodejs";
 
@@ -67,7 +68,16 @@ export async function GET(
 		return NextResponse.json({ error: "NOT_FOUND", message: "File not found" }, { status: 404 });
 	}
 
-	return NextResponse.json(snapshot);
+	const collab = await computeCollabState(rootDir, rel);
+	const collabHeaders: Record<string, string> = {
+		"X-Collab-State": collab.state,
+		"X-Collab-Revision": String(collab.revision),
+	};
+	if (collab.snapshotUrl) {
+		collabHeaders["X-Collab-Snapshot"] = collab.snapshotUrl;
+	}
+
+	return NextResponse.json(snapshot, { headers: collabHeaders });
 }
 
 export async function POST(
