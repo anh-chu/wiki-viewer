@@ -22,8 +22,10 @@
 Originally a zero-config single-user tool, it now supports:
 
 - Multi-user sign-in (Google OAuth or email + password) for teams of 3 to 10 sharing a VPS.
-- An HTTP collaboration API that lets AI agents read and edit Markdown files alongside you, with provenance marks, comments, suggestions, and revision-checked mutations.
+- An HTTP API for AI agents with **two tiers**: a raw filesystem (read/write/edit/list/search/move/delete for **all file types**) for fast filework, and a Markdown collaboration layer with provenance marks, comments, suggestions, and revision-checked mutations.
+- A **working-vs-collaborating** safety model: when you have a Markdown doc open, agents automatically defer to the reviewable collab path instead of overwriting it.
 - Per-agent registration and scoped tokens. No shared bearer secret.
+- An optional `npx wiki-viewer-mcp` adapter so MCP-capable agents (Claude Code, Cursor, Codex) get native file tools against a remote instance.
 
 Single-user, no-auth mode still works. Auth turns on automatically once anyone signs up.
 
@@ -279,7 +281,23 @@ The Markdown editor now sends a `baseRevision` with every save. If another user 
 
 ## Working with AI agents
 
-wiki-viewer exposes an HTTP collaboration protocol so agents (Claude, Cursor, ChatGPT desktop, custom scripts) can read and edit Markdown files. Every AI-authored insert is wrapped in an inline `<proof-span>` mark so the human reviewer can see, accept, or revert each change.
+wiki-viewer exposes an HTTP API so agents (Claude, Cursor, ChatGPT desktop, custom scripts) can work with files in a running instance — locally or remotely — almost as if they were on their own filesystem. There are **two tiers**, sharing one auth/scope/lock spine:
+
+- **Tier 1 — Raw filesystem** (`/api/agent/fs/*`): `read`, `write`, `edit`, `list`, `search`, `move`, `delete` for **every file type** (code, configs, PDFs, notebooks, Markdown — anything). Fast, boring, byte-accurate. Mutations are audited.
+- **Tier 2 — Markdown collaboration** (`/api/agent/files/*`): structured block-ops where every AI-authored insert is wrapped in an inline `<proof-span>` mark so the human reviewer can see, accept, or revert each change, plus comments and suggestions. Tier-2 is API-compatible in spirit with [Proof SDK](https://github.com/EveryInc/proof-sdk).
+
+### Which tier? Working mode vs collaborating mode
+
+Before editing a Markdown file, an agent reads it and checks the **`X-Collab-State`** response header:
+
+| `X-Collab-State` | Meaning | Agent uses |
+| ---------------- | ------- | ---------- |
+| `active`         | A human has the doc open, or it has pending suggestions/comments | **Tier-2 block-ops** (reviewable). A raw write is rejected `409 COLLAB_ACTIVE`. |
+| `tracked`        | Has a collab sidecar, nobody editing now | Prefer Tier-2 for prose; raw OK for mechanical edits |
+| `untracked`      | Plain Markdown, never collaborated on | Either tier |
+| `not-markdown`   | Any non-`.md` file | **Tier-1 raw only** |
+
+This is enforced, not advisory: the collab state is re-checked atomically inside the write lock, so an agent can never silently clobber a doc you just opened. The browser editor sends a presence heartbeat to drive the `active` state. See [`docs/file-vs-collab-authority.md`](docs/file-vs-collab-authority.md) for the full authority model.
 
 The protocol is intentionally API-compatible in spirit with [Proof SDK](https://github.com/EveryInc/proof-sdk).
 
@@ -306,7 +324,42 @@ npx skills add anh-chu/wiki-viewer/agents/wiki-viewer-skill
 
 For any chat agent, paste the bootstrap prompt from `<your-server>/agents/install` (also visible in the AI Panel). The agent fetches `/api/agents/install` and learns the full op vocabulary at runtime.
 
-### Op vocabulary
+### Tier 1 — raw filesystem
+
+Work with any file type. All routes take `Authorization: Bearer <token>` + `X-Agent-Id`, are scope-checked, and reject path traversal, symlink escapes, and anything under `.proof/`.
+
+```bash
+# Read (bytes; ETag is the sha256, supports Range, returns X-Collab-State)
+curl -sD- -H "Authorization: Bearer $TOKEN" -H "X-Agent-Id: ai:claude" \
+  https://wiki.team.com/api/agent/fs/file/src/util.ts
+
+# Write/overwrite (atomic). If-Match: <sha256> is required to overwrite;
+# omit it to create. ?mkdirs=true creates parent dirs. ?force=true overrides (audited).
+curl -s -X PUT -H "Authorization: Bearer $TOKEN" -H "X-Agent-Id: ai:claude" \
+  -H "If-Match: <sha256-from-read>" --data-binary @util.ts \
+  https://wiki.team.com/api/agent/fs/file/src/util.ts
+
+# List a directory (scope-filtered)
+curl -s -H "Authorization: Bearer $TOKEN" -H "X-Agent-Id: ai:claude" \
+  "https://wiki.team.com/api/agent/fs/ls/src?recursive=true&limit=500"
+
+# Search (server-side; kills round-trips)
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "X-Agent-Id: ai:claude" \
+  -H "Content-Type: application/json" \
+  -d '{"kind":"grep","query":"TODO","glob":"**/*.ts"}' \
+  https://wiki.team.com/api/agent/fs/search
+
+# Move and delete (delete needs the `delete` scope + If-Match)
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "X-Agent-Id: ai:claude" \
+  -H "Content-Type: application/json" -d '{"from":"a.md","to":"b.md"}' \
+  https://wiki.team.com/api/agent/fs/move
+curl -s -X DELETE -H "Authorization: Bearer $TOKEN" -H "X-Agent-Id: ai:claude" \
+  -H "If-Match: <sha256>" https://wiki.team.com/api/agent/fs/file/old.md
+```
+
+Mutating a Markdown file via raw write emits a `file.rawWritten` event and re-binds the collab sidecar; if the doc is `active` it is rejected `409 COLLAB_ACTIVE` (use Tier-2 instead). Use the **`npx wiki-viewer-mcp`** adapter to get all of this as standard MCP file tools — it handles `If-Match`, mode-awareness, and edit-via-read-then-write for you.
+
+### Tier 2 — op vocabulary (Markdown)
 
 Block-level edits (revision-checked, idempotent):
 
@@ -356,15 +409,23 @@ Owner-only (session cookie):
 
 Agent routes (bearer + `X-Agent-Id`, scope-checked):
 
-| Method | Path                                     | Required scope        |
-| ------ | ---------------------------------------- | --------------------- |
-| `GET`  | `/api/agent/files/<path.md>`             | `read` + path match   |
-| `POST` | `/api/agent/files/<path.md>`             | `mutate` + path match |
-| `GET`  | `/api/agent/events/<path.md>?after=<id>` | `read` + path match   |
-| `POST` | `/api/agent/events/<path.md>`            | `read` + path match   |
-| `GET`  | `/api/agent/sidecar/<path.md>`           | `read` + path match   |
-| `GET`  | `/api/agent/settings`                    | `read`                |
-| `GET`  | `/api/agent/activity`                    | `read`                |
+| Method   | Path                                     | Required scope        | Tier |
+| -------- | ---------------------------------------- | --------------------- | ---- |
+| `GET`    | `/api/agent/fs/file/<path>`              | `read` + path match   | 1    |
+| `PUT`    | `/api/agent/fs/file/<path>`              | `mutate` + path match | 1    |
+| `DELETE` | `/api/agent/fs/file/<path>`              | `delete` + path match | 1    |
+| `GET`    | `/api/agent/fs/ls/<path>`                | `read` + path match   | 1    |
+| `POST`   | `/api/agent/fs/move`                     | `mutate` (src+dest)   | 1    |
+| `POST`   | `/api/agent/fs/search`                   | `read` (per match)    | 1    |
+| `GET`    | `/api/agent/files/<path.md>`             | `read` + path match   | 2    |
+| `POST`   | `/api/agent/files/<path.md>`             | `mutate` + path match | 2    |
+| `GET`    | `/api/agent/events/<path.md>?after=<id>` | `read` + path match   | 2    |
+| `POST`   | `/api/agent/events/<path.md>`            | `read` + path match   | 2    |
+| `GET`    | `/api/agent/sidecar/<path.md>`           | `read` + path match   | 2    |
+| `GET`    | `/api/agent/settings`                    | `read`                | —    |
+| `GET`    | `/api/agent/activity`                    | `read`                | —    |
+
+Scopes: `paths` is a glob list (directories work natively, e.g. `notes/**`); `ops` is any of `read`, `mutate` (create/overwrite/move), `delete` (remove). Grant `["read","mutate"]` for edit-but-never-delete.
 
 ### Full curl trace
 
@@ -373,7 +434,7 @@ Agent routes (bearer + `X-Agent-Id`, scope-checked):
 curl -s -X POST https://wiki.team.com/api/agent/register \
   -H "Content-Type: application/json" \
   -d '{"id":"ai:claude","displayName":"Claude",
-       "scope":{"paths":["**/*"],"ops":["read","mutate"]}}'
+       "scope":{"paths":["**/*"],"ops":["read","mutate","delete"]}}'
 # -> { "registrationId":"reg_abc","pollUrl":"/api/agent/register/reg_abc","status":"pending" }
 
 # 2. Owner approves in the AI Panel.
@@ -406,9 +467,11 @@ Response codes to handle:
 
 - `401 UNAUTHORIZED` — bad token or `X-Agent-Id`.
 - `403 FORBIDDEN` — out of scope or `by` mismatches identity.
-- `409 STALE_REVISION` — refetch and retry. Response includes a fresh snapshot.
-- `409 BLOCK_NOT_FOUND` — the ref no longer exists.
-- `409 IDEMPOTENCY_KEY_REUSED` — same key, different body.
+- `409 STALE_REVISION` — refetch and retry. Response includes a fresh snapshot. (Tier 2)
+- `409 BLOCK_NOT_FOUND` — the ref no longer exists. (Tier 2)
+- `409 IDEMPOTENCY_KEY_REUSED` — same key, different body. (Tier 2)
+- `409 COLLAB_ACTIVE` — raw write to a Markdown doc a human is editing; use Tier-2 block-ops (response includes the snapshot URL) or `?force=true`. (Tier 1)
+- `412 PRECONDITION_FAILED` — `If-Match` sha mismatch (file changed); re-read and retry. (Tier 1)
 - `429 RATE_LIMITED` — honor `Retry-After`. Default 60 ops/minute per agent.
 
 ### Agent rate limit override
