@@ -34,7 +34,7 @@ export async function checkAuth(req: Request): Promise<CheckAuthResult> {
 				id: `user:${u.id}`,
 				displayName: u.name,
 				tokenHash: "",
-				scope: { paths: ["**/*"], ops: ["read", "mutate"] },
+				scope: { paths: ["**/*"], ops: ["read", "mutate", "delete"] },
 				createdAt: "",
 				lastSeen: "",
 			},
@@ -71,7 +71,7 @@ export async function checkAuth(req: Request): Promise<CheckAuthResult> {
 
 export interface ScopeParams {
 	filePath?: string;
-	op: "read" | "mutate";
+	op: "read" | "mutate" | "delete";
 }
 
 export function enforceScope(

@@ -19,7 +19,7 @@ const LAST_SEEN_THROTTLE_MS = 30_000;
 
 export interface AgentScope {
 	paths: string[]; // glob patterns
-	ops: Array<"read" | "mutate">;
+	ops: Array<"read" | "mutate" | "delete">;
 }
 
 export interface Agent {
