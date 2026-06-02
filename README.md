@@ -179,7 +179,18 @@ wiki-viewer uses [Better Auth](https://better-auth.com) with SQLite. State lives
 Sign-in providers:
 
 - **Google OAuth.** Enabled when both `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set.
-- **Email + password.** Always available. No verification email is sent by default.
+- **Email + password.** Enabled by default. No verification email is sent.
+
+### Require Google sign-in only
+
+To turn off email/password and force Google OAuth, set `AUTH_DISABLE_PASSWORD=1`:
+
+```bash
+wiki-viewer config set AUTH_DISABLE_PASSWORD=1
+wiki-viewer service restart
+```
+
+The sign-in page then shows only the Google button. As a safety guard, this is ignored unless a Google provider is configured, so you cannot lock yourself out: if `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` are missing, email/password stays on and a warning is logged.
 
 ### Email allowlist
 

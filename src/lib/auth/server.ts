@@ -75,13 +75,29 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
 		clientSecret: process.env.GOOGLE_CLIENT_SECRET,
 	};
 }
+const hasSocialProvider = Object.keys(socialProviders).length > 0;
+
+// Email/password can be turned off (AUTH_DISABLE_PASSWORD=1) so an operator can
+// require Google sign-in only. Guard against locking everyone out: if no social
+// provider is configured, password auth stays on regardless, otherwise there
+// would be no way to sign in at all.
+const passwordDisabled =
+	process.env.AUTH_DISABLE_PASSWORD === "1" || process.env.AUTH_DISABLE_PASSWORD === "true";
+export const passwordAuthEnabled = !(passwordDisabled && hasSocialProvider);
+if (passwordDisabled && !hasSocialProvider) {
+	console.warn(
+		"[wiki-viewer] AUTH_DISABLE_PASSWORD is set but no social provider is configured. " +
+			"Keeping email/password enabled so you are not locked out. Configure GOOGLE_CLIENT_ID/" +
+			"GOOGLE_CLIENT_SECRET to disable password auth.",
+	);
+}
 
 export const auth = betterAuth({
 	database: db,
 	secret: resolveSecret(),
 	baseURL: process.env.BETTER_AUTH_URL,
 	emailAndPassword: {
-		enabled: true,
+		enabled: passwordAuthEnabled,
 		requireEmailVerification: false,
 		autoSignIn: true,
 	},

@@ -11,19 +11,20 @@ export default function SignInPage() {
 	const [error, setError] = useState<string | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [hasGoogle, setHasGoogle] = useState(false);
+	const [passwordAuth, setPasswordAuth] = useState(true);
 	const [callbackURL, setCallbackURL] = useState("/");
 
 	useEffect(() => {
-		// Detect Google provider availability via the providers endpoint
-		fetch("/api/auth/list-providers", { credentials: "include" })
+		// Learn which auth methods to show. Public endpoint, no session needed.
+		fetch("/api/system/auth-config", { credentials: "include" })
 			.then((r) => r.json())
 			.then((data: unknown) => {
-				if (
-					data &&
-					typeof data === "object" &&
-					"google" in data
-				) {
-					setHasGoogle(true);
+				if (data && typeof data === "object") {
+					const cfg = data as { google?: boolean; passwordAuth?: boolean };
+					setHasGoogle(Boolean(cfg.google));
+					// Default to showing the password form unless told otherwise, so a
+					// failed fetch never leaves the user with no way to sign in.
+					setPasswordAuth(cfg.passwordAuth !== false);
 				}
 			})
 			.catch(() => {});
@@ -119,14 +120,24 @@ export default function SignInPage() {
 							</svg>
 							Continue with Google
 						</button>
-						<div className="my-4 flex items-center gap-3">
-							<hr className="flex-1 border-border" />
-							<span className="text-xs text-muted-foreground">or</span>
-							<hr className="flex-1 border-border" />
-						</div>
+						{passwordAuth && (
+							<div className="my-4 flex items-center gap-3">
+								<hr className="flex-1 border-border" />
+								<span className="text-xs text-muted-foreground">or</span>
+								<hr className="flex-1 border-border" />
+							</div>
+						)}
 					</>
 				)}
 
+				{!passwordAuth && !hasGoogle && (
+					<p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+						No sign-in method is configured. Set GOOGLE_CLIENT_ID and
+						GOOGLE_CLIENT_SECRET, or enable email/password auth.
+					</p>
+				)}
+
+				{passwordAuth && (
 				<form onSubmit={handleSubmit} className="space-y-4">
 					{mode === "signup" && (
 						<div>
@@ -197,7 +208,9 @@ export default function SignInPage() {
 								: "Sign in"}
 					</button>
 				</form>
+				)}
 
+				{passwordAuth && (
 				<p className="mt-4 text-center text-sm text-muted-foreground">
 					{mode === "signin" ? "No account?" : "Already have an account?"}{" "}
 					<button
@@ -211,6 +224,7 @@ export default function SignInPage() {
 						{mode === "signin" ? "Sign up" : "Sign in"}
 					</button>
 				</p>
+				)}
 			</div>
 		</div>
 	);
