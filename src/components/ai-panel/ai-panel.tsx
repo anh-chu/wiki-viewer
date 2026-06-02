@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { useAIPanelStore } from "@/stores/ai-panel-store";
 import { TokenSection } from "./token-section";
 import { ActivityRow } from "./activity-row";
-import { authClient } from "@/lib/auth/client";
 const SKILL_CLI = "npx skills add anh-chu/wiki-viewer/agents/wiki-viewer-skill";
 
 function useCopyCurl(currentPath: string | null) {
@@ -55,7 +54,6 @@ export function AIPanel({ currentPath }: { currentPath?: string | null }) {
 	const close = useAIPanelStore((s) => s.close);
 	const activity = useAIPanelStore((s) => s.activity);
 	const connections = useAIPanelStore((s) => s.connections);
-	const rateLimit = useAIPanelStore((s) => s.rateLimit);
 	const loadActivity = useAIPanelStore((s) => s.loadActivity);
 	const { copied, copy } = useCopyCurl(currentPath ?? null);
 	const [bootstrapPrompt, setBootstrapPrompt] = useState<string>("");
@@ -172,8 +170,6 @@ export function AIPanel({ currentPath }: { currentPath?: string | null }) {
 
 				{/* Scrollable body */}
 				<div className="flex-1 overflow-y-auto space-y-5 px-4 py-4">
-					<SignedInUser />
-
 					{/* What this does — one line */}
 					<section className="rounded-md border border-border bg-muted/30 p-3">
 						<p className="text-sm font-medium text-foreground">
@@ -303,24 +299,6 @@ export function AIPanel({ currentPath }: { currentPath?: string | null }) {
 						</div>
 					</section>
 
-					{/* Settings */}
-					<section className="space-y-2">
-						<h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-							Settings
-						</h3>
-						<div className="rounded-md border border-border bg-muted/40 p-3 space-y-1.5">
-							<div className="flex items-center justify-between text-xs">
-								<span className="text-muted-foreground">Rate limit</span>
-								<span className="font-mono">
-									{rateLimit !== null ? `${rateLimit} ops/min` : "--"}
-								</span>
-							</div>
-							<p className="text-[10px] text-muted-foreground/60">
-								Override with <code className="bg-muted px-0.5 rounded">AGENT_RATE_LIMIT</code> env var.
-							</p>
-						</div>
-					</section>
-
 					{/* Docs link */}
 					<section>
 						<a
@@ -335,28 +313,5 @@ export function AIPanel({ currentPath }: { currentPath?: string | null }) {
 				</div>
 			</aside>
 		</>
-	);
-}
-
-function SignedInUser() {
-	const { data: session } = authClient.useSession();
-	if (!session?.user) return null;
-	return (
-		<div className="flex items-center justify-between rounded-md border border-border bg-muted/40 p-3">
-			<div className="text-sm min-w-0">
-				<div className="font-medium truncate">{session.user.name}</div>
-				<div className="text-xs text-muted-foreground truncate">{session.user.email}</div>
-			</div>
-			<button
-				type="button"
-				onClick={async () => {
-					await authClient.signOut();
-					window.location.href = "/signin";
-				}}
-				className="ml-2 shrink-0 text-xs px-2 py-1 rounded border border-border hover:bg-accent"
-			>
-				Sign out
-			</button>
-		</div>
 	);
 }

@@ -31,6 +31,7 @@ export async function GET(request: Request) {
 		allowedDomains: effective.domains,
 		source: usingConfig ? "config" : "env",
 		envFallbackActive: !usingConfig,
+		rateLimit: Number(process.env.AGENT_RATE_LIMIT) || 60,
 	});
 }
 
