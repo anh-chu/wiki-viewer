@@ -105,6 +105,12 @@ Sign-in providers:
 
 By default any email can sign up. Lock it down before exposing the server.
 
+There are two ways to set the allowlist. The settings sheet is the easy path; env vars are the fallback for headless or scripted deploys.
+
+**From the UI (recommended).** Click the gear icon in the sidebar toolbar to open Signup allowlist. Enter allowed emails and domains, one per line or comma-separated, then save. Changes are stored in `~/.wiki-viewer/config.json` and apply on the next signup with no restart. Clearing both lists reverts to the environment variables below.
+
+**From the environment.** Set either or both before starting the server:
+
 ```bash
 # Allow specific accounts
 export AUTH_ALLOWED_EMAILS="alice@team.com,bob@team.com"
@@ -113,7 +119,7 @@ export AUTH_ALLOWED_EMAILS="alice@team.com,bob@team.com"
 export AUTH_ALLOWED_DOMAIN="team.com,partner.org"
 ```
 
-If both are set, either match grants access.
+**Precedence.** If the UI allowlist in `config.json` is non-empty, it wins and the env vars are ignored. If it is empty, the env vars are used. If neither is set, any email can sign up. When both an email and a domain list apply, either match grants access.
 
 ### Production guard
 
@@ -351,8 +357,8 @@ The dev server supports hot reload.
 | `BETTER_AUTH_SECRET`   | Override for the auto-generated session signing secret     | file-stored           |
 | `GOOGLE_CLIENT_ID`     | Enable Google OAuth button                                 | unset                 |
 | `GOOGLE_CLIENT_SECRET` | Enable Google OAuth button                                 | unset                 |
-| `AUTH_ALLOWED_EMAILS`  | csv: only these emails can sign up                         | unset (open)          |
-| `AUTH_ALLOWED_DOMAIN`  | csv: only emails on these domains can sign up              | unset (open)          |
+| `AUTH_ALLOWED_EMAILS`  | csv: only these emails can sign up (overridden by UI allowlist if set) | unset (open) |
+| `AUTH_ALLOWED_DOMAIN`  | csv: only emails on these domains can sign up (overridden by UI allowlist if set) | unset (open) |
 | `WIKI_OWNER_HOSTS`     | csv: extra hostnames trusted for CSRF Origin check         | `localhost,127.0.0.1` |
 | `WIKI_ALLOW_INSECURE`  | Set to `1` to bypass the prod-https guard (dev / CI only)  | unset                 |
 | `AGENT_RATE_LIMIT`     | Max mutation ops per minute per agent identity             | `60`                  |
