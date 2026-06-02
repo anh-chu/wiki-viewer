@@ -68,8 +68,36 @@ export function AIPanel({ currentPath }: { currentPath?: string | null }) {
 		() => bootstrapPrompt.replace(/\$WIKI_URL/g, origin),
 		[bootstrapPrompt, origin]
 	);
+	const getMcpRegister = useCallback(
+		() =>
+			`npx wiki-viewer-mcp register --url ${origin} --id ai:myagent --name "My Agent"`,
+		[origin]
+	);
+	const getMcpJson = useCallback(
+		() =>
+			JSON.stringify(
+				{
+					servers: {
+						"wiki-viewer": {
+							command: "npx",
+							args: ["wiki-viewer-mcp"],
+							env: {
+								WIKI_VIEWER_URL: origin,
+								WIKI_VIEWER_TOKEN: "<token from register>",
+								WIKI_VIEWER_AGENT_ID: "ai:myagent",
+							},
+						},
+					},
+				},
+				null,
+				2
+			),
+		[origin]
+	);
 	const skillCli = useCopyButton(getSkillCli);
 	const bootstrapCopy = useCopyButton(getBootstrapPrompt);
+	const mcpRegister = useCopyButton(getMcpRegister);
+	const mcpJson = useCopyButton(getMcpJson);
 
 	// Keyboard: Esc closes
 	useEffect(() => {
@@ -182,6 +210,27 @@ export function AIPanel({ currentPath }: { currentPath?: string | null }) {
 							Install for AI Agents
 						</h3>
 						<div className="rounded-md border border-border bg-muted/40 p-3 space-y-3">
+							<div className="space-y-1">
+								<p className="text-[10px] text-muted-foreground/70">
+									MCP server <span className="text-muted-foreground/50">(Claude Code, Cursor, Codex):</span>
+								</p>
+								<p className="text-[10px] text-muted-foreground/50">1. Register &amp; get a token:</p>
+								<div className="flex items-center gap-2">
+									<code className="flex-1 text-[10px] font-mono text-foreground/80 truncate bg-muted rounded px-1 py-0.5">
+										{getMcpRegister()}
+									</code>
+									<Button size="sm" variant="ghost" className="h-6 w-6 p-0 shrink-0" title="Copy register command" onClick={() => void mcpRegister.copy()}>
+										{mcpRegister.copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+									</Button>
+								</div>
+								<p className="text-[10px] text-muted-foreground/50 pt-1">2. Approve below, then add to your <code className="bg-muted px-0.5 rounded">mcp.json</code>:</p>
+								<Button size="sm" variant="outline" className="h-7 w-full text-xs gap-1.5" onClick={() => void mcpJson.copy()}>
+									{mcpJson.copied
+										? <><Check className="h-3.5 w-3.5 text-green-500" /> Copied!</>
+										: <><Copy className="h-3.5 w-3.5" /> Copy mcp.json</>}
+								</Button>
+							</div>
+							<div className="h-px bg-border/60" />
 							<div className="space-y-1">
 								<p className="text-[10px] text-muted-foreground/70">Agent Skills standard:</p>
 								<div className="flex items-center gap-2">
