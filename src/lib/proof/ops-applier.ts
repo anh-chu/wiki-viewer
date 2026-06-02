@@ -103,6 +103,20 @@ function opMarkdownToBlocks(
 	return { nodes, refs };
 }
 
+function markOrphanedRefsStale(sidecar: Sidecar, newRefMap: Record<string, unknown>): void {
+	const validRefs = new Set(Object.keys(newRefMap));
+	for (const s of sidecar.suggestions) {
+		if (s.status === "pending" && !validRefs.has(s.ref)) {
+			s.stale = true;
+		}
+	}
+	for (const c of sidecar.comments) {
+		if (!c.resolved && !validRefs.has(c.ref)) {
+			c.stale = true;
+		}
+	}
+}
+
 function buildSnapshot(
 	mdPath: string,
 	blocks: Block[],
@@ -119,6 +133,49 @@ function buildSnapshot(
 		suggestions: sidecar.suggestions.filter((s) => s.status === "pending"),
 		lastEventId: sidecar.nextEventId - 1,
 	};
+}
+
+/**
+ * Reconcile a sidecar after a file was modified outside of block-ops.
+ * Rebuilds refMap, bumps revision, marks orphaned anchors stale, emits event, writes sidecar.
+ *
+ * Callers MUST hold `withFileMutex(mdPath, ...)` before calling.
+ *
+ * Used by:
+ *   - readSnapshot: eventType="file.externallyEdited", by="system"
+ *   - raw-fs PUT (Phase 2): eventType="file.rawWritten", by="ai:<id>"
+ */
+export async function reconcileSidecar(args: {
+	rootDir: string;
+	mdPath: string;
+	content: string;
+	sidecar: Sidecar; // mutated in place
+	by: string;
+	eventType: string;
+	fingerprint: string; // pre-computed sha256 of content
+}): Promise<{ snapshot: Snapshot; blocks: Block[] }> {
+	const { rootDir, mdPath, content, sidecar, by, eventType, fingerprint } = args;
+	const nodes = parseBlocks(content);
+	const { blocks, newRefMap } = assignRefs(nodes, sidecar);
+	const oldFingerprint = sidecar.fingerprint;
+	sidecar.refMap = newRefMap;
+	sidecar.revision += 1;
+	sidecar.updatedAt = nowIso();
+	sidecar.fingerprint = fingerprint;
+	markOrphanedRefsStale(sidecar, newRefMap);
+	const eventPayload: Omit<ProofEvent, "id"> & Record<string, unknown> = {
+		type: eventType,
+		at: nowIso(),
+		by,
+		fingerprint,
+	};
+	if (eventType === "file.rawWritten") {
+		eventPayload.oldSha = oldFingerprint;
+		eventPayload.newSha = fingerprint;
+	}
+	emitEvents(sidecar, [eventPayload as Omit<ProofEvent, "id">]);
+	await writeSidecar(rootDir, mdPath, sidecar);
+	return { snapshot: buildSnapshot(mdPath, blocks, sidecar), blocks };
 }
 
 /**
@@ -156,20 +213,16 @@ export async function readSnapshot(
 			const freshFingerprint = sha256file(freshContent);
 
 			if (freshSidecar.fingerprint && freshSidecar.fingerprint !== freshFingerprint) {
-				const freshNodes = parseBlocks(freshContent);
-				const { blocks: freshBlocks, newRefMap } = assignRefs(freshNodes, freshSidecar);
-				freshSidecar.refMap = newRefMap;
-				freshSidecar.revision += 1;
-				freshSidecar.updatedAt = nowIso();
-				freshSidecar.fingerprint = freshFingerprint;
-				emitEvents(freshSidecar, [{
-					type: "file.externallyEdited",
-					at: nowIso(),
+				const { snapshot } = await reconcileSidecar({
+					rootDir,
+					mdPath,
+					content: freshContent,
+					sidecar: freshSidecar,
 					by: "system",
+					eventType: "file.externallyEdited",
 					fingerprint: freshFingerprint,
-				}]);
-				await writeSidecar(rootDir, mdPath, freshSidecar);
-				return buildSnapshot(mdPath, freshBlocks, freshSidecar);
+				});
+				return snapshot;
 			}
 
 			// Another writer already updated — just build snapshot from current state
@@ -233,28 +286,24 @@ export async function applyOps(args: {
 
 		const isAi = by.startsWith("ai:");
 
-		// Detect external edits
+		// Detect external edits — reconcile eagerly inside the mutex (R2: do not let lazy reconcile miss)
 		if (sidecar.fingerprint && sidecar.fingerprint !== fingerprint) {
-			const nodes = parseBlocks(content);
-			const { blocks: freshBlocks, newRefMap } = assignRefs(nodes, sidecar);
-			sidecar.refMap = newRefMap;
-			sidecar.revision += 1;
-			sidecar.updatedAt = nowIso();
-			sidecar.fingerprint = fingerprint;
-			emitEvents(sidecar, [{
-				type: "file.externallyEdited",
-				at: nowIso(),
+			const { snapshot: freshSnapshot } = await reconcileSidecar({
+				rootDir,
+				mdPath,
+				content,
+				sidecar,
 				by: "system",
+				eventType: "file.externallyEdited",
 				fingerprint,
-			}]);
-			await writeSidecar(rootDir, mdPath, sidecar);
+			});
 			// Return STALE_REVISION so caller knows to re-fetch
 			return {
 				ok: false,
 				status: 409,
 				code: "STALE_REVISION",
 				message: "File was externally edited. Fetch the new snapshot and retry.",
-				snapshot: buildSnapshot(mdPath, freshBlocks, sidecar),
+				snapshot: freshSnapshot,
 			};
 		}
 

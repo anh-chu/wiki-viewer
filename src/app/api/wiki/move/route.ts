@@ -3,7 +3,8 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 import { checkOrigin } from "@/lib/auth/csrf";
 import { requireUser } from "@/lib/auth/server";
-import { safeRootPath } from "@/lib/root-dir";
+import { safeRootPath, getRootDir } from "@/lib/root-dir";
+import { moveSidecar } from "@/lib/proof/sidecar";
 
 export async function POST(request: Request) {
 	const csrf = checkOrigin(request);
@@ -45,6 +46,14 @@ export async function POST(request: Request) {
 
 	try {
 		await rename(fromPath, toPath);
+
+		// Fix latent bug: sidecar was orphaned on .md renames (R3)
+		const fromExt = path.extname(body.from).toLowerCase();
+		if (fromExt === ".md" || fromExt === ".markdown") {
+			const rootDir = getRootDir();
+			await moveSidecar(rootDir, body.from, body.to);
+		}
+
 		return NextResponse.json({ ok: true });
 	} catch {
 		return NextResponse.json({ error: "Move failed" }, { status: 500 });
