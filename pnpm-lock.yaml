@@ -23,9 +23,18 @@ importers:
       kysely:
         specifier: 0.28.5
         version: 0.28.5
+      next:
+        specifier: 16.2.4
+        version: 16.2.4(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       proper-lockfile:
         specifier: ^4.1.2
         version: 4.1.2
+      react:
+        specifier: 19.2.5
+        version: 19.2.5
+      react-dom:
+        specifier: 19.2.5
+        version: 19.2.5(react@19.2.5)
       rehype-parse:
         specifier: ^9.0.1
         version: 9.0.1
@@ -210,9 +219,6 @@ importers:
       mermaid:
         specifier: ^11.14.0
         version: 11.15.0
-      next:
-        specifier: 16.2.4
-        version: 16.2.4(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       next-themes:
         specifier: ^0.4.6
         version: 0.4.6(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
@@ -225,12 +231,6 @@ importers:
       pptx-preview:
         specifier: ^1.0.7
         version: 1.0.7
-      react:
-        specifier: 19.2.5
-        version: 19.2.5
-      react-dom:
-        specifier: 19.2.5
-        version: 19.2.5(react@19.2.5)
       react-markdown:
         specifier: ^10.1.0
         version: 10.1.0(@types/react@19.2.14)(react@19.2.5)
