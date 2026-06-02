@@ -251,7 +251,7 @@ export function TokenSection() {
 		<section className="space-y-2">
 			<div className="flex items-center justify-between">
 				<h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-					Agents
+					Agents · approve &amp; manage access
 				</h3>
 				<Button
 					size="sm"
@@ -269,7 +269,7 @@ export function TokenSection() {
 				<div className="rounded-md border border-amber-500/40 bg-amber-50/10 p-2">
 					<p className="text-[10px] font-semibold uppercase tracking-widest text-amber-600/80 mb-1 flex items-center gap-1">
 						<Clock className="h-3 w-3" />
-						Pending ({pending.length})
+						Waiting for your approval ({pending.length})
 					</p>
 					<ul>
 						{pending.map((reg) => (
@@ -288,9 +288,10 @@ export function TokenSection() {
 			<div className="rounded-md border border-border bg-muted/40 p-2">
 				{agents.length === 0 ? (
 					<p className="text-xs text-muted-foreground/60 py-1">
-						No registered agents.{" "}
+						No assistants connected yet.{" "}
 						<span className="text-muted-foreground/40">
-							Agents register via POST /api/agent/register.
+							Connect one above; once it requests access it’ll appear here
+							for you to approve.
 						</span>
 					</p>
 				) : (
@@ -303,9 +304,9 @@ export function TokenSection() {
 			</div>
 
 			<p className="text-[10px] text-muted-foreground/60 leading-relaxed">
-				Agents authenticate via bearer token + X-Agent-Id header. Use{" "}
-				<code className="bg-muted px-0.5 rounded">POST /api/agent/register</code> to start the
-				TOFU flow.
+				Each assistant gets its own access that you can revoke anytime. New
+				requests appear above for your approval before they can read or edit
+				anything.
 			</p>
 		</section>
 	);

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useCallback, useRef, useState } from "react";
-import { X, Copy, Check, Bot, Wifi, Download, ExternalLink } from "lucide-react";
+import { X, Copy, Check, Bot, Wifi, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAIPanelStore } from "@/stores/ai-panel-store";
 import { TokenSection } from "./token-section";
@@ -174,93 +174,84 @@ export function AIPanel({ currentPath }: { currentPath?: string | null }) {
 				<div className="flex-1 overflow-y-auto space-y-5 px-4 py-4">
 					<SignedInUser />
 
-					{/* Bridge endpoint */}
-					<section className="space-y-2">
-						<h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-							Bridge Endpoint
-						</h3>
-						<div className="rounded-md border border-border bg-muted/40 p-3 space-y-2">
-							<div className="flex items-center gap-2">
-								<code className="flex-1 text-xs font-mono text-foreground/80 truncate">
-									{origin}
-								</code>
-								<Button
-									size="sm"
-									variant="ghost"
-									className="h-6 w-6 p-0 shrink-0"
-									title="Copy curl example"
-									onClick={() => void copy()}
-								>
-									{copied ? (
-										<Check className="h-3.5 w-3.5 text-green-500" />
-									) : (
-										<Copy className="h-3.5 w-3.5" />
-									)}
-								</Button>
-							</div>
-							<p className="text-[10px] text-muted-foreground/70">
-								Copy icon copies a registration-flow <code className="bg-muted px-0.5 rounded">curl</code> trace for the current file.
-							</p>
-						</div>
+					{/* What this does — one line */}
+					<section className="rounded-md border border-border bg-muted/30 p-3">
+						<p className="text-sm font-medium text-foreground">
+							Work with this wiki using AI
+						</p>
+						<p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+							Connect Claude, Cursor, ChatGPT, and more. Pick by what you want —
+							each option gives a copy-paste setup. You approve every assistant
+							in <span className="font-medium text-foreground/80">Agents</span> below before it gets access.
+						</p>
 					</section>
 
-					{/* Install for AI agents */}
-					<section className="space-y-2">
-						<h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-							Install for AI Agents
-						</h3>
-						<div className="rounded-md border border-border bg-muted/40 p-3 space-y-3">
-							<div className="space-y-1">
-								<p className="text-[10px] text-muted-foreground/70">
-									MCP server <span className="text-muted-foreground/50">(Claude Code, Cursor, Codex):</span>
-								</p>
-								<p className="text-[10px] text-muted-foreground/50">1. Register &amp; get a token:</p>
-								<div className="flex items-center gap-2">
-									<code className="flex-1 text-[10px] font-mono text-foreground/80 truncate bg-muted rounded px-1 py-0.5">
-										{getMcpRegister()}
-									</code>
-									<Button size="sm" variant="ghost" className="h-6 w-6 p-0 shrink-0" title="Copy register command" onClick={() => void mcpRegister.copy()}>
-										{mcpRegister.copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
-									</Button>
-								</div>
-								<p className="text-[10px] text-muted-foreground/50 pt-1">2. Approve below, then add to your <code className="bg-muted px-0.5 rounded">mcp.json</code>:</p>
-								<Button size="sm" variant="outline" className="h-7 w-full text-xs gap-1.5" onClick={() => void mcpJson.copy()}>
-									{mcpJson.copied
-										? <><Check className="h-3.5 w-3.5 text-green-500" /> Copied!</>
-										: <><Copy className="h-3.5 w-3.5" /> Copy mcp.json</>}
+					{/* Choose by goal */}
+					<section className="space-y-3">
+						{/* Goal 1: collaborate (one-off instructions + permanent skill) */}
+						<div className="rounded-md border border-border bg-muted/40 p-3 space-y-1.5">
+							<p className="text-xs font-semibold text-foreground">
+								Co-write docs with you
+							</p>
+							<p className="text-[10px] text-muted-foreground/70">
+								Edits arrive as suggestions with comments you accept or revert.
+								No MCP needed.
+							</p>
+							<Button size="sm" variant="outline" className="h-7 w-full text-xs gap-1.5" onClick={() => void bootstrapCopy.copy()} disabled={!bootstrapPrompt}>
+								{bootstrapCopy.copied
+									? <><Check className="h-3.5 w-3.5 text-green-500" /> Copied!</>
+									: <><Copy className="h-3.5 w-3.5" /> Paste into any chatbot</>}
+							</Button>
+							<p className="text-[10px] text-muted-foreground/50 pt-1">
+								Or install once so it sticks{" "}
+								<span className="text-muted-foreground/40">· Claude, OpenCode</span>:
+							</p>
+							<div className="flex items-center gap-2">
+								<code className="flex-1 text-[10px] font-mono text-foreground/80 truncate bg-muted rounded px-1 py-0.5">
+									{SKILL_CLI}
+								</code>
+								<Button size="sm" variant="ghost" className="h-6 w-6 p-0 shrink-0" title="Copy this command" onClick={() => void skillCli.copy()}>
+									{skillCli.copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
 								</Button>
 							</div>
-							<div className="h-px bg-border/60" />
-							<div className="space-y-1">
-								<p className="text-[10px] text-muted-foreground/70">Agent Skills standard:</p>
-								<div className="flex items-center gap-2">
-									<code className="flex-1 text-[10px] font-mono text-foreground/80 truncate bg-muted rounded px-1 py-0.5">
-										{SKILL_CLI}
-									</code>
-									<Button size="sm" variant="ghost" className="h-6 w-6 p-0 shrink-0" title="Copy CLI command" onClick={() => void skillCli.copy()}>
-										{skillCli.copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
-									</Button>
-								</div>
-							</div>
-							<div className="space-y-1">
-								<p className="text-[10px] text-muted-foreground/70">Any agent (paste into chat):</p>
-								<Button size="sm" variant="outline" className="h-7 w-full text-xs gap-1.5" onClick={() => void bootstrapCopy.copy()} disabled={!bootstrapPrompt}>
-									{bootstrapCopy.copied
-										? <><Check className="h-3.5 w-3.5 text-green-500" /> Copied!</>
-										: <><Copy className="h-3.5 w-3.5" /> Copy bootstrap prompt</>}
+						</div>
+
+						{/* Goal 2: raw filework */}
+						<div className="rounded-md border border-border bg-muted/40 p-3 space-y-1.5">
+							<p className="text-xs font-semibold text-foreground">
+								Edit files directly{" "}
+								<span className="font-normal text-muted-foreground/60">· Claude Code, Cursor, Codex</span>
+							</p>
+							<p className="text-[10px] text-muted-foreground/70">
+								Native read / search / edit tools over MCP. Run to request access:
+							</p>
+							<div className="flex items-center gap-2">
+								<code className="flex-1 text-[10px] font-mono text-foreground/80 truncate bg-muted rounded px-1 py-0.5">
+									{getMcpRegister()}
+								</code>
+								<Button size="sm" variant="ghost" className="h-6 w-6 p-0 shrink-0" title="Copy this command" onClick={() => void mcpRegister.copy()}>
+									{mcpRegister.copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
 								</Button>
 							</div>
-							<div className="flex flex-wrap gap-x-3 gap-y-1 pt-1">
-								<a href="/api/agents/skill.tar.gz" download className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline">
-									<Download className="h-3 w-3" /> skill (.tar.gz)
-								</a>
-								<a href="/api/agents/skill" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline">
-									<ExternalLink className="h-3 w-3" /> skill markdown
-								</a>
-								<a href="/api/agents/install" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline">
-									<ExternalLink className="h-3 w-3" /> install JSON
-								</a>
-							</div>
+							<p className="text-[10px] text-muted-foreground/50">Approve in <span className="font-medium text-foreground/70">Agents</span>, then add to your tool:</p>
+							<Button size="sm" variant="outline" className="h-7 w-full text-xs gap-1.5" onClick={() => void mcpJson.copy()}>
+								{mcpJson.copied
+									? <><Check className="h-3.5 w-3.5 text-green-500" /> Copied!</>
+									: <><Copy className="h-3.5 w-3.5" /> Copy config (mcp.json)</>}
+							</Button>
+						</div>
+
+						<div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+							<span className="text-[10px] text-muted-foreground/50">For developers:</span>
+							<button type="button" onClick={() => void copy()} className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline">
+								{copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />} curl example
+							</button>
+							<a href="/api/agents/skill" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline">
+								<ExternalLink className="h-3 w-3" /> skill
+							</a>
+							<a href="/api/agents/install" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline">
+								<ExternalLink className="h-3 w-3" /> install JSON
+							</a>
 						</div>
 					</section>
 
