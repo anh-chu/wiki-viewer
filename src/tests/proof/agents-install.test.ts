@@ -29,6 +29,59 @@ test("GET /api/agents/install returns 200 with expected shape", async () => {
 	assert.ok(Array.isArray(body.ops) && (body.ops as unknown[]).length > 0);
 });
 
+test("GET /api/agents/install manifest includes fs/* routes, capabilities, scopeOps, modes, mcpAdapter", async () => {
+	const req = makeMockRequest("http://localhost:3000/api/agents/install");
+	const res = await installGET(req as Parameters<typeof installGET>[0]);
+	const body = await res.json() as Record<string, unknown>;
+
+	// fs routes present
+	const routes = body.routes as Array<Record<string, string>>;
+	const fsPaths = routes.map((r) => r.path);
+	assert.ok(fsPaths.some((p) => p.includes("/api/agent/fs/file")), "missing GET/PUT/DELETE fs/file route");
+	assert.ok(fsPaths.some((p) => p.includes("/api/agent/fs/ls")), "missing fs/ls route");
+	assert.ok(fsPaths.some((p) => p.includes("/api/agent/fs/move")), "missing fs/move route");
+	assert.ok(fsPaths.some((p) => p.includes("/api/agent/fs/search")), "missing fs/search route");
+
+	// capabilities block
+	const caps = body.capabilities as Record<string, unknown>;
+	assert.ok(caps, "capabilities block missing");
+	assert.ok(typeof caps.maxFileBytes === "number" && caps.maxFileBytes > 0, "maxFileBytes missing");
+	assert.equal(caps.supportsRange, true);
+	assert.equal(caps.ifMatchRequired, true);
+	assert.equal(caps.forceBypass, true);
+	assert.deepEqual(caps.search, ["grep", "glob"]);
+	assert.equal(caps.collabPrecondition, "If-Collab-Match");
+
+	// scopeOps includes delete
+	const scopeOps = caps.scopeOps as string[];
+	assert.ok(Array.isArray(scopeOps), "scopeOps missing");
+	assert.ok(scopeOps.includes("read"), "scopeOps missing read");
+	assert.ok(scopeOps.includes("mutate"), "scopeOps missing mutate");
+	assert.ok(scopeOps.includes("delete"), "scopeOps missing delete");
+
+	// collabStates
+	const collabStates = caps.collabStates as string[];
+	assert.ok(Array.isArray(collabStates));
+	assert.ok(collabStates.includes("active"));
+	assert.ok(collabStates.includes("not-markdown"));
+
+	// modes block
+	const modes = body.modes as Record<string, unknown>;
+	assert.ok(modes, "modes block missing");
+	assert.ok(typeof modes.rule === "string" && modes.rule.includes("X-Collab-State"), "modes.rule missing mode distinction");
+	const tiers = modes.tiers as Record<string, string>;
+	assert.ok(tiers && tiers.tier1 && tiers.tier2, "modes.tiers missing");
+
+	// mcpAdapter
+	const mcp = body.mcpAdapter as Record<string, unknown>;
+	assert.ok(mcp, "mcpAdapter missing");
+	assert.equal(mcp.package, "wiki-viewer-mcp");
+	assert.ok(typeof mcp.invoke === "string" && mcp.invoke.includes("npx"));
+	const env = mcp.env as string[];
+	assert.ok(env.includes("WIKI_VIEWER_URL"));
+	assert.ok(env.includes("WIKI_VIEWER_TOKEN"));
+});
+
 test("GET /api/agents/skill returns 200 text/markdown with SKILL.md content", async () => {
 	const req = makeMockRequest("http://localhost:3000/api/agents/skill");
 	const res = await skillGET(req as Parameters<typeof skillGET>[0]);
