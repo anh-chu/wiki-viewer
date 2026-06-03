@@ -27,7 +27,7 @@ import {
 import * as z from "zod";
 
 import { parseArgs } from "node:util";
-import { WikiViewerClient, IfMatchError, CollabActiveError, WikiViewerError } from "./http-client.js";
+import { WikiViewerClient, IfMatchError, CollabActiveError, WikiViewerError, PatchUnsupportedError, MatchCountError } from "./http-client.js";
 import * as stateCache from "./state-cache.js";
 
 /**
@@ -314,33 +314,40 @@ export function createServer(client: WikiViewerClient): Server {
           const block = checkCollabBlock(path);
           if (block) return err(block);
 
-          // Fast path: if a prior read cached this file's text + sha, transform
-          // from cache and do a conditional PUT (If-Match=cached sha). This
-          // skips the GET round-trip. If the file changed server-side the PUT
-          // 412s (IfMatchError) and we fall back to a fresh read+retry — so the
-          // result is always against current content, never a stale write.
-          const cached = stateCache.get(path);
-          if (
-            cached?.body !== undefined &&
-            cached.sha256 &&
-            cached.collabState !== "active" &&
-            cached.body.includes(find)
-          ) {
-            const newContent = cached.body.replace(find, replace);
+          // Best path: server-side PATCH str-replace — sends only {find,replace}
+          // (~hundreds of bytes) instead of the whole file. One small request.
+          // Requires a known sha (If-Match); use cached sha if present, else the
+          // server's 412-recover path handles it. Falls back to read+PUT if the
+          // server has no PATCH route (older version).
+          const cachedForPatch = stateCache.get(path);
+          if (cachedForPatch?.collabState !== "active") {
             try {
-              const writeResult = await client.writeFile(path, newContent, {
-                ifMatch: cached.sha256,
+              const r = await client.patchFile(path, find, replace, {
+                ifMatch: cachedForPatch?.sha256,
               });
               return ok(
-                `Edited: ${path}\nReplaced ${JSON.stringify(find)} → ${JSON.stringify(replace)}\nNew sha256: ${writeResult.sha256}`,
+                `Edited: ${path}\nReplaced ${JSON.stringify(find)} → ${JSON.stringify(replace)}\nNew sha256: ${r.sha256}`,
               );
             } catch (e) {
-              if (!(e instanceof IfMatchError)) throw e;
-              // File changed since our cached read — fall through to re-read.
+              if (e instanceof MatchCountError) {
+                return err(
+                  `edit_file: expected to replace exactly 1 occurrence of ${JSON.stringify(find)} in "${path}", ` +
+                  `but found ${e.found}. Re-read the file or make the search string unique.`,
+                );
+              }
+              if (e instanceof CollabActiveError) {
+                return err(collabActiveMessage(path, e.snapshotUrl));
+              }
+              if (e instanceof IfMatchError) {
+                // sha was stale — fall through to read+retry below.
+              } else if (!(e instanceof PatchUnsupportedError)) {
+                throw e;
+              }
+              // PatchUnsupportedError or stale If-Match → fall back to read+PUT.
             }
           }
 
-          // Slow path: read → transform → PUT with If-Match.
+          // Fallback path: read → transform → PUT with If-Match.
           const readResult = await client.readFile(path);
           if (readResult.text === null) {
             return err(`edit_file: "${path}" appears to be binary — cannot do text replacement.`);

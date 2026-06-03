@@ -495,3 +495,57 @@ describe("write_file optimizations", () => {
     assert.equal(c?.body, "abc", "body cached");
   });
 });
+
+// ─── patch_file (server-side str-replace) ─────────────────────────────────────
+
+describe("patch_file", () => {
+  test("sends find/replace JSON with If-Match, returns WriteResult", async () => {
+    let captured: { body?: string; headers?: Headers } = {};
+    const mockFetch = async (_url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      captured = { body: init?.body as string, headers: new Headers(init?.headers as HeadersInit) };
+      return new Response(JSON.stringify({ path: "p.md", sha256: "new", size: 10, created: false }), {
+        status: 200, headers: { "Content-Type": "application/json" },
+      });
+    };
+    const client = new WikiViewerClient({
+      baseUrl: "http://localhost:3000", token: "t", agentId: "a",
+      fetch: mockFetch as unknown as typeof fetch,
+    });
+    const r = await client.patchFile("p.md", "old", "new", { ifMatch: "sha-1" });
+    assert.equal(r.sha256, "new");
+    assert.equal(captured.headers?.get("If-Match"), "sha-1");
+    assert.deepEqual(JSON.parse(captured.body!), { find: "old", replace: "new" });
+  });
+
+  test("throws PatchUnsupportedError on 405 (no route)", async () => {
+    const client = makeClient([{ status: 405, body: "Method Not Allowed" }]);
+    await assert.rejects(
+      () => client.patchFile("p.md", "a", "b", { ifMatch: "s" }),
+      (e: Error) => e.name === "PatchUnsupportedError",
+    );
+  });
+
+  test("404 with NOT_FOUND body = missing file (NOT unsupported)", async () => {
+    const client = makeClient([{ status: 404, body: { error: "NOT_FOUND", message: "x" } }]);
+    await assert.rejects(
+      () => client.patchFile("p.md", "a", "b", { ifMatch: "s" }),
+      (e: Error) => e.name === "WikiViewerError" && (e as WikiViewerError).status === 404,
+    );
+  });
+
+  test("404 without NOT_FOUND body = unsupported route → fallback", async () => {
+    const client = makeClient([{ status: 404, body: "Not Found" }]);
+    await assert.rejects(
+      () => client.patchFile("p.md", "a", "b", { ifMatch: "s" }),
+      (e: Error) => e.name === "PatchUnsupportedError",
+    );
+  });
+
+  test("throws MatchCountError on 422", async () => {
+    const client = makeClient([{ status: 422, body: { error: "MATCH_COUNT_MISMATCH", found: 3, expected: 1 } }]);
+    await assert.rejects(
+      () => client.patchFile("p.md", "a", "b", { ifMatch: "s" }),
+      (e: Error) => e.name === "MatchCountError" && (e as import("../http-client.js").MatchCountError).found === 3,
+    );
+  });
+});

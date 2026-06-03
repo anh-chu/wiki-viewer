@@ -23,6 +23,7 @@ import { _resetAuditDb } from "../../lib/proof/audit.js";
 // Route handlers (loaded after env is set)
 let fileGET: (req: Request, ctx: { params: Promise<{ path: string[] }> }) => Promise<Response>;
 let filePUT: (req: Request, ctx: { params: Promise<{ path: string[] }> }) => Promise<Response>;
+let filePATCH: (req: Request, ctx: { params: Promise<{ path: string[] }> }) => Promise<Response>;
 let fileDELETE: (req: Request, ctx: { params: Promise<{ path: string[] }> }) => Promise<Response>;
 let lsGET: (req: Request, ctx: { params: Promise<{ path?: string[] }> }) => Promise<Response>;
 let movePOST: (req: Request) => Promise<Response>;
@@ -103,6 +104,7 @@ before(async () => {
 	const fileRoute = await import("../../app/api/agent/fs/file/[...path]/route.js");
 	fileGET = fileRoute.GET;
 	filePUT = fileRoute.PUT;
+	filePATCH = fileRoute.PATCH;
 	fileDELETE = fileRoute.DELETE;
 
 	const lsRoute = await import("../../app/api/agent/fs/ls/[[...path]]/route.js");
@@ -821,4 +823,151 @@ test("traversal: .proof/ denied on PUT", async () => {
 	});
 	const res = await filePUT(req, makeCtx([".proof", "inject.json"]));
 	assert.equal(res.status, 400);
+});
+
+// ── PATCH (server-side str-replace) ──────────────────────────────────────────
+
+test("PATCH: str-replace on .md succeeds, sends only find/replace", async () => {
+	const orig = Buffer.from("# Title\n\nHello world. Keep this.\n");
+	await writeFile(path.join(tmpRoot, "patch1.md"), orig);
+	const req = new Request(fileUrl("patch1.md"), {
+		method: "PATCH",
+		headers: { ...agentHeaders(MUTATE_TOKEN, "ai:mutate-agent"), "Content-Type": "application/json", "If-Match": sha256(orig) },
+		body: JSON.stringify({ find: "Hello world", replace: "Goodbye moon" }),
+	});
+	const res = await filePATCH(req, makeCtx(["patch1.md"]));
+	assert.equal(res.status, 200, await res.text());
+	const out = await readFile(path.join(tmpRoot, "patch1.md"), "utf-8");
+	assert.equal(out, "# Title\n\nGoodbye moon. Keep this.\n");
+});
+
+test("PATCH: missing If-Match → 412", async () => {
+	const orig = Buffer.from("alpha beta gamma");
+	await writeFile(path.join(tmpRoot, "patch2.txt"), orig);
+	const req = new Request(fileUrl("patch2.txt"), {
+		method: "PATCH",
+		headers: { ...agentHeaders(MUTATE_TOKEN, "ai:mutate-agent"), "Content-Type": "application/json" },
+		body: JSON.stringify({ find: "beta", replace: "BETA" }),
+	});
+	const res = await filePATCH(req, makeCtx(["patch2.txt"]));
+	assert.equal(res.status, 412);
+});
+
+test("PATCH: If-Match mismatch → 412", async () => {
+	const orig = Buffer.from("alpha beta gamma");
+	await writeFile(path.join(tmpRoot, "patch3.txt"), orig);
+	const req = new Request(fileUrl("patch3.txt"), {
+		method: "PATCH",
+		headers: { ...agentHeaders(MUTATE_TOKEN, "ai:mutate-agent"), "Content-Type": "application/json", "If-Match": "sha256:deadbeef" },
+		body: JSON.stringify({ find: "beta", replace: "BETA" }),
+	});
+	const res = await filePATCH(req, makeCtx(["patch3.txt"]));
+	assert.equal(res.status, 412);
+});
+
+test("PATCH: zero matches → 422 MATCH_COUNT_MISMATCH", async () => {
+	const orig = Buffer.from("alpha beta gamma");
+	await writeFile(path.join(tmpRoot, "patch4.txt"), orig);
+	const req = new Request(fileUrl("patch4.txt"), {
+		method: "PATCH",
+		headers: { ...agentHeaders(MUTATE_TOKEN, "ai:mutate-agent"), "Content-Type": "application/json", "If-Match": sha256(orig) },
+		body: JSON.stringify({ find: "nonexistent", replace: "x" }),
+	});
+	const res = await filePATCH(req, makeCtx(["patch4.txt"]));
+	assert.equal(res.status, 422);
+	const j = await res.json();
+	assert.equal(j.error, "MATCH_COUNT_MISMATCH");
+	assert.equal(j.found, 0);
+});
+
+test("PATCH: multiple matches but expected 1 → 422", async () => {
+	const orig = Buffer.from("foo bar foo baz foo");
+	await writeFile(path.join(tmpRoot, "patch5.txt"), orig);
+	const req = new Request(fileUrl("patch5.txt"), {
+		method: "PATCH",
+		headers: { ...agentHeaders(MUTATE_TOKEN, "ai:mutate-agent"), "Content-Type": "application/json", "If-Match": sha256(orig) },
+		body: JSON.stringify({ find: "foo", replace: "X" }),
+	});
+	const res = await filePATCH(req, makeCtx(["patch5.txt"]));
+	assert.equal(res.status, 422);
+	const j = await res.json();
+	assert.equal(j.found, 3);
+});
+
+test("PATCH: expectedOccurrences matching multi replaces all", async () => {
+	const orig = Buffer.from("foo bar foo baz foo");
+	await writeFile(path.join(tmpRoot, "patch6.txt"), orig);
+	const req = new Request(fileUrl("patch6.txt"), {
+		method: "PATCH",
+		headers: { ...agentHeaders(MUTATE_TOKEN, "ai:mutate-agent"), "Content-Type": "application/json", "If-Match": sha256(orig) },
+		body: JSON.stringify({ find: "foo", replace: "X", expectedOccurrences: 3 }),
+	});
+	const res = await filePATCH(req, makeCtx(["patch6.txt"]));
+	assert.equal(res.status, 200, await res.text());
+	const out = await readFile(path.join(tmpRoot, "patch6.txt"), "utf-8");
+	assert.equal(out, "X bar X baz X");
+});
+
+test("PATCH: empty find → 400", async () => {
+	const orig = Buffer.from("abc");
+	await writeFile(path.join(tmpRoot, "patch7.txt"), orig);
+	const req = new Request(fileUrl("patch7.txt"), {
+		method: "PATCH",
+		headers: { ...agentHeaders(MUTATE_TOKEN, "ai:mutate-agent"), "Content-Type": "application/json", "If-Match": sha256(orig) },
+		body: JSON.stringify({ find: "", replace: "x" }),
+	});
+	const res = await filePATCH(req, makeCtx(["patch7.txt"]));
+	assert.equal(res.status, 400);
+});
+
+test("PATCH: binary file → 415", async () => {
+	const orig = Buffer.from([0x00, 0x01, 0x02, 0xff, 0xfe, 0x00, 0x10]);
+	await writeFile(path.join(tmpRoot, "patch8.bin"), orig);
+	const req = new Request(fileUrl("patch8.bin"), {
+		method: "PATCH",
+		headers: { ...agentHeaders(MUTATE_TOKEN, "ai:mutate-agent"), "Content-Type": "application/json", "If-Match": sha256(orig) },
+		body: JSON.stringify({ find: "x", replace: "y" }),
+	});
+	const res = await filePATCH(req, makeCtx(["patch8.bin"]));
+	assert.equal(res.status, 415);
+});
+
+test("PATCH: nonexistent file → 404 (no create)", async () => {
+	const req = new Request(fileUrl("patch-missing.txt"), {
+		method: "PATCH",
+		headers: { ...agentHeaders(MUTATE_TOKEN, "ai:mutate-agent"), "Content-Type": "application/json", "If-Match": "sha256:abc" },
+		body: JSON.stringify({ find: "a", replace: "b" }),
+	});
+	const res = await filePATCH(req, makeCtx(["patch-missing.txt"]));
+	assert.equal(res.status, 404);
+});
+
+test("PATCH: .md emits file.rawWritten + reconciles (same path as PUT)", async () => {
+	const orig = Buffer.from("# H\n\noriginal paragraph here\n");
+	await writeFile(path.join(tmpRoot, "patch-md.md"), orig);
+	const req = new Request(fileUrl("patch-md.md"), {
+		method: "PATCH",
+		headers: { ...agentHeaders(MUTATE_TOKEN, "ai:mutate-agent"), "Content-Type": "application/json", "If-Match": sha256(orig) },
+		body: JSON.stringify({ find: "original", replace: "updated" }),
+	});
+	const res = await filePATCH(req, makeCtx(["patch-md.md"]));
+	assert.equal(res.status, 200, await res.text());
+	const sidecar = await readSidecar(tmpRoot, "patch-md.md");
+	assert.ok(sidecar, "sidecar created");
+	const events = sidecar!.events.filter((e) => e.type === "file.rawWritten");
+	assert.ok(events.length > 0, "file.rawWritten event present");
+	const newContent = await readFile(path.join(tmpRoot, "patch-md.md"), "utf-8");
+	assert.equal(sidecar!.fingerprint, sha256(Buffer.from(newContent)), "fingerprint matches new content (eager reconcile)");
+});
+
+test("PATCH: requires mutate scope", async () => {
+	const orig = Buffer.from("hello");
+	await writeFile(path.join(tmpRoot, "patch-scope.txt"), orig);
+	const req = new Request(fileUrl("patch-scope.txt"), {
+		method: "PATCH",
+		headers: { ...agentHeaders(READ_TOKEN, "ai:read-agent"), "Content-Type": "application/json", "If-Match": sha256(orig) },
+		body: JSON.stringify({ find: "hello", replace: "hi" }),
+	});
+	const res = await filePATCH(req, makeCtx(["patch-scope.txt"]));
+	assert.equal(res.status, 403);
 });

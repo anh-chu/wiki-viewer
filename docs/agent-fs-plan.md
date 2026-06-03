@@ -51,7 +51,9 @@ All routes reuse `checkAuth` + `enforceScope` + `withFileMutex` + `safeRootPath`
 | `POST`   | `/api/agent/fs/move`                            | `{from, to, ifMatch?}`. Moves sidecar for `.md`.                             |
 | `POST`   | `/api/agent/fs/search`                          | `{kind:"grep"\|"glob", query, path?, glob?, limit?}`. Server-side.           |
 
-**No PATCH. No exec. No batch. No separate grep/glob.** Add later only if profiling proves need.
+**No exec. No batch. No separate grep/glob.** Add later only if profiling proves need.
+
+> **Update (shipped):** A server-side `PATCH /api/agent/fs/file/<path>` str-replace endpoint was added after profiling proved the whole-file-PUT payload dominates latency for large docs on slow uplinks (500KB @ 0.5Mbps ≈ 7.8s/edit transfer). It is strict: exact substring (no regex), text/UTF-8 only, `If-Match` required, `expectedOccurrences` must match exactly (default 1, else 422 `MATCH_COUNT_MISMATCH`). It shares one mutation code path (`applyMutation`) with PUT, so lock / R6 `COLLAB_ACTIVE` / reconcile / audit behave identically. The MCP `edit_file` tool uses PATCH first and falls back to read+PUT on older servers.
 
 ### 2.1 Read (`GET .../file/<path>`)
 

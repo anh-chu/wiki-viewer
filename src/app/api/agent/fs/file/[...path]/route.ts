@@ -24,6 +24,7 @@ import {
 	isMarkdown,
 	atomicWrite,
 	ensureParentDir,
+	looksLikeBinary,
 } from "@/lib/proof/raw-fs";
 import { computeCollabState } from "@/lib/proof/collab-state";
 
@@ -125,16 +126,28 @@ export async function GET(
 	});
 }
 
-// ── PUT ──────────────────────────────────────────────────────────────────────
+// ── Shared mutation path (PUT + PATCH) ────────────────────────────────────────
 
-export async function PUT(
+/**
+ * Single code path for all Tier-1 byte mutations so PUT and PATCH cannot drift
+ * on auth/scope/If-Match/R6/atomicWrite/reconcile/audit.
+ *
+ * `computeNewBody` receives the existing file buffer (or null if absent) and
+ * returns the new bytes, or an error response to short-circuit (e.g. PATCH
+ * match-count mismatch). `op` is the audit verb ("put" | "patch").
+ */
+async function applyMutation(
 	req: Request,
-	{ params }: { params: Promise<{ path: string[] }> },
+	segments: string[],
+	opts: {
+		op: "put" | "patch";
+		allowCreate: boolean;
+		computeNewBody: (existing: Buffer | null) => Buffer | NextResponse;
+	},
 ): Promise<NextResponse> {
 	const auth = await checkAuth(req);
 	if (!auth.ok) return errJson("UNAUTHORIZED", auth.message ?? "Unauthorized", 401);
 
-	const { path: segments } = await params;
 	const relPath = rel(segments);
 	const url = new URL(req.url);
 	const mkdirs = url.searchParams.get("mkdirs") === "true";
@@ -150,56 +163,52 @@ export async function PUT(
 	if (!scope.ok) return errJson(scope.code, scope.message, 403);
 
 	const ifMatch = req.headers.get("if-match");
-	const bodyBuf = Buffer.from(await req.arrayBuffer());
-	const newSha = sha256ofBuf(bodyBuf);
+	const ifCollabMatch = req.headers.get("if-collab-match");
+	const rootDir = getRootDir();
 
-	// Check existing file
-	let existingSha: string | undefined;
-	let existed = false;
-	try {
-		const existing = await readFile(absPath);
-		existingSha = sha256ofBuf(existing);
-		existed = true;
-	} catch (e) {
-		if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
-	}
-
-	if (existed) {
-		// Overwrite: If-Match required by default (unless ?force=true)
-		if (!force && !ifMatch) {
-			return errJson(
-				"PRECONDITION_REQUIRED",
-				"If-Match header required for overwrites (use ?force=true to bypass with audit)",
-				412,
-			);
+	// The whole read-existing → precondition → compute → write → reconcile → audit
+	// sequence runs inside the mutex for .md (so R6 and reconcile are atomic with
+	// the write); non-.md runs it without the mutex.
+	const doMutation = async (): Promise<NextResponse> => {
+		// Read existing
+		let existingBuf: Buffer | null = null;
+		let existingSha: string | undefined;
+		try {
+			existingBuf = await readFile(absPath);
+			existingSha = sha256ofBuf(existingBuf);
+		} catch (e) {
+			if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
 		}
-		if (ifMatch) {
-			const provided = extractShaHex(ifMatch);
-			const current = extractShaHex(existingSha!);
-			if (provided !== current) {
+		const existed = existingBuf !== null;
+
+		if (existed) {
+			// Overwrite: If-Match required by default (unless ?force=true)
+			if (!force && !ifMatch) {
+				return errJson(
+					"PRECONDITION_REQUIRED",
+					"If-Match header required for overwrites (use ?force=true to bypass with audit)",
+					412,
+				);
+			}
+			if (ifMatch && extractShaHex(ifMatch) !== extractShaHex(existingSha!)) {
 				return errJson("PRECONDITION_FAILED", "If-Match sha256 mismatch", 412);
 			}
+		} else {
+			if (!opts.allowCreate) {
+				return errJson("NOT_FOUND", "File not found", 404);
+			}
+			const parentOk = await ensureParentDir(absPath, mkdirs);
+			if (!parentOk) {
+				return errJson(
+					"PARENT_NOT_FOUND",
+					"Parent directory does not exist (use ?mkdirs=true to create)",
+					400,
+				);
+			}
 		}
-	} else {
-		// Create: ensure parent dir exists
-		const parentOk = await ensureParentDir(absPath, mkdirs);
-		if (!parentOk) {
-			return errJson(
-				"PARENT_NOT_FOUND",
-				"Parent directory does not exist (use ?mkdirs=true to create)",
-				400,
-			);
-		}
-	}
 
-	const rootDir = getRootDir();
-	// R6: for .md, re-check collab state atomically inside write mutex
-	const ifCollabMatch = req.headers.get("if-collab-match");
-
-	if (isMarkdown(relPath)) {
-		// R1: acquire shared mutex; R2: reconcile eagerly inside it
-		return await withFileMutex(relPath, async () => {
-			// R6: atomic collab-state check (closes TOCTOU race)
+		// R6: for .md, re-check collab state atomically (inside mutex)
+		if (isMarkdown(relPath)) {
 			const { state, revision, snapshotUrl } = await computeCollabState(rootDir, relPath);
 			if (state === "active") {
 				const matchVal = ifCollabMatch?.trim();
@@ -216,9 +225,17 @@ export async function PUT(
 					);
 				}
 			}
+		}
 
-			await atomicWrite(absPath, bodyBuf);
+		// Compute new bytes (PUT: request body; PATCH: str-replace on existing)
+		const computed = opts.computeNewBody(existingBuf);
+		if (computed instanceof NextResponse) return computed;
+		const bodyBuf = computed;
+		const newSha = sha256ofBuf(bodyBuf);
 
+		await atomicWrite(absPath, bodyBuf);
+
+		if (isMarkdown(relPath)) {
 			const content = bodyBuf.toString("utf-8");
 			const sidecar = (await readSidecar(rootDir, relPath)) ?? emptySidecar(relPath);
 			await reconcileSidecar({
@@ -230,44 +247,119 @@ export async function PUT(
 				eventType: "file.rawWritten",
 				fingerprint: newSha,
 			});
+		}
 
-			writeAuditRow({
-				agentId: auth.agent.id,
-				op: "put",
-				path: relPath,
-				oldSha: existingSha,
-				newSha,
-				forced: force,
-			});
-
-			const st = await stat(absPath);
-			return NextResponse.json({
-				path: relPath,
-				sha256: newSha,
-				size: st.size,
-				mtime: st.mtime.toISOString(),
-				created: !existed,
-			});
+		writeAuditRow({
+			agentId: auth.agent.id,
+			op: opts.op,
+			path: relPath,
+			oldSha: existingSha,
+			newSha,
+			forced: force,
 		});
+
+		const st = await stat(absPath);
+		return NextResponse.json({
+			path: relPath,
+			sha256: newSha,
+			size: st.size,
+			mtime: st.mtime.toISOString(),
+			created: !existed,
+		});
+	};
+
+	return isMarkdown(relPath) ? withFileMutex(relPath, doMutation) : doMutation();
+}
+
+// ── PUT ──────────────────────────────────────────────────────────────────────
+
+export async function PUT(
+	req: Request,
+	{ params }: { params: Promise<{ path: string[] }> },
+): Promise<NextResponse> {
+	const { path: segments } = await params;
+	const bodyBuf = Buffer.from(await req.arrayBuffer());
+	return applyMutation(req, segments, {
+		op: "put",
+		allowCreate: true,
+		computeNewBody: () => bodyBuf,
+	});
+}
+
+// ── PATCH ─────────────────────────────────────────────────────────────────────
+// Server-side str-replace so agents send only the change, not the whole file.
+// Strict: exact substring (no regex), text/UTF-8 only, If-Match required,
+// expectedOccurrences must match exactly (default 1). Shares applyMutation, so
+// lock / R6 / reconcile / audit behave identically to PUT.
+
+const MAX_PATCH_STRING = 1_000_000; // 1MB cap on find/replace strings
+
+export async function PATCH(
+	req: Request,
+	{ params }: { params: Promise<{ path: string[] }> },
+): Promise<NextResponse> {
+	const { path: segments } = await params;
+
+	let body: { find?: unknown; replace?: unknown; expectedOccurrences?: unknown };
+	try {
+		body = (await req.json()) as typeof body;
+	} catch {
+		return errJson("INVALID_PAYLOAD", "Body must be JSON {find, replace, expectedOccurrences?}", 400);
+	}
+	const find = body.find;
+	const replace = body.replace;
+	if (typeof find !== "string" || typeof replace !== "string") {
+		return errJson("INVALID_PAYLOAD", "find and replace must be strings", 400);
+	}
+	if (find.length === 0) {
+		return errJson("INVALID_PAYLOAD", "find must not be empty", 400);
+	}
+	if (find.length > MAX_PATCH_STRING || replace.length > MAX_PATCH_STRING) {
+		return errJson("PAYLOAD_TOO_LARGE", "find/replace exceeds 1MB limit", 413);
+	}
+	let expected = 1;
+	if (body.expectedOccurrences !== undefined) {
+		if (typeof body.expectedOccurrences !== "number" || !Number.isInteger(body.expectedOccurrences) || body.expectedOccurrences < 1) {
+			return errJson("INVALID_PAYLOAD", "expectedOccurrences must be a positive integer", 400);
+		}
+		expected = body.expectedOccurrences;
 	}
 
-	// Non-.md: atomic write + audit (no mutex, no sidecar)
-	await atomicWrite(absPath, bodyBuf);
-	writeAuditRow({
-		agentId: auth.agent.id,
-		op: "put",
-		path: relPath,
-		oldSha: existingSha,
-		newSha,
-		forced: force,
-	});
-	const st = await stat(absPath);
-	return NextResponse.json({
-		path: relPath,
-		sha256: newSha,
-		size: st.size,
-		mtime: st.mtime.toISOString(),
-		created: !existed,
+	return applyMutation(req, segments, {
+		op: "patch",
+		allowCreate: false, // patch only edits existing files
+		computeNewBody: (existing) => {
+			if (existing === null) return errJson("NOT_FOUND", "File not found", 404);
+			if (looksLikeBinary(existing)) {
+				return errJson("UNSUPPORTED", "Cannot patch binary / non-text file", 415);
+			}
+			let text: string;
+			try {
+				text = new TextDecoder("utf-8", { fatal: true }).decode(existing);
+			} catch {
+				return errJson("UNSUPPORTED", "File is not valid UTF-8", 415);
+			}
+			// Count exact occurrences (no regex).
+			let count = 0;
+			let idx = text.indexOf(find);
+			while (idx !== -1) {
+				count++;
+				idx = text.indexOf(find, idx + find.length);
+			}
+			if (count !== expected) {
+				return NextResponse.json(
+					{
+						error: "MATCH_COUNT_MISMATCH",
+						message: `Expected ${expected} occurrence(s) of find, found ${count}. Re-read the file or adjust expectedOccurrences.`,
+						found: count,
+						expected,
+					},
+					{ status: 422 },
+				);
+			}
+			// Replace all (count == expected) occurrences, literally.
+			return Buffer.from(text.split(find).join(replace), "utf-8");
+		},
 	});
 }
 

@@ -51,6 +51,22 @@ export class CollabActiveError extends WikiViewerError {
   }
 }
 
+/** PATCH endpoint absent (old server) or method not allowed — caller should fall back to read+PUT. */
+export class PatchUnsupportedError extends WikiViewerError {
+  constructor(path: string, status: number) {
+    super(status, "PATCH_UNSUPPORTED", `Server does not support PATCH for ${path}`, undefined);
+    this.name = "PatchUnsupportedError";
+  }
+}
+
+/** Server-side str-replace found a different number of matches than expected. */
+export class MatchCountError extends WikiViewerError {
+  constructor(path: string, public readonly found: number, public readonly expected: number, body?: unknown) {
+    super(422, "MATCH_COUNT_MISMATCH", `${path}: expected ${expected} match(es), found ${found}`, body);
+    this.name = "MatchCountError";
+  }
+}
+
 // ─── Response shapes ─────────────────────────────────────────────────────────
 
 export interface ReadResult {
@@ -272,6 +288,70 @@ export class WikiViewerClient {
       collabSnapshot: prior?.collabSnapshot ?? null,
       fetchedAt: Date.now(),
       body: text !== null && encoded.byteLength <= cache.MAX_CACHED_BODY_BYTES ? text : undefined,
+    });
+    return result;
+  }
+
+  // ── patch_file (server-side str-replace) ─────────────────────────────────────
+
+  /**
+   * Server-side exact str-replace: sends only {find, replace} instead of the
+   * whole file. Requires If-Match (auto-filled from cache if not given).
+   * Throws PatchUnsupportedError on 404/405 so callers can fall back to
+   * read+PUT against older servers, and MatchCountError on 422.
+   */
+  async patchFile(
+    path: string,
+    find: string,
+    replace: string,
+    opts: { ifMatch?: string; expectedOccurrences?: number; ifCollabMatch?: number } = {},
+  ): Promise<WriteResult> {
+    const ifMatch = opts.ifMatch ?? cache.get(path)?.sha256;
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (ifMatch) headers["If-Match"] = ifMatch;
+    if (opts.ifCollabMatch !== undefined) headers["If-Collab-Match"] = String(opts.ifCollabMatch);
+
+    const payload: Record<string, unknown> = { find, replace };
+    if (opts.expectedOccurrences !== undefined) payload.expectedOccurrences = opts.expectedOccurrences;
+
+    const res = await this._fetch(
+      this.url(`/api/agent/fs/file/${encodeFilePath(path)}`),
+      { method: "PATCH", headers: this.headers(headers), body: JSON.stringify(payload) },
+    );
+
+    // 405 = method not allowed (endpoint absent). 404 is ambiguous: our handler
+    // returns 404 {error:"NOT_FOUND"} for a missing FILE, but an old server with
+    // no PATCH route returns a bare 404. Only treat 404 as "unsupported" when the
+    // body is NOT our structured NOT_FOUND (so a missing file surfaces normally).
+    if (res.status === 405) {
+      throw new PatchUnsupportedError(path, res.status);
+    }
+    if (res.status === 404) {
+      let body: unknown;
+      try { body = await res.clone().json(); } catch { /* not JSON → likely no route */ }
+      const code = (body as Record<string, unknown> | undefined)?.error;
+      if (code !== "NOT_FOUND") throw new PatchUnsupportedError(path, 404);
+      // else fall through to assertOk → throws WikiViewerError(404) for missing file
+    }
+    if (res.status === 422) {
+      let body: unknown;
+      try { body = await res.json(); } catch { /* ignore */ }
+      const b = body as Record<string, unknown> | undefined;
+      throw new MatchCountError(path, Number(b?.found ?? -1), Number(b?.expected ?? -1), body);
+    }
+    await this.assertOk(res, path);
+
+    const result: WriteResult = await res.json() as WriteResult;
+    const prior = cache.get(path);
+    cache.set(path, {
+      sha256: result.sha256,
+      collabState: prior?.collabState ?? "not-markdown",
+      collabRevision: prior?.collabRevision ?? null,
+      collabSnapshot: prior?.collabSnapshot ?? null,
+      fetchedAt: Date.now(),
+      // We don't have the full new body here without reconstructing it; drop the
+      // stale cached body so the next edit re-reads rather than patching blind.
+      body: undefined,
     });
     return result;
   }
