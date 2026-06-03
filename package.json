@@ -1,6 +1,6 @@
 {
   "name": "wiki-viewer",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Local file viewer and wiki — view markdown, HTML, PDFs, notebooks, office docs, and more from any directory",
   "license": "MIT",
   "type": "module",
@@ -40,6 +40,7 @@
     "better-auth": "^1.6.12",
     "better-sqlite3": "^12.10.0",
     "chokidar": "^5.0.0",
+    "jszip": "^3.10.1",
     "kysely": "0.28.5",
     "next": "16.2.4",
     "proper-lockfile": "^4.1.2",
@@ -103,7 +104,6 @@
     "gray-matter": "^4.0.3",
     "hast-util-to-html": "^9.0.5",
     "highlight.js": "^11.11.1",
-    "jszip": "^3.10.1",
     "lowlight": "^3.3.0",
     "lucide-react": "^0.525.0",
     "mammoth": "^1.12.0",

@@ -6,6 +6,7 @@ import {
 	Check,
 	ChevronDown,
 	ChevronRight,
+	Download,
 	File,
 	FilePlus,
 	FileText,
@@ -742,6 +743,16 @@ export default function Page() {
 		}
 	}
 
+	function handleDownload(node: TreeNode) {
+		const url = `/api/wiki/download?path=${encodeURIComponent(node.path)}`;
+		const a = document.createElement("a");
+		a.href = url;
+		a.download = node.type === "file" ? node.name : `${node.name}.zip`;
+		document.body.appendChild(a);
+		a.click();
+		a.remove();
+	}
+
 	async function handleDelete() {
 		if (!deletingPath) return;
 		await fetch("/api/wiki", {
@@ -956,6 +967,15 @@ export default function Page() {
 								</Button>
 							</>
 						)}
+						<Button
+							size="sm"
+							variant="ghost"
+							className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+							title={node.type === "file" ? "Download" : "Download as zip"}
+							onClick={() => handleDownload(node)}
+						>
+							<Download className="h-3 w-3" />
+						</Button>
 						<Button
 							size="sm"
 							variant="ghost"
