@@ -272,6 +272,7 @@ export default function Page() {
 	const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const [fileContent, setFileContent] = useState<string | null>(null);
+	const [fileRevision, setFileRevision] = useState(0);
 	const [fileLoading, setFileLoading] = useState(false);
 	const [editing, setEditing] = useState(false);
 	const [editContent, setEditContent] = useState("");
@@ -411,6 +412,7 @@ export default function Page() {
 			if (res.ok) {
 				const d: { content: string } = await res.json();
 				setFileContent(d.content);
+				setFileRevision(Number(res.headers.get("X-Wiki-Revision") ?? 0));
 			}
 		} catch {
 			/* ignore */
@@ -536,6 +538,7 @@ export default function Page() {
 		setEditing(false);
 		setSaveError(null);
 		setFileContent(null);
+		setFileRevision(0);
 		const kind = viewerKindFor(node.name, node.type);
 		if (!["editor", "text"].includes(kind) && !isText(node.name)) return;
 		setFileLoading(true);
@@ -546,6 +549,7 @@ export default function Page() {
 			if (res.ok) {
 				const d: { content: string } = await res.json();
 				setFileContent(d.content);
+				setFileRevision(Number(res.headers.get("X-Wiki-Revision") ?? 0));
 			}
 		} catch {
 			/* ignore */
@@ -624,9 +628,15 @@ export default function Page() {
 		const res = await fetch("/api/wiki/content", {
 			method: "PUT",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ path: openFile.path, content: editContent }),
+			body: JSON.stringify({
+				path: openFile.path,
+				content: editContent,
+				baseRevision: fileRevision,
+			}),
 		});
 		if (res.ok) {
+			const d: { revision?: number } = await res.json();
+			if (typeof d.revision === "number") setFileRevision(d.revision);
 			setFileContent(editContent);
 			setEditing(false);
 		} else {
