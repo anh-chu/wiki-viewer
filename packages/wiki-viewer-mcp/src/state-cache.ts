@@ -15,7 +15,17 @@ export interface PathState {
   collabSnapshot: string | null;
   /** When this cache entry was last updated (ms) */
   fetchedAt: number;
+  /**
+   * Last-known text body, paired with `sha256`. Only set for text files from a
+   * read. Lets edit_file skip the GET round-trip: it transforms this cached
+   * text and PUTs with If-Match=sha256; if the file changed server-side the
+   * PUT 412s and the caller re-reads. Capped by MAX_CACHED_BODY_BYTES.
+   */
+  body?: string;
 }
+
+/** Don't cache bodies larger than this (avoid unbounded memory). */
+export const MAX_CACHED_BODY_BYTES = 256 * 1024;
 
 const cache = new Map<string, PathState>();
 

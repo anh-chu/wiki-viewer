@@ -438,3 +438,60 @@ describe("state-cache", () => {
     assert.ok(stateCache.get("/foo/bar.md"), "lookup with leading slash finds entry");
   });
 });
+
+// ─── write_file optimizations (412 auto-recover, cache preservation, body) ────
+
+describe("write_file optimizations", () => {
+  test("auto-recovers from 412 PRECONDITION_REQUIRED by fetching sha and retrying", async () => {
+    let putCount = 0;
+    const seenIfMatch: (string | null)[] = [];
+    const mockFetch = async (_url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const method = init?.method ?? "GET";
+      if (method === "PUT") {
+        putCount++;
+        const h = new Headers(init?.headers as HeadersInit);
+        seenIfMatch.push(h.get("If-Match"));
+        if (putCount === 1) {
+          // First blind PUT → server demands a precondition
+          return new Response(JSON.stringify({ error: "PRECONDITION_REQUIRED" }), {
+            status: 412, headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response(JSON.stringify({ path: "x.txt", sha256: "new", size: 3, created: false }), {
+          status: 200, headers: { "Content-Type": "application/json" },
+        });
+      }
+      // GET for sha during recovery
+      return new Response("body", {
+        status: 200,
+        headers: { ETag: '"cur-sha"', "X-File-Size": "4", "Content-Type": "text/plain", "X-Collab-State": "not-markdown" },
+      });
+    };
+    const client = new WikiViewerClient({
+      baseUrl: "http://localhost:3000", token: "t", agentId: "a",
+      fetch: mockFetch as unknown as typeof fetch,
+    });
+    stateCache.del("x.txt");
+    const res = await client.writeFile("x.txt", "abc"); // no ifMatch, no force
+    assert.equal(res.sha256, "new");
+    assert.equal(putCount, 2, "retried PUT once");
+    assert.equal(seenIfMatch[0], null, "first PUT had no If-Match");
+    assert.equal(seenIfMatch[1], "cur-sha", "retry PUT used fetched sha");
+  });
+
+  test("does not clobber cached collab state to not-markdown after write", async () => {
+    stateCache.set("tracked.md", {
+      sha256: "old", collabState: "tracked", collabRevision: 5,
+      collabSnapshot: "/api/agent/files/tracked.md", fetchedAt: Date.now(),
+    });
+    const client = makeClient([
+      { status: 200, body: { path: "tracked.md", sha256: "new", size: 3, created: false } },
+    ]);
+    await client.writeFile("tracked.md", "abc", { ifMatch: "old" });
+    const c = stateCache.get("tracked.md");
+    assert.equal(c?.collabState, "tracked", "collab state preserved");
+    assert.equal(c?.collabRevision, 5, "collab revision preserved");
+    assert.equal(c?.sha256, "new", "sha refreshed");
+    assert.equal(c?.body, "abc", "body cached");
+  });
+});

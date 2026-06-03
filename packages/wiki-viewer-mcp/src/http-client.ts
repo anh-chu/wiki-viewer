@@ -189,6 +189,8 @@ export class WikiViewerClient {
       collabRevision: collab.collabRevision,
       collabSnapshot: collab.collabSnapshot,
       fetchedAt: Date.now(),
+      // Cache the text body (bounded) so edit_file can skip a re-GET.
+      body: text !== null && bodyBuf.byteLength <= cache.MAX_CACHED_BODY_BYTES ? text : undefined,
     };
     cache.set(path, state);
 
@@ -221,28 +223,55 @@ export class WikiViewerClient {
     if (opts.mkdirs) params["mkdirs"] = "true";
     if (opts.force) params["force"] = "true";
 
-    const body: BodyInit = typeof content === "string"
-      ? (new TextEncoder().encode(content) as unknown as Uint8Array<ArrayBuffer>)
-      : (content as unknown as Uint8Array<ArrayBuffer>);
+    const encoded: Uint8Array = typeof content === "string"
+      ? new TextEncoder().encode(content)
+      : content;
+    const body = encoded as unknown as Uint8Array<ArrayBuffer>;
 
-    const res = await this._fetch(
-      this.url(`/api/agent/fs/file/${encodeFilePath(path)}`, params),
-      {
+    const doPut = (headers: Record<string, string>) =>
+      this._fetch(this.url(`/api/agent/fs/file/${encodeFilePath(path)}`, params), {
         method: "PUT",
-        headers: this.headers({ "Content-Type": "application/octet-stream", ...extraHeaders }),
+        headers: this.headers({ "Content-Type": "application/octet-stream", ...headers }),
         body,
-      },
-    );
+      });
+
+    let res = await doPut(extraHeaders);
+
+    // Auto-recover from "If-Match required" (overwrite without a known sha):
+    // the server demands a precondition for existing files. Transparently fetch
+    // the current sha and retry once, instead of bubbling a 412 to the agent
+    // (which would cost it an extra read + retry round-trip of its own).
+    if (
+      res.status === 412 &&
+      !extraHeaders["If-Match"] &&
+      !opts.force &&
+      opts.ifMatch === undefined
+    ) {
+      let body412: unknown;
+      try { body412 = await res.clone().json(); } catch { /* ignore */ }
+      const code = (body412 as Record<string, unknown> | undefined)?.error;
+      if (code === "PRECONDITION_REQUIRED") {
+        const cur = await this.readFile(path);
+        if (cur?.sha256) {
+          res = await doPut({ ...extraHeaders, "If-Match": cur.sha256 });
+        }
+      }
+    }
+
     await this.assertOk(res, path);
 
     const result: WriteResult = await res.json() as WriteResult;
-    // Update cache after successful write
+    // Update cache after a successful write. Preserve known collab fields from a
+    // prior read (do NOT clobber to not-markdown), refresh sha + body.
+    const prior = cache.get(path);
+    const text = typeof content === "string" ? content : null;
     cache.set(path, {
       sha256: result.sha256,
-      collabState: "not-markdown",
-      collabRevision: null,
-      collabSnapshot: null,
+      collabState: prior?.collabState ?? "not-markdown",
+      collabRevision: prior?.collabRevision ?? null,
+      collabSnapshot: prior?.collabSnapshot ?? null,
       fetchedAt: Date.now(),
+      body: text !== null && encoded.byteLength <= cache.MAX_CACHED_BODY_BYTES ? text : undefined,
     });
     return result;
   }

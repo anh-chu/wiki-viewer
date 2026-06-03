@@ -314,17 +314,40 @@ export function createServer(client: WikiViewerClient): Server {
           const block = checkCollabBlock(path);
           if (block) return err(block);
 
-          // Read → transform → PUT with If-Match
+          // Fast path: if a prior read cached this file's text + sha, transform
+          // from cache and do a conditional PUT (If-Match=cached sha). This
+          // skips the GET round-trip. If the file changed server-side the PUT
+          // 412s (IfMatchError) and we fall back to a fresh read+retry — so the
+          // result is always against current content, never a stale write.
+          const cached = stateCache.get(path);
+          if (
+            cached?.body !== undefined &&
+            cached.sha256 &&
+            cached.collabState !== "active" &&
+            cached.body.includes(find)
+          ) {
+            const newContent = cached.body.replace(find, replace);
+            try {
+              const writeResult = await client.writeFile(path, newContent, {
+                ifMatch: cached.sha256,
+              });
+              return ok(
+                `Edited: ${path}\nReplaced ${JSON.stringify(find)} → ${JSON.stringify(replace)}\nNew sha256: ${writeResult.sha256}`,
+              );
+            } catch (e) {
+              if (!(e instanceof IfMatchError)) throw e;
+              // File changed since our cached read — fall through to re-read.
+            }
+          }
+
+          // Slow path: read → transform → PUT with If-Match.
           const readResult = await client.readFile(path);
           if (readResult.text === null) {
             return err(`edit_file: "${path}" appears to be binary — cannot do text replacement.`);
           }
-
-          // Check collab state from fresh read
           if (readResult.collabState === "active") {
             return err(collabActiveMessage(path, readResult.collabSnapshot));
           }
-
           if (!readResult.text.includes(find)) {
             return err(
               `edit_file: string not found in "${path}".\n` +
