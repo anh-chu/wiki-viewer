@@ -1139,7 +1139,7 @@ export function KBEditor() {
 										className={`px-2 py-0.5 transition-colors ${
 											editMode === "editing"
 												? "bg-primary text-primary-foreground"
-												: "text-muted-foreground hover:bg-accent"
+												: "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
 										}`}
 									>
 										Editing
@@ -1152,7 +1152,7 @@ export function KBEditor() {
 										className={`px-2 py-0.5 transition-colors ${
 											editMode === "suggesting"
 												? "bg-primary text-primary-foreground"
-												: "text-muted-foreground hover:bg-accent"
+												: "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
 										}`}
 									>
 										Suggesting

@@ -85,9 +85,9 @@ function ToolButton({
 				onAction(e);
 			}}
 			className={cn(
-				"h-8 w-8 shrink-0 inline-flex items-center justify-center rounded-md text-foreground/80 hover:bg-accent transition-colors disabled:opacity-40",
+				"h-8 w-8 shrink-0 inline-flex items-center justify-center rounded-md text-foreground/80 hover:bg-accent hover:text-accent-foreground transition-colors disabled:opacity-40",
 				active &&
-					"bg-accent text-foreground ring-1 ring-inset ring-foreground/15",
+					"bg-accent text-accent-foreground ring-1 ring-inset ring-foreground/15",
 			)}
 		>
 			<Icon className="h-4 w-4" />
