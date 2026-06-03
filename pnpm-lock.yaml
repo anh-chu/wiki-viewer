@@ -20,6 +20,9 @@ importers:
       chokidar:
         specifier: ^5.0.0
         version: 5.0.0
+      jszip:
+        specifier: ^3.10.1
+        version: 3.10.1
       kysely:
         specifier: 0.28.5
         version: 0.28.5
@@ -204,9 +207,6 @@ importers:
       highlight.js:
         specifier: ^11.11.1
         version: 11.11.1
-      jszip:
-        specifier: ^3.10.1
-        version: 3.10.1
       lowlight:
         specifier: ^3.3.0
         version: 3.3.0
