@@ -9,4 +9,4 @@ You are connecting to a running wiki-viewer instance at $WIKI_URL (e.g. `http://
 
 Set `basis` and `basisDetail` on every Tier-2 content op so the human can see where your changes came from. Prefer `suggestion.add` over direct block ops unless told otherwise.
 
-MCP-capable agents: `npx wiki-viewer-mcp` (set `WIKI_VIEWER_URL`, `WIKI_VIEWER_TOKEN`, `WIKI_VIEWER_AGENT_ID`) handles tier routing automatically.
+MCP-capable agents: `npx wiki-viewer-mcp` (set `WIKI_VIEWER_URL`, `WIKI_VIEWER_TOKEN`, `WIKI_VIEWER_AGENT_ID`) gives native **Tier-1 file tools** (read/write/edit/list/search/move/delete) and refuses to overwrite an `active` doc. It has **no Tier-2 collab tools** — to co-write a doc (suggestions/comments), call the Tier-2 HTTP endpoints directly. MCP = fast filework; Tier-2 HTTP = reviewable collaboration.

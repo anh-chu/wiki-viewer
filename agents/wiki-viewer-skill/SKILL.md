@@ -395,7 +395,7 @@ Every `GET /api/agent/fs/file/<path>` (and every Tier-2 snapshot read) returns `
    Switch to Tier-2 (block-ops) using the URL in the response body.
 ```
 
-**MCP-capable agents:** run `npx wiki-viewer-mcp` — it reads `X-Collab-State` automatically and routes to the correct tier. Set env vars `WIKI_VIEWER_URL`, `WIKI_VIEWER_TOKEN`, `WIKI_VIEWER_AGENT_ID`.
+**MCP-capable agents:** run `npx wiki-viewer-mcp` (set `WIKI_VIEWER_URL`, `WIKI_VIEWER_TOKEN`, `WIKI_VIEWER_AGENT_ID`). It exposes **Tier-1 file tools only** — `read_file`, `write_file`, `edit_file`, `list_directory`, `search`, `move_file`, `delete_file` — and reads `X-Collab-State` so it won't clobber an active doc: it blocks the write and tells you to use the collaborative path instead. The MCP shim has **no Tier-2 (block-ops / suggestion / comment) tools** — to co-write a doc, use the Tier-2 HTTP endpoints described above directly (the skill instructions cover them). Use the MCP for fast filework; use Tier-2 HTTP for reviewable doc collaboration.
 
 ---
 
