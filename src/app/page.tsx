@@ -876,8 +876,8 @@ export default function Page() {
 					className={cn(
 						"flex items-center gap-1.5 rounded-sm px-2 py-1 text-sm cursor-pointer group transition-colors select-none",
 						openFile?.path === node.path
-							? "bg-accent text-accent-foreground"
-							: "hover:bg-accent/50",
+							? "bg-accent-soft text-foreground font-medium"
+							: "hover:bg-muted",
 						dragOverPath === node.path && "ring-2 ring-primary bg-primary-soft",
 						node.name.startsWith(".") && "opacity-40",
 					)}
