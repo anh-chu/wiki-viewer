@@ -29,6 +29,33 @@ import * as z from "zod";
 import { parseArgs } from "node:util";
 import { WikiViewerClient, IfMatchError, CollabActiveError, WikiViewerError } from "./http-client.js";
 import * as stateCache from "./state-cache.js";
+
+/**
+ * Enable pooled HTTP keep-alive for the global fetch the client uses.
+ *
+ * Without this, every tool call opens a fresh connection and pays a full
+ * TCP + TLS handshake (~3 RTT) before the request even goes out. Over a WAN
+ * link that turns a sub-100ms write into 300ms-1s+, and multiplies across the
+ * GET+PUT an edit performs. Reusing connections removes that per-call penalty.
+ *
+ * Wrapped in try/catch + dynamic import so a missing/edge undici never breaks
+ * startup; it just falls back to default (non-pooled) fetch.
+ */
+async function enableKeepAlive(): Promise<void> {
+  try {
+    const { Agent, setGlobalDispatcher } = await import("undici");
+    setGlobalDispatcher(
+      new Agent({
+        keepAliveTimeout: 30_000,
+        keepAliveMaxTimeout: 60_000,
+        connections: 16,
+        pipelining: 1,
+      }),
+    );
+  } catch {
+    // undici unavailable — default fetch still works, just without pooling.
+  }
+}
 import {
   register,
   RegisterScope,
@@ -433,6 +460,7 @@ function buildJsonSchema(val: AnyZodVal): Record<string, unknown> {
 // ─── Entrypoints ─────────────────────────────────────────────────────────────
 
 async function main() {
+  await enableKeepAlive();
   const client = createClient();
   const server = createServer(client);
   const transport = new StdioServerTransport();
