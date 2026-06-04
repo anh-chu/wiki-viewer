@@ -2,15 +2,16 @@ import { rename, stat } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
 import { checkOrigin } from "@/lib/auth/csrf";
-import { requireUser } from "@/lib/auth/server";
-import { safeRootPath, getRootDir } from "@/lib/root-dir";
+import { resolveWorkspaceForUser } from "@/lib/workspace-context";
+import { safeWorkspacePath } from "@/lib/workspaces";
 import { moveSidecar } from "@/lib/proof/sidecar";
 
 export async function POST(request: Request) {
 	const csrf = checkOrigin(request);
 	if (csrf) return csrf;
-	const auth = await requireUser(request);
-	if (!auth.ok) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+	const ctx = await resolveWorkspaceForUser(request);
+	if (!ctx.ok) return NextResponse.json({ error: ctx.code }, { status: ctx.status });
+	const { rootDir } = ctx;
 
 	const body: { from?: string; to?: string } = await request.json();
 	if (
@@ -25,8 +26,8 @@ export async function POST(request: Request) {
 		);
 	}
 
-	const fromPath = safeRootPath(body.from);
-	const toPath = safeRootPath(body.to);
+	const fromPath = safeWorkspacePath(rootDir, body.from);
+	const toPath = safeWorkspacePath(rootDir, body.to);
 
 	if (!fromPath || !toPath)
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
@@ -50,7 +51,6 @@ export async function POST(request: Request) {
 		// Fix latent bug: sidecar was orphaned on .md renames (R3)
 		const fromExt = path.extname(body.from).toLowerCase();
 		if (fromExt === ".md" || fromExt === ".markdown") {
-			const rootDir = getRootDir();
 			await moveSidecar(rootDir, body.from, body.to);
 		}
 

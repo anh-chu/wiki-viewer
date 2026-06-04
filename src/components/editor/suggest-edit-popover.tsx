@@ -4,6 +4,7 @@ import * as Popover from "@radix-ui/react-popover";
 import { useEffect, useRef, useState } from "react";
 import { authHeaders } from "@/lib/proof/client-auth";
 import { useProofStore } from "@/stores/proof-store";
+import { wsFetch } from "@/lib/workspace-client";
 import type { SuggestionKind } from "@/lib/proof/types";
 
 async function postOp(
@@ -12,7 +13,7 @@ async function postOp(
 	ops: object[],
 ): Promise<{ ok: boolean; stale: boolean; newRevision?: number }> {
 	const encoded = encodeURIComponent(path).replace(/%2F/g, "/");
-	const res = await fetch(`/api/agent/files/${encoded}`, {
+	const res = await wsFetch(`/api/agent/files/${encoded}`, {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",

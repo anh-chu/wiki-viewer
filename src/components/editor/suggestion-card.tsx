@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { authHeaders } from "@/lib/proof/client-auth";
+import { wsFetch } from "@/lib/workspace-client";
 import type { Suggestion } from "@/lib/proof/types";
 
 interface Props {
@@ -33,7 +34,7 @@ async function postOp(
 	suggestionId: string,
 ): Promise<{ ok: boolean; status: number }> {
 	const encodedPath = encodeURIComponent(path).replace(/%2F/g, "/");
-	const res = await fetch(`/api/agent/files/${encodedPath}`, {
+	const res = await wsFetch(`/api/agent/files/${encodedPath}`, {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",

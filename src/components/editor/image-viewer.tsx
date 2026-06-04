@@ -3,6 +3,7 @@
 import { Download, ExternalLink } from "lucide-react";
 import { ViewerToolbar } from "@/components/layout/viewer-toolbar";
 import { Button } from "@/components/ui/button";
+import { withWs } from "@/lib/workspace-client";
 
 interface ImageViewerProps {
 	path: string;
@@ -10,7 +11,7 @@ interface ImageViewerProps {
 }
 
 export function ImageViewer({ path, title }: ImageViewerProps) {
-	const src = `/api/assets/${path}`;
+	const src = withWs(`/api/assets/${path}`);
 	const filename = path.split("/").pop() || path;
 	const ext = filename.includes(".")
 		? filename.split(".").pop()?.toUpperCase()

@@ -3,6 +3,7 @@
 import * as Popover from "@radix-ui/react-popover";
 import { useEffect, useState } from "react";
 import { authHeaders } from "@/lib/proof/client-auth";
+import { wsFetch } from "@/lib/workspace-client";
 
 interface SpanMeta {
 	spanId: string;
@@ -74,7 +75,7 @@ export function ProofSpanPopover({ targetEl, path, onClose, onComment }: Props) 
 		if (busy || !meta) return;
 		setBusy(true);
 		try {
-			await fetch("/api/agent/internal/span", {
+			await wsFetch("/api/agent/internal/span", {
 				method: "POST",
 				headers: { "Content-Type": "application/json", ...authHeaders() },
 				body: JSON.stringify({

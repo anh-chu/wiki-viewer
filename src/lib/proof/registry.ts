@@ -20,6 +20,11 @@ const LAST_SEEN_THROTTLE_MS = 30_000;
 export interface AgentScope {
 	paths: string[]; // glob patterns
 	ops: Array<"read" | "mutate" | "delete">;
+	/**
+	 * If set, this agent may only operate in this specific workspace (by id).
+	 * Undefined = wildcard: any workspace is allowed (back-compat for existing agents).
+	 */
+	workspaceId?: string;
 }
 
 export interface Agent {

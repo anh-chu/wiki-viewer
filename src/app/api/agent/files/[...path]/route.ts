@@ -18,7 +18,8 @@ import { NextResponse } from "next/server";
 import { checkAuth, enforceScope, verifyBy } from "@/lib/proof/auth";
 import { applyOps, readSnapshot } from "@/lib/proof/ops-applier";
 import { idempotency } from "@/lib/proof/idempotency";
-import { getRootDir, safeRootPath } from "@/lib/root-dir";
+import { resolveWorkspaceForAgent } from "@/lib/workspace-context";
+import { safeWorkspacePath } from "@/lib/workspaces";
 import type { Op } from "@/lib/proof/types";
 import { checkAndConsume } from "@/lib/proof/rate-limit";
 import { computeCollabState } from "@/lib/proof/collab-state";
@@ -52,17 +53,20 @@ export async function GET(
 		return NextResponse.json({ error: "INVALID_PATH", message: "Path must be .md or .markdown" }, { status: 400 });
 	}
 
-	const absPath = safeRootPath(rel);
+	const wsx = await resolveWorkspaceForAgent(req);
+	if (!wsx.ok) return NextResponse.json({ error: wsx.code }, { status: wsx.status });
+	const { ws, rootDir } = wsx;
+
+	const absPath = safeWorkspacePath(rootDir, rel);
 	if (!absPath) {
 		return NextResponse.json({ error: "INVALID_PATH", message: "Path traversal rejected" }, { status: 400 });
 	}
 
-	const scopeCheck = enforceScope(auth.agent, { filePath: rel, op: "read" });
+	const scopeCheck = enforceScope(auth.agent, { filePath: rel, op: "read", workspaceId: ws.id });
 	if (!scopeCheck.ok) {
 		return NextResponse.json({ error: scopeCheck.code, message: scopeCheck.message }, { status: 403 });
 	}
 
-	const rootDir = getRootDir();
 	const snapshot = await readSnapshot(rootDir, rel);
 	if (!snapshot) {
 		return NextResponse.json({ error: "NOT_FOUND", message: "File not found" }, { status: 404 });
@@ -107,7 +111,11 @@ export async function POST(
 		return NextResponse.json({ error: "INVALID_PATH", message: "Path must be .md or .markdown" }, { status: 400 });
 	}
 
-	const absPath = safeRootPath(rel);
+	const wsx = await resolveWorkspaceForAgent(req);
+	if (!wsx.ok) return NextResponse.json({ error: wsx.code }, { status: wsx.status });
+	const { ws, rootDir } = wsx;
+
+	const absPath = safeWorkspacePath(rootDir, rel);
 	if (!absPath) {
 		return NextResponse.json({ error: "INVALID_PATH", message: "Path traversal rejected" }, { status: 400 });
 	}
@@ -123,7 +131,7 @@ export async function POST(
 	const payloadHash = createHash("sha256").update(rawBody, "utf8").digest("hex");
 
 	// Check idempotency cache
-	const cached = idempotency.get(idempotencyKey);
+	const cached = idempotency.get(`${rootDir}\u0000${idempotencyKey}`);
 	if (cached) {
 		if (cached.payloadHash !== payloadHash) {
 			return NextResponse.json(
@@ -154,7 +162,7 @@ export async function POST(
 		return NextResponse.json({ error: "INVALID_PAYLOAD", message: "ops (array) required" }, { status: 400 });
 	}
 
-	const scopeCheck = enforceScope(auth.agent, { filePath: rel, op: "mutate" });
+	const scopeCheck = enforceScope(auth.agent, { filePath: rel, op: "mutate", workspaceId: ws.id });
 	if (!scopeCheck.ok) {
 		return NextResponse.json({ error: scopeCheck.code, message: scopeCheck.message }, { status: 403 });
 	}
@@ -181,7 +189,6 @@ export async function POST(
 		);
 	}
 
-	const rootDir = getRootDir();
 	const result = await applyOps({
 		rootDir,
 		mdPath: rel,
@@ -203,7 +210,7 @@ export async function POST(
 		responseBody = JSON.stringify(payload);
 	}
 
-	idempotency.set(idempotencyKey, { payloadHash, status, body: responseBody });
+	idempotency.set(`${rootDir}\u0000${idempotencyKey}`, { payloadHash, status, body: responseBody });
 
 	return new NextResponse(responseBody, {
 		status,

@@ -10,7 +10,18 @@ import path from "node:path";
 import os from "node:os";
 import { mkdirSync, readFileSync, writeFileSync, existsSync, chmodSync } from "node:fs";
 import { randomBytes } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { isEmailAllowed } from "./allowlist";
+
+// When an admin creates a user, the signup allowlist must not apply (the admin
+// is the gate). We mark that context with an AsyncLocalStorage flag so the
+// user-create hook can skip the allowlist check for that one call only.
+const adminCreateContext = new AsyncLocalStorage<boolean>();
+
+/** Run `fn` with the signup allowlist bypassed (admin-initiated user creation). */
+export function withAdminUserCreate<T>(fn: () => Promise<T>): Promise<T> {
+	return adminCreateContext.run(true, fn);
+}
 
 // Guard runs at server startup, not during next build (NEXT_PHASE=phase-production-build).
 // Set WIKI_ALLOW_INSECURE=1 to bypass the https requirement (development / CI / smoke tests).
@@ -52,7 +63,7 @@ function resolveSecret(): string {
 	return fresh;
 }
 
-const db = new Database(DB_PATH);
+export const db = new Database(DB_PATH);
 db.pragma("journal_mode = WAL");
 
 function getTrustedOrigins(): string[] {
@@ -142,7 +153,7 @@ export const auth = betterAuth({
 		user: {
 			create: {
 				before: async (user: { email: string }) => {
-					if (!(await isEmailAllowed(user.email))) {
+					if (!adminCreateContext.getStore() && !(await isEmailAllowed(user.email))) {
 						throw new Error("SIGNUP_NOT_ALLOWED");
 					}
 					return { data: user };

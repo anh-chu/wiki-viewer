@@ -2,8 +2,8 @@ import { mkdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
 import { checkOrigin } from "@/lib/auth/csrf";
-import { requireUser } from "@/lib/auth/server";
-import { safeRootPath } from "@/lib/root-dir";
+import { resolveWorkspaceForUser } from "@/lib/workspace-context";
+import { safeWorkspacePath } from "@/lib/workspaces";
 
 const VALID_DIRS = new Set(["entities", "concepts", "comparisons"]);
 const SLUG_RE = /^[a-z0-9-]+$/;
@@ -37,8 +37,9 @@ function singularType(
 export async function POST(request: Request) {
 	const csrf = checkOrigin(request);
 	if (csrf) return csrf;
-	const auth = await requireUser(request);
-	if (!auth.ok) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+	const ctx = await resolveWorkspaceForUser(request);
+	if (!ctx.ok) return NextResponse.json({ error: ctx.code }, { status: ctx.status });
+	const { rootDir } = ctx;
 
 	const body: PageBody = await request.json();
 	const { dir, slug } = body;
@@ -51,7 +52,7 @@ export async function POST(request: Request) {
 	}
 
 	const relPath = `${dir}/${slug}.md`;
-	const filePath = safeRootPath(relPath);
+	const filePath = safeWorkspacePath(rootDir, relPath);
 	if (!filePath)
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
 

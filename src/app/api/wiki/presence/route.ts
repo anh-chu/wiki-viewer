@@ -12,17 +12,18 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
-import { requireUser } from "@/lib/auth/server";
+import { resolveWorkspaceForUser } from "@/lib/workspace-context";
+import { safeWorkspacePath } from "@/lib/workspaces";
 import { setLease, clearLease } from "@/lib/proof/lease";
-import { safeRootPath } from "@/lib/root-dir";
 
 function errJson(code: string, message: string, status: number): NextResponse {
 	return NextResponse.json({ error: code, message }, { status });
 }
 
 export async function POST(req: Request): Promise<NextResponse> {
-	const auth = await requireUser(req);
-	if (!auth.ok) return errJson("UNAUTHORIZED", "Not authenticated", 401);
+	const ctx = await resolveWorkspaceForUser(req);
+	if (!ctx.ok) return errJson(ctx.code, "Not authenticated", ctx.status);
+	const { rootDir } = ctx;
 
 	let body: { path?: unknown; action?: unknown };
 	try {
@@ -40,15 +41,15 @@ export async function POST(req: Request): Promise<NextResponse> {
 	}
 
 	// Basic traversal guard
-	if (!safeRootPath(relPath)) {
+	if (!safeWorkspacePath(rootDir, relPath)) {
 		return errJson("INVALID_PATH", "Path traversal rejected", 400);
 	}
 
 	if (action === "open" || action === "heartbeat") {
-		setLease(relPath, auth.user.id);
+		setLease(rootDir, relPath, ctx.userId);
 	} else {
 		// close
-		clearLease(relPath, auth.user.id);
+		clearLease(rootDir, relPath, ctx.userId);
 	}
 
 	return NextResponse.json({ ok: true });

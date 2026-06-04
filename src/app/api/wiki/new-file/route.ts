@@ -2,15 +2,16 @@ import { mkdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
 import { checkOrigin } from "@/lib/auth/csrf";
-import { requireUser } from "@/lib/auth/server";
-import { safeRootPath } from "@/lib/root-dir";
+import { resolveWorkspaceForUser } from "@/lib/workspace-context";
+import { safeWorkspacePath } from "@/lib/workspaces";
 
 export async function POST(request: Request) {
 	const csrf = checkOrigin(request);
 	if (csrf) return csrf;
-	const auth = await requireUser(request);
-	if (!auth.ok)
-		return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+	const ctx = await resolveWorkspaceForUser(request);
+	if (!ctx.ok)
+		return NextResponse.json({ error: ctx.code }, { status: ctx.status });
+	const { rootDir } = ctx;
 
 	const body: { path?: string } = await request.json();
 	const rel = body.path;
@@ -22,7 +23,7 @@ export async function POST(request: Request) {
 		return NextResponse.json({ error: "Invalid file path" }, { status: 400 });
 	}
 
-	const filePath = safeRootPath(rel);
+	const filePath = safeWorkspacePath(rootDir, rel);
 	if (!filePath)
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
 

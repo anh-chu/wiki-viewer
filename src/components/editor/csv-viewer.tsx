@@ -2,6 +2,7 @@
 
 import { Code2, Download, Save } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { wsFetch } from "@/lib/workspace-client";
 import { ViewerToolbar } from "@/components/layout/viewer-toolbar";
 import { Button } from "@/components/ui/button";
 
@@ -80,7 +81,7 @@ export function CsvViewer({ path }: CsvViewerProps) {
 	const csvUrl = `/api/assets/${path}`;
 
 	useEffect(() => {
-		fetch(csvUrl)
+		wsFetch(csvUrl)
 			.then((r) => r.text())
 			.then((text) => {
 				setRawText(text);
@@ -121,7 +122,7 @@ export function CsvViewer({ path }: CsvViewerProps) {
 		setSaving(true);
 		const csv = sourceMode ? rawText : rowsToCsv(rows);
 		try {
-			await fetch(`/api/assets/${path}`, {
+			await wsFetch(`/api/assets/${path}`, {
 				method: "PUT",
 				headers: { "Content-Type": "text/plain" },
 				body: csv,

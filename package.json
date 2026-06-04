@@ -19,7 +19,7 @@
     "wiki": "node bin/wiki-viewer.js",
     "postbuild": "node bin/postbuild.js",
     "prepublishOnly": "npm run build",
-    "test": "tsx --test src/tests/proof/*.test.ts"
+    "test": "tsx --import ./src/tests/proof/preload.ts --test src/tests/proof/*.test.ts"
   },
   "engines": {
     "node": ">=18.0.0"

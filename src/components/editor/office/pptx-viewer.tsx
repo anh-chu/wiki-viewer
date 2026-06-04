@@ -1,6 +1,7 @@
 "use client";
 
 import { Loader2 } from "lucide-react";
+import { wsFetch } from "@/lib/workspace-client";
 import { useEffect, useRef, useState } from "react";
 import { OfficeChrome } from "./office-chrome";
 
@@ -28,7 +29,7 @@ export function PptxViewer({ path, title }: Props) {
 			try {
 				const [{ init }, res] = await Promise.all([
 					import("pptx-preview"),
-					fetch(`/api/assets/${path}`),
+					wsFetch(`/api/assets/${path}`),
 				]);
 				if (cancelled) return;
 				if (!res.ok) throw new Error(`Failed to load file (${res.status})`);

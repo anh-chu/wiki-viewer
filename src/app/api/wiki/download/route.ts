@@ -4,8 +4,8 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import JSZip from "jszip";
 import { NextResponse } from "next/server";
-import { requireUser } from "@/lib/auth/server";
-import { safeRootPath } from "@/lib/root-dir";
+import { resolveWorkspaceForUser } from "@/lib/workspace-context";
+import { safeWorkspacePath } from "@/lib/workspaces";
 
 // Skip noise that should never end up in a downloaded archive.
 const SKIP_DIRS = new Set([".git", "node_modules", ".next", ".proof"]);
@@ -37,13 +37,14 @@ async function addDirToZip(
 }
 
 export async function GET(request: Request) {
-	const auth = await requireUser(request);
-	if (!auth.ok)
-		return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+	const ctx = await resolveWorkspaceForUser(request);
+	if (!ctx.ok)
+		return NextResponse.json({ error: ctx.code }, { status: ctx.status });
+	const { rootDir } = ctx;
 
 	const { searchParams } = new URL(request.url);
 	const rel = searchParams.get("path") ?? "";
-	const target = safeRootPath(rel);
+	const target = safeWorkspacePath(rootDir, rel);
 	if (!target)
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
 

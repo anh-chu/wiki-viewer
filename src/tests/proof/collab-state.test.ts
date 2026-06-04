@@ -98,66 +98,68 @@ after(async () => {
 
 // ── Lease store unit tests ────────────────────────────────────────────────────
 
+const TEST_NS = "/test-ns";
+
 describe("lease store", () => {
 	before(() => _resetLeaseStore());
 	after(() => _resetLeaseStore());
 
 	test("new path has generation 0, no active lease", () => {
 		_resetLeaseStore();
-		assert.equal(leaseGeneration("docs/a.md"), 0);
-		assert.equal(hasActiveLease("docs/a.md"), false);
+		assert.equal(leaseGeneration(TEST_NS, "docs/a.md"), 0);
+		assert.equal(hasActiveLease(TEST_NS, "docs/a.md"), false);
 	});
 
 	test("setLease makes lease active, bumps generation 0→1", () => {
 		_resetLeaseStore();
-		setLease("docs/a.md", "u1");
-		assert.equal(hasActiveLease("docs/a.md"), true);
-		assert.equal(leaseGeneration("docs/a.md"), 1);
+		setLease(TEST_NS, "docs/a.md", "u1");
+		assert.equal(hasActiveLease(TEST_NS, "docs/a.md"), true);
+		assert.equal(leaseGeneration(TEST_NS, "docs/a.md"), 1);
 	});
 
 	test("second setLease (heartbeat) does NOT bump generation again", () => {
 		_resetLeaseStore();
-		setLease("docs/a.md", "u1");
-		const gen = leaseGeneration("docs/a.md");
-		setLease("docs/a.md", "u1"); // heartbeat
-		assert.equal(leaseGeneration("docs/a.md"), gen); // unchanged
+		setLease(TEST_NS, "docs/a.md", "u1");
+		const gen = leaseGeneration(TEST_NS, "docs/a.md");
+		setLease(TEST_NS, "docs/a.md", "u1"); // heartbeat
+		assert.equal(leaseGeneration(TEST_NS, "docs/a.md"), gen); // unchanged
 	});
 
 	test("clearLease removes active lease and bumps generation 1→2", () => {
 		_resetLeaseStore();
-		setLease("docs/a.md", "u1");
-		assert.equal(leaseGeneration("docs/a.md"), 1);
-		clearLease("docs/a.md", "u1");
-		assert.equal(hasActiveLease("docs/a.md"), false);
-		assert.equal(leaseGeneration("docs/a.md"), 2);
+		setLease(TEST_NS, "docs/a.md", "u1");
+		assert.equal(leaseGeneration(TEST_NS, "docs/a.md"), 1);
+		clearLease(TEST_NS, "docs/a.md", "u1");
+		assert.equal(hasActiveLease(TEST_NS, "docs/a.md"), false);
+		assert.equal(leaseGeneration(TEST_NS, "docs/a.md"), 2);
 	});
 
 	test("clearLease by different user is no-op", () => {
 		_resetLeaseStore();
-		setLease("docs/a.md", "u1");
-		clearLease("docs/a.md", "u-other");
-		assert.equal(hasActiveLease("docs/a.md"), true);
-		assert.equal(leaseGeneration("docs/a.md"), 1);
+		setLease(TEST_NS, "docs/a.md", "u1");
+		clearLease(TEST_NS, "docs/a.md", "u-other");
+		assert.equal(hasActiveLease(TEST_NS, "docs/a.md"), true);
+		assert.equal(leaseGeneration(TEST_NS, "docs/a.md"), 1);
 	});
 
 	test("expired lease (via short TTL) returns false and bumps generation", async () => {
 		_resetLeaseStore();
-		setLease("docs/expire.md", "u1", 10); // 10ms TTL
-		assert.equal(hasActiveLease("docs/expire.md"), true);
+		setLease(TEST_NS, "docs/expire.md", "u1", 10); // 10ms TTL
+		assert.equal(hasActiveLease(TEST_NS, "docs/expire.md"), true);
 		await new Promise((r) => setTimeout(r, 20));
-		assert.equal(hasActiveLease("docs/expire.md"), false);
+		assert.equal(hasActiveLease(TEST_NS, "docs/expire.md"), false);
 		// generation bumped on expiry check
-		assert.ok(leaseGeneration("docs/expire.md") >= 2);
+		assert.ok(leaseGeneration(TEST_NS, "docs/expire.md") >= 2);
 	});
 
 	test("set after expiry = new 0→1 transition, bumps again", async () => {
 		_resetLeaseStore();
-		setLease("docs/exp2.md", "u1", 10);
+		setLease(TEST_NS, "docs/exp2.md", "u1", 10);
 		await new Promise((r) => setTimeout(r, 20));
-		hasActiveLease("docs/exp2.md"); // triggers sweep
-		const genAfterExpiry = leaseGeneration("docs/exp2.md");
-		setLease("docs/exp2.md", "u1"); // fresh open
-		assert.equal(leaseGeneration("docs/exp2.md"), genAfterExpiry + 1);
+		hasActiveLease(TEST_NS, "docs/exp2.md"); // triggers sweep
+		const genAfterExpiry = leaseGeneration(TEST_NS, "docs/exp2.md");
+		setLease(TEST_NS, "docs/exp2.md", "u1"); // fresh open
+		assert.equal(leaseGeneration(TEST_NS, "docs/exp2.md"), genAfterExpiry + 1);
 	});
 });
 
@@ -252,11 +254,11 @@ describe("computeCollabState", () => {
 		const mdPath = "lease-only.md";
 		await writeFile(path.join(tmpRoot, mdPath), "# lease only");
 		// No sidecar; human opens it
-		setLease(mdPath, "human-user-1");
+		setLease(tmpRoot, mdPath, "human-user-1");
 		const result = await computeCollabState(tmpRoot, mdPath);
 		assert.equal(result.state, "active");
 		assert.equal(result.revision, 1); // 0 + gen(1)
-		clearLease(mdPath, "human-user-1");
+		clearLease(tmpRoot, mdPath, "human-user-1");
 	});
 
 	test("revision = sidecar.revision + leaseGeneration", async () => {
@@ -269,10 +271,10 @@ describe("computeCollabState", () => {
 		const r1 = await computeCollabState(tmpRoot, mdPath);
 		assert.equal(r1.revision, 7);
 		// open lease: gen=1, revision=8
-		setLease(mdPath, "u1");
+		setLease(tmpRoot, mdPath, "u1");
 		const r2 = await computeCollabState(tmpRoot, mdPath);
 		assert.equal(r2.revision, 8);
-		clearLease(mdPath, "u1");
+		clearLease(tmpRoot, mdPath, "u1");
 	});
 
 	test("stale pending suggestion does NOT count as active artifact", async () => {
@@ -332,14 +334,14 @@ describe("X-Collab headers on GET fs/file", () => {
 		_resetLeaseStore();
 		const mdPath = "hdr-active.md";
 		await writeFile(path.join(tmpRoot, mdPath), "# active");
-		setLease(mdPath, "human-1");
+		setLease(tmpRoot, mdPath, "human-1");
 		const req = new Request(fileUrl(mdPath), {
 			headers: agentHeaders(READ_TOKEN, "ai:reader"),
 		});
 		const res = await fileGET(req, makeCtx([mdPath]));
 		assert.equal(res.status, 200);
 		assert.equal(res.headers.get("x-collab-state"), "active");
-		clearLease(mdPath, "human-1");
+		clearLease(tmpRoot, mdPath, "human-1");
 	});
 });
 
@@ -367,13 +369,13 @@ describe("X-Collab headers on Tier-2 GET agent/files", () => {
 		_resetLeaseStore();
 		const mdPath = "tier2-active.md";
 		await writeFile(path.join(tmpRoot, mdPath), "# active");
-		setLease(mdPath, "h1");
+		setLease(tmpRoot, mdPath, "h1");
 		const req = new Request(tier2Url(mdPath), {
 			headers: agentHeaders(READ_TOKEN, "ai:reader"),
 		});
 		const res = await tier2GET(req, makeCtx([mdPath]));
 		assert.equal(res.headers.get("x-collab-state"), "active");
-		clearLease(mdPath, "h1");
+		clearLease(tmpRoot, mdPath, "h1");
 	});
 });
 
@@ -409,7 +411,7 @@ describe("R6 TOCTOU enforcement on raw .md PUT", () => {
 		const oldSha = sha256hex(Buffer.from(initial));
 
 		// Simulate: agent read the file, then human opens it (lease set)
-		setLease(mdPath, "human-racer");
+		setLease(tmpRoot, mdPath, "human-racer");
 
 		// Agent tries raw PUT without If-Collab-Match
 		const req = new Request(fileUrl(mdPath), {
@@ -427,7 +429,7 @@ describe("R6 TOCTOU enforcement on raw .md PUT", () => {
 		assert.ok(body.snapshotUrl, "snapshotUrl in response");
 		assert.ok(typeof body.revision === "number", "revision in response");
 
-		clearLease(mdPath, "human-racer");
+		clearLease(tmpRoot, mdPath, "human-racer");
 	});
 
 	test("PUT .md with matching If-Collab-Match → 200", async () => {
@@ -437,7 +439,7 @@ describe("R6 TOCTOU enforcement on raw .md PUT", () => {
 		await writeFile(path.join(tmpRoot, mdPath), initial);
 		const oldSha = sha256hex(Buffer.from(initial));
 
-		setLease(mdPath, "human-match");
+		setLease(tmpRoot, mdPath, "human-match");
 		// Get the current revision
 		const { revision } = await computeCollabState(tmpRoot, mdPath);
 
@@ -453,7 +455,7 @@ describe("R6 TOCTOU enforcement on raw .md PUT", () => {
 		const res = await filePUT(req, makeCtx([mdPath]));
 		assert.equal(res.status, 200, "matching If-Collab-Match should allow write");
 
-		clearLease(mdPath, "human-match");
+		clearLease(tmpRoot, mdPath, "human-match");
 	});
 
 	test("PUT .md with ?force=true bypasses R6 even on active doc → 200", async () => {
@@ -463,7 +465,7 @@ describe("R6 TOCTOU enforcement on raw .md PUT", () => {
 		await writeFile(path.join(tmpRoot, mdPath), initial);
 		const oldSha = sha256hex(Buffer.from(initial));
 
-		setLease(mdPath, "human-force");
+		setLease(tmpRoot, mdPath, "human-force");
 
 		const req = new Request(fileUrl(mdPath, "?force=true"), {
 			method: "PUT",
@@ -476,7 +478,7 @@ describe("R6 TOCTOU enforcement on raw .md PUT", () => {
 		const res = await filePUT(req, makeCtx([mdPath]));
 		assert.equal(res.status, 200, "?force=true should bypass R6");
 
-		clearLease(mdPath, "human-force");
+		clearLease(tmpRoot, mdPath, "human-force");
 	});
 
 	test("PUT non-.md file is never blocked by R6 (no collab state)", async () => {

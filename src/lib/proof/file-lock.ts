@@ -1,3 +1,8 @@
+// Workspacing note (Phase B): the lockKey must be workspace-unique. Callers
+// should prefix lockKey with rootDir (or wsId): `${rootDir}\0${relPath}`.
+// The cross-process sentinel hash then differs per workspace automatically.
+// Phase B call sites will make this change when route threading is done.
+
 /**
  * Cross-process file locking via proper-lockfile.
  *

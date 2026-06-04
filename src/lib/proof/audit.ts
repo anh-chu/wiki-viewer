@@ -27,16 +27,23 @@ function getDb(): InstanceType<typeof Database> {
 	_db.pragma("journal_mode = WAL");
 	_db.exec(`
 		CREATE TABLE IF NOT EXISTS agent_fs_audit (
-			id      INTEGER PRIMARY KEY AUTOINCREMENT,
-			agent_id TEXT NOT NULL,
-			op      TEXT NOT NULL,
-			path    TEXT NOT NULL,
-			old_sha TEXT,
-			new_sha TEXT,
-			forced  INTEGER NOT NULL DEFAULT 0,
-			at      TEXT NOT NULL
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			agent_id     TEXT NOT NULL,
+			op           TEXT NOT NULL,
+			path         TEXT NOT NULL,
+			old_sha      TEXT,
+			new_sha      TEXT,
+			forced       INTEGER NOT NULL DEFAULT 0,
+			at           TEXT NOT NULL,
+			workspace_id TEXT
 		)
 	`);
+	// Tolerant migration for existing DBs that lack the workspace_id column.
+	try {
+		_db.exec(`ALTER TABLE agent_fs_audit ADD COLUMN workspace_id TEXT`);
+	} catch {
+		// Column already exists — ignore.
+	}
 	return _db;
 }
 
@@ -47,6 +54,7 @@ export interface AuditRow {
 	oldSha?: string;
 	newSha?: string;
 	forced?: boolean;
+	workspaceId?: string;
 }
 
 /**
@@ -57,8 +65,8 @@ export function writeAuditRow(row: AuditRow): void {
 	try {
 		const db = getDb();
 		db.prepare(
-			`INSERT INTO agent_fs_audit (agent_id, op, path, old_sha, new_sha, forced, at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO agent_fs_audit (agent_id, op, path, old_sha, new_sha, forced, at, workspace_id)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		).run(
 			row.agentId,
 			row.op,
@@ -67,6 +75,7 @@ export function writeAuditRow(row: AuditRow): void {
 			row.newSha ?? null,
 			row.forced ? 1 : 0,
 			new Date().toISOString(),
+			row.workspaceId ?? null,
 		);
 	} catch (e) {
 		console.error("[agent-fs audit] write failed:", e);

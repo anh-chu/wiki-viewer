@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { FrontMatter, SaveStatus } from "@/types";
+import { wsFetch } from "@/lib/workspace-client";
 
 // Adapter around ccmc's /api/wiki/content endpoints.
 // The API returns { content: string } and accepts { path, content }.
@@ -23,7 +24,7 @@ interface PageData {
 }
 
 async function fetchPageFromApi(path: string): Promise<PageData> {
-	const res = await fetch(`/api/wiki/content?path=${encodeURIComponent(path)}`);
+	const res = await wsFetch(`/api/wiki/content?path=${encodeURIComponent(path)}`);
 	if (!res.ok) {
 		throw new FetchPageError(`Failed to fetch page: ${path}`, res.status);
 	}
@@ -55,7 +56,7 @@ async function savePageToApi(
 ): Promise<SaveResult> {
 	const body: Record<string, unknown> = { path, content };
 	if (baseRevision !== null) body.baseRevision = baseRevision;
-	const res = await fetch("/api/wiki/content", {
+	const res = await wsFetch("/api/wiki/content", {
 		method: "PUT",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify(body),
@@ -63,7 +64,7 @@ async function savePageToApi(
 	if (res.status === 409) {
 		// Server has a newer revision. Fetch current content and surface the conflict.
 		const conflictData = (await res.json()) as { currentRevision?: number };
-		const freshRes = await fetch(`/api/wiki/content?path=${encodeURIComponent(path)}`);
+		const freshRes = await wsFetch(`/api/wiki/content?path=${encodeURIComponent(path)}`);
 		const freshContent = freshRes.ok
 			? ((await freshRes.json()) as { content: string }).content
 			: content;

@@ -1,3 +1,8 @@
+// Workspacing note (Phase B): the idempotency key must be prefixed with wsId
+// (or rootDir) at the call site to prevent cross-workspace collisions:
+// e.g. key = `${rootDir}\0${idempotencyHeader}`. Phase B call sites will
+// make this change when route threading is done.
+
 // Tiny in-memory LRU. Lives for process lifetime. Acceptable: idempotency
 // guards retries within seconds, not days.
 const MAX = 1000;

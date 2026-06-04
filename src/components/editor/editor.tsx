@@ -15,6 +15,7 @@ import { useWikiSlugsStore } from "@/stores/wiki-slugs-store";
 import type { TreeNode } from "@/types";
 import { useProofStore } from "@/stores/proof-store";
 import { captureSuggestion } from "@/lib/proof/suggest-capture";
+import { wsFetch, withWs } from "@/lib/workspace-client";
 import { EditorBubbleMenu } from "./bubble-menu";
 import { EditorToolbar } from "./editor-toolbar";
 import { editorExtensions } from "./extensions";
@@ -39,7 +40,7 @@ async function uploadFile(
 	const formData = new FormData();
 	formData.append("file", file);
 	try {
-		const res = await fetch(`/api/upload/${pagePath}`, {
+		const res = await wsFetch(`/api/upload/${pagePath}`, {
 			method: "POST",
 			body: formData,
 		});
@@ -197,7 +198,7 @@ export function KBEditor() {
 		const path = currentPath;
 		const ping = (action: "open" | "heartbeat" | "close") => {
 			// keepalive lets the "close" beacon survive page unload.
-			void fetch("/api/wiki/presence", {
+			void wsFetch("/api/wiki/presence", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ path, action }),
@@ -225,7 +226,7 @@ export function KBEditor() {
 	// Subscribe to chokidar SSE: when current file changes on disk, reload sidecar.
 	useEffect(() => {
 		if (typeof window === "undefined") return;
-		const es = new EventSource("/api/wiki/watch");
+		const es = new EventSource(withWs("/api/wiki/watch"));
 		es.onmessage = (evt: MessageEvent<string>) => {
 			try {
 				const data = JSON.parse(evt.data) as { type: string; path: string };

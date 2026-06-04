@@ -1,6 +1,7 @@
 "use client";
 import { create } from "zustand";
 import type { ActivityEvent } from "@/lib/proof/activity-shared";
+import { wsFetch } from "@/lib/workspace-client";
 import { deriveConnections } from "@/lib/proof/activity-shared";
 import { authHeaders } from "@/lib/proof/client-auth";
 
@@ -49,7 +50,7 @@ export const useAIPanelStore = create<AIPanelState>((set) => ({
 		const hasToken = !!(token && token.trim());
 
 		try {
-			const res = await fetch("/api/agent/activity?limit=50", {
+			const res = await wsFetch("/api/agent/activity?limit=50", {
 				headers: authHeaders(),
 			});
 			if (!res.ok) {
@@ -63,7 +64,7 @@ export const useAIPanelStore = create<AIPanelState>((set) => ({
 			// Also fetch rate-limit setting
 			let rateLimit: number | null = null;
 			try {
-				const sr = await fetch("/api/agent/settings", { headers: authHeaders() });
+				const sr = await wsFetch("/api/agent/settings", { headers: authHeaders() });
 				if (sr.ok) {
 					const sd = (await sr.json()) as { rateLimit: number };
 					rateLimit = sd.rateLimit ?? null;

@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ViewerToolbar } from "@/components/layout/viewer-toolbar";
 import { Button } from "@/components/ui/button";
 import { markdownToHtml } from "@/lib/markdown/to-html";
+import { withWs, wsFetch } from "@/lib/workspace-client";
 
 interface NotebookViewerProps {
 	path: string;
@@ -247,14 +248,14 @@ export function NotebookViewer({ path }: NotebookViewerProps) {
 	const [error, setError] = useState<string | null>(null);
 	const [copied, setCopied] = useState(false);
 
-	const assetUrl = `/api/assets/${path}`;
+	const assetUrl = withWs(`/api/assets/${path}`);
 	const filename = path.split("/").pop() || path;
 
 	const fetchNotebook = useCallback(async () => {
 		setLoading(true);
 		setError(null);
 		try {
-			const res = await fetch(assetUrl);
+			const res = await wsFetch(assetUrl);
 			if (!res.ok) throw new Error(`HTTP ${res.status}`);
 			const json = (await res.json()) as Notebook;
 			setNotebook(json);

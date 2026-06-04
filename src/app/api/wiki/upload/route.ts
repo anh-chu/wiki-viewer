@@ -2,8 +2,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
 import { checkOrigin } from "@/lib/auth/csrf";
-import { requireUser } from "@/lib/auth/server";
-import { safeRootPath } from "@/lib/root-dir";
+import { resolveWorkspaceForUser } from "@/lib/workspace-context";
+import { safeWorkspacePath } from "@/lib/workspaces";
 
 const ALLOWED_MIME_TYPES = new Set([
 	"application/pdf",
@@ -39,8 +39,9 @@ function sanitizeFilename(name: string): string {
 export async function POST(request: Request) {
 	const csrf = checkOrigin(request);
 	if (csrf) return csrf;
-	const auth = await requireUser(request);
-	if (!auth.ok) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+	const ctx = await resolveWorkspaceForUser(request);
+	if (!ctx.ok) return NextResponse.json({ error: ctx.code }, { status: ctx.status });
+	const { rootDir } = ctx;
 
 	let formData: FormData;
 	try {
@@ -54,7 +55,7 @@ export async function POST(request: Request) {
 		return NextResponse.json({ error: "No file provided" }, { status: 400 });
 
 	const dir = (formData.get("dir") as string) ?? "";
-	const targetDir = safeRootPath(dir);
+	const targetDir = safeWorkspacePath(rootDir, dir);
 	if (!targetDir)
 		return NextResponse.json({ error: "Invalid directory" }, { status: 400 });
 

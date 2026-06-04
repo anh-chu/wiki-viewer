@@ -1,6 +1,7 @@
 "use client";
 
 import { Loader2 } from "lucide-react";
+import { wsFetch } from "@/lib/workspace-client";
 import { useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { OfficeChrome } from "./office-chrome";
@@ -30,7 +31,7 @@ export function XlsxViewer({ path, title }: Props) {
 			try {
 				const [XLSX, res] = await Promise.all([
 					import("xlsx"),
-					fetch(`/api/assets/${path}`),
+					wsFetch(`/api/assets/${path}`),
 				]);
 				if (cancelled) return;
 				if (!res.ok) throw new Error(`Failed to load file (${res.status})`);

@@ -1,3 +1,7 @@
+// Workspacing note (Phase B): callers must prefix the lock key with rootDir
+// (or wsId) to ensure two workspaces sharing the same relPath do not serialize
+// against each other. e.g. key = `${rootDir}\0${relPath}`. Phase B call sites
+// will make this change when route threading is done.
 import { withFileLock } from "./file-lock";
 
 const locks = new Map<string, Promise<void>>();

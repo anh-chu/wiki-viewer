@@ -3,7 +3,8 @@ import { checkAuth, enforceScope, verifyBy } from "@/lib/proof/auth";
 import { readSidecar, writeSidecar, emptySidecar } from "@/lib/proof/sidecar";
 import { pollEvents } from "@/lib/proof/event-bus";
 import { withFileMutex } from "@/lib/proof/mutex";
-import { getRootDir, safeRootPath } from "@/lib/root-dir";
+import { resolveWorkspaceForAgent } from "@/lib/workspace-context";
+import { safeWorkspacePath } from "@/lib/workspaces";
 
 export const runtime = "nodejs";
 
@@ -28,6 +29,12 @@ export async function GET(
 		return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
 	}
 
+	const wsx = await resolveWorkspaceForAgent(req);
+	if (!wsx.ok) {
+		return NextResponse.json({ error: wsx.code }, { status: wsx.status });
+	}
+	const { ws, rootDir } = wsx;
+
 	const { path: segments } = await params;
 	const rel = mdPath(segments);
 
@@ -38,12 +45,12 @@ export async function GET(
 		return NextResponse.json({ error: "INVALID_PATH", message: "Path must be .md or .markdown" }, { status: 400 });
 	}
 
-	const absPath = safeRootPath(rel);
+	const absPath = safeWorkspacePath(rootDir, rel);
 	if (!absPath) {
 		return NextResponse.json({ error: "INVALID_PATH", message: "Path traversal rejected" }, { status: 400 });
 	}
 
-	const scopeCheck = enforceScope(auth.agent, { filePath: rel, op: "read" });
+	const scopeCheck = enforceScope(auth.agent, { filePath: rel, op: "read", workspaceId: ws.id });
 	if (!scopeCheck.ok) {
 		return NextResponse.json({ error: scopeCheck.code, message: scopeCheck.message }, { status: 403 });
 	}
@@ -65,7 +72,6 @@ export async function GET(
 		limit = MAX_LIMIT;
 	}
 
-	const rootDir = getRootDir();
 	const sidecar = (await readSidecar(rootDir, rel)) ?? emptySidecar(rel);
 	const events = pollEvents(sidecar, after, limit);
 	const lastEventId = sidecar.nextEventId - 1;
@@ -83,6 +89,12 @@ export async function POST(
 		return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
 	}
 
+	const wsx = await resolveWorkspaceForAgent(req);
+	if (!wsx.ok) {
+		return NextResponse.json({ error: wsx.code }, { status: wsx.status });
+	}
+	const { ws, rootDir } = wsx;
+
 	const { path: segments } = await params;
 	const rel = mdPath(segments);
 
@@ -93,12 +105,12 @@ export async function POST(
 		return NextResponse.json({ error: "INVALID_PATH", message: "Path must be .md or .markdown" }, { status: 400 });
 	}
 
-	const absPath = safeRootPath(rel);
+	const absPath = safeWorkspacePath(rootDir, rel);
 	if (!absPath) {
 		return NextResponse.json({ error: "INVALID_PATH", message: "Path traversal rejected" }, { status: 400 });
 	}
 
-	const scopeCheck = enforceScope(auth.agent, { filePath: rel, op: "mutate" });
+	const scopeCheck = enforceScope(auth.agent, { filePath: rel, op: "mutate", workspaceId: ws.id });
 	if (!scopeCheck.ok) {
 		return NextResponse.json({ error: scopeCheck.code, message: scopeCheck.message }, { status: 403 });
 	}
@@ -122,11 +134,11 @@ export async function POST(
 		return NextResponse.json({ error: byCheck.code, message: byCheck.message }, { status: 403 });
 	}
 
-	const rootDir = getRootDir();
 	const upToId = body.upToId as number;
 	const by = body.by as string;
 
-	await withFileMutex(rel, async () => {
+	// Namespace mutex key with rootDir to prevent cross-workspace lock contention.
+	await withFileMutex(`${rootDir}\0${rel}`, async () => {
 		const sidecar = (await readSidecar(rootDir, rel)) ?? emptySidecar(rel);
 		sidecar.lastAck[by] = upToId;
 		await writeSidecar(rootDir, rel, sidecar);

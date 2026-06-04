@@ -11,7 +11,8 @@ import { readFile, stat, unlink, rm } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
 import { checkAuth, enforceScope } from "@/lib/proof/auth";
-import { getRootDir, safeRootPath } from "@/lib/root-dir";
+import { resolveWorkspaceForAgent } from "@/lib/workspace-context";
+import { safeWorkspacePath } from "@/lib/workspaces";
 import { withFileMutex } from "@/lib/proof/mutex";
 import { readSidecar, emptySidecar, deleteSidecar } from "@/lib/proof/sidecar";
 import { reconcileSidecar } from "@/lib/proof/ops-applier";
@@ -50,13 +51,17 @@ export async function GET(
 	const { path: segments } = await params;
 	const relPath = rel(segments);
 
-	const basic = safeRootPath(relPath);
+	const wsx = await resolveWorkspaceForAgent(req);
+	if (!wsx.ok) return errJson(wsx.code, wsx.code, wsx.status);
+	const { ws, rootDir } = wsx;
+
+	const basic = safeWorkspacePath(rootDir, relPath);
 	if (!basic) return errJson("INVALID_PATH", "Path traversal rejected", 400);
 
-	const absPath = await safeAbsPath(relPath);
+	const absPath = await safeAbsPath(rootDir, relPath);
 	if (!absPath) return errJson("INVALID_PATH", "Path rejected (symlink escape or denied)", 400);
 
-	const scope = enforceScope(auth.agent, { filePath: relPath, op: "read" });
+	const scope = enforceScope(auth.agent, { filePath: relPath, op: "read", workspaceId: ws.id });
 	if (!scope.ok) return errJson(scope.code, scope.message, 403);
 
 	let data: Buffer;
@@ -84,7 +89,6 @@ export async function GET(
 	};
 
 	// X-Collab-* headers (§3.5 mode signal)
-	const rootDir = getRootDir();
 	const collab = await computeCollabState(rootDir, relPath);
 	if (collab.state !== "not-markdown") {
 		baseHeaders["X-Collab-State"] = collab.state;
@@ -148,23 +152,26 @@ async function applyMutation(
 	const auth = await checkAuth(req);
 	if (!auth.ok) return errJson("UNAUTHORIZED", auth.message ?? "Unauthorized", 401);
 
+	const wsx = await resolveWorkspaceForAgent(req);
+	if (!wsx.ok) return errJson(wsx.code, wsx.code, wsx.status);
+	const { ws, rootDir } = wsx;
+
 	const relPath = rel(segments);
 	const url = new URL(req.url);
 	const mkdirs = url.searchParams.get("mkdirs") === "true";
 	const force = url.searchParams.get("force") === "true";
 
-	const basic = safeRootPath(relPath);
+	const basic = safeWorkspacePath(rootDir, relPath);
 	if (!basic) return errJson("INVALID_PATH", "Path traversal rejected", 400);
 
-	const absPath = await safeAbsPath(relPath);
+	const absPath = await safeAbsPath(rootDir, relPath);
 	if (!absPath) return errJson("INVALID_PATH", "Path rejected (symlink escape or denied)", 400);
 
-	const scope = enforceScope(auth.agent, { filePath: relPath, op: "mutate" });
+	const scope = enforceScope(auth.agent, { filePath: relPath, op: "mutate", workspaceId: ws.id });
 	if (!scope.ok) return errJson(scope.code, scope.message, 403);
 
 	const ifMatch = req.headers.get("if-match");
 	const ifCollabMatch = req.headers.get("if-collab-match");
-	const rootDir = getRootDir();
 
 	// The whole read-existing → precondition → compute → write → reconcile → audit
 	// sequence runs inside the mutex for .md (so R6 and reconcile are atomic with
@@ -256,6 +263,7 @@ async function applyMutation(
 			oldSha: existingSha,
 			newSha,
 			forced: force,
+			workspaceId: ws.id,
 		});
 
 		const st = await stat(absPath);
@@ -268,7 +276,7 @@ async function applyMutation(
 		});
 	};
 
-	return isMarkdown(relPath) ? withFileMutex(relPath, doMutation) : doMutation();
+	return isMarkdown(relPath) ? withFileMutex(`${rootDir}\u0000${relPath}`, doMutation) : doMutation();
 }
 
 // ── PUT ──────────────────────────────────────────────────────────────────────
@@ -377,14 +385,18 @@ export async function DELETE(
 	const url = new URL(req.url);
 	const recursive = url.searchParams.get("recursive") === "true";
 
-	const basic = safeRootPath(relPath);
+	const wsx = await resolveWorkspaceForAgent(req);
+	if (!wsx.ok) return errJson(wsx.code, wsx.code, wsx.status);
+	const { ws, rootDir } = wsx;
+
+	const basic = safeWorkspacePath(rootDir, relPath);
 	if (!basic) return errJson("INVALID_PATH", "Path traversal rejected", 400);
 
-	const absPath = await safeAbsPath(relPath);
+	const absPath = await safeAbsPath(rootDir, relPath);
 	if (!absPath) return errJson("INVALID_PATH", "Path rejected (symlink escape or denied)", 400);
 
 	// Requires "delete" scope op
-	const scope = enforceScope(auth.agent, { filePath: relPath, op: "delete" });
+	const scope = enforceScope(auth.agent, { filePath: relPath, op: "delete", workspaceId: ws.id });
 	if (!scope.ok) return errJson(scope.code, scope.message, 403);
 
 	const ifMatch = req.headers.get("if-match");
@@ -405,7 +417,7 @@ export async function DELETE(
 		}
 		// Directory delete — no single sha, skip If-Match; require recursive flag as confirmation
 		await rm(absPath, { recursive: true, force: true });
-		writeAuditRow({ agentId: auth.agent.id, op: "delete", path: relPath, forced: false });
+		writeAuditRow({ agentId: auth.agent.id, op: "delete", path: relPath, forced: false, workspaceId: ws.id });
 		return NextResponse.json({ deleted: relPath });
 	}
 
@@ -420,10 +432,8 @@ export async function DELETE(
 		return errJson("PRECONDITION_FAILED", "If-Match sha256 mismatch", 412);
 	}
 
-	const rootDir = getRootDir();
-
 	if (isMarkdown(relPath)) {
-		await withFileMutex(relPath, async () => {
+		await withFileMutex(`${rootDir}\u0000${relPath}`, async () => {
 			await unlink(absPath);
 			await deleteSidecar(rootDir, relPath);
 		});
@@ -431,6 +441,6 @@ export async function DELETE(
 		await unlink(absPath);
 	}
 
-	writeAuditRow({ agentId: auth.agent.id, op: "delete", path: relPath, oldSha: existingSha, forced: false });
+	writeAuditRow({ agentId: auth.agent.id, op: "delete", path: relPath, oldSha: existingSha, forced: false, workspaceId: ws.id });
 	return NextResponse.json({ deleted: relPath });
 }

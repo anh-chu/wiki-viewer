@@ -72,6 +72,8 @@ export async function checkAuth(req: Request): Promise<CheckAuthResult> {
 export interface ScopeParams {
 	filePath?: string;
 	op: "read" | "mutate" | "delete";
+	/** Id of the workspace this request resolved to. If the agent has a workspaceId grant and it differs, 403 is returned. */
+	workspaceId?: string;
 }
 
 export function enforceScope(
@@ -79,6 +81,15 @@ export function enforceScope(
 	params: ScopeParams,
 ): { ok: true } | { ok: false; code: "FORBIDDEN"; message: string } {
 	const { scope } = agent;
+
+	// Workspace grant check: if agent is restricted to a workspace, enforce it.
+	if (scope.workspaceId !== undefined && params.workspaceId !== undefined && scope.workspaceId !== params.workspaceId) {
+		return {
+			ok: false,
+			code: "FORBIDDEN",
+			message: `Agent scope does not cover workspace "${params.workspaceId}" (granted: "${scope.workspaceId}")`,
+		};
+	}
 
 	if (!scope.ops.includes(params.op)) {
 		return { ok: false, code: "FORBIDDEN", message: `Agent scope does not allow "${params.op}"` };

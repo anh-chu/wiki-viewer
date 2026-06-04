@@ -2,18 +2,19 @@ import { readdir, rmdir, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
 import { checkOrigin } from "@/lib/auth/csrf";
-import { requireUser } from "@/lib/auth/server";
-import { getRootDir, safeRootPath } from "@/lib/root-dir";
+import { resolveWorkspaceForUser } from "@/lib/workspace-context";
+import { safeWorkspacePath } from "@/lib/workspaces";
 import { isAppFolder, isNodeApp } from "@/lib/wiki-helpers";
 
 export async function GET(request: Request) {
-	const auth = await requireUser(request);
-	if (!auth.ok) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+	const ctx = await resolveWorkspaceForUser(request);
+	if (!ctx.ok) return NextResponse.json({ error: ctx.code }, { status: ctx.status });
+	const { rootDir } = ctx;
 
 	const { searchParams } = new URL(request.url);
 	const dir = searchParams.get("dir") ?? "";
 
-	const targetDir = safeRootPath(dir);
+	const targetDir = safeWorkspacePath(rootDir, dir);
 	if (!targetDir)
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
 
@@ -31,7 +32,7 @@ export async function GET(request: Request) {
 				const info = await stat(filePath);
 				if (info.isDirectory()) {
 					const relPath = dir ? `${dir}/${name}` : name;
-					const nodeApp = await isNodeApp(getRootDir(), relPath);
+					const nodeApp = await isNodeApp(rootDir, relPath);
 					if (nodeApp) {
 						return {
 							name,
@@ -39,7 +40,7 @@ export async function GET(request: Request) {
 							modifiedAt: info.mtime.toISOString(),
 						};
 					}
-					const isApp = await isAppFolder(getRootDir(), relPath);
+					const isApp = await isAppFolder(rootDir, relPath);
 					return {
 						name,
 						type: (isApp ? "app" : "dir") as "app" | "dir",
@@ -74,16 +75,17 @@ export async function GET(request: Request) {
 export async function DELETE(request: Request) {
 	const csrf = checkOrigin(request);
 	if (csrf) return csrf;
-	const auth = await requireUser(request);
-	if (!auth.ok) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+	const ctx = await resolveWorkspaceForUser(request);
+	if (!ctx.ok) return NextResponse.json({ error: ctx.code }, { status: ctx.status });
+	const { rootDir } = ctx;
 
 	const body: { path?: string } = await request.json();
 	const rel = body.path;
 	if (!rel || typeof rel !== "string")
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
 
-	const filePath = safeRootPath(rel);
-	if (!filePath || filePath === getRootDir())
+	const filePath = safeWorkspacePath(rootDir, rel);
+	if (!filePath || filePath === rootDir)
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
 
 	try {

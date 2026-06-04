@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { checkAuth, enforceScope } from "@/lib/proof/auth";
-import { getRootDir } from "@/lib/root-dir";
+import { resolveWorkspaceForAgent } from "@/lib/workspace-context";
 import { readRegistry } from "@/lib/proof/registry";
 import { listPendingRegistrations } from "@/lib/proof/pending";
 
@@ -12,7 +12,11 @@ export async function GET(req: Request): Promise<NextResponse> {
 		return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
 	}
 
-	const scopeCheck = enforceScope(auth.agent, { op: "read" });
+	const wsx = await resolveWorkspaceForAgent(req);
+	if (!wsx.ok) return NextResponse.json({ error: wsx.code }, { status: wsx.status });
+	const { ws, rootDir } = wsx;
+
+	const scopeCheck = enforceScope(auth.agent, { op: "read", workspaceId: ws.id });
 	if (!scopeCheck.ok) {
 		return NextResponse.json({ error: scopeCheck.code, message: scopeCheck.message }, { status: 403 });
 	}
@@ -23,7 +27,7 @@ export async function GET(req: Request): Promise<NextResponse> {
 
 	return NextResponse.json({
 		rateLimit: Number(process.env.AGENT_RATE_LIMIT) || 60,
-		root: getRootDir(),
+		root: rootDir,
 		registeredAgents,
 		pendingRegistrations,
 	});

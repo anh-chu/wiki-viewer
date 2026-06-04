@@ -6,6 +6,7 @@ import { Check, Copy, Download, ExternalLink, WrapText } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ViewerToolbar } from "@/components/layout/viewer-toolbar";
 import { Button } from "@/components/ui/button";
+import { withWs, wsFetch } from "@/lib/workspace-client";
 
 interface SourceViewerProps {
 	path: string;
@@ -76,14 +77,14 @@ export function SourceViewer({ path }: SourceViewerProps) {
 	const [wrap, setWrap] = useState(false);
 	const [copied, setCopied] = useState(false);
 
-	const assetUrl = `/api/assets/${path}`;
+	const assetUrl = withWs(`/api/assets/${path}`);
 	const filename = path.split("/").pop() || path;
 	const language = detectLanguage(filename);
 
 	const fetchContent = useCallback(async () => {
 		setLoading(true);
 		try {
-			const res = await fetch(assetUrl);
+			const res = await wsFetch(assetUrl);
 			if (res.ok) {
 				const text = await res.text();
 				setContent(text);

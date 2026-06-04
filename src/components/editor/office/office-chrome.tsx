@@ -3,6 +3,7 @@
 import { Download, ExternalLink, FolderOpen } from "lucide-react";
 import { ViewerToolbar } from "@/components/layout/viewer-toolbar";
 import { Button } from "@/components/ui/button";
+import { withWs, wsFetch } from "@/lib/workspace-client";
 
 interface OfficeChromeProps {
 	path: string;
@@ -20,12 +21,12 @@ export function OfficeChrome({
 	external,
 	hideFinder,
 }: OfficeChromeProps) {
-	const assetUrl = `/api/assets/${path}`;
+	const assetUrl = withWs(`/api/assets/${path}`);
 	const filename = path.split("/").pop() || path;
 
 	const revealInFinder = async () => {
 		try {
-			await fetch("/api/system/reveal", {
+			await wsFetch("/api/system/reveal", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ path }),

@@ -8,7 +8,8 @@ import { revertProofSpan } from "@/lib/proof/proof-span";
 import { readSidecar, writeSidecar, emptySidecar } from "@/lib/proof/sidecar";
 import { withFileMutex } from "@/lib/proof/mutex";
 import { emitEvents } from "@/lib/proof/event-bus";
-import { getRootDir, safeRootPath } from "@/lib/root-dir";
+import { resolveWorkspaceForAgent } from "@/lib/workspace-context";
+import { safeWorkspacePath } from "@/lib/workspaces";
 import { checkAuth, enforceScope } from "@/lib/proof/auth";
 
 export const runtime = "nodejs";
@@ -63,22 +64,25 @@ export async function POST(req: Request): Promise<NextResponse> {
 		return NextResponse.json({ error: "INVALID_PATH", message: "Path must be .md or .markdown" }, { status: 400 });
 	}
 
-	const absPath = safeRootPath(rel);
+	const wsx = await resolveWorkspaceForAgent(req);
+	if (!wsx.ok) return NextResponse.json({ error: wsx.code }, { status: wsx.status });
+	const { ws, rootDir } = wsx;
+
+	const absPath = safeWorkspacePath(rootDir, rel);
 	if (!absPath) {
 		return NextResponse.json({ error: "INVALID_PATH", message: "Path traversal rejected" }, { status: 400 });
 	}
 
-	const scopeCheck = enforceScope(authResult.agent, { filePath: rel, op: "mutate" });
+	const scopeCheck = enforceScope(authResult.agent, { filePath: rel, op: "mutate", workspaceId: ws.id });
 	if (!scopeCheck.ok) {
 		return NextResponse.json({ error: scopeCheck.code, message: scopeCheck.message }, { status: 403 });
 	}
 
-	const rootDir = getRootDir();
 	const actorId = authResult.agent.id;
 
 	let notFound = false;
 	try {
-		await withFileMutex(rel, async () => {
+		await withFileMutex(`${rootDir}\u0000${rel}`, async () => {
 			let content: string;
 			try {
 				content = await readFile(absPath, "utf-8");

@@ -67,7 +67,7 @@ The wizard walks you through every option and writes `~/.wiki-viewer/config.json
 
 Open **http://localhost:3000** (or **https://localhost:3000** with `--https`).
 
-To switch the served directory later, click **Change** at the bottom of the sidebar and pick a new folder. No restart needed.
+To switch between directories later, use the **workspace switcher** at the bottom of the sidebar. Each _workspace_ is a registered root directory; you can run several at once with no state bleed (open different workspaces in different browser tabs). See [Workspaces](#workspaces) below. No restart needed.
 
 On first run with no users in the database, the app works in single-user mode and any visitor on `localhost` can sign up. Set `AUTH_ALLOWED_DOMAIN` or `AUTH_ALLOWED_EMAILS` before exposing the server to anyone else.
 
@@ -123,7 +123,7 @@ wiki-viewer service restart
 wiki-viewer service uninstall
 ```
 
-The run config is saved to `~/.wiki-viewer/config.json`. Edit that file and run `wiki-viewer service restart` to change settings without reinstalling. To change just the served directory at runtime, you can also click **Change** in the sidebar.
+The run config is saved to `~/.wiki-viewer/config.json`. Edit that file and run `wiki-viewer service restart` to change settings without reinstalling. To change the served directory at runtime, use the workspace switcher in the sidebar (see [Workspaces](#workspaces)).
 
 On Linux, install enables lingering (`loginctl enable-linger`) so the service runs without an active login session and survives reboot. If that step needs privileges, the installer prints the command to run manually.
 
@@ -173,6 +173,49 @@ wiki-viewer update
 Updates the global install to the latest version (npm/pnpm/yarn auto-detected) and restarts the service if one is installed.
 
 ---
+
+## Workspaces
+
+A **workspace** is a registered root directory. One running wiki-viewer can
+serve many workspaces at once, fully isolated from each other:
+
+- Two browser tabs can each open a different workspace (via a `?ws=<id>` URL
+  param) and edit files concurrently. Edit leases, write locks, idempotency
+  keys, collab sidecars, and the audit log are all namespaced per workspace —
+  a `notes.md` in workspace A never collides with a `notes.md` in workspace B.
+- AI agents target a workspace with an `X-Workspace: <id>` header (or `?ws=`).
+  An agent's grant may be pinned to one workspace; requests that resolve to a
+  different workspace are rejected `403 FORBIDDEN`. Agents registered without a
+  workspace id keep working across all workspaces (wildcard).
+
+### Switching and creating
+
+The sidebar footer shows the active workspace. Click it to switch between the
+workspaces you can access, or (admins only) **Add workspace…** to register a
+new root directory. Switching navigates to `?ws=<id>` and resets the view.
+
+The legacy single-directory flow is unchanged: launching with `ROOT_DIR` or
+`wiki-viewer <dir>` auto-registers that directory as the first workspace, and a
+single-workspace install behaves exactly as before (no `?ws=` needed).
+
+### Admins and access control
+
+Workspace management is **admin-gated** (organizational access control, not
+OS-level permissions):
+
+- The **first user to sign up** becomes an admin automatically. Admins can
+  promote/demote other users from the settings sheet (gear icon → **Admins**).
+  Seed or override admins headlessly with `WIKI_ADMIN_EMAILS` (csv).
+- Only admins can create/delete workspaces and edit a workspace's allowed-user
+  list (`allowedUserIds`). An empty allow-list means any signed-in user may
+  open the workspace (the default). Non-admins with access get full file
+  read/write on the workspaces they can see.
+- Admin state lives in `~/.wiki-viewer/config.json` (`adminUserIds`), workspace
+  records under `workspaces[]`.
+
+> Note: removing a workspace only unregisters it — the directory on disk is
+> never touched. The last admin cannot be demoted unless `WIKI_ADMIN_EMAILS`
+> provides a fallback.
 
 ## Auth and multi-user mode
 
@@ -528,6 +571,7 @@ The dev server supports hot reload.
 | `AUTH_ALLOWED_DOMAIN`  | csv: only emails on these domains can sign up (overridden by UI allowlist if set) | unset (open)          |
 | `WIKI_OWNER_HOSTS`     | csv: extra hostnames trusted for CSRF Origin check                                | `localhost,127.0.0.1` |
 | `WIKI_ALLOW_INSECURE`  | Set to `1` to bypass the prod-https guard (dev / CI only)                         | unset                 |
+| `WIKI_ADMIN_EMAILS`    | csv: emails treated as admins (seed/override; otherwise first signup is admin)    | unset                 |
 | `AGENT_RATE_LIMIT`     | Max mutation ops per minute per agent identity                                    | `60`                  |
 
 ---

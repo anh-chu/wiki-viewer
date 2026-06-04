@@ -48,13 +48,15 @@ export async function computeCollabState(
 	const snapshotUrl = `/api/agent/files/${relPath}`;
 
 	// Compute revision components
+	// ns = rootDir: workspace-namespaces lease keys so two workspaces sharing
+	// the same relPath never collide in the lease store.
 	const sidecar = await readSidecar(rootDir, relPath);
-	const gen = leaseGeneration(relPath);
+	const gen = leaseGeneration(rootDir, relPath);
 	const sidecarRevision = sidecar?.revision ?? 0;
 	const revision = sidecarRevision + gen;
 
 	// Lease check — do after reading sidecar to keep gen stable within this call
-	const leaseActive = hasActiveLease(relPath);
+	const leaseActive = hasActiveLease(rootDir, relPath);
 
 	if (!sidecar && !leaseActive) {
 		return { state: "untracked", revision, snapshotUrl };

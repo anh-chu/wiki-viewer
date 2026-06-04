@@ -1,8 +1,7 @@
 import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
-import { requireUser } from "@/lib/auth/server";
-import { getRootDir } from "@/lib/root-dir";
+import { resolveWorkspaceForUser } from "@/lib/workspace-context";
 
 type SlugBuckets = {
 	entities: string[];
@@ -28,17 +27,18 @@ async function readMarkdownSlugsFromDir(dirPath: string): Promise<string[]> {
 }
 
 export async function GET(request: Request) {
-	const auth = await requireUser(request);
-	if (!auth.ok) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+	const ctx = await resolveWorkspaceForUser(request);
+	if (!ctx.ok) return NextResponse.json({ error: ctx.code }, { status: ctx.status });
+	const { rootDir } = ctx;
 
 	try {
 		// Scan root + known dirs (entities, concepts, comparisons for wiki compat)
 		// plus any other immediate subdirectories
 		const [entities, concepts, comparisons, root] = await Promise.all([
-			readMarkdownSlugsFromDir(path.join(getRootDir(), "entities")),
-			readMarkdownSlugsFromDir(path.join(getRootDir(), "concepts")),
-			readMarkdownSlugsFromDir(path.join(getRootDir(), "comparisons")),
-			readMarkdownSlugsFromDir(getRootDir()),
+			readMarkdownSlugsFromDir(path.join(rootDir, "entities")),
+			readMarkdownSlugsFromDir(path.join(rootDir, "concepts")),
+			readMarkdownSlugsFromDir(path.join(rootDir, "comparisons")),
+			readMarkdownSlugsFromDir(rootDir),
 		]);
 
 		const body: SlugBuckets = { entities, concepts, comparisons, root };

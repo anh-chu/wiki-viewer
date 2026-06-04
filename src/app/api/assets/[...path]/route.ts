@@ -1,7 +1,8 @@
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
-import { getRootDir } from "@/lib/root-dir";
+import { resolveWorkspaceForAgent } from "@/lib/workspace-context";
+import { safeWorkspacePath } from "@/lib/workspaces";
 
 const MIME_MAP: Record<string, string> = {
 	jpg: "image/jpeg",
@@ -38,15 +39,19 @@ const MIME_MAP: Record<string, string> = {
 };
 
 export async function GET(
-	_request: Request,
+	request: Request,
 	{ params }: { params: Promise<{ path: string[] }> },
 ) {
+	const wsx = await resolveWorkspaceForAgent(request);
+	if (!wsx.ok) return NextResponse.json({ error: wsx.code }, { status: wsx.status });
+	const { rootDir } = wsx;
+
 	const segments = (await params).path;
 	const rel = segments.join("/");
 
 	// Path traversal guard
-	const resolved = path.resolve(getRootDir(), rel);
-	if (resolved !== getRootDir() && !resolved.startsWith(getRootDir() + path.sep)) {
+	const resolved = safeWorkspacePath(rootDir, rel);
+	if (!resolved) {
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
 	}
 

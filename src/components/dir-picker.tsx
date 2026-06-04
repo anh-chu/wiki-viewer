@@ -29,7 +29,8 @@ interface BrowseResult {
 }
 
 interface Props {
-	onSelect: (path: string) => void;
+	/** Called with the new workspace id after creation */
+	onSelect: (workspaceId: string) => void;
 }
 
 export function DirPicker({ onSelect }: Props) {
@@ -96,17 +97,18 @@ export function DirPicker({ onSelect }: Props) {
 		if (!target) return;
 		setSelecting(true);
 		try {
-			const res = await fetch("/api/system/set-root", {
+			const res = await fetch("/api/system/workspaces", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ path: target }),
+				body: JSON.stringify({ rootDir: target }),
 			});
 			if (!res.ok) {
-				const e: { error?: string } = await res.json();
-				setError(e.error ?? "Cannot use that directory");
+				const e: { error?: string; message?: string } = await res.json();
+				setError(e.message ?? e.error ?? "Cannot use that directory");
 				return;
 			}
-			onSelect(target);
+			const { workspace }: { workspace: { id: string } } = await res.json();
+			onSelect(workspace.id);
 		} catch {
 			setError("Network error");
 		} finally {

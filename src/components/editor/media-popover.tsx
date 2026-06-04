@@ -3,6 +3,7 @@
 import { Clipboard, Link as LinkIcon, Upload } from "lucide-react";
 import { useRef, useState } from "react";
 import { cn } from "@/lib/utils";
+import { wsFetch } from "@/lib/workspace-client";
 
 export type MediaKind = "image" | "video" | "file";
 
@@ -21,7 +22,7 @@ async function uploadFile(
 	const formData = new FormData();
 	formData.append("file", file);
 	try {
-		const res = await fetch(`/api/upload/${pagePath}`, {
+		const res = await wsFetch(`/api/upload/${pagePath}`, {
 			method: "POST",
 			body: formData,
 		});

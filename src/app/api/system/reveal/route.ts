@@ -2,14 +2,15 @@ import { exec } from "node:child_process";
 import path from "node:path";
 import { NextResponse } from "next/server";
 import { checkOrigin } from "@/lib/auth/csrf";
-import { requireUser } from "@/lib/auth/server";
-import { getRootDir } from "@/lib/root-dir";
+import { resolveWorkspaceForUser } from "@/lib/workspace-context";
+import { safeWorkspacePath } from "@/lib/workspaces";
 
 export async function POST(request: Request) {
 	const csrf = checkOrigin(request);
 	if (csrf) return csrf;
-	const auth = await requireUser(request);
-	if (!auth.ok) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+	const ctx = await resolveWorkspaceForUser(request);
+	if (!ctx.ok) return NextResponse.json({ error: ctx.code }, { status: ctx.status });
+	const { rootDir } = ctx;
 
 	const body: { path?: string } = await request.json();
 	const rel = body.path;
@@ -17,8 +18,8 @@ export async function POST(request: Request) {
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
 
 	// Path traversal guard
-	const resolved = path.resolve(getRootDir(), rel);
-	if (resolved !== getRootDir() && !resolved.startsWith(getRootDir() + path.sep))
+	const resolved = safeWorkspacePath(rootDir, rel);
+	if (!resolved)
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
 
 	// Open in system file manager

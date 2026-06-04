@@ -13,7 +13,8 @@ import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
 import { checkAuth, enforceScope } from "@/lib/proof/auth";
-import { getRootDir, safeRootPath } from "@/lib/root-dir";
+import { resolveWorkspaceForAgent } from "@/lib/workspace-context";
+import { safeWorkspacePath } from "@/lib/workspaces";
 import { safeAbsPath } from "@/lib/proof/raw-fs";
 import type { Agent } from "@/lib/proof/registry";
 
@@ -44,6 +45,7 @@ async function walkDir(
 	maxDepth: number,
 	limit: number,
 	results: LsEntry[],
+	workspaceId?: string,
 ): Promise<void> {
 	if (depth > maxDepth || results.length >= limit) return;
 
@@ -63,7 +65,7 @@ async function walkDir(
 		const childRel = relDir ? `${relDir}/${item.name}` : item.name;
 
 		// Scope check per entry
-		const sc = enforceScope(agent, { filePath: childRel, op: "read" });
+		const sc = enforceScope(agent, { filePath: childRel, op: "read", workspaceId });
 		if (!sc.ok) continue;
 
 		let type: LsEntry["type"];
@@ -88,7 +90,7 @@ async function walkDir(
 		results.push({ name: item.name, path: childRel, type, size, mtime });
 
 		if (recursive && type === "dir") {
-			await walkDir(rootDir, childRel, agent, recursive, depth + 1, maxDepth, limit, results);
+			await walkDir(rootDir, childRel, agent, recursive, depth + 1, maxDepth, limit, results, workspaceId);
 		}
 	}
 }
@@ -103,10 +105,14 @@ export async function GET(
 	const { path: segments } = await params;
 	const relPath = segments ? segments.join("/") : "";
 
+	const wsx = await resolveWorkspaceForAgent(req);
+	if (!wsx.ok) return errJson(wsx.code, wsx.code, wsx.status);
+	const { ws, rootDir } = wsx;
+
 	if (relPath) {
-		const basic = safeRootPath(relPath);
+		const basic = safeWorkspacePath(rootDir, relPath);
 		if (!basic) return errJson("INVALID_PATH", "Path traversal rejected", 400);
-		const safe = await safeAbsPath(relPath);
+		const safe = await safeAbsPath(rootDir, relPath);
 		if (!safe) return errJson("INVALID_PATH", "Path rejected (symlink escape or denied)", 400);
 	}
 
@@ -122,7 +128,6 @@ export async function GET(
 	);
 
 	// Verify the dir actually exists
-	const rootDir = getRootDir();
 	const absDir = relPath ? path.join(rootDir, relPath) : rootDir;
 	try {
 		const st = await stat(absDir);
@@ -137,7 +142,7 @@ export async function GET(
 	}
 
 	const entries: LsEntry[] = [];
-	await walkDir(rootDir, relPath, auth.agent, recursive, 0, depth, limit, entries);
+	await walkDir(rootDir, relPath, auth.agent, recursive, 0, depth, limit, entries, ws.id);
 
 	return NextResponse.json({
 		path: relPath,

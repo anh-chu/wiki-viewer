@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { authHeaders } from "@/lib/proof/client-auth";
+import { wsFetch } from "@/lib/workspace-client";
 import { useEditorStore } from "@/stores/editor-store";
 import type { Sidecar, ProofEvent, Block, Snapshot } from "@/lib/proof/types";
 
@@ -31,7 +32,7 @@ export const useProofStore = create<ProofState>((set, get) => ({
 	loadSidecar: async (path: string) => {
 		const encoded = encodeURIComponent(path).replace(/%2F/g, "/");
 		try {
-			const res = await fetch(`/api/agent/sidecar/${encoded}`, {
+			const res = await wsFetch(`/api/agent/sidecar/${encoded}`, {
 				headers: authHeaders(),
 			});
 			if (!res.ok) return;
@@ -55,7 +56,7 @@ export const useProofStore = create<ProofState>((set, get) => ({
 	loadSnapshot: async (path: string) => {
 		const encoded = encodeURIComponent(path).replace(/%2F/g, "/");
 		try {
-			const res = await fetch(`/api/agent/files/${encoded}`, {
+			const res = await wsFetch(`/api/agent/files/${encoded}`, {
 				headers: authHeaders(),
 			});
 			if (!res.ok) return;
@@ -84,7 +85,7 @@ export const useProofStore = create<ProofState>((set, get) => ({
 		const entry = get().byPath[path] ?? defaultEntry();
 		const encoded = encodeURIComponent(path).replace(/%2F/g, "/");
 		try {
-			const res = await fetch(
+			const res = await wsFetch(
 				`/api/agent/events/${encoded}?after=${entry.lastEventId}`,
 				{ headers: authHeaders() },
 			);

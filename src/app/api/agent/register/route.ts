@@ -31,7 +31,15 @@ function validateScope(s: Record<string, unknown>): AgentScope | { error: string
 			return { error: `scope.ops values must be "read", "mutate", or "delete"` };
 		}
 	}
-	return { paths: s.paths as string[], ops: s.ops as Array<"read" | "mutate" | "delete"> };
+	// Optional workspaceId: if present must be a non-empty string ≤ 64 chars.
+	let workspaceId: string | undefined;
+	if (s.workspaceId !== undefined) {
+		if (typeof s.workspaceId !== "string" || s.workspaceId.length < 1 || s.workspaceId.length > 64) {
+			return { error: "scope.workspaceId must be a string of 1\u201364 characters" };
+		}
+		workspaceId = s.workspaceId;
+	}
+	return { paths: s.paths as string[], ops: s.ops as Array<"read" | "mutate" | "delete">, ...(workspaceId !== undefined ? { workspaceId } : {}) };
 }
 
 /** Exported for reuse in approve route. */

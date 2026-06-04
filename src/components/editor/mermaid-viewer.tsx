@@ -13,6 +13,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ViewerToolbar } from "@/components/layout/viewer-toolbar";
 import { Button } from "@/components/ui/button";
+import { withWs, wsFetch } from "@/lib/workspace-client";
 
 interface MermaidViewerProps {
 	path: string;
@@ -85,14 +86,14 @@ export function MermaidViewer({ path, title }: MermaidViewerProps) {
 		setIsPanning(false);
 	}, []);
 
-	const assetUrl = `/api/assets/${path}`;
+	const assetUrl = withWs(`/api/assets/${path}`);
 	const _filename = path.split("/").pop() || path;
 
 	const fetchAndRender = useCallback(async () => {
 		setLoading(true);
 		setError("");
 		try {
-			const res = await fetch(assetUrl);
+			const res = await wsFetch(assetUrl);
 			if (!res.ok) throw new Error("Failed to fetch file");
 			const text = await res.text();
 			setSource(text);

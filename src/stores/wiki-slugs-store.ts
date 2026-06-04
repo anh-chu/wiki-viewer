@@ -1,5 +1,6 @@
 "use client";
 import { create } from "zustand";
+import { wsFetch } from "@/lib/workspace-client";
 
 type Dir = "entities" | "concepts" | "comparisons" | "root";
 
@@ -36,7 +37,7 @@ export const useWikiSlugsStore = create<WikiSlugsState>((set, get) => ({
 
 		set({ loading: true });
 		try {
-			const res = await fetch("/api/wiki/slugs");
+			const res = await wsFetch("/api/wiki/slugs");
 			if (!res.ok) throw new Error("Failed to fetch wiki slugs");
 			const buckets = (await res.json()) as SlugBuckets;
 

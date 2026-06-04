@@ -3,6 +3,7 @@
 import { ExternalLink } from "lucide-react";
 import { ViewerToolbar } from "@/components/layout/viewer-toolbar";
 import { Button } from "@/components/ui/button";
+import { withWs } from "@/lib/workspace-client";
 
 interface PdfViewerProps {
 	path: string;
@@ -10,7 +11,7 @@ interface PdfViewerProps {
 }
 
 export function PdfViewer({ path, title }: PdfViewerProps) {
-	const pdfSrc = `/api/assets/${path}`;
+	const pdfSrc = withWs(`/api/assets/${path}`);
 
 	return (
 		<div className="flex-1 flex flex-col overflow-hidden">

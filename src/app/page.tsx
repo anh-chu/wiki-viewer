@@ -50,8 +50,10 @@ import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
+	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { getActiveWorkspaceId, withWs, wsFetch } from "@/lib/workspace-client";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { AuthSettingsSheet } from "@/components/auth-settings-sheet";
 import { Button } from "@/components/ui/button";
@@ -168,7 +170,7 @@ function isHtmlFile(name: string) {
 }
 
 async function fetchDir(dir: string): Promise<TreeNode[]> {
-	const res = await fetch(`/api/wiki?dir=${encodeURIComponent(dir)}`);
+	const res = await wsFetch(`/api/wiki?dir=${encodeURIComponent(dir)}`);
 	if (!res.ok) return [];
 	const data: {
 		entries: Array<{
@@ -219,16 +221,46 @@ export default function Page() {
 	// null = checking, false = not set, true = ready
 	const [rootConfigured, setRootConfigured] = useState<boolean | null>(null);
 	const [rootPath, setRootPath] = useState<string | null>(null);
+	// Workspace state
+	const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(() =>
+		typeof window !== "undefined" ? getActiveWorkspaceId() : null
+	);
+	const [workspaces, setWorkspaces] = useState<Array<{id:string;name:string;rootDir:string;lastOpenedAt?:string;createdAt:string}>>([]);
+	const [isWsAdmin, setIsWsAdmin] = useState(false);
+	const [addingWorkspace, setAddingWorkspace] = useState(false);
+
+	const loadWorkspaces = useCallback(async () => {
+		try {
+			const res = await fetch("/api/system/workspaces");
+			if (!res.ok) throw new Error("Failed");
+			const d: { workspaces: Array<{id:string;name:string;rootDir:string;lastOpenedAt?:string;createdAt:string}>; isAdmin: boolean } = await res.json();
+			setWorkspaces(d.workspaces);
+			setIsWsAdmin(d.isAdmin);
+			if (d.workspaces.length > 0) {
+				setRootConfigured(true);
+				const urlWsId = new URLSearchParams(window.location.search).get("ws");
+				const inList = urlWsId ? d.workspaces.find((w) => w.id === urlWsId) : null;
+				const active = inList ?? [...d.workspaces].sort(
+					(a, b) => (b.lastOpenedAt ?? b.createdAt).localeCompare(a.lastOpenedAt ?? a.createdAt)
+				)[0];
+				setActiveWorkspaceId(active.id);
+				setRootPath(active.rootDir);
+				if (!inList) {
+					const u = new URL(location.href);
+					u.searchParams.set("ws", active.id);
+					history.replaceState(null, "", u.toString());
+				}
+			} else {
+				setRootConfigured(false);
+			}
+		} catch {
+			setRootConfigured(false);
+		}
+	}, []);
 
 	useEffect(() => {
-		fetch("/api/system/root-status")
-			.then((r) => r.json())
-			.then((d: { configured: boolean; path: string | null }) => {
-				setRootConfigured(d.configured);
-				setRootPath(d.path);
-			})
-			.catch(() => setRootConfigured(false));
-	}, []);
+		void loadWorkspaces();
+	}, [loadWorkspaces]);
 
 	const editorCurrentPath = useEditorStore((s) => s.currentPath);
 
@@ -407,7 +439,7 @@ export default function Page() {
 		if (!["editor", "text"].includes(kind) && !isText(openFile.name)) return;
 		setFileLoading(true);
 		try {
-			const res = await fetch(
+			const res = await wsFetch(
 				`/api/wiki/content?path=${encodeURIComponent(openFile.path)}`,
 			);
 			if (res.ok) {
@@ -449,7 +481,7 @@ export default function Page() {
 			);
 		}
 
-		const es = new EventSource("/api/wiki/watch");
+		const es = new EventSource(withWs("/api/wiki/watch"));
 
 		es.onmessage = (event) => {
 			let data: { type: string; path: string };
@@ -544,7 +576,7 @@ export default function Page() {
 		if (!["editor", "text"].includes(kind) && !isText(node.name)) return;
 		setFileLoading(true);
 		try {
-			const res = await fetch(
+			const res = await wsFetch(
 				`/api/wiki/content?path=${encodeURIComponent(node.path)}`,
 			);
 			if (res.ok) {
@@ -610,23 +642,35 @@ export default function Page() {
 		})();
 	}, [rootLoaded, revealPath]);
 
-	const handleChangeDir = async () => {
-		await fetch("/api/system/clear-root", { method: "POST" });
+	const switchWorkspace = useCallback(async (id: string) => {
+		if (id === activeWorkspaceId) return;
+		try {
+			await fetch(`/api/system/workspaces/${id}/open`, { method: "POST" });
+		} catch {
+			/* best-effort lastOpened bump */
+		}
+		const u = new URL(location.href);
+		u.searchParams.set("ws", id);
+		u.searchParams.delete("path");
+		history.pushState(null, "", u.toString());
+		// Reset open file + caches; the key={activeWorkspaceId} remount clears the rest.
 		setOpenFile(null);
 		setFileContent(null);
 		setEditing(false);
 		setRoots([]);
 		setRootLoaded(false);
 		rootLoadingRef.current = false;
-		setRootPath(null);
-		setRootConfigured(false);
-	};
+		useWikiSlugsStore.getState().invalidate();
+		const ws = workspaces.find((w) => w.id === id);
+		if (ws) setRootPath(ws.rootDir);
+		setActiveWorkspaceId(id);
+	}, [activeWorkspaceId, workspaces]);
 
 	async function handleSave() {
 		if (!openFile) return;
 		setSaving(true);
 		setSaveError(null);
-		const res = await fetch("/api/wiki/content", {
+		const res = await wsFetch("/api/wiki/content", {
 			method: "PUT",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
@@ -658,7 +702,7 @@ export default function Page() {
 					const fd = new FormData();
 					fd.append("file", file);
 					fd.append("dir", dir);
-					const res = await fetch("/api/wiki/upload", {
+					const res = await wsFetch("/api/wiki/upload", {
 						method: "POST",
 						body: fd,
 					});
@@ -690,7 +734,7 @@ export default function Page() {
 		if (!name || newFolderParent === null) return;
 		setFolderError(null);
 		const rel = newFolderParent ? `${newFolderParent}/${name}` : name;
-		const res = await fetch("/api/wiki/folder", {
+		const res = await wsFetch("/api/wiki/folder", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ path: rel }),
@@ -716,7 +760,7 @@ export default function Page() {
 		setFileCreateError(null);
 		const name = raw.includes(".") ? raw : `${raw}.md`;
 		const rel = newFileParent ? `${newFileParent}/${name}` : name;
-		const res = await fetch("/api/wiki/new-file", {
+		const res = await wsFetch("/api/wiki/new-file", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ path: rel }),
@@ -744,7 +788,7 @@ export default function Page() {
 	}
 
 	function handleDownload(node: TreeNode) {
-		const url = `/api/wiki/download?path=${encodeURIComponent(node.path)}`;
+		const url = withWs(`/api/wiki/download?path=${encodeURIComponent(node.path)}`);
 		const a = document.createElement("a");
 		a.href = url;
 		a.download = node.type === "file" ? node.name : `${node.name}.zip`;
@@ -755,7 +799,7 @@ export default function Page() {
 
 	async function handleDelete() {
 		if (!deletingPath) return;
-		await fetch("/api/wiki", {
+		await wsFetch("/api/wiki", {
 			method: "DELETE",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ path: deletingPath }),
@@ -811,7 +855,7 @@ export default function Page() {
 		const newPath = targetDirPath ? `${targetDirPath}/${node.name}` : node.name;
 		if (newPath === node.path) return;
 
-		const res = await fetch("/api/wiki/move", {
+		const res = await wsFetch("/api/wiki/move", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ from: node.path, to: newPath }),
@@ -1104,21 +1148,40 @@ export default function Page() {
 	}
 
 	return (
-		<div className="flex h-screen gap-0 overflow-hidden bg-background">
+		<div key={activeWorkspaceId ?? "none"} className="flex h-screen gap-0 overflow-hidden bg-background">
 			{rootConfigured === null && (
 				<div className="flex-1 flex items-center justify-center">
 					<Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
 				</div>
 			)}
 			{rootConfigured === false && (
-				<DirPicker onSelect={(path) => {
+				<DirPicker onSelect={(workspaceId) => {
+					const u = new URL(location.href);
+					u.searchParams.set("ws", workspaceId);
+					u.searchParams.delete("path");
+					history.replaceState(null, "", u.toString());
 					setRootLoaded(false);
 					rootLoadingRef.current = false;
-					setRootPath(path);
+					setActiveWorkspaceId(workspaceId);
 					setRootConfigured(true);
+					void loadWorkspaces();
 				}} />
 			)}
-			{rootConfigured === true && <>
+			{rootConfigured === true && addingWorkspace && (
+				<div className="flex-1 flex flex-col">
+					<div className="flex items-center justify-end border-b px-3 py-2 bg-muted shrink-0">
+						<Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" onClick={() => setAddingWorkspace(false)}>
+							<X className="h-3.5 w-3.5" /> Cancel
+						</Button>
+					</div>
+					<DirPicker onSelect={(workspaceId) => {
+						setAddingWorkspace(false);
+						void loadWorkspaces();
+						void switchWorkspace(workspaceId);
+					}} />
+				</div>
+			)}
+			{rootConfigured === true && !addingWorkspace && <>
 			{/* Tree sidebar */}
 			{!sidebarCollapsed && (
 				<Card className="flex flex-col w-72 shrink-0 overflow-hidden rounded-none border-r border-l-0 border-t-0 border-b-0">
@@ -1365,21 +1428,55 @@ export default function Page() {
 							renderNodes(roots)
 						)}
 					</div>
-					<div className="border-t px-3 py-2 flex items-center gap-2 bg-muted shrink-0">
-						<span
-							className="flex-1 text-xs text-muted-foreground font-mono truncate"
-							title={rootPath ?? ""}
-						>
-							{rootPath ?? ""}
-						</span>
-						<Button
-							size="sm"
-							variant="ghost"
-							className="h-6 shrink-0 text-xs px-2 text-muted-foreground hover:text-foreground"
-							onClick={handleChangeDir}
-						>
-							Change
-						</Button>
+					<div className="border-t px-2 py-2 bg-muted shrink-0">
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<Button
+									size="sm"
+									variant="ghost"
+									className="w-full h-auto justify-between gap-2 px-2 py-1.5 text-left"
+									title={rootPath ?? ""}
+								>
+									<span className="flex flex-col min-w-0">
+										<span className="truncate text-xs font-medium">
+											{workspaces.find((w) => w.id === activeWorkspaceId)?.name ?? "Workspace"}
+										</span>
+										<span className="truncate text-[10px] text-muted-foreground font-mono">
+											{rootPath ?? ""}
+										</span>
+									</span>
+									<ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-60" />
+								</Button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="start" className="w-60">
+								{workspaces.map((w) => (
+									<DropdownMenuItem
+										key={w.id}
+										onClick={() => void switchWorkspace(w.id)}
+										className={cn("gap-2", w.id === activeWorkspaceId && "font-medium")}
+									>
+										{w.id === activeWorkspaceId ? (
+											<Check className="h-3.5 w-3.5 shrink-0" />
+										) : (
+											<span className="w-3.5 shrink-0" />
+										)}
+										<span className="flex flex-col min-w-0">
+											<span className="truncate">{w.name}</span>
+											<span className="truncate text-[10px] text-muted-foreground font-mono">{w.rootDir}</span>
+										</span>
+									</DropdownMenuItem>
+								))}
+								{isWsAdmin && (
+									<>
+										<DropdownMenuSeparator />
+										<DropdownMenuItem onClick={() => setAddingWorkspace(true)}>
+											<FolderPlus className="mr-2 h-3.5 w-3.5" />
+											Add workspace…
+										</DropdownMenuItem>
+									</>
+								)}
+							</DropdownMenuContent>
+						</DropdownMenu>
 					</div>
 				</Card>
 			)}

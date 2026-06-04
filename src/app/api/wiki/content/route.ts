@@ -3,12 +3,12 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
 import { checkOrigin } from "@/lib/auth/csrf";
-import { requireUser } from "@/lib/auth/server";
+import { resolveWorkspaceForUser } from "@/lib/workspace-context";
+import { safeWorkspacePath } from "@/lib/workspaces";
 import { emitEvents, trimEvents } from "@/lib/proof/event-bus";
 import { withFileMutex } from "@/lib/proof/mutex";
 import { emptySidecar, readSidecar, writeSidecar } from "@/lib/proof/sidecar";
 import { SIDECAR_EVENT_TRIM_SIZE } from "@/lib/proof-config";
-import { getRootDir, safeRootPath } from "@/lib/root-dir";
 
 const TEXT_EXTS = new Set([
 	"txt", "md", "markdown", "json", "yaml", "yml", "toml", "csv", "tsv",
@@ -35,12 +35,13 @@ function sha256content(content: string): string {
 }
 
 export async function GET(request: Request) {
-	const sessionAuth = await requireUser(request);
-	if (!sessionAuth.ok) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+	const ctx = await resolveWorkspaceForUser(request);
+	if (!ctx.ok) return NextResponse.json({ error: ctx.code }, { status: ctx.status });
+	const { rootDir } = ctx;
 
 	const { searchParams } = new URL(request.url);
 	const rel = searchParams.get("path") ?? "";
-	const filePath = safeRootPath(rel);
+	const filePath = safeWorkspacePath(rootDir, rel);
 	if (!filePath)
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
 	if (!isTextFile(path.basename(filePath)))
@@ -55,7 +56,6 @@ export async function GET(request: Request) {
 		const content = buffer.toString("utf-8");
 		const headers: Record<string, string> = {};
 		if (isMarkdownFile(path.basename(filePath))) {
-			const rootDir = getRootDir();
 			const sc = await readSidecar(rootDir, rel);
 			if (sc) {
 				headers["X-Wiki-Revision"] = String(sc.revision);
@@ -71,10 +71,9 @@ export async function GET(request: Request) {
 export async function PUT(request: Request) {
 	const csrf = checkOrigin(request);
 	if (csrf) return csrf;
-	const user = await requireUser(request);
-	if (!user.ok) {
-		return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
-	}
+	const ctx = await resolveWorkspaceForUser(request);
+	if (!ctx.ok) return NextResponse.json({ error: ctx.code }, { status: ctx.status });
+	const { rootDir } = ctx;
 
 	const body: { path?: string; content?: string; baseRevision?: number } =
 		await request.json();
@@ -84,7 +83,7 @@ export async function PUT(request: Request) {
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
 	if (typeof content !== "string")
 		return NextResponse.json({ error: "Missing content" }, { status: 400 });
-	const filePath = safeRootPath(rel);
+	const filePath = safeWorkspacePath(rootDir, rel);
 	if (!filePath)
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
 	if (!isTextFile(path.basename(filePath)))
@@ -102,8 +101,9 @@ export async function PUT(request: Request) {
 	}
 
 	// Markdown files: mutex + sidecar revision check + fingerprint update + event.
-	return withFileMutex(filePath, async () => {
-		const rootDir = getRootDir();
+	// Use the same key format as the agent routes (`${rootDir}\0${rel}`) so a doc
+	// edited via both the editor and the agent fs API shares one lock.
+	return withFileMutex(`${rootDir}\u0000${rel}`, async () => {
 		const sc = (await readSidecar(rootDir, rel)) ?? emptySidecar(rel);
 
 		// baseRevision is required for markdown to prevent lost writes.
@@ -146,7 +146,7 @@ export async function PUT(request: Request) {
 			{
 				type: "file.edited",
 				at: new Date().toISOString(),
-				by: `user:${user.user.id}`,
+				by: `user:${ctx.userId}`,
 				revision: newRevision,
 			},
 		]);

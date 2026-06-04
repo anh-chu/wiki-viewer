@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { showError } from "@/lib/toast";
 import { useWikiSlugsStore } from "@/stores/wiki-slugs-store";
+import { wsFetch } from "@/lib/workspace-client";
 
 type Dir = "entities" | "concepts" | "comparisons";
 
@@ -74,7 +75,7 @@ export function useWikiLinkCreate(): {
 		const { slug, dir, title } = dialogState;
 		setIsSubmitting(true);
 		try {
-			const res = await fetch("/api/wiki/page", {
+			const res = await wsFetch("/api/wiki/page", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({

@@ -3,6 +3,7 @@
 import { ArrowLeft, ExternalLink } from "lucide-react";
 import { ViewerToolbar } from "@/components/layout/viewer-toolbar";
 import { Button } from "@/components/ui/button";
+import { withWs } from "@/lib/workspace-client";
 
 interface WebsiteViewerProps {
 	path: string;
@@ -20,7 +21,7 @@ export function WebsiteViewer({
 	fullscreen,
 	onExit,
 }: WebsiteViewerProps) {
-	const iframeSrc = src ?? `/api/assets/${path}/index.html`;
+	const iframeSrc = withWs(src ?? `/api/assets/${path}/index.html`);
 	const exitButton =
 		fullscreen && onExit ? (
 			<Button

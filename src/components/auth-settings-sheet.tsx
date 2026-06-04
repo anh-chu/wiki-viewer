@@ -43,6 +43,32 @@ export function AuthSettingsSheet({
 	const [rateLimit, setRateLimit] = useState<number | null>(null);
 	const { data: session } = authClient.useSession();
 
+	// Admin management
+	const [isAdmin, setIsAdmin] = useState(false);
+	const [admins, setAdmins] = useState<string[]>([]);
+	const [adminUsers, setAdminUsers] = useState<Array<{ id: string; email: string; name: string }>>([]);
+	const [adminError, setAdminError] = useState<string | null>(null);
+	const [adminWorking, setAdminWorking] = useState<string | null>(null);
+	// Add-user form
+	const [newUserEmail, setNewUserEmail] = useState("");
+	const [newUserName, setNewUserName] = useState("");
+	const [creatingUser, setCreatingUser] = useState(false);
+	const [createdUser, setCreatedUser] = useState<{ email: string; tempPassword: string } | null>(null);
+
+	const loadAdmins = useCallback(async () => {
+		try {
+			const res = await fetch("/api/system/admins");
+			if (!res.ok) return;
+			const d: { admins?: string[]; isAdmin?: boolean; users?: Array<{ id: string; email: string; name: string }> } =
+				await res.json();
+			setIsAdmin(!!d.isAdmin);
+			setAdmins(d.admins ?? []);
+			setAdminUsers(d.users ?? []);
+		} catch {
+			/* ignore */
+		}
+	}, []);
+
 	const load = useCallback(async () => {
 		setLoading(true);
 		setError(null);
@@ -62,8 +88,11 @@ export function AuthSettingsSheet({
 	}, []);
 
 	useEffect(() => {
-		if (open) void load();
-	}, [open, load]);
+		if (open) {
+			void load();
+			void loadAdmins();
+		}
+	}, [open, load, loadAdmins]);
 
 	async function handleSave() {
 		setSaving(true);
@@ -227,6 +256,146 @@ export function AuthSettingsSheet({
 							</div>
 						)}
 						</section>
+
+						{/* Admins — only visible to admins */}
+						{isAdmin && (
+							<section className="space-y-2">
+								<h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+									Admins
+								</h3>
+								<p className="text-xs leading-relaxed text-muted-foreground">
+									Admins can create workspaces, add users, and manage access.
+								</p>
+								{adminError && (
+									<div className="flex items-center gap-1.5 text-xs text-destructive">
+										<AlertCircle className="h-3.5 w-3.5 shrink-0" />
+										{adminError}
+									</div>
+								)}
+
+								{/* Add user */}
+								<div className="space-y-2 rounded-md border border-border p-3">
+									<div className="text-xs font-medium">Add user</div>
+									{createdUser ? (
+										<div className="space-y-2">
+											<p className="text-xs text-muted-foreground">
+												Created <span className="font-medium text-foreground">{createdUser.email}</span>. Share this temporary password now, it will not be shown again.
+											</p>
+											<div className="flex items-center gap-2">
+												<code className="flex-1 rounded bg-muted px-2 py-1.5 font-mono text-sm select-all">{createdUser.tempPassword}</code>
+												<button
+													type="button"
+													className="shrink-0 text-xs px-2 py-1 rounded border border-border hover:bg-accent"
+													onClick={() => void navigator.clipboard?.writeText(createdUser.tempPassword)}
+												>
+													Copy
+												</button>
+											</div>
+											<button
+												type="button"
+											className="text-xs text-muted-foreground hover:text-foreground"
+											onClick={() => { setCreatedUser(null); setNewUserEmail(""); setNewUserName(""); void loadAdmins(); }}
+										>
+											Done
+										</button>
+										</div>
+									) : (
+										<div className="space-y-2">
+											<input
+												type="email"
+												value={newUserEmail}
+												onChange={(e) => setNewUserEmail(e.target.value)}
+												placeholder="email@team.com"
+												className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary"
+											/>
+											<input
+												type="text"
+												value={newUserName}
+												onChange={(e) => setNewUserName(e.target.value)}
+												placeholder="Name (optional)"
+												className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary"
+											/>
+											<Button
+												size="sm"
+												className="w-full gap-1.5"
+												disabled={creatingUser || !newUserEmail.trim()}
+												onClick={async () => {
+													setCreatingUser(true);
+													setAdminError(null);
+													try {
+														const res = await fetch("/api/system/users", {
+															method: "POST",
+															headers: { "Content-Type": "application/json" },
+															body: JSON.stringify({ email: newUserEmail.trim(), name: newUserName.trim() }),
+														});
+														const d: { ok?: boolean; email?: string; tempPassword?: string; error?: string; message?: string } = await res.json();
+														if (!res.ok || !d.tempPassword) {
+															setAdminError(d.message ?? d.error ?? "Failed to create user");
+														} else {
+															setCreatedUser({ email: d.email ?? newUserEmail.trim(), tempPassword: d.tempPassword });
+														}
+													} catch {
+														setAdminError("Network error");
+													} finally {
+														setCreatingUser(false);
+													}
+												}}
+											>
+												{creatingUser && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+												Create user
+											</Button>
+										</div>
+									)}
+								</div>
+								<div className="space-y-1 rounded-md border border-border overflow-hidden">
+									{adminUsers.map((u) => {
+										const isAdminUser = admins.includes(u.id);
+										return (
+											<div key={u.id} className="flex items-center justify-between px-3 py-2 bg-muted/40 hover:bg-muted/60 transition-colors">
+												<div className="text-sm min-w-0">
+													<div className="font-medium truncate">{u.name}</div>
+													<div className="text-xs text-muted-foreground truncate">{u.email}</div>
+												</div>
+												<button
+													type="button"
+													disabled={adminWorking === u.id}
+													className="ml-2 shrink-0 text-xs px-2 py-1 rounded border border-border hover:bg-accent disabled:opacity-50"
+													onClick={async () => {
+														setAdminWorking(u.id);
+														setAdminError(null);
+														try {
+															const res = await fetch("/api/system/admins", {
+																method: isAdminUser ? "DELETE" : "POST",
+																headers: { "Content-Type": "application/json" },
+																body: JSON.stringify({ userId: u.id }),
+															});
+															const d: { ok?: boolean; admins?: string[]; error?: string; message?: string } = await res.json();
+															if (!res.ok) {
+																setAdminError(d.message ?? d.error ?? "Failed");
+															} else if (d.admins) {
+																setAdmins(d.admins);
+															}
+														} catch {
+															setAdminError("Network error");
+														} finally {
+															setAdminWorking(null);
+														}
+													}}
+												>
+													{adminWorking === u.id ? (
+														<Loader2 className="h-3 w-3 animate-spin" />
+													) : isAdminUser ? "Demote" : "Promote"}
+												</button>
+											</div>
+										);
+									})}
+									{adminUsers.length === 0 && (
+										<div className="px-3 py-2 text-xs text-muted-foreground">No users yet.</div>
+									)}
+								</div>
+								{/* TODO: per-workspace access editor (PATCH /api/system/workspaces/[id] allowedUserIds) */}
+							</section>
+						)}
 
 						{/* Agent rate limit */}
 						<section className="space-y-2">

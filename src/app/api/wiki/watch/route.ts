@@ -3,17 +3,12 @@ export const runtime = "nodejs";
 import { watch } from "chokidar";
 import path from "node:path";
 import { NextResponse } from "next/server";
-import { requireUser } from "@/lib/auth/server";
-import { getRootDir } from "@/lib/root-dir";
+import { resolveWorkspaceForUser } from "@/lib/workspace-context";
 
 export async function GET(request: Request) {
-	const auth = await requireUser(request);
-	if (!auth.ok) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
-
-	const rootDir = getRootDir();
-	if (!rootDir) {
-		return new Response("Root not configured", { status: 503 });
-	}
+	const ctx = await resolveWorkspaceForUser(request);
+	if (!ctx.ok) return new Response(ctx.code, { status: ctx.status });
+	const { rootDir } = ctx;
 
 	const encoder = new TextEncoder();
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any

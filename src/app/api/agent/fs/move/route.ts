@@ -14,7 +14,8 @@ import { rename, stat } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
 import { checkAuth, enforceScope } from "@/lib/proof/auth";
-import { getRootDir, safeRootPath } from "@/lib/root-dir";
+import { resolveWorkspaceForAgent } from "@/lib/workspace-context";
+import { safeWorkspacePath } from "@/lib/workspaces";
 import { withFileMutex } from "@/lib/proof/mutex";
 import { moveSidecar } from "@/lib/proof/sidecar";
 import { writeAuditRow } from "@/lib/proof/audit";
@@ -47,13 +48,17 @@ export async function POST(req: Request): Promise<NextResponse> {
 	const toRel = body.to;
 	const ifMatch = typeof body.ifMatch === "string" ? body.ifMatch : undefined;
 
-	// Basic traversal
-	if (!safeRootPath(fromRel)) return errJson("INVALID_PATH", "from: path traversal rejected", 400);
-	if (!safeRootPath(toRel)) return errJson("INVALID_PATH", "to: path traversal rejected", 400);
+	const wsx = await resolveWorkspaceForAgent(req);
+	if (!wsx.ok) return errJson(wsx.code, wsx.code, wsx.status);
+	const { ws, rootDir } = wsx;
 
-	const fromAbs = await safeAbsPath(fromRel);
+	// Basic traversal
+	if (!safeWorkspacePath(rootDir, fromRel)) return errJson("INVALID_PATH", "from: path traversal rejected", 400);
+	if (!safeWorkspacePath(rootDir, toRel)) return errJson("INVALID_PATH", "to: path traversal rejected", 400);
+
+	const fromAbs = await safeAbsPath(rootDir, fromRel);
 	if (!fromAbs) return errJson("INVALID_PATH", "from: path rejected (symlink escape or denied)", 400);
-	const toAbs = await safeAbsPath(toRel);
+	const toAbs = await safeAbsPath(rootDir, toRel);
 	if (!toAbs) return errJson("INVALID_PATH", "to: path rejected (symlink escape or denied)", 400);
 
 	// Self-move guard
@@ -63,11 +68,11 @@ export async function POST(req: Request): Promise<NextResponse> {
 	}
 
 	// Scope: source requires read+mutate; dest requires mutate
-	const sc1 = enforceScope(auth.agent, { filePath: fromRel, op: "read" });
+	const sc1 = enforceScope(auth.agent, { filePath: fromRel, op: "read", workspaceId: ws.id });
 	if (!sc1.ok) return errJson(sc1.code, sc1.message, 403);
-	const sc2 = enforceScope(auth.agent, { filePath: fromRel, op: "mutate" });
+	const sc2 = enforceScope(auth.agent, { filePath: fromRel, op: "mutate", workspaceId: ws.id });
 	if (!sc2.ok) return errJson(sc2.code, sc2.message, 403);
-	const sc3 = enforceScope(auth.agent, { filePath: toRel, op: "mutate" });
+	const sc3 = enforceScope(auth.agent, { filePath: toRel, op: "mutate", workspaceId: ws.id });
 	if (!sc3.ok) return errJson(sc3.code, sc3.message, 403);
 
 	// Verify source exists
@@ -95,7 +100,6 @@ export async function POST(req: Request): Promise<NextResponse> {
 		}
 	}
 
-	const rootDir = getRootDir();
 	const isMd = isMarkdown(fromRel);
 
 	// Lock source + dest in sorted order to avoid deadlock
@@ -112,13 +116,14 @@ export async function POST(req: Request): Promise<NextResponse> {
 			path: fromRel,
 			newSha: toRel, // store destination in newSha field for audit trail
 			forced: false,
+			workspaceId: ws.id,
 		});
 	};
 
 	if (first === fromRel) {
-		await withFileMutex(first, () => withFileMutex(second, doMove));
+		await withFileMutex(`${rootDir}\u0000${first}`, () => withFileMutex(`${rootDir}\u0000${second}`, doMove));
 	} else {
-		await withFileMutex(first, () => withFileMutex(second, doMove));
+		await withFileMutex(`${rootDir}\u0000${first}`, () => withFileMutex(`${rootDir}\u0000${second}`, doMove));
 	}
 
 	return NextResponse.json({ from: fromRel, to: toRel });

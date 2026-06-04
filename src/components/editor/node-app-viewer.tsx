@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ViewerToolbar } from "@/components/layout/viewer-toolbar";
 import { Button } from "@/components/ui/button";
 import type { AppStatus } from "@/lib/app-runner";
+import { wsFetch } from "@/lib/workspace-client";
 
 interface Props {
 	path: string;
@@ -56,7 +57,7 @@ export function NodeAppViewer({ path, title }: Props) {
 
 	const fetchStatus = useCallback(async () => {
 		try {
-			const res = await fetch(`/api/wiki/app?path=${encodeURIComponent(path)}`);
+			const res = await wsFetch(`/api/wiki/app?path=${encodeURIComponent(path)}`);
 			if (!res.ok) return;
 			const data: StatusResponse = await res.json();
 			setStatus(data.status);
@@ -96,7 +97,7 @@ export function NodeAppViewer({ path, title }: Props) {
 		setLogs([]);
 		setStatus("starting");
 		try {
-			const res = await fetch("/api/wiki/app", {
+			const res = await wsFetch("/api/wiki/app", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ path }),
@@ -117,7 +118,7 @@ export function NodeAppViewer({ path, title }: Props) {
 	};
 
 	const handleStop = async () => {
-		await fetch("/api/wiki/app", {
+		await wsFetch("/api/wiki/app", {
 			method: "DELETE",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ path }),

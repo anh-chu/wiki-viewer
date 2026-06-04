@@ -9,7 +9,7 @@
 import { createHash } from "node:crypto";
 import { open, stat, rename, realpath, mkdir } from "node:fs/promises";
 import path from "node:path";
-import { getRootDir } from "@/lib/root-dir";
+
 
 // ── Denied path checks ──────────────────────────────────────────────────────
 
@@ -44,8 +44,7 @@ export function isMarkdown(filePath: string): boolean {
  *
  * Returns absolute path on success, null on rejection.
  */
-export async function safeAbsPath(rel: string): Promise<string | null> {
-	const root = getRootDir();
+export async function safeAbsPath(root: string, rel: string): Promise<string | null> {
 	if (!root) return null;
 
 	// Normalise and basic traversal guard

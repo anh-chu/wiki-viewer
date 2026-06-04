@@ -1,7 +1,8 @@
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
-import { getRootDir } from "@/lib/root-dir";
+import { resolveWorkspaceForAgent } from "@/lib/workspace-context";
+import { safeWorkspacePath } from "@/lib/workspaces";
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 
@@ -32,13 +33,17 @@ export async function POST(
 	request: Request,
 	{ params }: { params: Promise<{ path: string[] }> },
 ) {
+	const wsx = await resolveWorkspaceForAgent(request);
+	if (!wsx.ok) return NextResponse.json({ error: wsx.code }, { status: wsx.status });
+	const { rootDir } = wsx;
+
 	const { path: segments } = await params;
 	const subPath = (segments ?? []).join("/");
 
-	// Save images in _uploads/ within getRootDir(), mirroring the page path
-	const uploadsDir = path.join(getRootDir(), "_uploads", subPath);
-	const resolved = path.resolve(uploadsDir);
-	if (!resolved.startsWith(getRootDir() + path.sep) && resolved !== getRootDir())
+	// Save images in _uploads/ within rootDir, mirroring the page path
+	const uploadsDir = path.join(rootDir, "_uploads", subPath);
+	const resolved = safeWorkspacePath(rootDir, path.join("_uploads", subPath));
+	if (!resolved)
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
 
 	let form: FormData;

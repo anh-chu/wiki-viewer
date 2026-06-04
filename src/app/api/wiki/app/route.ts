@@ -1,14 +1,14 @@
 import path from "node:path";
 import { NextResponse } from "next/server";
 import { checkOrigin } from "@/lib/auth/csrf";
-import { requireUser } from "@/lib/auth/server";
+import { resolveWorkspaceForUser } from "@/lib/workspace-context";
+import { safeWorkspacePath } from "@/lib/workspaces";
 import { getStatus, startApp, stopApp } from "@/lib/app-runner";
-import { getRootDir, safeRootPath } from "@/lib/root-dir";
 
 // GET /api/wiki/app?path=relative/path
 export async function GET(request: Request) {
-	const auth = await requireUser(request);
-	if (!auth.ok) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+	const ctx = await resolveWorkspaceForUser(request);
+	if (!ctx.ok) return NextResponse.json({ error: ctx.code }, { status: ctx.status });
 
 	const { searchParams } = new URL(request.url);
 	const rel = searchParams.get("path") ?? "";
@@ -19,15 +19,16 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
 	const csrf = checkOrigin(request);
 	if (csrf) return csrf;
-	const auth = await requireUser(request);
-	if (!auth.ok) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+	const ctx = await resolveWorkspaceForUser(request);
+	if (!ctx.ok) return NextResponse.json({ error: ctx.code }, { status: ctx.status });
+	const { rootDir } = ctx;
 
 	const body: { path?: string } = await request.json();
 	const rel = body.path;
 	if (!rel || typeof rel !== "string")
 		return NextResponse.json({ error: "Missing path" }, { status: 400 });
 
-	const abs = safeRootPath(rel);
+	const abs = safeWorkspacePath(rootDir, rel);
 	if (!abs)
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
 
@@ -43,8 +44,8 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
 	const csrf = checkOrigin(request);
 	if (csrf) return csrf;
-	const auth = await requireUser(request);
-	if (!auth.ok) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+	const ctx = await resolveWorkspaceForUser(request);
+	if (!ctx.ok) return NextResponse.json({ error: ctx.code }, { status: ctx.status });
 
 	const body: { path?: string } = await request.json();
 	const rel = body.path;

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { checkAuth, enforceScope } from "@/lib/proof/auth";
-import { getRootDir } from "@/lib/root-dir";
+import { resolveWorkspaceForAgent } from "@/lib/workspace-context";
 import {
 	aggregateActivity,
 	ACTIVITY_DEFAULT_LIMIT,
@@ -16,14 +16,15 @@ export async function GET(req: Request): Promise<NextResponse> {
 		return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
 	}
 
-	const scopeCheck = enforceScope(auth.agent, { op: "read" });
+	const wsx = await resolveWorkspaceForAgent(req);
+	if (!wsx.ok) {
+		return NextResponse.json({ error: wsx.code }, { status: wsx.status });
+	}
+	const { ws, rootDir } = wsx;
+
+	const scopeCheck = enforceScope(auth.agent, { op: "read", workspaceId: ws.id });
 	if (!scopeCheck.ok) {
 		return NextResponse.json({ error: scopeCheck.code, message: scopeCheck.message }, { status: 403 });
-	}
-
-	const rootDir = getRootDir();
-	if (!rootDir) {
-		return NextResponse.json({ error: "ROOT_NOT_SET" }, { status: 503 });
 	}
 
 	const url = new URL(req.url);
@@ -32,7 +33,7 @@ export async function GET(req: Request): Promise<NextResponse> {
 
 	// Enforce scope on explicit file query parameter
 	if (fileFilter) {
-		const fileScope = enforceScope(auth.agent, { filePath: fileFilter, op: "read" });
+		const fileScope = enforceScope(auth.agent, { filePath: fileFilter, op: "read", workspaceId: ws.id });
 		if (!fileScope.ok) {
 			return NextResponse.json({ error: fileScope.code, message: fileScope.message }, { status: 403 });
 		}

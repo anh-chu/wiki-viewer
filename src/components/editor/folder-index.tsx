@@ -17,6 +17,7 @@ import { useMemo, useState } from "react";
 import { useEditorStore } from "@/stores/editor-store";
 import { useTreeStore } from "@/stores/tree-store";
 import type { TreeNode } from "@/types";
+import { withWs } from "@/lib/workspace-client";
 
 type ViewMode = "list" | "gallery";
 
@@ -199,7 +200,7 @@ export function FolderIndex({ folderPath, entries }: FolderIndexProps) {
 								>
 									<div className="aspect-square w-full overflow-hidden rounded-md border border-border bg-muted">
 										<img
-											src={`/api/assets/${child.path}`}
+											src={withWs(`/api/assets/${child.path}`)}
 											alt={title}
 											loading="lazy"
 											className="h-full w-full object-cover transition-transform group-hover:scale-[1.02]"

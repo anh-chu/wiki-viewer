@@ -22,7 +22,8 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
 import { checkAuth, enforceScope } from "@/lib/proof/auth";
-import { getRootDir, safeRootPath } from "@/lib/root-dir";
+import { resolveWorkspaceForAgent } from "@/lib/workspace-context";
+import { safeWorkspacePath } from "@/lib/workspaces";
 import { safeAbsPath, looksLikeBinary } from "@/lib/proof/raw-fs";
 import { matchGlob } from "@/lib/proof/glob";
 import type { Agent } from "@/lib/proof/registry";
@@ -74,6 +75,7 @@ async function grepSearch(
 	limit: number,
 	agent: Agent,
 	deadline: number,
+	workspaceId?: string,
 ): Promise<{ matches: SearchMatch[]; truncated: boolean }> {
 	let regex: RegExp;
 	try {
@@ -94,7 +96,7 @@ async function grepSearch(
 		if (matches.length >= limit) return { matches, truncated: true };
 		if (Date.now() > deadline) return { matches, truncated: true };
 
-		const sc = enforceScope(agent, { filePath: fileRel, op: "read" });
+		const sc = enforceScope(agent, { filePath: fileRel, op: "read", workspaceId });
 		if (!sc.ok) continue;
 
 		let buf: Buffer;
@@ -140,6 +142,7 @@ async function globSearch(
 	limit: number,
 	agent: Agent,
 	deadline: number,
+	workspaceId?: string,
 ): Promise<{ matches: SearchMatch[]; truncated: boolean }> {
 	const matches: SearchMatch[] = [];
 
@@ -151,7 +154,7 @@ async function globSearch(
 		const baseName = path.basename(fileRel);
 		if (!matchGlob(pattern, fileRel) && !matchGlob(pattern, baseName)) continue;
 
-		const sc = enforceScope(agent, { filePath: fileRel, op: "read" });
+		const sc = enforceScope(agent, { filePath: fileRel, op: "read", workspaceId });
 		if (!sc.ok) continue;
 
 		matches.push({ path: fileRel });
@@ -188,16 +191,18 @@ export async function POST(req: Request): Promise<NextResponse> {
 		HARD_MAX_MATCHES,
 	);
 
+	const wsx = await resolveWorkspaceForAgent(req);
+	if (!wsx.ok) return errJson(wsx.code, wsx.code, wsx.status);
+	const { ws, rootDir } = wsx;
+
 	// Validate start path
 	if (startRelRaw) {
-		if (!safeRootPath(startRelRaw)) {
+		if (!safeWorkspacePath(rootDir, startRelRaw)) {
 			return errJson("INVALID_PATH", "path: traversal rejected", 400);
 		}
-		const safe = await safeAbsPath(startRelRaw);
+		const safe = await safeAbsPath(rootDir, startRelRaw);
 		if (!safe) return errJson("INVALID_PATH", "path: rejected (symlink escape or denied)", 400);
 	}
-
-	const rootDir = getRootDir();
 
 	// Verify start path is a directory
 	if (startRelRaw) {
@@ -219,9 +224,9 @@ export async function POST(req: Request): Promise<NextResponse> {
 
 	try {
 		if (kind === "grep") {
-			result = await grepSearch(rootDir, startRelRaw, query, limit, auth.agent, deadline);
+			result = await grepSearch(rootDir, startRelRaw, query, limit, auth.agent, deadline, ws.id);
 		} else {
-			result = await globSearch(rootDir, startRelRaw, query, limit, auth.agent, deadline);
+			result = await globSearch(rootDir, startRelRaw, query, limit, auth.agent, deadline, ws.id);
 		}
 	} catch (e) {
 		return errJson("SEARCH_ERROR", (e as Error).message, 400);
