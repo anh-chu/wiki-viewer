@@ -168,6 +168,25 @@ test("denied paths (.proof, .git) skipped", async () => {
 	assert.equal(ftsSearch("wsA", "realtoken", 10).matches.length, 1);
 });
 
+test("app dir contents are not indexed (node-app and static app)", async () => {
+	// node-app: directory with package.json
+	await mkdir(path.join(rootA, "my-app"), { recursive: true });
+	await writeFile(path.join(rootA, "my-app", "package.json"), "{}");
+	await writeFile(path.join(rootA, "my-app", "index.js"), "appinnertoken");
+	// static app: directory with index.html
+	await mkdir(path.join(rootA, "site"), { recursive: true });
+	await writeFile(path.join(rootA, "site", "index.html"), "sitehtmltoken");
+	await writeFile(path.join(rootA, "site", "app.js"), "siteinnertoken");
+	// a normal note that must still be searchable
+	await writeFile(path.join(rootA, "note.md"), "normalnotetoken");
+	await scan("wsA", rootA);
+
+	assert.equal(ftsSearch("wsA", "appinnertoken", 10).matches.length, 0);
+	assert.equal(ftsSearch("wsA", "sitehtmltoken", 10).matches.length, 0);
+	assert.equal(ftsSearch("wsA", "siteinnertoken", 10).matches.length, 0);
+	assert.equal(ftsSearch("wsA", "normalnotetoken", 10).matches.length, 1);
+});
+
 test("symlink escaping the workspace is not indexed", async () => {
 	// A secret file outside the workspace, reachable only via an in-root symlink.
 	const outside = await mkdtemp(path.join(tmpdir(), "search-test-outside-"));

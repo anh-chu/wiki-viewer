@@ -19,6 +19,7 @@ import { getSearchDb } from "./search-db";
 import { sanitizeFtsQuery } from "./sanitize";
 import { isIndexableExt, isMarkdownExt } from "./indexable-exts";
 import { isDeniedRelPath, looksLikeBinary, safeAbsPath } from "../proof/raw-fs";
+import { isNodeApp, isAppFolder } from "../wiki-helpers";
 import { parseFrontmatter } from "../markdown/parse-frontmatter";
 import { subscribe } from "./watcher-pool";
 
@@ -147,6 +148,12 @@ async function extractText(
 async function indexOnePath(wsId: string, rootDir: string, relPath: string): Promise<void> {
 	if (isDeniedRelPath(relPath)) return;
 
+	// App-dir contents are opaque leaves; never index files inside an app folder.
+	if (await isUnderApp(rootDir, relPath)) {
+		removeDoc(wsId, relPath);
+		return;
+	}
+
 	// Symlink-escape guard: resolve the realpath and confirm it stays under root.
 	// A symlink whose target escapes the workspace must never be indexed.
 	const absPath = await safeAbsPath(rootDir, relPath);
@@ -212,11 +219,34 @@ async function* walkFiles(rootDir: string, relDir: string): AsyncGenerator<strin
 		if (SKIP_DIRS.has(item.name)) continue;
 		const childRel = relDir ? `${relDir}/${item.name}` : item.name;
 		if (item.isDirectory()) {
+			// App dirs (package.json or index.html) are opaque leaves in the UI:
+			// clicking runs the app, it is not a browsable folder. Do not index
+			// their contents so search does not surface bundled app internals.
+			if (await isNodeApp(rootDir, childRel) || await isAppFolder(rootDir, childRel)) {
+				continue;
+			}
 			yield* walkFiles(rootDir, childRel);
 		} else if (item.isFile() || item.isSymbolicLink()) {
 			yield childRel;
 		}
 	}
+}
+
+/**
+ * True if any ancestor directory of relPath is an app folder (node-app or
+ * static app). Used by the incremental path so file events inside an app dir
+ * are ignored, matching the initial-scan walker which does not recurse into
+ * app dirs.
+ */
+async function isUnderApp(rootDir: string, relPath: string): Promise<boolean> {
+	const parts = relPath.split("/");
+	for (let i = 1; i < parts.length; i++) {
+		const ancestor = parts.slice(0, i).join("/");
+		if (await isNodeApp(rootDir, ancestor) || await isAppFolder(rootDir, ancestor)) {
+			return true;
+		}
+	}
+	return false;
 }
 
 // ── Initial scan ───────────────────────────────────────────────────────────────
@@ -344,6 +374,12 @@ function flushQueue(wsId: string): void {
 		};
 
 		for (const relPath of paths) {
+			// App-dir contents are opaque leaves; never index files inside one.
+			if (await isUnderApp(rootDir, relPath)) {
+				ops.push(() => removeDoc(wsId, relPath));
+				if (ops.length >= BATCH_SIZE) await flushOps();
+				continue;
+			}
 			// Symlink-escape guard before any read.
 			const absPath = await safeAbsPath(rootDir, relPath);
 			if (!absPath) {
