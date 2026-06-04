@@ -1,18 +1,21 @@
 export const runtime = "nodejs";
 
-import { watch } from "chokidar";
-import path from "node:path";
-import { NextResponse } from "next/server";
 import { resolveWorkspaceForUser } from "@/lib/workspace-context";
+import { subscribe } from "@/lib/search/watcher-pool";
+import { ensureIndexer } from "@/lib/search/indexer";
 
 export async function GET(request: Request) {
 	const ctx = await resolveWorkspaceForUser(request);
 	if (!ctx.ok) return new Response(ctx.code, { status: ctx.status });
-	const { rootDir } = ctx;
+	const { ws, rootDir } = ctx;
+
+	// Fire-and-forget: brings the indexer up on first SSE connection per workspace.
+	ensureIndexer(ws.id, rootDir).catch((e) =>
+		console.error("[search] ensureIndexer failed", e),
+	);
 
 	const encoder = new TextEncoder();
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	let watcher: any = null;
+	let unsubscribe: (() => void) | null = null;
 	let heartbeatId: ReturnType<typeof setInterval> | null = null;
 	let controllerRef: ReadableStreamDefaultController | null = null;
 
@@ -31,34 +34,12 @@ export async function GET(request: Request) {
 		start(controller) {
 			controllerRef = controller;
 
-			watcher = watch(rootDir, {
-				ignoreInitial: true,
-				ignored: /(node_modules|\.git)/,
-				persistent: true,
-				awaitWriteFinish: { stabilityThreshold: 150, pollInterval: 50 },
+			// Subscribe via the shared pool -- no second watcher is created.
+			unsubscribe = subscribe(ws.id, rootDir, (type, relPath) => {
+				send({ type, path: relPath });
 			});
 
-			function relPath(absPath: string) {
-				return path.relative(rootDir, absPath);
-			}
-
-			watcher.on("add", (p: string) => send({ type: "add", path: relPath(p) }));
-			watcher.on("unlink", (p: string) =>
-				send({ type: "unlink", path: relPath(p) }),
-			);
-			watcher.on("addDir", (p: string) => {
-				const rel = relPath(p);
-				if (rel) send({ type: "addDir", path: rel }); // skip root itself
-			});
-			watcher.on("unlinkDir", (p: string) => {
-				const rel = relPath(p);
-				if (rel) send({ type: "unlinkDir", path: rel });
-			});
-			watcher.on("change", (p: string) =>
-				send({ type: "change", path: relPath(p) }),
-			);
-
-			// Heartbeat keeps the connection alive through proxies / load balancers
+			// Heartbeat keeps the connection alive through proxies / load balancers.
 			heartbeatId = setInterval(() => {
 				try {
 					controller.enqueue(encoder.encode(": heartbeat\n\n"));
@@ -71,7 +52,7 @@ export async function GET(request: Request) {
 		cancel() {
 			controllerRef = null;
 			if (heartbeatId !== null) clearInterval(heartbeatId);
-			watcher?.close();
+			unsubscribe?.();
 		},
 	});
 

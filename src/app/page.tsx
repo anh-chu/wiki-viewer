@@ -65,6 +65,8 @@ import { parseFrontmatter } from "@/lib/markdown/parse-frontmatter";
 import { showError } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { AIPanel } from "@/components/ai-panel/ai-panel";
+import { SearchCommandDialog } from "@/components/search/search-command-dialog";
+import { SidebarSearchBox } from "@/components/search/sidebar-search-box";
 import { useAIPanelStore } from "@/stores/ai-panel-store";
 import { useEditorStore } from "@/stores/editor-store";
 import { useViewWidthStore, VIEW_WIDTH_CLASS } from "@/stores/view-width-store";
@@ -589,6 +591,16 @@ export default function Page() {
 		}
 		setFileLoading(false);
 	}
+
+	// Open a file from a search result: reveal it in the tree, then open it.
+	const openFromSearch = useCallback(
+		(relPath: string) => {
+			const name = relPath.split("/").pop() ?? relPath;
+			void revealPath(relPath);
+			void openViewer({ path: relPath, name, type: "file" } as TreeNode);
+		},
+		[revealPath],
+	);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: only react to editor path changes
 	useEffect(() => {
@@ -1182,6 +1194,7 @@ export default function Page() {
 				</div>
 			)}
 			{rootConfigured === true && !addingWorkspace && <>
+			<SearchCommandDialog onOpenFile={openFromSearch} />
 			{/* Tree sidebar */}
 			{!sidebarCollapsed && (
 				<Card className="flex flex-col w-72 shrink-0 overflow-hidden rounded-none border-r border-l-0 border-t-0 border-b-0">
@@ -1380,6 +1393,10 @@ export default function Page() {
 							</Button>
 						</div>
 					)}
+
+					<div className="border-b">
+						<SidebarSearchBox onOpenFile={openFromSearch} />
+					</div>
 
 					<div
 						className={cn(

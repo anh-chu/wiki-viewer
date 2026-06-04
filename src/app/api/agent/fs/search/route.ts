@@ -19,6 +19,7 @@
 export const runtime = "nodejs";
 
 import { readdir, readFile, stat } from "node:fs/promises";
+import { ensureIndexer, ftsSearch } from "@/lib/search/indexer";
 import path from "node:path";
 import { NextResponse } from "next/server";
 import { checkAuth, enforceScope } from "@/lib/proof/auth";
@@ -37,6 +38,8 @@ export interface SearchMatch {
 	line?: number;
 	col?: number;
 	text?: string;
+	score?: number;
+	snippet?: string;
 }
 
 function errJson(code: string, message: string, status: number): NextResponse {
@@ -176,14 +179,17 @@ export async function POST(req: Request): Promise<NextResponse> {
 		return errJson("INVALID_PAYLOAD", "Invalid JSON body", 400);
 	}
 
-	if (body.kind !== "grep" && body.kind !== "glob") {
-		return errJson("INVALID_PAYLOAD", 'kind must be "grep" or "glob"', 400);
+	if (body.kind !== "grep" && body.kind !== "glob" && body.kind !== "fts") {
+		return errJson("INVALID_PAYLOAD", 'kind must be "grep", "glob", or "fts"', 400);
 	}
-	if (typeof body.query !== "string" || !body.query) {
+	if (typeof body.query !== "string") {
+		return errJson("INVALID_PAYLOAD", "query (string) required", 400);
+	}
+	if (body.kind !== "fts" && !body.query) {
 		return errJson("INVALID_PAYLOAD", "query (string) required", 400);
 	}
 
-	const kind = body.kind as "grep" | "glob";
+	const kind = body.kind as "grep" | "glob" | "fts";
 	const query = body.query as string;
 	const startRelRaw = typeof body.path === "string" ? body.path : "";
 	const limit = Math.min(
@@ -217,6 +223,31 @@ export async function POST(req: Request): Promise<NextResponse> {
 			}
 			throw e;
 		}
+	}
+
+	// FTS branch -- handled before the grep/glob path validation below.
+	if (kind === "fts") {
+		const sc = enforceScope(auth.agent, { op: "read", workspaceId: ws.id });
+		if (!sc.ok) return errJson("FORBIDDEN", sc.message ?? "Forbidden", 403);
+
+		ensureIndexer(ws.id, rootDir).catch((e) =>
+			console.error("[search] ensureIndexer failed", e),
+		);
+
+		// Over-fetch so the post-filter (path scope + start-path restriction) can
+		// still return up to `limit` results when some top-ranked hits are denied.
+		const startPrefix = startRelRaw ? `${startRelRaw.replace(/\/+$/, "")}/` : "";
+		const fts = ftsSearch(ws.id, query, Math.min(limit * 4, HARD_MAX_MATCHES));
+		const filtered = fts.matches.filter((m) => {
+			if (startPrefix && !m.path.startsWith(startPrefix)) return false;
+			return enforceScope(auth.agent, { filePath: m.path, op: "read", workspaceId: ws.id }).ok;
+		});
+		const matches = filtered
+			.slice(0, limit)
+			.map((m) => ({ path: m.path, score: m.score, snippet: m.snippet }));
+		// truncated if the DB itself capped, or the scoped set still exceeds limit.
+		const truncated = fts.truncated || filtered.length > limit;
+		return NextResponse.json({ kind, query, matches, truncated });
 	}
 
 	const deadline = Date.now() + SEARCH_TIMEOUT_MS;
