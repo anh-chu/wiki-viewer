@@ -1,6 +1,6 @@
 {
   "name": "wiki-viewer-mcp",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "MCP filesystem adapter for wiki-viewer agent API",
   "license": "MIT",
   "type": "module",
