@@ -90,11 +90,12 @@ node dist/index.js   # start MCP server
 Set three environment variables before starting the MCP server
 (the `register` command prints them for you after approval):
 
-| Var                    | Description                                                              |
-| ---------------------- | ------------------------------------------------------------------------ |
-| `WIKI_VIEWER_URL`      | Base URL of your wiki-viewer instance, e.g. `https://notes.example.com`  |
-| `WIKI_VIEWER_TOKEN`    | Bearer token obtained via `wiki-viewer-mcp register`                     |
-| `WIKI_VIEWER_AGENT_ID` | Your agent ID (e.g. `ai:myagent`), sent as `X-Agent-Id` on every request |
+| Var                     | Description                                                                                                                                                                                       |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `WIKI_VIEWER_URL`       | Base URL of your wiki-viewer instance, e.g. `https://notes.example.com`                                                                                                                           |
+| `WIKI_VIEWER_TOKEN`     | Bearer token obtained via `wiki-viewer-mcp register`                                                                                                                                              |
+| `WIKI_VIEWER_AGENT_ID`  | Your agent ID (e.g. `ai:myagent`), sent as `X-Agent-Id` on every request                                                                                                                          |
+| `WIKI_VIEWER_WORKSPACE` | _Optional._ Workspace id, sent as `X-Workspace` on every request. Targets one root directory when the instance serves several. Omit for single-workspace instances (the server uses its default). |
 
 ## Usage in Claude Code / Cursor / Codex
 

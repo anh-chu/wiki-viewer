@@ -549,3 +549,38 @@ describe("patch_file", () => {
     );
   });
 });
+
+describe("X-Workspace header", () => {
+  test("sends X-Workspace when configured", async () => {
+    let captured: Headers | null = null;
+    const mockFetch = async (_url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      captured = new Headers(init?.headers as HeadersInit);
+      return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+    };
+    const client = new WikiViewerClient({
+      baseUrl: "http://localhost:3000",
+      token: "tok",
+      agentId: "ag",
+      workspace: "ws_abc123",
+      fetch: mockFetch as unknown as typeof fetch,
+    });
+    await client.listDirectory("");
+    assert.equal(captured!.get("X-Workspace"), "ws_abc123");
+  });
+
+  test("omits X-Workspace when not configured", async () => {
+    let captured: Headers | null = null;
+    const mockFetch = async (_url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      captured = new Headers(init?.headers as HeadersInit);
+      return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+    };
+    const client = new WikiViewerClient({
+      baseUrl: "http://localhost:3000",
+      token: "tok",
+      agentId: "ag",
+      fetch: mockFetch as unknown as typeof fetch,
+    });
+    await client.listDirectory("");
+    assert.equal(captured!.get("X-Workspace"), null);
+  });
+});

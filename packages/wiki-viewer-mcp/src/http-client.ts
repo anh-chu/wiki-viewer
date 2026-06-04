@@ -15,6 +15,8 @@ export interface ClientConfig {
   baseUrl: string;       // e.g. "https://notes.example.com"
   token: string;         // Bearer token from TOFU registration
   agentId: string;       // X-Agent-Id header
+  /** Target workspace id (X-Workspace header). Optional: omit for single-workspace instances. */
+  workspace?: string;
   /** Override fetch implementation (for testing) */
   fetch?: typeof fetch;
 }
@@ -116,12 +118,14 @@ export class WikiViewerClient {
   private readonly baseUrl: string;
   private readonly token: string;
   private readonly agentId: string;
+  private readonly workspace?: string;
   private readonly _fetch: typeof fetch;
 
   constructor(config: ClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, "");
     this.token = config.token;
     this.agentId = config.agentId;
+    this.workspace = config.workspace;
     this._fetch = config.fetch ?? globalThis.fetch;
   }
 
@@ -131,6 +135,8 @@ export class WikiViewerClient {
     return {
       Authorization: `Bearer ${this.token}`,
       "X-Agent-Id": this.agentId,
+      // Target a specific workspace when configured. Omitted = server default.
+      ...(this.workspace ? { "X-Workspace": this.workspace } : {}),
       ...extra,
     };
   }

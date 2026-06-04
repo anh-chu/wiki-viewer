@@ -58,7 +58,10 @@ Content-Type: application/json
 - `id` must match `^ai:[a-z][a-z0-9-]{0,30}$`. Pick something stable per agent identity (e.g. `ai:claude`, `ai:cursor`, `ai:my-script`).
 - `displayName` 1-80 chars. What the human sees in the approval UI.
 - `scope.paths` is a glob list. Use `**/*` for full repo access, or restrict to a subtree like `notes/**`.
-- `scope.ops` ⊆ `["read", "mutate"]`.
+- `scope.ops` ⊆ `["read", "mutate"]` (add `"delete"` if you need to remove files).
+- `scope.workspaceId` (optional): pin this grant to a single workspace id. Omit
+  to request a wildcard grant usable in any workspace (the human can still narrow
+  it at approval time).
 
 Response:
 
@@ -90,9 +93,33 @@ Every subsequent request:
 ```
 Authorization: Bearer <token>
 X-Agent-Id: ai:<your-name>
+X-Workspace: <workspaceId>     # optional but recommended (see Workspaces)
 ```
 
 The `X-Agent-Id` must match the id the token was issued for. Spoofing rejected with `401`.
+
+## Workspaces
+
+A wiki-viewer instance can serve **multiple root directories ("workspaces")**
+at once. Every file path you use is relative to **one** workspace's root.
+
+- **Targeting a workspace:** send an `X-Workspace: <workspaceId>` header on every
+  request (or append `?ws=<workspaceId>` to the URL). If you omit it, the server
+  resolves to a default (the most-recently-opened workspace), which is correct
+  for a single-workspace instance but ambiguous when several exist — so prefer
+  to be explicit.
+- **Discovering workspace ids:** `GET /api/agent/settings` returns the resolved
+  `root` (the active workspace's directory) for whatever `X-Workspace` you send.
+  The human picks/creates workspaces in the UI; ask them for the id, or read it
+  from the `?ws=` param in a wiki-viewer URL they pasted.
+- **Scoped grants:** your token may be pinned to one workspace at approval time.
+  A request that resolves to a different workspace is rejected `403 FORBIDDEN`.
+  A token with no workspace pin works against any workspace (wildcard).
+- **Isolation:** paths in workspace A never touch workspace B, even if they share
+  the same relative path (`notes.md` in A ≠ `notes.md` in B).
+
+Whenever the human is working in a specific workspace, capture its id once and
+send `X-Workspace: <id>` on all subsequent calls.
 
 ## Reading
 
@@ -214,16 +241,16 @@ Acks are advisory; events are never deleted.
 
 ## Error codes
 
-| Status | Code                   | Meaning                                            |
-| ------ | ---------------------- | -------------------------------------------------- |
-| 401    | UNAUTHORIZED           | bad/missing token or X-Agent-Id                    |
-| 403    | FORBIDDEN              | scope mismatch, or `by` doesn't match `X-Agent-Id` |
-| 404    | FILE_NOT_FOUND         | path doesn't exist under server root               |
-| 409    | STALE_REVISION         | `baseRevision` wrong, retry with included snapshot |
-| 409    | BLOCK_NOT_FOUND        | ref no longer exists, refetch snapshot             |
-| 409    | IDEMPOTENCY_KEY_REUSED | same key, different body                           |
-| 422    | INVALID_MARKDOWN       | op's markdown failed to parse                      |
-| 429    | RATE_LIMITED           | bucket exhausted, honor `Retry-After` header       |
+| Status | Code                   | Meaning                                                                                 |
+| ------ | ---------------------- | --------------------------------------------------------------------------------------- |
+| 401    | UNAUTHORIZED           | bad/missing token or X-Agent-Id                                                         |
+| 403    | FORBIDDEN              | scope/path mismatch, workspace not covered by grant, or `by` doesn't match `X-Agent-Id` |
+| 404    | FILE_NOT_FOUND         | path doesn't exist under server root                                                    |
+| 409    | STALE_REVISION         | `baseRevision` wrong, retry with included snapshot                                      |
+| 409    | BLOCK_NOT_FOUND        | ref no longer exists, refetch snapshot                                                  |
+| 409    | IDEMPOTENCY_KEY_REUSED | same key, different body                                                                |
+| 422    | INVALID_MARKDOWN       | op's markdown failed to parse                                                           |
+| 429    | RATE_LIMITED           | bucket exhausted, honor `Retry-After` header                                            |
 
 ---
 

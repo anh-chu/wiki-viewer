@@ -7,6 +7,8 @@ You are connecting to a running wiki-viewer instance at $WIKI_URL (e.g. `http://
 
 **Mode rule:** Every file read returns `X-Collab-State`. If `active` → use Tier-2 block-ops so the human can review. Otherwise → use Tier-1 raw fs. A raw write to an `active` .md is rejected 409 `COLLAB_ACTIVE` with the Tier-2 URL.
 
+**Workspaces:** this instance may serve several root directories. Send `X-Workspace: <workspaceId>` (or `?ws=<id>`) on every request to target one; omit it only on a single-workspace instance (the server falls back to the default). Ask the human for the workspace id or read it from the `?ws=` param of the URL they shared. A token may be pinned to one workspace — a mismatched workspace returns 403.
+
 Set `basis` and `basisDetail` on every Tier-2 content op so the human can see where your changes came from. Prefer `suggestion.add` over direct block ops unless told otherwise.
 
-MCP-capable agents: `npx wiki-viewer-mcp` (set `WIKI_VIEWER_URL`, `WIKI_VIEWER_TOKEN`, `WIKI_VIEWER_AGENT_ID`) gives native **Tier-1 file tools** (read/write/edit/list/search/move/delete) and refuses to overwrite an `active` doc. It has **no Tier-2 collab tools** — to co-write a doc (suggestions/comments), call the Tier-2 HTTP endpoints directly. MCP = fast filework; Tier-2 HTTP = reviewable collaboration.
+MCP-capable agents: `npx wiki-viewer-mcp` (set `WIKI_VIEWER_URL`, `WIKI_VIEWER_TOKEN`, `WIKI_VIEWER_AGENT_ID`, and optionally `WIKI_VIEWER_WORKSPACE` to target a workspace) gives native **Tier-1 file tools** (read/write/edit/list/search/move/delete) and refuses to overwrite an `active` doc. It has **no Tier-2 collab tools** — to co-write a doc (suggestions/comments), call the Tier-2 HTTP endpoints directly. MCP = fast filework; Tier-2 HTTP = reviewable collaboration.

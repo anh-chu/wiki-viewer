@@ -9,6 +9,7 @@
  *   WIKI_VIEWER_URL      Base URL of wiki-viewer instance (required)
  *   WIKI_VIEWER_TOKEN    Bearer token from TOFU registration (required)
  *   WIKI_VIEWER_AGENT_ID X-Agent-Id header value (required)
+ *   WIKI_VIEWER_WORKSPACE  Workspace id for X-Workspace header (optional; targets one workspace)
  *
  * Mode-awareness:
  *   Before any raw write to a .md file, the shim checks the cached
@@ -76,12 +77,14 @@ export function createClient(overrides?: {
   baseUrl?: string;
   token?: string;
   agentId?: string;
+  workspace?: string;
   fetch?: typeof fetch;
 }): WikiViewerClient {
   return new WikiViewerClient({
     baseUrl: overrides?.baseUrl ?? requireEnv("WIKI_VIEWER_URL"),
     token: overrides?.token ?? requireEnv("WIKI_VIEWER_TOKEN"),
     agentId: overrides?.agentId ?? requireEnv("WIKI_VIEWER_AGENT_ID"),
+    workspace: overrides?.workspace ?? process.env.WIKI_VIEWER_WORKSPACE,
     fetch: overrides?.fetch,
   });
 }
@@ -524,6 +527,7 @@ async function runRegister() {
       "scope-paths": { type: "string", default: "**/*" },
       ops: { type: "string", default: "read,mutate" },
       timeout: { type: "string", default: "300" },
+      workspace: { type: "string" },
     },
     allowPositionals: true,
   });
@@ -595,6 +599,7 @@ async function runRegister() {
             WIKI_VIEWER_URL: values.url,
             WIKI_VIEWER_TOKEN: result.token,
             WIKI_VIEWER_AGENT_ID: result.agentId,
+            ...(values.workspace ? { WIKI_VIEWER_WORKSPACE: values.workspace } : {}),
           },
         },
       },

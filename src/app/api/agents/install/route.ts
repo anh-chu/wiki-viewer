@@ -74,9 +74,25 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 			{ method: "GET",    path: "/api/agent/fs/ls/<path>",    auth: "bearer+agent-id", purpose: "Directory listing. ?recursive&limit&depth. Scope-filtered. Excludes .proof/." },
 			{ method: "POST",   path: "/api/agent/fs/move",         auth: "bearer+agent-id", purpose: "Move/rename. Body: {from, to, ifMatch?}. Moves .md sidecar too." },
 			{ method: "POST",   path: "/api/agent/fs/search",       auth: "bearer+agent-id", purpose: "Server-side grep or glob. Body: {kind:'grep'|'glob', query, path?, glob?, limit?}." },
+			// Settings (resolved workspace root, rate limit)
+			{ method: "GET",    path: "/api/agent/settings",        auth: "bearer+agent-id", purpose: "Returns rateLimit + resolved 'root' (the active workspace's directory for the X-Workspace you send)." },
 			// Human presence (for editor lease — drives active collab-state)
 			{ method: "POST",   path: "/api/wiki/presence",         auth: "session",          purpose: "Human editor lease heartbeat. Body: {path, action:'open'|'heartbeat'|'close'}." },
 		],
+		workspaces: {
+			description:
+				"This instance can serve multiple root directories ('workspaces'). Every agent path is relative to ONE workspace root.",
+			header: "X-Workspace: <workspaceId>",
+			queryParam: "ws=<workspaceId>",
+			default:
+				"If omitted, the server resolves to the most-recently-opened workspace. Correct for single-workspace instances; be explicit when several exist.",
+			discoverId:
+				"Ask the human for the workspace id, read it from the ?ws= param of a pasted wiki-viewer URL, or call GET /api/agent/settings (with X-Workspace) to confirm the resolved 'root'.",
+			scoped:
+				"A token may be pinned to one workspace (scope.workspaceId at approval). Requests resolving to a different workspace return 403 FORBIDDEN. A token with no pin is wildcard (any workspace).",
+			isolation:
+				"Paths in one workspace never touch another, even with identical relative paths.",
+		},
 		capabilities: {
 			maxFileBytes: MAX_FILE_BYTES,
 			supportsRange: true,
@@ -85,6 +101,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 			search: ["grep", "glob"],
 			globDialect: "**,*,?",
 			scopeOps: ["read", "mutate", "delete"],
+			scopeWorkspaceId: true,
+			workspaceHeader: "X-Workspace",
 			collabStates: ["active", "tracked", "untracked", "not-markdown"],
 			collabPrecondition: "If-Collab-Match",
 		},
@@ -103,8 +121,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 		mcpAdapter: {
 			package: "wiki-viewer-mcp",
 			invoke: "npx wiki-viewer-mcp",
-			env: ["WIKI_VIEWER_URL", "WIKI_VIEWER_TOKEN", "WIKI_VIEWER_AGENT_ID"],
-			description: "Thin MCP adapter mapping standard MCP filesystem tools onto these endpoints. Reads X-Collab-State and blocks or warns on raw writes to active .md files.",
+			env: ["WIKI_VIEWER_URL", "WIKI_VIEWER_TOKEN", "WIKI_VIEWER_AGENT_ID", "WIKI_VIEWER_WORKSPACE"],
+			description: "Thin MCP adapter mapping standard MCP filesystem tools onto these endpoints. Set WIKI_VIEWER_WORKSPACE to target a specific workspace (sends X-Workspace on every call). Reads X-Collab-State and blocks or warns on raw writes to active .md files.",
 		},
 		ops: [
 			"block.replace",
