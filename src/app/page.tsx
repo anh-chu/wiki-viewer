@@ -60,9 +60,6 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { AuthSettingsSheet } from "@/components/auth-settings-sheet";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { FrontmatterHeader } from "@/components/wiki/frontmatter-header";
-import { MarkdownPreview } from "@/components/wiki/markdown-preview";
-import { parseFrontmatter } from "@/lib/markdown/parse-frontmatter";
 
 import { showError, showSuccess } from "@/lib/toast";
 import {
@@ -497,6 +494,15 @@ export default function Page() {
 
 	const refreshViewer = useCallback(async () => {
 		if (!openFile) return;
+		if (isMarkdown(openFile.name)) {
+			setFileLoading(true);
+			try {
+				await useEditorStore.getState().loadPage(openFile.path);
+			} finally {
+				setFileLoading(false);
+			}
+			return;
+		}
 		const kind = viewerKindFor(openFile.name, openFile.nodeType);
 		if (!["editor", "text"].includes(kind) && !isText(openFile.name)) return;
 		setFileLoading(true);
@@ -513,6 +519,12 @@ export default function Page() {
 			/* ignore */
 		}
 		setFileLoading(false);
+	}, [openFile]);
+
+	useEffect(() => {
+		if (!openFile || !isMarkdown(openFile.name)) return;
+		if (useEditorStore.getState().currentPath === openFile.path) return;
+		void useEditorStore.getState().loadPage(openFile.path);
 	}, [openFile]);
 
 	// Keep watcher refs in sync
@@ -641,6 +653,15 @@ export default function Page() {
 		setSaveError(null);
 		setFileContent(null);
 		setFileRevision(0);
+		if (node.type === "file" && isMarkdown(node.name)) {
+			setFileLoading(true);
+			try {
+				await useEditorStore.getState().loadPage(node.path);
+			} finally {
+				setFileLoading(false);
+			}
+			return;
+		}
 		const kind = viewerKindFor(node.name, node.type);
 		if (!["editor", "text"].includes(kind) && !isText(node.name)) return;
 		setFileLoading(true);
@@ -1947,14 +1968,14 @@ export default function Page() {
 								<div className="flex items-center gap-1 shrink-0">
 									{isText(openFile.name) &&
 										!editing &&
-										fileContent !== null && (
+										(fileContent !== null || isMarkdown(openFile.name)) && (
 											<Button
 												size="sm"
 												variant="ghost"
 												className="h-7 w-7 p-0"
 												onClick={() => {
 													setEditing(true);
-													setEditContent(fileContent);
+													setEditContent(fileContent ?? "");
 													setSaveError(null);
 													if (isMarkdown(openFile.name)) {
 														void useEditorStore
@@ -1968,7 +1989,7 @@ export default function Page() {
 										)}
 									{isText(openFile.name) &&
 										!editing &&
-										fileContent !== null && (
+										(fileContent !== null || isMarkdown(openFile.name)) && (
 											<Button
 												size="sm"
 												variant="ghost"
@@ -2011,6 +2032,16 @@ export default function Page() {
 											spellCheck={false}
 											className="flex-1 w-full min-h-0 resize-none bg-background text-foreground px-4 py-3 font-mono text-[13px] leading-relaxed outline-none border-0"
 										/>
+									)}
+								</div>
+							) : isMarkdown(openFile.name) ? (
+								<div className="flex-1 flex flex-col overflow-hidden min-h-0">
+									{fileLoading ? (
+										<div className="flex justify-center py-8">
+											<Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+										</div>
+									) : (
+										<KBEditor mode="viewing" />
 									)}
 								</div>
 							) : (
@@ -2065,40 +2096,9 @@ export default function Page() {
 											title={openFile.name}
 										/>
 									) : fileContent !== null ? (
-										["md", "markdown"].includes(ext(openFile.name)) ? (
-											(() => {
-												const { data, body } = parseFrontmatter(fileContent);
-												return (
-													<>
-														<FrontmatterHeader
-															data={data as Record<string, never>}
-														/>
-														<MarkdownPreview
-															markdown={body}
-															pagePath={openFile.path}
-															onNavigate={(targetPath, anchor) => {
-																void openViewer({
-																	path: targetPath,
-																	name: targetPath.split('/').pop() ?? targetPath,
-																	type: 'file',
-																} as TreeNode);
-																if (anchor) {
-																	setTimeout(() => {
-																		document
-																			.getElementById(anchor)
-																			?.scrollIntoView({ behavior: 'smooth' });
-																	}, 200);
-																}
-															}}
-														/>
-													</>
-												);
-											})()
-										) : (
-											<pre className="text-xs font-mono whitespace-pre-wrap break-words leading-relaxed">
-												{fileContent}
-											</pre>
-										)
+										<pre className="text-xs font-mono whitespace-pre-wrap break-words leading-relaxed">
+											{fileContent}
+										</pre>
 									) : isText(openFile.name) ? (
 										<p className="text-sm text-muted-foreground">
 											Could not load file.
@@ -2112,7 +2112,7 @@ export default function Page() {
 								</div>
 							)}
 
-							{editing && (
+							{editing && !isMarkdown(openFile.name) && (
 								<div className="border-t px-4 py-2 flex items-center justify-end gap-2 bg-muted shrink-0">
 									{saveError && (
 										<span className="text-xs text-destructive mr-auto">

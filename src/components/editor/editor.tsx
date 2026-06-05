@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { findNodeByPath } from "@/lib/cabinets/tree";
 import { markdownToHtml } from "@/lib/markdown/to-html";
 import { htmlToMarkdown } from "@/lib/markdown/to-markdown";
+import { parseFrontmatter } from "@/lib/markdown/parse-frontmatter";
 import { useAIPanelStore } from "@/stores/ai-panel-store";
 import { useEditorStore } from "@/stores/editor-store";
 import { useTreeStore } from "@/stores/tree-store";
@@ -35,6 +36,7 @@ import {
 	type WikiCreateResult,
 } from "./wiki-link-create-dialog";
 import { WikiLinkPicker } from "./wiki-link-picker";
+import { FrontmatterHeader } from "@/components/wiki/frontmatter-header";
 
 async function uploadFile(
 	pagePath: string,
@@ -143,7 +145,13 @@ function resolveInternalLink(
 	return findPageBySlug(slug, currentPath, nodes);
 }
 
-export function KBEditor() {
+type KBEditorMode = "viewing" | "editing" | "suggesting";
+
+interface KBEditorProps {
+	mode?: KBEditorMode;
+}
+
+export function KBEditor({ mode }: KBEditorProps = {}) {
 	const {
 		currentPath,
 		content,
@@ -155,9 +163,18 @@ export function KBEditor() {
 		editMode,
 		setEditMode,
 	} = useEditorStore();
+	const effectiveMode = mode ?? editMode;
+	const isViewing = effectiveMode === "viewing";
+	const isSuggesting = effectiveMode === "suggesting";
+	const parsedViewingContent = useMemo(
+		() => (isViewing ? parseFrontmatter(content) : { data: {}, body: content }),
+		[content, isViewing],
+	);
 	const nodes = useTreeStore((s) => s.nodes);
 	const editorMaxW = useViewWidthStore((s) => VIEW_WIDTH_CSS[s.width]);
-	const isRtl = frontmatter?.dir === "rtl";
+	const isRtl = isViewing
+		? parsedViewingContent.data.dir === "rtl"
+		: frontmatter?.dir === "rtl";
 	const { open: openAI, clearMessages } = useAIPanelStore();
 	const { open: openWikiCreate, Dialog: WikiCreateDialog } =
 		useWikiLinkCreate();
@@ -168,6 +185,8 @@ export function KBEditor() {
 	openWikiCreateRef.current = openWikiCreate;
 
 	const isLoadingRef = useRef(false);
+	const isViewingRef = useRef(isViewing);
+	isViewingRef.current = isViewing;
 	const [sourceMode, setSourceMode] = useState(false);
 	const [sourceText, setSourceText] = useState("");
 	// Reset the tab to "page" whenever the path changes — opening a new folder
@@ -200,6 +219,7 @@ export function KBEditor() {
 	useEffect(() => {
 		if (typeof window === "undefined") return;
 		if (!currentPath) return;
+		if (isViewing) return;
 		if (!/\.(md|markdown)$/i.test(currentPath)) return;
 
 		const path = currentPath;
@@ -228,7 +248,7 @@ export function KBEditor() {
 			document.removeEventListener("visibilitychange", onHidden);
 			ping("close");
 		};
-	}, [currentPath]);
+	}, [currentPath, isViewing]);
 
 	// Subscribe to chokidar SSE: when current file changes on disk, reload sidecar.
 	useEffect(() => {
@@ -250,6 +270,9 @@ export function KBEditor() {
 						.getState()
 						.loadSnapshot(activePath)
 						.then(() => useProofStore.getState().loadSidecar(activePath));
+					if (isViewingRef.current) {
+						void useEditorStore.getState().loadPage(activePath);
+					}
 				}
 			} catch {
 				// ignore malformed events
@@ -407,6 +430,7 @@ export function KBEditor() {
 
 	const flushSuggestions = useCallback(async () => {
 		if (flushingRef.current) return;
+		if (isViewingRef.current) return;
 		if (useEditorStore.getState().editMode !== "suggesting") return;
 		if (!suggestDirtyRef.current) return;
 		const ed = editorRef.current;
@@ -534,7 +558,7 @@ export function KBEditor() {
 
 	const handleUpdate = useCallback(
 		({ editor }: { editor: ReturnType<typeof useEditor> }) => {
-			if (isLoadingRef.current || !editor) return;
+			if (isLoadingRef.current || isViewingRef.current || !editor) return;
 			// In suggesting mode, mark the edit dirty so the next block-change or
 			// blur flushes it into suggestions. Still push content to the store so
 			// the store guard (no autosave in suggesting mode) keeps it in sync.
@@ -551,6 +575,7 @@ export function KBEditor() {
 	const editor = useEditor({
 		extensions: editorExtensions,
 		content: "",
+		editable: !isViewing,
 		onUpdate: handleUpdate,
 		onBlur: () => {
 			void flushSuggestions();
@@ -629,6 +654,8 @@ export function KBEditor() {
 									?.scrollIntoView({ behavior: "smooth" });
 							}, 200);
 						}
+					} else if (isViewingRef.current) {
+						return true;
 					} else {
 						void openWikiCreateRef.current(slug).then((result) => {
 							if (result.ok) {
@@ -674,6 +701,7 @@ export function KBEditor() {
 				return true;
 			},
 			handlePaste: (_view, event) => {
+				if (isViewingRef.current) return false;
 				const files = event.clipboardData?.files;
 				const pagePath = useEditorStore.getState().currentPath;
 
@@ -703,6 +731,7 @@ export function KBEditor() {
 				return false;
 			},
 			handleDrop: (_view, event) => {
+				if (isViewingRef.current) return false;
 				const files = event.dataTransfer?.files;
 				if (!files || files.length === 0) return false;
 
@@ -738,6 +767,11 @@ export function KBEditor() {
 	const editorRef = useRef<typeof editor>(editor);
 	editorRef.current = editor;
 
+	useEffect(() => {
+		editor?.setEditable(!isViewing);
+		if (isViewing) setSourceMode(false);
+	}, [editor, isViewing]);
+
 	// When content updates from store (after loadPage), set it in editor
 	const prevPathRef = useRef<string | null>(null);
 	const renderedKeyRef = useRef<string | null>(null);
@@ -757,7 +791,8 @@ export function KBEditor() {
 		if (isLoading && content === "") return;
 		// Dedupe identical (path, content) renders — e.g. cached paint followed
 		// by a fresh fetch that returned the same markdown.
-		const key = `${currentPath} ${content}`;
+		const renderMarkdown = parsedViewingContent.body;
+		const key = `${currentPath} ${renderMarkdown}`;
 		if (renderedKeyRef.current === key) {
 			if (renderedPath !== currentPath) setRenderedPath(currentPath);
 			return;
@@ -766,7 +801,10 @@ export function KBEditor() {
 
 		const setContent = async () => {
 			isLoadingRef.current = true;
-			const html = await markdownToHtml(content, currentPath);
+			const html = await markdownToHtml(
+				renderMarkdown,
+				isViewing ? { pagePath: currentPath, sanitize: true } : currentPath,
+			);
 			editor.commands.setContent(html);
 			renderedKeyRef.current = key;
 			setRenderedPath(currentPath);
@@ -776,7 +814,18 @@ export function KBEditor() {
 		};
 
 		setContent();
-	}, [editor, content, currentPath, isLoading, renderedPath]);
+	}, [editor, content, currentPath, isLoading, renderedPath, parsedViewingContent.body, isViewing]);
+
+	useEffect(() => {
+		if (!isViewing || !renderedPath) return;
+		const container = scrollContainerRef.current;
+		if (!container) return;
+		container
+			.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')
+			.forEach((input) => {
+				input.disabled = true;
+			});
+	}, [isViewing, renderedPath, parsedViewingContent.body]);
 
 	const showLoadingOverlay =
 		currentPath !== null && (isLoading || renderedPath !== currentPath);
@@ -922,22 +971,24 @@ export function KBEditor() {
 					</div>
 				) : (
 					<>
-						<div className="flex items-center min-w-0">
-							<div className="flex-1 min-w-0">
-								{!sourceMode && <EditorToolbar editor={editor} />}
+						{!isViewing && (
+							<div className="flex items-center min-w-0">
+								<div className="flex-1 min-w-0">
+									{!sourceMode && <EditorToolbar editor={editor} />}
+								</div>
+								<button
+									onClick={toggleSourceMode}
+									className={`flex items-center gap-1.5 px-3 py-1 mr-2 text-[11px] rounded-md transition-colors border border-border ${
+										sourceMode
+											? "bg-primary text-primary-foreground"
+											: "text-muted-foreground hover:bg-accent"
+									}`}
+								>
+									<Code2 className="h-3 w-3" />
+									{sourceMode ? "Preview" : "Markdown"}
+								</button>
 							</div>
-							<button
-								onClick={toggleSourceMode}
-								className={`flex items-center gap-1.5 px-3 py-1 mr-2 text-[11px] rounded-md transition-colors border border-border ${
-									sourceMode
-										? "bg-primary text-primary-foreground"
-										: "text-muted-foreground hover:bg-accent"
-								}`}
-							>
-								<Code2 className="h-3 w-3" />
-								{sourceMode ? "Preview" : "Markdown"}
-							</button>
-						</div>
+						)}
 
 						{sourceMode ? (
 							<div
@@ -953,7 +1004,7 @@ export function KBEditor() {
 							</div>
 						) : (
 							<div className="flex-1 relative" dir={isRtl ? "rtl" : undefined}>
-								{editMode === "suggesting" && (
+								{isSuggesting && (
 									<div className="absolute top-0 inset-x-0 z-20 flex items-center justify-center gap-2 px-3 py-1 bg-primary/10 border-b border-primary/20 text-[11px] text-primary pointer-events-none">
 										Suggesting mode · your edits become suggestions for review
 									</div>
@@ -962,7 +1013,7 @@ export function KBEditor() {
 								<div
 									ref={scrollContainerRef}
 									className={`absolute inset-0 overflow-y-auto ${
-										editMode === "suggesting" ? "pt-7" : ""
+										isSuggesting ? "pt-7" : ""
 								}`}
 									style={{ ["--editor-max-w" as string]: editorMaxW }}
 									data-editor-scroll
@@ -1051,8 +1102,15 @@ export function KBEditor() {
 										/>
 									)}
 
+									{isViewing && Object.keys(parsedViewingContent.data).length > 0 && (
+										<div className="max-w-[var(--editor-max-w,48rem)] mx-auto px-4 sm:px-8 pt-6">
+											<FrontmatterHeader
+												data={parsedViewingContent.data as Record<string, never>}
+											/>
+										</div>
+									)}
 									<EditorContent editor={editor} />
-									{currentPath && /\.md$/i.test(currentPath) && (
+									{currentPath && /\.(md|markdown)$/i.test(currentPath) && (
 										<BacklinksPanel currentPath={currentPath} />
 									)}
 									{/* Proof-span hover delegation */}
@@ -1082,17 +1140,21 @@ export function KBEditor() {
 											}}
 										/>
 									)}
-									<EditorBubbleMenu
-										editor={editor}
-										onSuggestEdit={openSuggestForSelection}
-										onComment={openCommentForSelection}
-									/>
-									<TableMenu editor={editor} />
-									<SlashCommands editor={editor} />
-									<WikiLinkPicker
-										editor={editor}
-										onCreateRequest={openWikiCreateRef.current}
-									/>
+									{!isViewing && (
+										<>
+											<EditorBubbleMenu
+												editor={editor}
+												onSuggestEdit={openSuggestForSelection}
+												onComment={openCommentForSelection}
+											/>
+											<TableMenu editor={editor} />
+											<SlashCommands editor={editor} />
+											<WikiLinkPicker
+												editor={editor}
+												onCreateRequest={openWikiCreateRef.current}
+											/>
+										</>
+									)}
 
 									{/* AI Edit Prompt + slash hint */}
 									<div className="max-w-[var(--editor-max-w,48rem)] mx-auto px-8 pb-8 flex items-center gap-4">
@@ -1103,12 +1165,14 @@ export function KBEditor() {
 											<Sparkles className="h-3.5 w-3.5 group-hover:text-primary transition-colors" />
 											<span>Edit with AI</span>
 										</button>
-										<span className="text-[11px] text-muted-foreground/30 select-none">
-											<kbd className="rounded px-1 py-0.5 font-mono text-[10px] ring-1 ring-foreground/10">
-												/
-											</kbd>{" "}
-											for commands
-										</span>
+										{!isViewing && (
+											<span className="text-[11px] text-muted-foreground/30 select-none">
+												<kbd className="rounded px-1 py-0.5 font-mono text-[10px] ring-1 ring-foreground/10">
+													/
+												</kbd>{" "}
+												for commands
+											</span>
+										)}
 									</div>
 								</div>
 
@@ -1123,7 +1187,8 @@ export function KBEditor() {
 							</div>
 						)}
 
-						{/* Status bar */}
+						{!isViewing && (
+						/* Status bar */
 						<div className="flex items-center justify-between px-4 py-1 border-t border-border text-xs text-muted-foreground/60">
 							<span className="text-[10.5px] text-muted-foreground/30 select-none hidden sm:block">
 								<kbd className="rounded px-1 font-mono text-[9.5px] ring-1 ring-foreground/10">
@@ -1197,6 +1262,7 @@ export function KBEditor() {
 								</span>
 							</div>
 						</div>
+						)}
 					</>
 				)}
 			</div>
