@@ -4,6 +4,7 @@ import { create } from "zustand";
 export interface RecentEntry {
 	path: string;
 	name: string;
+	type?: "file" | "app" | "node-app";
 }
 
 interface RecentState {

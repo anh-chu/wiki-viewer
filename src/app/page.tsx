@@ -292,7 +292,7 @@ export default function Page() {
 	// Recent files
 	const recents = useRecentStore((s) => s.recents);
 	const [pinnedCollapsed, setPinnedCollapsed] = useState(false);
-	const [recentCollapsed, setRecentCollapsed] = useState(false);
+	const [recentCollapsed, setRecentCollapsed] = useState(true);
 
 	// Pins
 	const pins = usePinStore((s) => s.pins);
@@ -1350,7 +1350,7 @@ export default function Page() {
 											onClick={() =>
 												usePinStore
 													.getState()
-													.toggle({ path: node.path, name: node.name }, activeWorkspaceId)
+													.toggle({ path: node.path, name: node.name, type: (node.type === "dir" ? "file" : node.type) as "file" | "app" | "node-app" }, activeWorkspaceId)
 											}
 										>
 											<Star className={cn("mr-2 h-3.5 w-3.5", isNodePinned && "fill-current text-amber-400")} />
@@ -1783,6 +1783,7 @@ export default function Page() {
 									{pinnedCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
 									<Pin className="h-3 w-3" />
 									Pinned
+									<span className="ml-auto text-[9px] tabular-nums opacity-60">{pins.length}</span>
 								</button>
 								{!pinnedCollapsed && pins.map((p) => (
 									<div
@@ -1793,8 +1794,8 @@ export default function Page() {
 											"group flex items-center gap-1.5 rounded-sm px-2 py-1 text-sm cursor-pointer transition-colors select-none",
 											openFile?.path === p.path ? "bg-accent-soft text-foreground font-medium" : "hover:bg-muted",
 										)}
-										onClick={() => void openViewer({ path: p.path, name: p.name, type: "file", modifiedAt: "" } as TreeNode)}
-										onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); void openViewer({ path: p.path, name: p.name, type: "file", modifiedAt: "" } as TreeNode); } }}
+										onClick={() => void openViewer({ path: p.path, name: p.name, type: (p.type ?? "file") as TreeNode["type"], modifiedAt: "" } as TreeNode)}
+										onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); void openViewer({ path: p.path, name: p.name, type: (p.type ?? "file") as TreeNode["type"], modifiedAt: "" } as TreeNode); } }}
 									>
 										<Star className="h-3 w-3 shrink-0 fill-current text-amber-400" />
 										<span className="min-w-0 flex-1 truncate text-xs">{p.name}</span>
@@ -1826,6 +1827,7 @@ export default function Page() {
 								>
 									{recentCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
 									Recent
+									<span className="ml-auto text-[9px] tabular-nums opacity-60">{recents.length}</span>
 								</button>
 								{!recentCollapsed && recents.slice(0, 8).map((r) => (
 									<div
@@ -1836,8 +1838,8 @@ export default function Page() {
 											"flex items-center gap-1.5 rounded-sm px-2 py-1 text-sm cursor-pointer transition-colors select-none",
 											openFile?.path === r.path ? "bg-accent-soft text-foreground font-medium" : "hover:bg-muted",
 										)}
-										onClick={() => void openViewer({ path: r.path, name: r.name, type: "file", modifiedAt: "" } as TreeNode)}
-										onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); void openViewer({ path: r.path, name: r.name, type: "file", modifiedAt: "" } as TreeNode); } }}
+										onClick={() => void openViewer({ path: r.path, name: r.name, type: (r.type ?? "file") as TreeNode["type"], modifiedAt: "" } as TreeNode)}
+										onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); void openViewer({ path: r.path, name: r.name, type: (r.type ?? "file") as TreeNode["type"], modifiedAt: "" } as TreeNode); } }}
 									>
 										<FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
 										<span className="flex-1 truncate text-xs">{r.name}</span>
