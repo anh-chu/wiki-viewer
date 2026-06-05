@@ -16,6 +16,7 @@ import type { TreeNode } from "@/types";
 import { useProofStore } from "@/stores/proof-store";
 import { captureSuggestion } from "@/lib/proof/suggest-capture";
 import { wsFetch, withWs } from "@/lib/workspace-client";
+import { showError } from "@/lib/toast";
 import { EditorBubbleMenu } from "./bubble-menu";
 import { EditorToolbar } from "./editor-toolbar";
 import { editorExtensions } from "./extensions";
@@ -46,10 +47,14 @@ async function uploadFile(
 			method: "POST",
 			body: formData,
 		});
-		if (!res.ok) return null;
+		if (!res.ok) {
+			showError(`Upload failed: ${file.name}`);
+			return null;
+		}
 		const data = await res.json();
 		return data.url;
 	} catch {
+		showError(`Upload failed: ${file.name}`);
 		return null;
 	}
 }

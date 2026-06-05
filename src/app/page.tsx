@@ -305,7 +305,9 @@ export default function Page() {
 		const cutoff = new Date(Date.now() - 60 * 1000).toISOString();
 		const paths = new Set<string>();
 		for (const ev of activity) {
-			if (ev.at >= cutoff && ev.path) paths.add(ev.path);
+			// Only agent-authored events count as "agent presence".
+			if (ev.at >= cutoff && ev.path && ev.by?.startsWith("ai:"))
+				paths.add(ev.path);
 		}
 		return paths;
 	}, [activity]);
@@ -618,8 +620,8 @@ export default function Page() {
 	}, []);
 
 	async function openViewer(node: TreeNode) {
-		// Push to recent files (only real files, not dirs)
-		if (node.type !== "dir") {
+		// Push to recent files (only real files, not dirs/apps)
+		if (node.type === "file") {
 			useRecentStore.getState().push(
 				{ path: node.path, name: node.name },
 				activeWorkspaceId,
@@ -1350,6 +1352,8 @@ export default function Page() {
 					onSelect={() => {
 						const url = new URL(location.href);
 						url.searchParams.set("path", node.path);
+						if (activeWorkspaceId)
+							url.searchParams.set("ws", activeWorkspaceId);
 						void navigator.clipboard.writeText(url.toString());
 						showSuccess("URL copied");
 					}}
@@ -1397,7 +1401,14 @@ export default function Page() {
 				</div>
 			)}
 			{rootConfigured === true && !addingWorkspace && <>
-			<SearchCommandDialog onOpenFile={openFromSearch} />
+			<SearchCommandDialog
+				onOpenFile={openFromSearch}
+				onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
+				onNewFile={() => setNewFileParent("")}
+				onCopyPath={() => {
+					if (openFile) void navigator.clipboard.writeText(openFile.path);
+				}}
+			/>
 			{/* Tree sidebar */}
 			{!sidebarCollapsed && (
 				<Card className="flex flex-col w-72 shrink-0 overflow-hidden rounded-none border-r border-l-0 border-t-0 border-b-0">
@@ -1630,7 +1641,7 @@ export default function Page() {
 								{!pinnedCollapsed && pins.map((p) => (
 									<div
 										key={p.path}
-										role="treeitem"
+										role="button"
 										tabIndex={0}
 										className={cn(
 											"flex items-center gap-1.5 rounded-sm px-2 py-1 text-sm cursor-pointer transition-colors select-none",
@@ -1660,7 +1671,7 @@ export default function Page() {
 								{!recentCollapsed && recents.slice(0, 8).map((r) => (
 									<div
 										key={r.path}
-										role="treeitem"
+										role="button"
 										tabIndex={0}
 										className={cn(
 											"flex items-center gap-1.5 rounded-sm px-2 py-1 text-sm cursor-pointer transition-colors select-none",

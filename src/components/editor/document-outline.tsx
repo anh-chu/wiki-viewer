@@ -126,6 +126,31 @@ export function DocumentOutline({ editor, scrollContainerRef }: DocumentOutlineP
 	);
 
 	const showToc = headings.length >= 2;
+	const [overlayOpen, setOverlayOpen] = useState(false);
+
+	const headingList = (
+		<>
+			{headings.map((h, i) => (
+				<button
+					key={`${h.uid}-${i}`}
+					onClick={() => {
+						scrollToHeading(h);
+						setOverlayOpen(false);
+					}}
+					title={h.text}
+					className={cn(
+						"text-left text-[10.5px] leading-snug py-0.5 rounded truncate transition-colors",
+						activeUid === h.uid
+							? "text-primary bg-primary/10 font-medium"
+							: "text-muted-foreground/60 hover:text-foreground hover:bg-accent",
+					)}
+					style={{ paddingLeft: `${(h.level - 1) * 8 + 4}px` }}
+				>
+					{h.text}
+				</button>
+			))}
+		</>
+	);
 
 	return (
 		<>
@@ -140,7 +165,7 @@ export function DocumentOutline({ editor, scrollContainerRef }: DocumentOutlineP
 				/>
 			</div>
 
-			{/* TOC panel — only on xl+ screens, only when 2+ headings */}
+			{/* TOC rail — xl+ screens (enough side gutter to avoid content overlap) */}
 			{showToc && (
 				<div className="absolute right-1 top-4 z-20 hidden xl:block w-40">
 					<button
@@ -156,23 +181,38 @@ export function DocumentOutline({ editor, scrollContainerRef }: DocumentOutlineP
 							aria-label="Document outline"
 							className="flex flex-col gap-px max-h-[50vh] overflow-y-auto pr-1"
 						>
-							{headings.map((h, i) => (
-								<button
-									key={`${h.uid}-${i}`}
-									onClick={() => scrollToHeading(h)}
-									title={h.text}
-									className={cn(
-										"text-left text-[10.5px] leading-snug py-0.5 rounded truncate transition-colors",
-										activeUid === h.uid
-											? "text-primary bg-primary/10 font-medium"
-											: "text-muted-foreground/60 hover:text-foreground hover:bg-accent",
-									)}
-									style={{ paddingLeft: `${(h.level - 1) * 8 + 4}px` }}
-								>
-									{h.text}
-								</button>
-							))}
+							{headingList}
 						</nav>
+					)}
+				</div>
+			)}
+
+			{/* Floating toggle + overlay — below xl, where there's no room for a rail */}
+			{showToc && (
+				<div className="absolute right-2 top-2 z-30 xl:hidden">
+					<button
+						onClick={() => setOverlayOpen((o) => !o)}
+						className="flex items-center gap-1 px-1.5 py-1 rounded bg-background/80 backdrop-blur border border-border/60 text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors text-[10px] shadow-sm"
+						aria-label="Document outline"
+						aria-expanded={overlayOpen}
+					>
+						<List className="h-3.5 w-3.5" />
+					</button>
+					{overlayOpen && (
+						<>
+							<button
+								aria-hidden
+								tabIndex={-1}
+								className="fixed inset-0 z-0 cursor-default"
+								onClick={() => setOverlayOpen(false)}
+							/>
+							<nav
+								aria-label="Document outline"
+								className="absolute right-0 top-9 z-10 w-52 max-h-[60vh] overflow-y-auto flex flex-col gap-px rounded-lg border border-border bg-popover p-2 shadow-lg"
+							>
+								{headingList}
+							</nav>
+						</>
 					)}
 				</div>
 			)}
