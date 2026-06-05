@@ -7,6 +7,23 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ViewerToolbar } from "@/components/layout/viewer-toolbar";
 import { Button } from "@/components/ui/button";
 import { withWs, wsFetch } from "@/lib/workspace-client";
+import { FileFallbackViewer } from "@/components/editor/file-fallback-viewer";
+
+// Heuristic binary sniff: a NUL byte never appears in UTF-8/UTF-16LE text we
+// care about, and a high ratio of control chars (excluding tab/newline/CR)
+// signals binary. Only inspect a prefix \u2014 enough to classify cheaply.
+function looksBinary(bytes: Uint8Array): boolean {
+	const n = Math.min(bytes.length, 8192);
+	if (n === 0) return false;
+	let suspicious = 0;
+	for (let i = 0; i < n; i++) {
+		const b = bytes[i];
+		if (b === 0) return true; // NUL \u2192 definitely binary
+		// Allow tab(9), LF(10), CR(13); flag other C0 control chars.
+		if (b < 9 || (b > 13 && b < 32)) suspicious++;
+	}
+	return suspicious / n > 0.3;
+}
 
 interface SourceViewerProps {
 	path: string;
@@ -73,6 +90,7 @@ function formatBadge(filename: string): string {
 
 export function SourceViewer({ path }: SourceViewerProps) {
 	const [content, setContent] = useState<string | null>(null);
+	const [binary, setBinary] = useState(false);
 	const [loading, setLoading] = useState(true);
 	const [wrap, setWrap] = useState(false);
 	const [copied, setCopied] = useState(false);
@@ -86,8 +104,12 @@ export function SourceViewer({ path }: SourceViewerProps) {
 		try {
 			const res = await wsFetch(assetUrl);
 			if (res.ok) {
-				const text = await res.text();
-				setContent(text);
+				const bytes = new Uint8Array(await res.arrayBuffer());
+				if (looksBinary(bytes)) {
+					setBinary(true);
+				} else {
+					setContent(new TextDecoder("utf-8").decode(bytes));
+				}
 			}
 		} catch {
 			/* ignore */
@@ -128,6 +150,11 @@ export function SourceViewer({ path }: SourceViewerProps) {
 		setCopied(true);
 		setTimeout(() => setCopied(false), 2000);
 	};
+
+	// Detected binary at runtime \u2192 reuse the download/reveal fallback UI.
+	if (binary) {
+		return <FileFallbackViewer path={path} title={filename} />;
+	}
 
 	return (
 		<div className="flex-1 flex flex-col overflow-hidden">

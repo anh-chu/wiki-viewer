@@ -113,8 +113,14 @@ function viewerKindFor(
 	if (nodeType === "node-app") return "node-app";
 	if (nodeType === "app") return "app";
 	if (nodeType === "dir") return "fallback";
+	const base = filename.split("/").pop() ?? filename;
+	// Dotfile with no real extension (".env", ".gitignore", ".bashrc"):
+	// `".env".split(".").pop()` -> "env", which would match nothing below,
+	// so treat any leading-dot name as text and let the viewer sniff bytes.
+	if (base.startsWith(".") && base.indexOf(".", 1) === -1) return "source";
 	const fileExt = ext(filename);
-	if (!fileExt) return "fallback";
+	// No extension at all ("Makefile", "LICENSE", "Dockerfile"): assume text.
+	if (!fileExt) return "source";
 	if (["md", "markdown"].includes(fileExt)) return "editor";
 	if (fileExt === "txt") return "text";
 	if (["csv", "tsv"].includes(fileExt)) return "csv";
@@ -145,7 +151,11 @@ function viewerKindFor(
 		].includes(fileExt)
 	)
 		return "source";
-	return "fallback";
+	// Default: assume text and let SourceViewer sniff the bytes. If the file is
+	// actually binary, SourceViewer degrades to a download/reveal fallback.
+	// This avoids a brittle text-extension whitelist that always misses
+	// something (.env, .ini, .lock, .gradle, .properties, ...).
+	return "source";
 }
 
 const TEXT_EDITABLE_EXTS = new Set([
@@ -407,7 +417,7 @@ export default function Page() {
 	const collectExpandedPaths = useCallback((nodes: TreeNode[]): string[] => {
 		const paths: string[] = [];
 		for (const n of nodes) {
-			if ((n.type === "dir" || n.type === "app") && n.expanded && n.children) {
+			if ((n.type === "dir" || n.type === "app" || n.type === "node-app") && n.expanded && n.children) {
 				paths.push(n.path);
 				paths.push(...collectExpandedPaths(n.children));
 			}
@@ -529,7 +539,7 @@ export default function Page() {
 	}, [rootConfigured, reloadDir]);
 
 	async function toggleFolder(node: TreeNode) {
-		if (node.type !== "dir" && node.type !== "app") return;
+		if (node.type !== "dir" && node.type !== "app" && node.type !== "node-app") return;
 		if (!node.expanded) {
 			if (node.children === undefined) {
 				setRoots((prev) =>
@@ -941,7 +951,7 @@ export default function Page() {
 						if (e.key === "Enter" || e.key === " ") {
 							e.preventDefault();
 							if (node.type === "dir") toggleFolder(node);
-							else if (node.type === "app") { openViewer(node); toggleFolder(node); }
+							else if (node.type === "app" || node.type === "node-app") { openViewer(node); toggleFolder(node); }
 							else openViewer(node);
 						}
 					}}
@@ -968,11 +978,11 @@ export default function Page() {
 					style={{ paddingLeft: `${depth * 14 + 8}px` }}
 					onClick={() => {
 						if (node.type === "dir") toggleFolder(node);
-						else if (node.type === "app") { openViewer(node); toggleFolder(node); }
+						else if (node.type === "app" || node.type === "node-app") { openViewer(node); toggleFolder(node); }
 						else openViewer(node);
 					}}
 				>
-					{(node.type === "dir" || node.type === "app") ? (
+					{(node.type === "dir" || node.type === "app" || node.type === "node-app") ? (
 						node.loading ? (
 							<Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
 						) : node.expanded ? (
@@ -1166,12 +1176,12 @@ export default function Page() {
 					</div>
 				)}
 
-				{(node.type === "dir" || node.type === "app") &&
+				{(node.type === "dir" || node.type === "app" || node.type === "node-app") &&
 					node.expanded &&
 					node.children &&
 					node.children.length > 0 &&
 					renderNodes(node.children, depth + 1)}
-				{(node.type === "dir" || node.type === "app") &&
+				{(node.type === "dir" || node.type === "app" || node.type === "node-app") &&
 					node.expanded &&
 					node.children?.length === 0 && (
 						<div
