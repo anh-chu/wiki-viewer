@@ -73,30 +73,71 @@ interface Cmd {
 	isVite: boolean;
 }
 
-function detectCmd(dir: string, pm: PM): Cmd | null {
+interface Pkg {
+	scripts?: Record<string, string>;
+	main?: string;
+	dependencies?: Record<string, string>;
+	devDependencies?: Record<string, string>;
+}
+
+function readPkg(dir: string): Pkg | null {
 	const pkgPath = path.join(dir, "package.json");
 	if (!existsSync(pkgPath)) return null;
+	try {
+		return JSON.parse(readFileSync(pkgPath, "utf-8")) as Pkg;
+	} catch {
+		return null;
+	}
+}
 
-	const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as {
-		scripts?: Record<string, string>;
-		main?: string;
-		dependencies?: Record<string, string>;
-		devDependencies?: Record<string, string>;
-	};
-	const scripts = pkg.scripts ?? {};
+function hasViteDep(pkg: Pkg): boolean {
 	const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
-	const hasVite = Object.keys(allDeps).some((k) => k === "vite" || k.includes("vite"));
+	return Object.keys(allDeps).some((k) => k === "vite" || k.includes("vite"));
+}
 
-	const run = (script: string, extraArgs: string[] = []): Cmd => ({
+/**
+ * Default script chosen when the user doesn't pick one explicitly.
+ * Priority: start > preview (built) > dev.
+ */
+function defaultScript(dir: string, scripts: Record<string, string>): string | null {
+	if (scripts.start) return "start";
+	if (scripts.preview && existsSync(path.join(dir, "dist"))) return "preview";
+	if (scripts.dev) return "dev";
+	return null;
+}
+
+/**
+ * List the npm scripts available to launch, plus which one is the default.
+ * Returns empty scripts list when only `main` is runnable (node entry).
+ */
+export function getScripts(absPath: string): { scripts: string[]; defaultScript: string | null } {
+	const pkg = readPkg(absPath);
+	if (!pkg) return { scripts: [], defaultScript: null };
+	const scripts = pkg.scripts ?? {};
+	return {
+		scripts: Object.keys(scripts),
+		defaultScript: defaultScript(absPath, scripts),
+	};
+}
+
+function detectCmd(dir: string, pm: PM, script?: string): Cmd | null {
+	const pkg = readPkg(dir);
+	if (!pkg) return null;
+
+	const scripts = pkg.scripts ?? {};
+	const hasVite = hasViteDep(pkg);
+
+	const run = (s: string, extraArgs: string[] = []): Cmd => ({
 		bin: pm,
-		args: ["run", script, ...(extraArgs.length ? ["--", ...extraArgs] : [])],
+		args: ["run", s, ...(extraArgs.length ? ["--", ...extraArgs] : [])],
 		isVite: hasVite,
 	});
 
-	// Priority: start > preview (built) > dev > node main
-	if (scripts.start) return run("start");
-	if (scripts.preview && existsSync(path.join(dir, "dist"))) return run("preview");
-	if (scripts.dev) return run("dev");
+	// Explicit script choice wins
+	if (script && scripts[script]) return run(script);
+
+	const def = defaultScript(dir, scripts);
+	if (def) return run(def);
 	if (pkg.main) return { bin: "node", args: [pkg.main], isVite: false };
 	return null;
 }
@@ -121,7 +162,7 @@ export function getStatus(relPath: string): { status: AppStatus; port?: number; 
 	return { status: app.status, port: app.port || undefined, error: app.error, logs: app.logs };
 }
 
-export async function startApp(relPath: string, absPath: string): Promise<{ port: number }> {
+export async function startApp(relPath: string, absPath: string, script?: string): Promise<{ port: number }> {
 	const existing = apps.get(relPath);
 	if (existing && existing.status !== "stopped" && existing.status !== "error") {
 		return { port: existing.port };
@@ -129,7 +170,7 @@ export async function startApp(relPath: string, absPath: string): Promise<{ port
 
 	const port = await findFreePort();
 	const pm = detectPM(absPath);
-	const cmd = detectCmd(absPath, pm);
+	const cmd = detectCmd(absPath, pm, script);
 	if (!cmd) throw new Error("No runnable script found in package.json (need start, preview, or dev)");
 
 	const entry: RunningApp = { port, process: null, status: "installing", logs: [] };

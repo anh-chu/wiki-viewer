@@ -2,6 +2,7 @@
 
 import {
 	AlertCircle,
+	ChevronDown,
 	ExternalLink,
 	Loader2,
 	Play,
@@ -12,6 +13,14 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ViewerToolbar } from "@/components/layout/viewer-toolbar";
 import { Button } from "@/components/ui/button";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { AppStatus } from "@/lib/app-runner";
 import { wsFetch } from "@/lib/workspace-client";
 
@@ -25,6 +34,8 @@ interface StatusResponse {
 	port?: number;
 	error?: string;
 	logs: string[];
+	scripts?: string[];
+	defaultScript?: string | null;
 }
 
 const STATUS_LABEL: Record<AppStatus, string> = {
@@ -42,6 +53,8 @@ export function NodeAppViewer({ path, title }: Props) {
 	const [error, setError] = useState<string | null>(null);
 	const [showLogs, setShowLogs] = useState(false);
 	const [iframeKey, setIframeKey] = useState(0);
+	const [scripts, setScripts] = useState<string[]>([]);
+	const [defaultScript, setDefaultScript] = useState<string | null>(null);
 	const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 	const logsEndRef = useRef<HTMLDivElement>(null);
 
@@ -62,6 +75,8 @@ export function NodeAppViewer({ path, title }: Props) {
 			const data: StatusResponse = await res.json();
 			setStatus(data.status);
 			setLogs(data.logs ?? []);
+			if (data.scripts) setScripts(data.scripts);
+			if (data.defaultScript !== undefined) setDefaultScript(data.defaultScript);
 			if (data.port) setPort(data.port);
 			if (data.error) setError(data.error);
 			if (data.status === "running" || data.status === "stopped" || data.status === "error") {
@@ -92,7 +107,7 @@ export function NodeAppViewer({ path, title }: Props) {
 		fetchStatus();
 	}, [fetchStatus]);
 
-	const handleLaunch = async () => {
+	const handleLaunch = async (script?: string) => {
 		setError(null);
 		setLogs([]);
 		setStatus("starting");
@@ -100,7 +115,7 @@ export function NodeAppViewer({ path, title }: Props) {
 			const res = await wsFetch("/api/wiki/app", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ path }),
+				body: JSON.stringify({ path, script }),
 			});
 			const data: { port?: number; error?: string } = await res.json();
 			if (!res.ok || data.error) {
@@ -134,6 +149,8 @@ export function NodeAppViewer({ path, title }: Props) {
 	};
 
 	const isTransient = status === "installing" || status === "starting";
+	// Scripts other than the default — offered in the combo dropdown.
+	const altScripts = scripts.filter((s) => s !== defaultScript);
 
 	return (
 		<div className="flex-1 flex flex-col overflow-hidden">
@@ -216,10 +233,51 @@ export function NodeAppViewer({ path, title }: Props) {
 								Node.js app — will be started on a local port
 							</p>
 						</div>
-						<Button onClick={handleLaunch} className="gap-2">
-							<Play className="h-4 w-4" />
-							Launch app
-						</Button>
+						<div className="inline-flex items-stretch overflow-hidden rounded-full bg-primary text-primary-foreground shadow-e-1">
+							<button
+								type="button"
+								onClick={() => handleLaunch()}
+								className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors hover:bg-primary-foreground/10 focus-visible:outline-none"
+							>
+								<Play className="h-4 w-4" />
+								Launch app
+								{defaultScript && (
+									<span className="opacity-70">({defaultScript})</span>
+								)}
+							</button>
+							{altScripts.length > 0 && (
+								<DropdownMenu>
+									<DropdownMenuTrigger asChild>
+										<button
+											type="button"
+											className="inline-flex items-center justify-center border-l border-l-primary-foreground/20 px-2 transition-colors hover:bg-primary-foreground/10 focus-visible:outline-none"
+											aria-label="Choose script to launch"
+										>
+											<ChevronDown className="h-4 w-4" />
+										</button>
+									</DropdownMenuTrigger>
+									<DropdownMenuContent align="end">
+										<DropdownMenuLabel>Run script</DropdownMenuLabel>
+										<DropdownMenuSeparator />
+										{scripts.map((s) => (
+											<DropdownMenuItem
+												key={s}
+												onSelect={() => handleLaunch(s)}
+												className="gap-2 font-mono text-xs"
+										>
+												<Play className="h-3.5 w-3.5" />
+												{s}
+												{s === defaultScript && (
+													<span className="ml-auto text-[10px] text-muted-foreground">
+														default
+													</span>
+												)}
+											</DropdownMenuItem>
+										))}
+									</DropdownMenuContent>
+								</DropdownMenu>
+							)}
+						</div>
 					</div>
 				)}
 
@@ -248,7 +306,7 @@ export function NodeAppViewer({ path, title }: Props) {
 								{error ?? "Unknown error"}
 							</p>
 						</div>
-						<Button onClick={handleLaunch} variant="outline" className="gap-2">
+						<Button onClick={() => handleLaunch()} variant="outline" className="gap-2">
 							<RefreshCw className="h-4 w-4" />
 							Try again
 						</Button>
