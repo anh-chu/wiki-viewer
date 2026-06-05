@@ -230,6 +230,7 @@ export default function Page() {
 	const [workspaces, setWorkspaces] = useState<Array<{id:string;name:string;rootDir:string;lastOpenedAt?:string;createdAt:string}>>([]);
 	const [isWsAdmin, setIsWsAdmin] = useState(false);
 	const [addingWorkspace, setAddingWorkspace] = useState(false);
+	const [deletingWorkspaceId, setDeletingWorkspaceId] = useState<string | null>(null);
 
 	const loadWorkspaces = useCallback(async () => {
 		try {
@@ -677,6 +678,33 @@ export default function Page() {
 		if (ws) setRootPath(ws.rootDir);
 		setActiveWorkspaceId(id);
 	}, [activeWorkspaceId, workspaces]);
+
+	const handleDeleteWorkspace = useCallback(async () => {
+		if (!deletingWorkspaceId) return;
+		try {
+			const res = await fetch(`/api/system/workspaces/${deletingWorkspaceId}`, {
+				method: "DELETE",
+			});
+			if (!res.ok) throw new Error("Failed");
+			// If deleting the active workspace, switch to first available or picker
+			if (deletingWorkspaceId === activeWorkspaceId) {
+				const remaining = workspaces.filter((w) => w.id !== deletingWorkspaceId);
+				if (remaining.length > 0) {
+					const next = [...remaining].sort(
+						(a, b) => (b.lastOpenedAt ?? b.createdAt).localeCompare(a.lastOpenedAt ?? a.createdAt)
+					)[0];
+					await switchWorkspace(next.id);
+				} else {
+					setRootConfigured(false);
+				}
+			}
+			await loadWorkspaces();
+		} catch {
+			/* ignore */
+		} finally {
+			setDeletingWorkspaceId(null);
+		}
+	}, [deletingWorkspaceId, activeWorkspaceId, workspaces, switchWorkspace, loadWorkspaces]);
 
 	async function handleSave() {
 		if (!openFile) return;
@@ -1477,10 +1505,22 @@ export default function Page() {
 										) : (
 											<span className="w-3.5 shrink-0" />
 										)}
-										<span className="flex flex-col min-w-0">
+										<span className="flex flex-col min-w-0 flex-1">
 											<span className="truncate">{w.name}</span>
 											<span className="truncate text-[10px] text-muted-foreground font-mono">{w.rootDir}</span>
 										</span>
+										{isWsAdmin && (
+											<button
+												className="ml-auto shrink-0 rounded p-0.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+												title="Delete workspace (does not delete files)"
+												onClick={(e) => {
+													e.stopPropagation();
+													setDeletingWorkspaceId(w.id);
+												}}
+											>
+												<Trash2 className="h-3.5 w-3.5" />
+											</button>
+										)}
 									</DropdownMenuItem>
 								))}
 								{isWsAdmin && (
@@ -1890,6 +1930,16 @@ export default function Page() {
 						: `"${deletingPath?.split("/").pop()}" will be permanently removed.`
 				}
 				onConfirm={handleDelete}
+			/>
+
+			<ConfirmDialog
+				open={!!deletingWorkspaceId}
+				onOpenChange={(open) => {
+					if (!open) setDeletingWorkspaceId(null);
+				}}
+				title="Delete workspace?"
+				description={`"${workspaces.find((w) => w.id === deletingWorkspaceId)?.name ?? ""}" will be removed from the workspace list. Files on disk are NOT deleted.`}
+				onConfirm={handleDeleteWorkspace}
 			/>
 			</>}
 		</div>
