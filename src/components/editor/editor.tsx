@@ -2,7 +2,7 @@
 
 import { cellAround, isInTable } from "@tiptap/pm/tables";
 import { EditorContent, useEditor } from "@tiptap/react";
-import { Code2, FilePlus, Loader2, Sparkles } from "lucide-react";
+import { AlertCircle, Check, Code2, FilePlus, Loader2, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { findNodeByPath } from "@/lib/cabinets/tree";
 import { markdownToHtml } from "@/lib/markdown/to-html";
@@ -26,6 +26,8 @@ import { ProofSpanPopover } from "./proof-span-popover";
 import { SuggestionCard } from "./suggestion-card";
 import { SuggestEditPopover } from "./suggest-edit-popover";
 import { SlashCommands } from "./slash-commands";
+import { DocumentOutline } from "./document-outline";
+import { BacklinksPanel } from "./backlinks-panel";
 import { TableMenu } from "./table-menu";
 import {
 	useWikiLinkCreate,
@@ -951,6 +953,7 @@ export function KBEditor() {
 										Suggesting mode · your edits become suggestions for review
 									</div>
 								)}
+								<DocumentOutline editor={editor} scrollContainerRef={scrollContainerRef} />
 								<div
 									ref={scrollContainerRef}
 									className={`absolute inset-0 overflow-y-auto ${
@@ -1044,6 +1047,9 @@ export function KBEditor() {
 									)}
 
 									<EditorContent editor={editor} />
+									{currentPath && /\.md$/i.test(currentPath) && (
+										<BacklinksPanel currentPath={currentPath} />
+									)}
 									{/* Proof-span hover delegation */}
 									<div
 										aria-hidden="true"
@@ -1159,10 +1165,30 @@ export function KBEditor() {
 										Suggesting
 									</button>
 								</div>
-								<span>
-									{saveStatus === "saving" && "Saving..."}
-									{saveStatus === "saved" && "Saved"}
-									{saveStatus === "error" && "Save failed"}
+								<span
+									className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] transition-all duration-300 ${
+										saveStatus === "idle"
+											? "opacity-0 pointer-events-none"
+											: "opacity-100"
+									} ${
+										saveStatus === "saving"
+											? "bg-muted text-muted-foreground"
+											: saveStatus === "saved"
+												? "bg-green-500/10 text-green-600 dark:text-green-400"
+												: saveStatus === "error"
+													? "bg-destructive/10 text-destructive"
+													: ""
+									}`}
+								>
+									{saveStatus === "saving" && (
+										<><Loader2 className="h-2.5 w-2.5 animate-spin" />Saving…</>
+									)}
+									{saveStatus === "saved" && (
+										<><Check className="h-2.5 w-2.5" />Saved</>
+									)}
+									{saveStatus === "error" && (
+										<><AlertCircle className="h-2.5 w-2.5" />Save failed</>
+									)}
 								</span>
 							</div>
 						</div>
