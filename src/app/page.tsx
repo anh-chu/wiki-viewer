@@ -6,6 +6,7 @@ import {
 	Check,
 	ChevronDown,
 	ChevronRight,
+	Copy,
 	Download,
 	File,
 	FilePlus,
@@ -15,8 +16,10 @@ import {
 	FolderPlus,
 	Globe,
 	Image as ImageIcon,
+	Link,
 	Loader2,
 	Maximize2,
+	MoreHorizontal,
 	PanelLeftClose,
 	PanelLeftOpen,
 	Pencil,
@@ -56,6 +59,7 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { getActiveWorkspaceId, withWs, wsFetch } from "@/lib/workspace-client";
+import { markdownToHtml } from "@/lib/markdown/to-html";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { AuthSettingsSheet } from "@/components/auth-settings-sheet";
 import { Button } from "@/components/ui/button";
@@ -924,6 +928,120 @@ export default function Page() {
 		a.remove();
 	}
 
+	function copyPath(path: string) {
+		void navigator.clipboard.writeText(path);
+		showSuccess("Path copied");
+	}
+
+	function copyWikiLink(name: string) {
+		const slug = name.replace(/\.(md|markdown)$/i, "");
+		void navigator.clipboard.writeText(`[[${slug}]]`);
+		showSuccess("Wiki link copied");
+	}
+
+	function copyUrl(path: string) {
+		const url = new URL(location.href);
+		url.searchParams.set("path", path);
+		if (activeWorkspaceId) url.searchParams.set("ws", activeWorkspaceId);
+		void navigator.clipboard.writeText(url.toString());
+		showSuccess("URL copied");
+	}
+
+	async function getTextContent(path: string) {
+		if (openFile?.path === path && fileContent !== null) return fileContent;
+		if (useEditorStore.getState().currentPath === path) {
+			return useEditorStore.getState().content;
+		}
+		const res = await wsFetch(`/api/wiki/content?path=${encodeURIComponent(path)}`);
+		if (!res.ok) throw new Error("Cannot copy content");
+		const data: { content: string } = await res.json();
+		return data.content;
+	}
+
+	async function copyRawContent(path: string) {
+		try {
+			const content = await getTextContent(path);
+			await navigator.clipboard.writeText(content);
+			showSuccess("Raw content copied");
+		} catch {
+			showError("Could not copy file content");
+		}
+	}
+
+	async function copyFormattedContent(path: string, name: string) {
+		try {
+			const content = await getTextContent(path);
+			if (!isMarkdown(name)) {
+				await navigator.clipboard.writeText(content);
+				showSuccess("Content copied");
+				return;
+			}
+			const html = await markdownToHtml(content, { pagePath: path, sanitize: true });
+			if ("ClipboardItem" in window && navigator.clipboard.write) {
+				await navigator.clipboard.write([
+					new ClipboardItem({
+						"text/html": new Blob([html], { type: "text/html" }),
+						"text/plain": new Blob([content], { type: "text/plain" }),
+					}),
+				]);
+			} else {
+				await navigator.clipboard.writeText(content);
+			}
+			showSuccess("Formatted content copied");
+		} catch {
+			showError("Could not copy formatted content");
+		}
+	}
+
+	function renderCopyMenu(node: { path: string; name: string }) {
+		return (
+			<DropdownMenu>
+				<DropdownMenuTrigger asChild>
+					<Button
+						size="sm"
+						variant="ghost"
+						className="h-7 gap-1.5 px-2 text-xs"
+						title="Copy path, wiki link, or URL"
+					>
+						<Copy className="h-3.5 w-3.5" />
+						Copy
+						<ChevronDown className="h-3 w-3 opacity-60" />
+					</Button>
+				</DropdownMenuTrigger>
+				<DropdownMenuContent align="end" className="w-44">
+					<DropdownMenuItem onClick={() => copyPath(node.path)}>
+						<Copy className="mr-2 h-3.5 w-3.5" />
+						Copy path
+					</DropdownMenuItem>
+					{isMarkdown(node.name) && (
+						<DropdownMenuItem onClick={() => copyWikiLink(node.name)}>
+							<FileText className="mr-2 h-3.5 w-3.5" />
+							Copy wiki link
+						</DropdownMenuItem>
+					)}
+					<DropdownMenuSeparator />
+					<DropdownMenuItem onClick={() => copyUrl(node.path)}>
+						<Link className="mr-2 h-3.5 w-3.5" />
+						Copy URL
+					</DropdownMenuItem>
+					{isText(node.name) && (
+						<>
+							<DropdownMenuSeparator />
+							<DropdownMenuItem onClick={() => void copyRawContent(node.path)}>
+								<FileText className="mr-2 h-3.5 w-3.5" />
+								Copy raw content
+							</DropdownMenuItem>
+							<DropdownMenuItem onClick={() => void copyFormattedContent(node.path, node.name)}>
+								<FileText className="mr-2 h-3.5 w-3.5" />
+								Copy formatted content
+							</DropdownMenuItem>
+						</>
+					)}
+				</DropdownMenuContent>
+			</DropdownMenu>
+		);
+	}
+
 	async function handleDelete() {
 		if (!deletingPath) return;
 		await wsFetch("/api/wiki", {
@@ -1140,7 +1258,7 @@ export default function Page() {
 								<File className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-foreground/60")} />
 							)}
 
-							<span className="flex-1 truncate">{node.name}</span>
+							<span className="min-w-0 flex-1 truncate">{node.name}</span>
 
 							{/* Agent presence dot */}
 							{activePaths.has(node.path) && (
@@ -1151,90 +1269,106 @@ export default function Page() {
 							)}
 
 							<div
-								className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+								className="flex max-w-0 shrink-0 items-center overflow-hidden opacity-0 transition-all duration-150 group-hover:max-w-7 group-hover:opacity-100 focus-within:max-w-7 focus-within:opacity-100"
 								onClick={(e) => e.stopPropagation()}
 								onKeyDown={(e) => e.stopPropagation()}
 							>
-								{node.type === "dir" && (
-									<>
+								<DropdownMenu>
+									<DropdownMenuTrigger asChild>
 										<Button
 											size="sm"
 											variant="ghost"
 											className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-											title="New file here (default .md)"
-											onClick={async () => {
-												if (!node.expanded) await toggleFolder(node);
-												setNewFileParent(node.path);
-												setNewFileName("");
-												setFileCreateError(null);
-											}}
+											title="File actions"
 										>
-											<FilePlus className="h-3 w-3" />
+											<MoreHorizontal className="h-3.5 w-3.5" />
 										</Button>
-										<Button
-											size="sm"
-											variant="ghost"
-											className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-											title="Upload here"
-											onClick={() => triggerUpload(node.path)}
+									</DropdownMenuTrigger>
+									<DropdownMenuContent align="end" className="w-48">
+										<DropdownMenuItem onClick={() => copyPath(node.path)}>
+											<Copy className="mr-2 h-3.5 w-3.5" />
+											Copy path
+										</DropdownMenuItem>
+										{isMarkdown(node.name) && (
+											<DropdownMenuItem onClick={() => copyWikiLink(node.name)}>
+												<FileText className="mr-2 h-3.5 w-3.5" />
+												Copy wiki link
+											</DropdownMenuItem>
+										)}
+										<DropdownMenuItem onClick={() => copyUrl(node.path)}>
+											<Link className="mr-2 h-3.5 w-3.5" />
+											Copy URL
+										</DropdownMenuItem>
+										{node.type === "file" && isText(node.name) && (
+											<>
+												<DropdownMenuItem onClick={() => void copyRawContent(node.path)}>
+													<FileText className="mr-2 h-3.5 w-3.5" />
+													Copy raw content
+												</DropdownMenuItem>
+												<DropdownMenuItem onClick={() => void copyFormattedContent(node.path, node.name)}>
+													<FileText className="mr-2 h-3.5 w-3.5" />
+													Copy formatted content
+												</DropdownMenuItem>
+											</>
+										)}
+										<DropdownMenuSeparator />
+										{node.type === "dir" && (
+											<>
+												<DropdownMenuItem
+													onClick={async () => {
+														if (!node.expanded) await toggleFolder(node);
+														setNewFileParent(node.path);
+														setNewFileName("");
+														setFileCreateError(null);
+													}}
+												>
+													<FilePlus className="mr-2 h-3.5 w-3.5" />
+													New file here
+												</DropdownMenuItem>
+												<DropdownMenuItem onClick={() => triggerUpload(node.path)}>
+													<Upload className="mr-2 h-3.5 w-3.5" />
+													Upload here
+												</DropdownMenuItem>
+												<DropdownMenuItem
+													onClick={() => {
+														setNewFolderParent(node.path);
+														setNewFolderName("");
+														setFolderError(null);
+													}}
+												>
+													<FolderPlus className="mr-2 h-3.5 w-3.5" />
+													New subfolder
+												</DropdownMenuItem>
+												<DropdownMenuSeparator />
+											</>
+										)}
+										<DropdownMenuItem onClick={() => handleDownload(node)}>
+											<Download className="mr-2 h-3.5 w-3.5" />
+											{node.type === "file" ? "Download" : "Download as zip"}
+										</DropdownMenuItem>
+										<DropdownMenuItem
+											onClick={() =>
+												usePinStore
+													.getState()
+													.toggle({ path: node.path, name: node.name }, activeWorkspaceId)
+											}
 										>
-											<Upload className="h-3 w-3" />
-										</Button>
-										<Button
-											size="sm"
-											variant="ghost"
-											className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-											title="New subfolder"
+											<Star className={cn("mr-2 h-3.5 w-3.5", isNodePinned && "fill-current text-amber-400")} />
+											{isNodePinned ? "Unpin" : "Pin to top"}
+										</DropdownMenuItem>
+										<DropdownMenuSeparator />
+										<DropdownMenuItem
+											className="text-destructive focus:text-destructive"
 											onClick={() => {
-												setNewFolderParent(node.path);
-												setNewFolderName("");
-												setFolderError(null);
+												setDeletingPath(node.path);
+												setDeletingIsDir(node.type !== "file");
 											}}
 										>
-											<FolderPlus className="h-3 w-3" />
-										</Button>
-									</>
-								)}
-								<Button
-									size="sm"
-									variant="ghost"
-									className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-									title={node.type === "file" ? "Download" : "Download as zip"}
-									onClick={() => handleDownload(node)}
-								>
-									<Download className="h-3 w-3" />
-								</Button>
-								<Button
-									size="sm"
-									variant="ghost"
-									className="h-6 w-6 p-0 text-destructive hover:text-destructive"
-									title="Delete"
-									onClick={() => {
-										setDeletingPath(node.path);
-										setDeletingIsDir(node.type !== "file");
-									}}
-								>
-									<Trash2 className="h-3 w-3" />
-								</Button>
-								{/* Pin/favorite toggle */}
-								<Button
-									size="sm"
-									variant="ghost"
-									className={cn(
-										"h-6 w-6 p-0",
-										isNodePinned
-											? "text-amber-400 hover:text-amber-500"
-											: "text-muted-foreground hover:text-amber-400",
-									)}
-									title={isNodePinned ? "Unpin" : "Pin to top"}
-									onClick={() =>
-										usePinStore
-											.getState()
-											.toggle({ path: node.path, name: node.name }, activeWorkspaceId)
-									}
-								>
-									<Star className={cn("h-3 w-3", isNodePinned && "fill-current")} />
-								</Button>
+											<Trash2 className="mr-2 h-3.5 w-3.5" />
+											Delete
+										</DropdownMenuItem>
+									</DropdownMenuContent>
+								</DropdownMenu>
 							</div>
 						</div>
 
@@ -1349,38 +1483,29 @@ export default function Page() {
 				</div>
 			</ContextMenuTrigger>
 			<ContextMenuContent>
-				<ContextMenuItem
-					onSelect={() => {
-						void navigator.clipboard.writeText(node.path);
-						showSuccess("Path copied");
-					}}
-				>
+				<ContextMenuItem onSelect={() => copyPath(node.path)}>
 					Copy path
 				</ContextMenuItem>
 				{isMarkdown(node.name) && (
-					<ContextMenuItem
-						onSelect={() => {
-							const slug = node.name.replace(/\.(md|markdown)$/i, "");
-							void navigator.clipboard.writeText(`[[${slug}]]`);
-							showSuccess("Wiki link copied");
-						}}
-					>
+					<ContextMenuItem onSelect={() => copyWikiLink(node.name)}>
 						Copy wiki link
 					</ContextMenuItem>
 				)}
 				<ContextMenuSeparator />
-				<ContextMenuItem
-					onSelect={() => {
-						const url = new URL(location.href);
-						url.searchParams.set("path", node.path);
-						if (activeWorkspaceId)
-							url.searchParams.set("ws", activeWorkspaceId);
-						void navigator.clipboard.writeText(url.toString());
-						showSuccess("URL copied");
-					}}
-				>
+				<ContextMenuItem onSelect={() => copyUrl(node.path)}>
 					Copy URL
 				</ContextMenuItem>
+				{node.type === "file" && isText(node.name) && (
+					<>
+						<ContextMenuSeparator />
+						<ContextMenuItem onSelect={() => void copyRawContent(node.path)}>
+							Copy raw content
+						</ContextMenuItem>
+						<ContextMenuItem onSelect={() => void copyFormattedContent(node.path, node.name)}>
+							Copy formatted content
+						</ContextMenuItem>
+					</>
+				)}
 			</ContextMenuContent>
 		</ContextMenu>
 		);
@@ -1665,15 +1790,28 @@ export default function Page() {
 										role="button"
 										tabIndex={0}
 										className={cn(
-											"flex items-center gap-1.5 rounded-sm px-2 py-1 text-sm cursor-pointer transition-colors select-none",
+											"group flex items-center gap-1.5 rounded-sm px-2 py-1 text-sm cursor-pointer transition-colors select-none",
 											openFile?.path === p.path ? "bg-accent-soft text-foreground font-medium" : "hover:bg-muted",
 										)}
 										onClick={() => void openViewer({ path: p.path, name: p.name, type: "file", modifiedAt: "" } as TreeNode)}
 										onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); void openViewer({ path: p.path, name: p.name, type: "file", modifiedAt: "" } as TreeNode); } }}
 									>
 										<Star className="h-3 w-3 shrink-0 fill-current text-amber-400" />
-										<span className="flex-1 truncate text-xs">{p.name}</span>
-										<span className="text-[10px] text-muted-foreground/60 truncate max-w-[80px]">{p.path.split("/").slice(0, -1).join("/")}</span>
+										<span className="min-w-0 flex-1 truncate text-xs">{p.name}</span>
+										<span className="max-w-[80px] truncate text-[10px] text-muted-foreground/60">{p.path.split("/").slice(0, -1).join("/")}</span>
+										<button
+											type="button"
+											className="shrink-0 rounded p-0.5 text-muted-foreground/50 opacity-0 transition-colors hover:bg-muted hover:text-amber-400 group-hover:opacity-100 focus:opacity-100"
+											title="Remove from pinned"
+											onClick={(e) => {
+												e.stopPropagation();
+												usePinStore
+													.getState()
+													.toggle({ path: p.path, name: p.name }, activeWorkspaceId);
+											}}
+										>
+											<X className="h-3 w-3" />
+										</button>
 									</div>
 								))}
 							</div>
@@ -1851,6 +1989,7 @@ export default function Page() {
 											</span>
 										</div>
 										<div className="flex items-center gap-1 shrink-0">
+											{renderCopyMenu(openFile)}
 											{openFileViewerKind === "html" &&
 												!editing &&
 												fileContent !== null && (
@@ -1966,6 +2105,7 @@ export default function Page() {
 									</span>
 								</div>
 								<div className="flex items-center gap-1 shrink-0">
+									{renderCopyMenu(openFile)}
 									{isText(openFile.name) &&
 										!editing &&
 										(fileContent !== null || isMarkdown(openFile.name)) && (
