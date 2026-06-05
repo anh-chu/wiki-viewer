@@ -20,15 +20,17 @@ import {
 	PanelLeftClose,
 	PanelLeftOpen,
 	Pencil,
+	Pin,
 	Plus,
 	RefreshCw,
 	Settings,
+	Star,
 	Terminal,
 	Trash2,
 	Upload,
 	X,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { CsvViewer } from "@/components/editor/csv-viewer";
@@ -62,7 +64,16 @@ import { FrontmatterHeader } from "@/components/wiki/frontmatter-header";
 import { MarkdownPreview } from "@/components/wiki/markdown-preview";
 import { parseFrontmatter } from "@/lib/markdown/parse-frontmatter";
 
-import { showError } from "@/lib/toast";
+import { showError, showSuccess } from "@/lib/toast";
+import {
+	ContextMenu,
+	ContextMenuContent,
+	ContextMenuItem,
+	ContextMenuSeparator,
+	ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import { useRecentStore } from "@/stores/recent-store";
+import { usePinStore } from "@/stores/pin-store";
 import { cn } from "@/lib/utils";
 import { AIPanel } from "@/components/ai-panel/ai-panel";
 import { SearchCommandDialog } from "@/components/search/search-command-dialog";
@@ -276,6 +287,42 @@ export default function Page() {
 	}, [loadWorkspaces]);
 
 	const editorCurrentPath = useEditorStore((s) => s.currentPath);
+
+	// Recent files
+	const recents = useRecentStore((s) => s.recents);
+	const [pinnedCollapsed, setPinnedCollapsed] = useState(false);
+	const [recentCollapsed, setRecentCollapsed] = useState(false);
+
+	// Pins
+	const pins = usePinStore((s) => s.pins);
+
+	// Sidebar scroll container ref (for keyboard nav)
+	const sidebarScrollRef = useRef<HTMLDivElement>(null);
+
+	// Agent presence: paths touched by agents in last 60s
+	const activity = useAIPanelStore((s) => s.activity);
+	const activePaths = useMemo(() => {
+		const cutoff = new Date(Date.now() - 60 * 1000).toISOString();
+		const paths = new Set<string>();
+		for (const ev of activity) {
+			if (ev.at >= cutoff && ev.path) paths.add(ev.path);
+		}
+		return paths;
+	}, [activity]);
+
+	// Poll activity for presence indicator
+	useEffect(() => {
+		const load = () => { void useAIPanelStore.getState().loadActivity(); };
+		load();
+		const id = setInterval(load, 10_000);
+		return () => clearInterval(id);
+	}, []);
+
+	// Reload recents + pins when workspace changes
+	useEffect(() => {
+		useRecentStore.getState().loadForWorkspace(activeWorkspaceId);
+		usePinStore.getState().loadForWorkspace(activeWorkspaceId);
+	}, [activeWorkspaceId]);
 
 	// Path captured from the URL at first render, before any effect can clear it.
 	// Restore reads from this ref (never the live URL) so URL sync can't break it.
@@ -571,6 +618,13 @@ export default function Page() {
 	}, []);
 
 	async function openViewer(node: TreeNode) {
+		// Push to recent files (only real files, not dirs)
+		if (node.type !== "dir") {
+			useRecentStore.getState().push(
+				{ path: node.path, name: node.name },
+				activeWorkspaceId,
+			);
+		}
 		setOpenFile({
 			path: node.path,
 			name: node.name,
@@ -941,149 +995,225 @@ export default function Page() {
 	const contentWidthClass = widthAwareViewer ? VIEW_WIDTH_CLASS[viewWidth] : "";
 
 	function renderNodes(nodes: TreeNode[], depth = 0): React.ReactNode {
-		return nodes.map((node) => (
-			<div key={node.path}>
-				<div
-					role="treeitem"
-					tabIndex={0}
-					draggable
-					onKeyDown={(e) => {
-						if (e.key === "Enter" || e.key === " ") {
-							e.preventDefault();
-							if (node.type === "dir") toggleFolder(node);
-							else if (node.type === "app" || node.type === "node-app") { openViewer(node); toggleFolder(node); }
-							else openViewer(node);
-						}
-					}}
-					onDragStart={(e) => handleDragStart(e, node)}
-					onDragOver={(e) =>
-						node.type === "dir"
-							? handleDragOver(e, node.path, "dir")
-							: e.preventDefault()
-					}
-					onDragLeave={() => setDragOverPath(null)}
-					onDrop={(e) =>
-						node.type === "dir"
-							? handleDropOnFolder(e, node.path)
-							: e.preventDefault()
-					}
-					className={cn(
-						"flex items-center gap-1.5 rounded-sm px-2 py-1 text-sm cursor-pointer group transition-colors select-none",
-						openFile?.path === node.path
-							? "bg-accent-soft text-foreground font-medium"
-							: "hover:bg-muted",
-						dragOverPath === node.path && "ring-2 ring-primary bg-primary-soft",
-						node.name.startsWith(".") && "opacity-40",
-					)}
-					style={{ paddingLeft: `${depth * 14 + 8}px` }}
-					onClick={() => {
-						if (node.type === "dir") toggleFolder(node);
-						else if (node.type === "app" || node.type === "node-app") { openViewer(node); toggleFolder(node); }
-						else openViewer(node);
-					}}
-				>
-					{(node.type === "dir" || node.type === "app" || node.type === "node-app") ? (
-						node.loading ? (
-							<Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
-						) : node.expanded ? (
-							<ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-						) : (
-							<ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-						)
-					) : (
-						<span className="w-3.5 shrink-0" />
-					)}
-
-					{node.type === "dir" ? (
-						node.expanded ? (
-							<FolderOpen className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-warning")} />
-						) : (
-							<Folder className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-warning")} />
-						)
-					) : node.type === "app" ? (
-						<Globe className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-foreground/70")} />
-					) : node.type === "node-app" ? (
-						<Terminal className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-emerald-500")} />
-					) : isHtmlFile(node.name) ? (
-						<Globe className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-foreground/60")} />
-					) : isImage(node.name) ? (
-						<ImageIcon className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-sunshine-700")} />
-					) : isText(node.name) ? (
-						<FileText className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-foreground/70")} />
-					) : (
-						<File className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-foreground/60")} />
-					)}
-
-					<span className="flex-1 truncate">{node.name}</span>
-
-					<div
-						className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
-						onClick={(e) => e.stopPropagation()}
-						onKeyDown={(e) => e.stopPropagation()}
-					>
-						{node.type === "dir" && (
-							<>
-								<Button
-									size="sm"
-									variant="ghost"
-									className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-									title="New file here (default .md)"
-									onClick={async () => {
-										if (!node.expanded) await toggleFolder(node);
-										setNewFileParent(node.path);
-										setNewFileName("");
-										setFileCreateError(null);
-									}}
-								>
-									<FilePlus className="h-3 w-3" />
-								</Button>
-								<Button
-									size="sm"
-									variant="ghost"
-									className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-									title="Upload here"
-									onClick={() => triggerUpload(node.path)}
-								>
-									<Upload className="h-3 w-3" />
-								</Button>
-								<Button
-									size="sm"
-									variant="ghost"
-									className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-									title="New subfolder"
-									onClick={() => {
-										setNewFolderParent(node.path);
-										setNewFolderName("");
-										setFolderError(null);
-									}}
-								>
-									<FolderPlus className="h-3 w-3" />
-								</Button>
-							</>
-						)}
-						<Button
-							size="sm"
-							variant="ghost"
-							className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-							title={node.type === "file" ? "Download" : "Download as zip"}
-							onClick={() => handleDownload(node)}
-						>
-							<Download className="h-3 w-3" />
-						</Button>
-						<Button
-							size="sm"
-							variant="ghost"
-							className="h-6 w-6 p-0 text-destructive hover:text-destructive"
-							title="Delete"
+		return nodes.map((node) => {
+			const isNodePinned = pins.some((p) => p.path === node.path);
+			return (
+			<ContextMenu key={node.path}>
+				<ContextMenuTrigger asChild>
+					<div>
+						<div
+							role="treeitem"
+							tabIndex={0}
+							draggable
+							onKeyDown={(e) => {
+								if (e.key === "Enter" || e.key === " ") {
+									e.preventDefault();
+									if (node.type === "dir") toggleFolder(node);
+									else if (node.type === "app" || node.type === "node-app") { void openViewer(node); void toggleFolder(node); }
+									else void openViewer(node);
+								} else if (e.key === "ArrowDown") {
+									e.preventDefault();
+									const container = sidebarScrollRef.current;
+									if (!container) return;
+									const items = Array.from(container.querySelectorAll<HTMLElement>('[role="treeitem"]'));
+									const idx = items.indexOf(e.currentTarget as HTMLElement);
+									items[idx + 1]?.focus();
+								} else if (e.key === "ArrowUp") {
+									e.preventDefault();
+									const container = sidebarScrollRef.current;
+									if (!container) return;
+									const items = Array.from(container.querySelectorAll<HTMLElement>('[role="treeitem"]'));
+									const idx = items.indexOf(e.currentTarget as HTMLElement);
+									items[idx - 1]?.focus();
+								} else if (e.key === "ArrowRight") {
+									e.preventDefault();
+									if (node.type === "dir" || node.type === "app" || node.type === "node-app") {
+										if (!node.expanded) {
+											void toggleFolder(node);
+										} else {
+											// Focus first visible child
+											const container = sidebarScrollRef.current;
+											if (!container) return;
+											const items = Array.from(container.querySelectorAll<HTMLElement>('[role="treeitem"]'));
+											const idx = items.indexOf(e.currentTarget as HTMLElement);
+											items[idx + 1]?.focus();
+										}
+									}
+								} else if (e.key === "ArrowLeft") {
+									e.preventDefault();
+									if ((node.type === "dir" || node.type === "app" || node.type === "node-app") && node.expanded) {
+										void toggleFolder(node);
+									} else if (depth > 0) {
+										// Focus nearest ancestor (smaller paddingLeft)
+										const container = sidebarScrollRef.current;
+										if (!container) return;
+										const items = Array.from(container.querySelectorAll<HTMLElement>('[role="treeitem"]'));
+										const current = e.currentTarget as HTMLElement;
+										const idx = items.indexOf(current);
+										const currentPL = Number.parseInt(current.style.paddingLeft ?? "0", 10);
+										for (let i = idx - 1; i >= 0; i--) {
+											const pl = Number.parseInt(items[i].style.paddingLeft ?? "0", 10);
+											if (pl < currentPL) { items[i].focus(); break; }
+										}
+									}
+								}
+							}}
+							onDragStart={(e) => handleDragStart(e, node)}
+							onDragOver={(e) =>
+								node.type === "dir"
+									? handleDragOver(e, node.path, "dir")
+									: e.preventDefault()
+							}
+							onDragLeave={() => setDragOverPath(null)}
+							onDrop={(e) =>
+								node.type === "dir"
+									? handleDropOnFolder(e, node.path)
+									: e.preventDefault()
+							}
+							className={cn(
+								"flex items-center gap-1.5 rounded-sm px-2 py-1 text-sm cursor-pointer group transition-colors select-none",
+								openFile?.path === node.path
+									? "bg-accent-soft text-foreground font-medium"
+									: "hover:bg-muted",
+								dragOverPath === node.path && "ring-2 ring-primary bg-primary-soft",
+								node.name.startsWith(".") && "opacity-40",
+							)}
+							style={{ paddingLeft: `${depth * 14 + 8}px` }}
 							onClick={() => {
-								setDeletingPath(node.path);
-								setDeletingIsDir(node.type !== "file");
+								if (node.type === "dir") toggleFolder(node);
+								else if (node.type === "app" || node.type === "node-app") { void openViewer(node); void toggleFolder(node); }
+								else void openViewer(node);
 							}}
 						>
-							<Trash2 className="h-3 w-3" />
-						</Button>
-					</div>
-				</div>
+							{(node.type === "dir" || node.type === "app" || node.type === "node-app") ? (
+								node.loading ? (
+									<Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
+								) : node.expanded ? (
+									<ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+								) : (
+									<ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+								)
+							) : (
+								<span className="w-3.5 shrink-0" />
+							)}
+
+							{node.type === "dir" ? (
+								node.expanded ? (
+									<FolderOpen className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-warning")} />
+								) : (
+									<Folder className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-warning")} />
+								)
+							) : node.type === "app" ? (
+								<Globe className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-foreground/70")} />
+							) : node.type === "node-app" ? (
+								<Terminal className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-emerald-500")} />
+							) : isHtmlFile(node.name) ? (
+								<Globe className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-foreground/60")} />
+							) : isImage(node.name) ? (
+								<ImageIcon className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-sunshine-700")} />
+							) : isText(node.name) ? (
+								<FileText className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-foreground/70")} />
+							) : (
+								<File className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-foreground/60")} />
+							)}
+
+							<span className="flex-1 truncate">{node.name}</span>
+
+							{/* Agent presence dot */}
+							{activePaths.has(node.path) && (
+								<span
+									className="ml-0.5 h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0 animate-pulse"
+									title="Agent recently active"
+								/>
+							)}
+
+							<div
+								className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+								onClick={(e) => e.stopPropagation()}
+								onKeyDown={(e) => e.stopPropagation()}
+							>
+								{node.type === "dir" && (
+									<>
+										<Button
+											size="sm"
+											variant="ghost"
+											className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+											title="New file here (default .md)"
+											onClick={async () => {
+												if (!node.expanded) await toggleFolder(node);
+												setNewFileParent(node.path);
+												setNewFileName("");
+												setFileCreateError(null);
+											}}
+										>
+											<FilePlus className="h-3 w-3" />
+										</Button>
+										<Button
+											size="sm"
+											variant="ghost"
+											className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+											title="Upload here"
+											onClick={() => triggerUpload(node.path)}
+										>
+											<Upload className="h-3 w-3" />
+										</Button>
+										<Button
+											size="sm"
+											variant="ghost"
+											className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+											title="New subfolder"
+											onClick={() => {
+												setNewFolderParent(node.path);
+												setNewFolderName("");
+												setFolderError(null);
+											}}
+										>
+											<FolderPlus className="h-3 w-3" />
+										</Button>
+									</>
+								)}
+								<Button
+									size="sm"
+									variant="ghost"
+									className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+									title={node.type === "file" ? "Download" : "Download as zip"}
+									onClick={() => handleDownload(node)}
+								>
+									<Download className="h-3 w-3" />
+								</Button>
+								<Button
+									size="sm"
+									variant="ghost"
+									className="h-6 w-6 p-0 text-destructive hover:text-destructive"
+									title="Delete"
+									onClick={() => {
+										setDeletingPath(node.path);
+										setDeletingIsDir(node.type !== "file");
+									}}
+								>
+									<Trash2 className="h-3 w-3" />
+								</Button>
+								{/* Pin/favorite toggle */}
+								<Button
+									size="sm"
+									variant="ghost"
+									className={cn(
+										"h-6 w-6 p-0",
+										isNodePinned
+											? "text-amber-400 hover:text-amber-500"
+											: "text-muted-foreground hover:text-amber-400",
+									)}
+									title={isNodePinned ? "Unpin" : "Pin to top"}
+									onClick={() =>
+										usePinStore
+											.getState()
+											.toggle({ path: node.path, name: node.name }, activeWorkspaceId)
+									}
+								>
+									<Star className={cn("h-3 w-3", isNodePinned && "fill-current")} />
+								</Button>
+							</div>
+						</div>
 
 				{newFolderParent === node.path && node.type === "dir" && (
 					<div
@@ -1193,8 +1323,43 @@ export default function Page() {
 							Empty
 						</div>
 					)}
-			</div>
-		));
+				</div>
+			</ContextMenuTrigger>
+			<ContextMenuContent>
+				<ContextMenuItem
+					onSelect={() => {
+						void navigator.clipboard.writeText(node.path);
+						showSuccess("Path copied");
+					}}
+				>
+					Copy path
+				</ContextMenuItem>
+				{isMarkdown(node.name) && (
+					<ContextMenuItem
+						onSelect={() => {
+							const slug = node.name.replace(/\.(md|markdown)$/i, "");
+							void navigator.clipboard.writeText(`[[${slug}]]`);
+							showSuccess("Wiki link copied");
+						}}
+					>
+						Copy wiki link
+					</ContextMenuItem>
+				)}
+				<ContextMenuSeparator />
+				<ContextMenuItem
+					onSelect={() => {
+						const url = new URL(location.href);
+						url.searchParams.set("path", node.path);
+						void navigator.clipboard.writeText(url.toString());
+						showSuccess("URL copied");
+					}}
+				>
+					Copy URL
+				</ContextMenuItem>
+			</ContextMenuContent>
+		</ContextMenu>
+		);
+		});
 	}
 
 	return (
@@ -1437,6 +1602,7 @@ export default function Page() {
 					</div>
 
 					<div
+						ref={sidebarScrollRef}
 						className={cn(
 							"flex-1 overflow-auto py-1",
 							dragOverPath === "" &&
@@ -1449,6 +1615,67 @@ export default function Page() {
 						}}
 						onDrop={(e) => handleDropOnFolder(e, "")}
 					>
+						{/* Pinned section */}
+						{pins.length > 0 && (
+							<div className="border-b mb-1">
+								<button
+									type="button"
+									className="flex w-full items-center gap-1 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground"
+									onClick={() => setPinnedCollapsed((c) => !c)}
+								>
+									{pinnedCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+									<Pin className="h-3 w-3" />
+									Pinned
+								</button>
+								{!pinnedCollapsed && pins.map((p) => (
+									<div
+										key={p.path}
+										role="treeitem"
+										tabIndex={0}
+										className={cn(
+											"flex items-center gap-1.5 rounded-sm px-2 py-1 text-sm cursor-pointer transition-colors select-none",
+											openFile?.path === p.path ? "bg-accent-soft text-foreground font-medium" : "hover:bg-muted",
+										)}
+										onClick={() => void openViewer({ path: p.path, name: p.name, type: "file", modifiedAt: "" } as TreeNode)}
+										onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); void openViewer({ path: p.path, name: p.name, type: "file", modifiedAt: "" } as TreeNode); } }}
+									>
+										<Star className="h-3 w-3 shrink-0 fill-current text-amber-400" />
+										<span className="flex-1 truncate text-xs">{p.name}</span>
+										<span className="text-[10px] text-muted-foreground/60 truncate max-w-[80px]">{p.path.split("/").slice(0, -1).join("/")}</span>
+									</div>
+								))}
+							</div>
+						)}
+						{/* Recent files section */}
+						{recents.length > 0 && (
+							<div className="border-b mb-1">
+								<button
+									type="button"
+									className="flex w-full items-center gap-1 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground"
+									onClick={() => setRecentCollapsed((c) => !c)}
+								>
+									{recentCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+									Recent
+								</button>
+								{!recentCollapsed && recents.slice(0, 8).map((r) => (
+									<div
+										key={r.path}
+										role="treeitem"
+										tabIndex={0}
+										className={cn(
+											"flex items-center gap-1.5 rounded-sm px-2 py-1 text-sm cursor-pointer transition-colors select-none",
+											openFile?.path === r.path ? "bg-accent-soft text-foreground font-medium" : "hover:bg-muted",
+										)}
+										onClick={() => void openViewer({ path: r.path, name: r.name, type: "file", modifiedAt: "" } as TreeNode)}
+										onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); void openViewer({ path: r.path, name: r.name, type: "file", modifiedAt: "" } as TreeNode); } }}
+									>
+										<FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+										<span className="flex-1 truncate text-xs">{r.name}</span>
+										<span className="text-[10px] text-muted-foreground/60 truncate max-w-[80px]">{r.path.split("/").slice(0, -1).join("/")}</span>
+									</div>
+								))}
+							</div>
+						)}
 						{rootLoading ? (
 							<div className="flex justify-center py-6">
 								<Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
