@@ -213,6 +213,155 @@ const commands: SlashCommand[] = [
 	},
 ];
 
+/** Small static preview rendered at the bottom of the menu for the focused command. */
+function CommandPreview({ cmd }: { cmd: SlashCommand }) {
+	switch (cmd.label) {
+		case "Heading 1":
+			return (
+				<p className="font-bold text-[18px] leading-tight text-foreground/80 truncate">
+					Heading 1
+				</p>
+			);
+		case "Heading 2":
+			return (
+				<p className="font-semibold text-[14px] leading-tight text-foreground/80 truncate">
+					Heading 2
+				</p>
+			);
+		case "Heading 3":
+			return (
+				<p className="font-medium text-[12px] leading-tight text-foreground/80 truncate">
+					Heading 3
+				</p>
+			);
+		case "Text":
+			return (
+				<p className="text-[11px] text-foreground/60 leading-snug">
+					The quick brown fox jumps over the lazy dog.
+				</p>
+			);
+		case "Bullet List":
+			return (
+				<ul className="list-disc pl-4 text-[10px] text-foreground/60 space-y-0.5">
+					<li>First item</li>
+					<li>Second item</li>
+					<li>Third item</li>
+				</ul>
+			);
+		case "Numbered List":
+			return (
+				<ol className="list-decimal pl-4 text-[10px] text-foreground/60 space-y-0.5">
+					<li>First item</li>
+					<li>Second item</li>
+					<li>Third item</li>
+				</ol>
+			);
+		case "Checklist":
+			return (
+				<div className="space-y-0.5 text-[10px] text-foreground/60">
+					<div className="flex items-center gap-1.5">
+						<span className="w-3 h-3 border border-foreground/30 rounded-sm inline-block shrink-0" />
+						Pending task
+					</div>
+					<div className="flex items-center gap-1.5">
+						<span className="w-3 h-3 border border-foreground/30 rounded-sm bg-foreground/20 inline-block shrink-0" />
+						Done task
+					</div>
+				</div>
+			);
+		case "Code Block":
+			return (
+				<pre className="bg-muted rounded px-2 py-1 text-[10px] font-mono text-foreground/70 leading-snug">
+					<code>{"const x = 42;"}</code>
+				</pre>
+			);
+		case "Blockquote":
+			return (
+				<div className="border-l-2 border-foreground/30 pl-2 text-[10px] text-foreground/60 italic">
+					A thought worth quoting.
+				</div>
+			);
+		case "Divider":
+			return <hr className="border-foreground/20 w-full" />;
+		case "Table":
+			return (
+				<table className="text-[9px] border-collapse w-full">
+					<thead>
+						<tr>
+							{["Col A", "Col B", "Col C"].map((h) => (
+								<th
+									key={h}
+									className="border border-foreground/20 px-1.5 py-0.5 text-left font-semibold bg-muted/50 text-foreground/70"
+								>
+									{h}
+								</th>
+							))}
+						</tr>
+					</thead>
+					<tbody>
+						{[["1", "2", "3"], ["4", "5", "6"]].map((row, i) => (
+							<tr key={i}>
+								{row.map((cell, j) => (
+									<td
+										key={j}
+										className="border border-foreground/20 px-1.5 py-0.5 text-foreground/50"
+									>
+										{cell}
+									</td>
+								))}
+							</tr>
+						))}
+					</tbody>
+				</table>
+			);
+		case "Image":
+			return (
+				<div className="flex items-center gap-2 text-foreground/50">
+					<ImageIcon className="h-8 w-8 text-foreground/20" />
+					<span className="text-[10px]">image.png</span>
+				</div>
+			);
+		case "Video":
+			return (
+				<div className="flex items-center gap-2 text-foreground/50">
+					<Video className="h-8 w-8 text-foreground/20" />
+					<span className="text-[10px]">video.mp4</span>
+				</div>
+			);
+		case "File":
+			return (
+				<div className="flex items-center gap-2 text-foreground/50">
+					<File className="h-8 w-8 text-foreground/20" />
+					<span className="text-[10px]">attachment.pdf</span>
+				</div>
+			);
+		case "Callout":
+			return (
+				<div className="flex items-start gap-1.5 bg-blue-500/10 border border-blue-500/20 rounded px-2 py-1">
+					<Info className="h-3 w-3 text-blue-500 shrink-0 mt-0.5" />
+					<span className="text-[10px] text-foreground/60">Info callout</span>
+				</div>
+			);
+		case "Warning":
+			return (
+				<div className="flex items-start gap-1.5 bg-yellow-500/10 border border-yellow-500/20 rounded px-2 py-1">
+					<AlertTriangle className="h-3 w-3 text-yellow-500 shrink-0 mt-0.5" />
+					<span className="text-[10px] text-foreground/60">Warning callout</span>
+				</div>
+			);
+		case "Math":
+			return (
+				<p className="font-mono text-[13px] text-foreground/70">
+					E = mc²
+				</p>
+			);
+		default:
+			return (
+				<p className="text-[10px] text-muted-foreground">{cmd.description}</p>
+			);
+	}
+}
+
 interface SlashCommandsProps {
 	editor: Editor | null;
 }
@@ -396,56 +545,82 @@ export function SlashCommands({ editor }: SlashCommandsProps) {
 	];
 
 	const flatCommands: SlashCommand[] = filtered;
+	const focusedCmd = flatCommands[selectedIndex] ?? null;
 
 	return (
 		<>
 			{open && filtered.length > 0 && (
 				<div
 					ref={menuRef}
-					className="absolute z-50 w-[280px] bg-popover border border-border rounded-lg shadow-lg py-1 overflow-hidden max-h-[380px] overflow-y-auto"
+					className="absolute z-50 w-[280px] bg-popover border border-border rounded-lg shadow-lg overflow-hidden"
 					style={{ top: position.top, left: position.left }}
 				>
-					{order.map((group) => {
-						const items = byCategory.get(group.key);
-						if (!items || items.length === 0) return null;
-						return (
-							<div key={group.key}>
-								<div className="text-[9px] uppercase tracking-wider text-muted-foreground px-3 pt-2 pb-1">
-									{group.title}
+					{/* Scrollable command list */}
+					<div className="max-h-[300px] overflow-y-auto py-1">
+						{order.map((group) => {
+							const items = byCategory.get(group.key);
+							if (!items || items.length === 0) return null;
+							return (
+								<div key={group.key}>
+									<div className="text-[9px] uppercase tracking-wider text-muted-foreground px-3 pt-2 pb-1">
+										{group.title}
+									</div>
+									{items.map((cmd) => {
+										const flatIndex = flatCommands.indexOf(cmd);
+										const Icon = cmd.icon;
+										const isFocused = flatIndex === selectedIndex;
+										return (
+											<button
+												key={cmd.label}
+												onMouseDown={(e) => {
+													e.preventDefault();
+													handleSelect(cmd);
+												}}
+												onMouseEnter={() => setSelectedIndex(flatIndex)}
+												className={cn(
+													"flex items-center gap-3 w-full px-3 py-1.5 text-left transition-colors",
+													isFocused
+														? "bg-accent text-accent-foreground ring-1 ring-inset ring-accent-foreground/10"
+														: "hover:bg-accent/50",
+												)}
+											>
+												<Icon
+													className={cn(
+														"h-4 w-4 shrink-0 transition-colors",
+														isFocused
+															? "text-accent-foreground"
+															: "text-muted-foreground",
+													)}
+												/>
+												<div className="min-w-0">
+													<p className="text-[12px] font-medium truncate">
+														{cmd.label}
+													</p>
+													<p
+														className={cn(
+															"text-[10px] truncate transition-colors",
+															isFocused
+																? "text-accent-foreground/70"
+																: "text-muted-foreground",
+														)}
+													>
+														{cmd.description}
+													</p>
+												</div>
+											</button>
+										);
+									})}
 								</div>
-								{items.map((cmd) => {
-									const flatIndex = flatCommands.indexOf(cmd);
-									const Icon = cmd.icon;
-									return (
-										<button
-											key={cmd.label}
-											onMouseDown={(e) => {
-												e.preventDefault();
-												handleSelect(cmd);
-											}}
-											onMouseEnter={() => setSelectedIndex(flatIndex)}
-											className={cn(
-												"flex items-center gap-3 w-full px-3 py-1.5 text-left transition-colors",
-												flatIndex === selectedIndex
-													? "bg-accent text-accent-foreground"
-													: "hover:bg-accent/50",
-											)}
-										>
-											<Icon className="h-4 w-4 text-muted-foreground shrink-0" />
-											<div className="min-w-0">
-												<p className="text-[12px] font-medium truncate">
-													{cmd.label}
-												</p>
-												<p className="text-[10px] text-muted-foreground truncate">
-													{cmd.description}
-												</p>
-											</div>
-										</button>
-									);
-								})}
-							</div>
-						);
-					})}
+							);
+						})}
+					</div>
+
+					{/* Preview pane for focused command */}
+					{focusedCmd && (
+						<div className="border-t border-border bg-muted/30 px-3 py-2 min-h-[52px] flex items-center">
+							<CommandPreview cmd={focusedCmd} />
+						</div>
+					)}
 				</div>
 			)}
 			{renderPopover()}
