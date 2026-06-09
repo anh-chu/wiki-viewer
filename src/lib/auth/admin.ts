@@ -102,6 +102,14 @@ export async function requireAdmin(
 	| { ok: true; user: { id: string; email: string; name: string } }
 	| { ok: false; status: number; code: string }
 > {
+	// --no-auth bypass
+	if (process.env.WIKI_NO_AUTH === "1") {
+		return {
+			ok: true,
+			user: { id: "local", email: "local@localhost", name: "local" },
+		};
+	}
+
 	const auth = await requireUser(req);
 	if (!auth.ok) return { ok: false, status: 401, code: "UNAUTHORIZED" };
 

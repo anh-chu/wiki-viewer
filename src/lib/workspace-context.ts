@@ -85,6 +85,19 @@ export interface WorkspaceError {
 export async function resolveWorkspaceForUser(
 	req: Request,
 ): Promise<WorkspaceContext | WorkspaceError> {
+	// --no-auth bypass
+	if (process.env.WIKI_NO_AUTH === "1") {
+		const ws = await pickWorkspace(req);
+		if (!ws) {
+			return {
+				ok: false,
+				status: 400,
+				code: "WORKSPACE_REQUIRED",
+			};
+		}
+		return { ok: true, ws, rootDir: ws.rootDir, userId: "local", isAdmin: true };
+	}
+
 	// Authenticate
 	const auth = await requireUser(req);
 	if (!auth.ok) return { ok: false, status: 401, code: "UNAUTHORIZED" };

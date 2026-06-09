@@ -81,9 +81,10 @@ wiki-viewer [directory] [options]
   directory            Directory to serve  (optional — pick in the browser if omitted)
 
 Options:
-  -p, --port <port>   Port to listen on   (default: 3000)
-  -H, --host <host>   Host to bind to     (default: localhost)
-      --https         Enable HTTPS        (self-signed cert, required on remote)
+  -p, --port <port>   Port to listen on        (default: 3000)
+  -H, --host <host>   Host to bind to          (default: localhost)
+      --https         Enable HTTPS             (self-signed cert, required on remote)
+      --no-auth       No sign-in, no session    (open to anyone on the network)
   -h, --help          Show this help message
 
 Commands:

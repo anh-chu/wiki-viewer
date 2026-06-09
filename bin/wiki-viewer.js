@@ -32,6 +32,7 @@ function printUsage() {
   console.error("  -p, --port <port>   Port to listen on (default: 3000)");
   console.error("  -H, --host <host>   Host to bind to (default: localhost)");
   console.error("  --https             Enable HTTPS (self-signed cert, enables service workers)");
+  console.error("  --no-auth           Run without authentication — no sign-in, no session check");
   console.error("");
   console.error("  -e, --env <KEY=VALUE>  Set an app env var (repeatable; persisted with service install)");
   console.error("");
@@ -67,6 +68,7 @@ function parseServeArgs(args) {
   let useHttps;
   let userSpecifiedPort = false;
   let rootDir;
+  let noAuth;
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -74,10 +76,11 @@ function parseServeArgs(args) {
     else if (a === "-H" || a === "--host") host = args[++i] ?? host;
     else if (a === "-e" || a === "--env") { i++; } // consumed by parseEnvFlags
     else if (a === "--https") useHttps = true;
+    else if (a === "--no-auth") noAuth = true;
     else if (!a.startsWith("-") && rootDir === undefined) rootDir = a;
   }
 
-  return { rootDir, port, host, useHttps, userSpecifiedPort };
+  return { rootDir, port, host, useHttps, userSpecifiedPort, noAuth: Boolean(noAuth) };
 }
 
 // ── config file ────────────────────────────────────────────────────────────
@@ -111,7 +114,7 @@ function resolveServeOptions(args) {
     useHttps: Boolean(cli.useHttps),
     userSpecifiedPort: cli.userSpecifiedPort,
     // App env: config.env as base, ad-hoc --env flags override per run.
-    configEnv: { ...(cfg.env ?? {}), ...parseEnvFlags(args) },
+    configEnv: { ...(cfg.env ?? {}), ...(cli.noAuth ? { WIKI_NO_AUTH: "1" } : {}), ...parseEnvFlags(args) },
   };
 }
 
@@ -135,7 +138,7 @@ function resolveRunOptions(args) {
     host,
     useHttps: Boolean(useHttps),
     userSpecifiedPort,
-    configEnv: { ...(cfg.env ?? {}), ...parseEnvFlags(args) },
+    configEnv: { ...(cfg.env ?? {}), ...(cli.noAuth ? { WIKI_NO_AUTH: "1" } : {}), ...parseEnvFlags(args) },
   };
 }
 

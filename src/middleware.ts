@@ -18,6 +18,11 @@ export function middleware(req: NextRequest): NextResponse {
 		return NextResponse.next();
 	}
 
+	// --no-auth skip
+	if (process.env.WIKI_NO_AUTH === "1") {
+		return NextResponse.next();
+	}
+
 	// Cheap presence check; real session validation happens in individual routes.
 	// Cookie name from better-auth default: "better-auth.session_token"
 	const sessionCookie =
