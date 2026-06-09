@@ -85,6 +85,7 @@ Options:
   -H, --host <host>   Host to bind to          (default: localhost)
       --https         Enable HTTPS             (self-signed cert, required on remote)
       --no-auth       No sign-in, no session    (open to anyone on the network)
+  -v, --version       Print version
   -h, --help          Show this help message
 
 Commands:

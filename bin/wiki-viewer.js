@@ -33,6 +33,7 @@ function printUsage() {
   console.error("  -H, --host <host>   Host to bind to (default: localhost)");
   console.error("  --https             Enable HTTPS (self-signed cert, enables service workers)");
   console.error("  --no-auth           Run without authentication — no sign-in, no session check");
+  console.error("  -v, --version       Print version");
   console.error("");
   console.error("  -e, --env <KEY=VALUE>  Set an app env var (repeatable; persisted with service install)");
   console.error("");
@@ -868,6 +869,12 @@ const argv = process.argv.slice(2);
 
 if (argv.includes("--help") || argv.includes("-h")) {
   printUsage();
+  process.exit(0);
+}
+
+if (argv.includes("--version") || argv.includes("-v")) {
+  const pkg = JSON.parse(readFileSync(path.join(appRoot, "package.json"), "utf8"));
+  console.log(pkg.version);
   process.exit(0);
 }
 
