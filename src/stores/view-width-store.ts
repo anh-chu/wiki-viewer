@@ -8,15 +8,15 @@ const STORAGE_KEY = "wiki-view-width";
 /** Tailwind max-width class per setting. "wide" removes the cap. */
 export const VIEW_WIDTH_CLASS: Record<ViewWidth, string> = {
 	narrow: "max-w-2xl",
-	normal: "max-w-4xl",
-	wide: "max-w-screen-xl",
+	normal: "max-w-5xl",
+	wide: "max-w-[90rem]",
 };
 
 /** CSS max-width value per setting, for use via the --editor-max-w variable. */
 export const VIEW_WIDTH_CSS: Record<ViewWidth, string> = {
 	narrow: "42rem",
-	normal: "56rem",
-	wide: "80rem",
+	normal: "64rem",
+	wide: "90rem",
 };
 
 export const VIEW_WIDTH_LABEL: Record<ViewWidth, string> = {
