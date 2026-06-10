@@ -22,6 +22,15 @@ import {
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
+	// --no-auth bypass: single-user local mode has no session. Treat the local
+	// user as admin so workspace management (add/delete) is available, matching
+	// requireAdmin and resolveWorkspaceForUser.
+	if (process.env.WIKI_NO_AUTH === "1") {
+		await migrateConfigToWorkspaces();
+		const workspaces = await listWorkspaces();
+		return NextResponse.json({ workspaces, isAdmin: true });
+	}
+
 	const auth = await requireUser(request);
 	if (!auth.ok) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
 
