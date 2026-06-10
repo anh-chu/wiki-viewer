@@ -88,6 +88,11 @@ import { SidebarSearchBox } from "@/components/search/sidebar-search-box";
 import { useAIPanelStore } from "@/stores/ai-panel-store";
 import { useEditorStore } from "@/stores/editor-store";
 import { useViewWidthStore, VIEW_WIDTH_CLASS } from "@/stores/view-width-store";
+import {
+	useSidebarWidthStore,
+	SIDEBAR_MIN_WIDTH,
+	SIDEBAR_MAX_WIDTH,
+} from "@/stores/sidebar-width-store";
 import { ViewWidthToggle } from "@/components/view-width-toggle";
 import { useWikiSlugsStore } from "@/stores/wiki-slugs-store";
 
@@ -372,6 +377,9 @@ export default function Page() {
 	const [appFullscreen, setAppFullscreen] = useState(false);
 	const [appKey, setAppKey] = useState(0);
 	const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+	const sidebarWidth = useSidebarWidthStore((s) => s.width);
+	const setSidebarWidth = useSidebarWidthStore((s) => s.setWidth);
+	const [sidebarResizing, setSidebarResizing] = useState(false);
 	const [settingsOpen, setSettingsOpen] = useState(false);
 const [shareDialogOpen, setShareDialogOpen] = useState(false);
 	const [fileContent, setFileContent] = useState<string | null>(null);
@@ -1564,7 +1572,9 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 			/>
 			{/* Tree sidebar */}
 			{!sidebarCollapsed && (
-				<Card className="flex flex-col w-72 shrink-0 overflow-hidden rounded-none border-r border-l-0 border-t-0 border-b-0">
+				<Card
+					style={{ width: sidebarWidth }}
+					className="relative flex flex-col shrink-0 overflow-hidden rounded-none border-r border-l-0 border-t-0 border-b-0">
 					{/* Row 1: brand + collapse */}
 					<div className="flex items-center justify-between gap-2 px-3 py-2 border-b bg-muted shrink-0">
 						<div className="flex min-w-0 items-center gap-1.5">
@@ -1951,6 +1961,53 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 							</DropdownMenuContent>
 						</DropdownMenu>
 					</div>
+					{/* Resize handle */}
+					<div
+						role="separator"
+						aria-orientation="vertical"
+						aria-label="Resize sidebar"
+						title="Drag to resize"
+						onMouseDown={(e) => {
+							e.preventDefault();
+							const startX = e.clientX;
+							const startW = sidebarWidth;
+							setSidebarResizing(true);
+							const prevCursor = document.body.style.cursor;
+							const prevSelect = document.body.style.userSelect;
+							document.body.style.cursor = "col-resize";
+							document.body.style.userSelect = "none";
+							const onMove = (ev: MouseEvent) => {
+								setSidebarWidth(startW + (ev.clientX - startX));
+							};
+							const onUp = () => {
+								setSidebarResizing(false);
+								document.body.style.cursor = prevCursor;
+								document.body.style.userSelect = prevSelect;
+								window.removeEventListener("mousemove", onMove);
+								window.removeEventListener("mouseup", onUp);
+							};
+							window.addEventListener("mousemove", onMove);
+							window.addEventListener("mouseup", onUp);
+						}}
+						onDoubleClick={() => setSidebarWidth(288)}
+						onKeyDown={(e) => {
+							if (e.key === "ArrowLeft") {
+								e.preventDefault();
+								setSidebarWidth(sidebarWidth - 16);
+							} else if (e.key === "ArrowRight") {
+								e.preventDefault();
+								setSidebarWidth(sidebarWidth + 16);
+							}
+						}}
+						tabIndex={0}
+						aria-valuemin={SIDEBAR_MIN_WIDTH}
+						aria-valuemax={SIDEBAR_MAX_WIDTH}
+						aria-valuenow={sidebarWidth}
+						className={cn(
+							"absolute right-0 top-0 z-20 h-full w-1.5 cursor-col-resize -mr-px transition-colors hover:bg-primary/40 focus:bg-primary/40 focus:outline-none",
+							sidebarResizing && "bg-primary/60",
+						)}
+					/>
 				</Card>
 			)}
 
