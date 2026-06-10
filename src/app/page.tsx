@@ -23,6 +23,7 @@ import {
 	PanelLeftClose,
 	PanelLeftOpen,
 	Pencil,
+	Eye,
 	Pin,
 	Plus,
 	RefreshCw,
@@ -2206,6 +2207,22 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 												}}
 											>
 												<Pencil className="h-3.5 w-3.5" />
+											</Button>
+										)}
+									{isText(openFile.name) &&
+										editing &&
+										isMarkdown(openFile.name) && (
+											<Button
+												size="sm"
+												variant="ghost"
+												className="h-7 w-7 p-0"
+												title="Done editing"
+												onClick={() => {
+													setEditing(false);
+													setSaveError(null);
+												}}
+											>
+												<Eye className="h-3.5 w-3.5" />
 											</Button>
 										)}
 									{isText(openFile.name) &&
