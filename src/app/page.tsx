@@ -2053,7 +2053,9 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 								<div className="flex-1 flex flex-col overflow-hidden min-w-0">
 									<div className="flex items-center justify-between px-4 py-2 border-b bg-muted shrink-0 editorial-doc-header">
 										<div className="flex items-center gap-2 min-w-0">
-											<Globe className="h-4 w-4 shrink-0 text-accent" />
+											<span className="editorial-tree-typeicon">
+												<Globe className="h-4 w-4 shrink-0 text-foreground/70" />
+											</span>
 											<span
 												className="text-sm font-normal truncate"
 												title={openFile.path}
@@ -2163,13 +2165,15 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 						<div className="flex-1 flex flex-col overflow-hidden min-w-0">
 							<div className="flex items-center justify-between px-4 py-2 border-b bg-muted shrink-0 editorial-doc-header">
 								<div className="flex items-center gap-2 min-w-0">
-									{isImage(openFile.name) ? (
-										<ImageIcon className="h-4 w-4 shrink-0 text-sunshine-700" />
-									) : isText(openFile.name) ? (
-										<FileText className="h-4 w-4 shrink-0 text-accent" />
-									) : (
-										<File className="h-4 w-4 shrink-0 text-muted-foreground" />
-									)}
+									<span className="editorial-tree-typeicon">
+										{isImage(openFile.name) ? (
+											<ImageIcon className="h-4 w-4 shrink-0 text-sunshine-700" />
+										) : isText(openFile.name) ? (
+											<FileText className="h-4 w-4 shrink-0 text-foreground/70" />
+										) : (
+											<File className="h-4 w-4 shrink-0 text-foreground/60" />
+										)}
+									</span>
 									<span
 										className="text-sm font-normal truncate"
 										title={openFile.path}
