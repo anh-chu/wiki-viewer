@@ -240,7 +240,7 @@ export function SourceViewer({ path }: SourceViewerProps) {
 				) : (
 					<>
 					{isLarge && (
-						<div className="px-4 py-2 text-[11px] text-amber-200/90 bg-amber-900/30 border-b border-amber-700/40 font-sans">
+						<div className="px-4 py-2 text-[11px] text-amber-700 dark:text-amber-300 bg-amber-500/15 border-b border-amber-500/30 font-sans">
 							Large file ({(byteSize / (1024 * 1024)).toFixed(1)} MB,{" "}
 							{highlightedLines.length.toLocaleString()} lines). Syntax
 							highlighting disabled for performance. Use Raw or Download for
