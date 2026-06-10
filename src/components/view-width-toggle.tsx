@@ -24,7 +24,7 @@ export function ViewWidthToggle({ className }: { className?: string }) {
 				<Button
 					size="sm"
 					variant="ghost"
-					className={`h-7 w-7 p-0 data-[state=open]:bg-accent ${className ?? ""}`}
+					className={`h-7 w-7 p-0 ${className ?? ""}`}
 					title={`Content width: ${VIEW_WIDTH_LABEL[width]}`}
 				>
 					<AlignJustify className="h-3.5 w-3.5" />

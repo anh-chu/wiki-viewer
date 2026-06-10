@@ -217,7 +217,7 @@ export default function SharedPage({
 											<Button
 												size="sm"
 												variant="ghost"
-												className="h-7 gap-1.5 px-2 text-xs data-[state=open]:bg-accent"
+												className="h-7 gap-1.5 px-2 text-xs data-[state=open]:bg-transparent"
 												title="Copy link, raw content, or formatted content"
 											>
 												{copied === "link" ? (
