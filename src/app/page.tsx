@@ -1618,7 +1618,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 					<div className="flex items-center justify-between gap-2 px-3 py-2 border-b bg-muted shrink-0">
 						<div className="flex min-w-0 items-center gap-1.5">
 							<img src="/logo.svg" alt="Wiki Viewer" className="h-5 w-5 shrink-0" />
-							<span className="truncate text-xs font-semibold tracking-tight">
+							<span className="truncate text-xs font-semibold leading-5 tracking-tight translate-y-[0.5px]">
 								Wiki Viewer
 							</span>
 						</div>
@@ -2056,7 +2056,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 					<Button
 						size="sm"
 						variant="ghost"
-						className="absolute left-0 top-1/2 -translate-y-1/2 z-10 h-7 w-7 p-0 rounded-full bg-background/50 backdrop-blur-xl backdrop-saturate-150 border border-white/[0.08] text-foreground/60 hover:text-foreground/90 hover:bg-background/70 shadow-[0_0_12px_rgba(0,0,0,0.15)] [transform:translate(-50%,-50%)_translateZ(0)]"
+						className="absolute left-2 top-2 z-10 h-7 w-7 p-0"
 						title="Show sidebar"
 						onClick={() => setSidebarCollapsed(false)}
 					>
@@ -2083,7 +2083,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 								/>
 							) : (
 								<div className="flex-1 flex flex-col overflow-hidden min-w-0">
-									<div className="flex items-center justify-between px-4 py-2 border-b bg-muted shrink-0 editorial-doc-header">
+									<div className={cn("flex items-center justify-between px-4 py-2 border-b bg-muted shrink-0 editorial-doc-header", sidebarCollapsed && "pl-11")}>
 										<div className="flex items-center gap-2 min-w-0">
 											<span className="editorial-tree-typeicon">
 												<Globe className="h-4 w-4 shrink-0 text-foreground/70" />
@@ -2195,7 +2195,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 						})()
 					) : (
 						<div className="flex-1 flex flex-col overflow-hidden min-w-0">
-							<div className="flex items-center justify-between px-4 py-2 border-b bg-muted shrink-0 editorial-doc-header">
+							<div className={cn("flex items-center justify-between px-4 py-2 border-b bg-muted shrink-0 editorial-doc-header", sidebarCollapsed && "pl-11")}>
 								<div className="flex items-center gap-2 min-w-0">
 									<span className="editorial-tree-typeicon">
 										{isImage(openFile.name) ? (
