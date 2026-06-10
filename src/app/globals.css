@@ -20,10 +20,6 @@
   --accent-soft: #e7e5e4;
   --primary-soft: #e7e5e4;
   --success-soft: #dcfce7;
-  --quadrant-do-soft: #f0fdf4;
-  --quadrant-schedule-soft: #fff7ed;
-  --quadrant-delegate-soft: #eff6ff;
-  --quadrant-eliminate-soft: #faf5ff;
   --destructive: #dc2626;
   --destructive-foreground: #ffffff;
   --destructive-soft: #fee2e2;
@@ -33,13 +29,8 @@
   --input: #d6d3d1;
   --switch-checked: #292524;
   --ring: #292524;
+  --overlay: rgb(12 10 9 / 0.4);
   --radius: 8px;
-
-  --chart-1: #292524;
-  --chart-2: #777169;
-  --chart-3: #a8a29e;
-  --chart-4: #d6d3d1;
-  --chart-5: #0c0a09;
 
   --sidebar-background: #fafafa;
   --sidebar-foreground: #0c0a09;
@@ -50,28 +41,10 @@
   --sidebar-border: #e7e5e4;
   --sidebar-ring: #292524;
 
-  /* Eisenhower quadrant accent colors — light mode */
-  --quadrant-do: #a7e5d3;
-  --quadrant-schedule: #f4c5a8;
-  --quadrant-delegate: #a8c8e8;
-  --quadrant-eliminate: #c8b8e0;
-
-  /* Status colors — light mode */
-  --status-not-started: #777169;
-  --status-in-progress: #a8a29e;
-  --status-done: #16a34a;
-
   /* Success / Warning / Info — light mode */
   --success: #16a34a;
   --warning: #d97706;
   --info: #292524;
-
-  /* Gradient orb tokens */
-  --gradient-mint: #a7e5d3;
-  --gradient-peach: #f4c5a8;
-  --gradient-lavender: #c8b8e0;
-  --gradient-sky: #a8c8e8;
-  --gradient-rose: #e8b8c4;
 
   /* Elevation backing — light mode editorial */
   --shadow-golden-card: 0 4px 16px rgba(0, 0, 0, 0.04);
@@ -80,11 +53,7 @@
   --shadow-golden-toast: 0 24px 64px rgba(0, 0, 0, 0.1);
 
   /* === State tokens === */
-  --state-disabled-opacity: 0.5;
   --state-hover-overlay: 0 0 0 / 0.05; /* black 5% for light */
-  --state-active-scale: 0.98;
-  --ring-width-input: 1px;
-  --ring-width-interactive: 2px;
 
   /* === Motion tokens === */
   --motion-fast: 100ms;
@@ -117,10 +86,6 @@
   --accent-soft: #3d3d3d;
   --primary-soft: #453c35;
   --success-soft: #14532d;
-  --quadrant-do-soft: #14532d;
-  --quadrant-schedule-soft: #7c2d12;
-  --quadrant-delegate-soft: #1e3a5f;
-  --quadrant-eliminate-soft: #4a1d6a;
   --destructive: #dc2626;
   --destructive-foreground: #ffffff;
   --destructive-soft: #7f1d1d;
@@ -130,12 +95,7 @@
   --input: #57534e;
   --switch-checked: #f5f5f5;
   --ring: #ffffff;
-
-  --chart-1: #ffffff;
-  --chart-2: #a8a29e;
-  --chart-3: #777169;
-  --chart-4: #4e4e4e;
-  --chart-5: #f5f5f5;
+  --overlay: rgb(0 0 0 / 0.55);
 
   --sidebar-background: #0c0a09;
   --sidebar-foreground: #ffffff;
@@ -145,17 +105,6 @@
   --sidebar-accent-foreground: #ffffff;
   --sidebar-border: #292524;
   --sidebar-ring: #ffffff;
-
-  /* Eisenhower quadrant accent colors */
-  --quadrant-do: #a7e5d3;
-  --quadrant-schedule: #f4c5a8;
-  --quadrant-delegate: #a8c8e8;
-  --quadrant-eliminate: #c8b8e0;
-
-  /* Status colors */
-  --status-not-started: #a8a29e;
-  --status-in-progress: #777169;
-  --status-done: #16a34a;
 
   /* Success / Warning / Info */
   --success: #16a34a;

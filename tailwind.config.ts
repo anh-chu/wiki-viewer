@@ -21,7 +21,6 @@ const config: Config = {
 					DEFAULT: "var(--primary)",
 					foreground: "var(--primary-foreground)",
 					soft: "var(--primary-soft)",
-					active: "var(--primary-active, #0c0a09)",
 				},
 				secondary: {
 					DEFAULT: "var(--secondary)",
@@ -44,13 +43,7 @@ const config: Config = {
 				border: "var(--border)",
 				input: "var(--input)",
 				ring: "var(--ring)",
-				chart: {
-					"1": "var(--chart-1)",
-					"2": "var(--chart-2)",
-					"3": "var(--chart-3)",
-					"4": "var(--chart-4)",
-					"5": "var(--chart-5)",
-				},
+				overlay: "var(--overlay)",
 				sidebar: {
 					DEFAULT: "var(--sidebar-background)",
 					foreground: "var(--sidebar-foreground)",
@@ -61,19 +54,6 @@ const config: Config = {
 					border: "var(--sidebar-border)",
 					ring: "var(--sidebar-ring)",
 				},
-				// Eisenhower quadrant colors
-				"quadrant-do": "var(--quadrant-do)",
-				"quadrant-do-soft": "var(--quadrant-do-soft)",
-				"quadrant-schedule": "var(--quadrant-schedule)",
-				"quadrant-schedule-soft": "var(--quadrant-schedule-soft)",
-				"quadrant-delegate": "var(--quadrant-delegate)",
-				"quadrant-delegate-soft": "var(--quadrant-delegate-soft)",
-				"quadrant-eliminate": "var(--quadrant-eliminate)",
-				"quadrant-eliminate-soft": "var(--quadrant-eliminate-soft)",
-				// Status colors
-				"status-not-started": "var(--status-not-started)",
-				"status-in-progress": "var(--status-in-progress)",
-				"status-done": "var(--status-done)",
 				// Semantic colors
 				success: {
 					DEFAULT: "var(--success)",

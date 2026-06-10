@@ -344,8 +344,8 @@ function CommandPreview({ cmd }: { cmd: SlashCommand }) {
 			);
 		case "Warning":
 			return (
-				<div className="flex items-start gap-1.5 bg-yellow-500/10 border border-yellow-500/20 rounded px-2 py-1">
-					<AlertTriangle className="h-3 w-3 text-yellow-500 shrink-0 mt-0.5" />
+				<div className="flex items-start gap-1.5 bg-warning/10 border border-warning/20 rounded px-2 py-1">
+					<AlertTriangle className="h-3 w-3 text-warning shrink-0 mt-0.5" />
 					<span className="text-[10px] text-foreground/60">Warning callout</span>
 				</div>
 			);

@@ -206,7 +206,7 @@ export default function SharedPage({
 						{state.kind === "content" ? (
 							<>
 								<div className="flex items-center gap-2 min-w-0 flex-1">
-									<span className="h-2 w-2 rounded-full bg-green-500 shrink-0" />
+									<span className="h-2 w-2 rounded-full bg-success shrink-0" />
 									<span className="text-sm font-mono truncate" title={state.filename}>
 										{state.filename}
 									</span>
@@ -221,7 +221,7 @@ export default function SharedPage({
 												title="Copy link, raw content, or formatted content"
 											>
 												{copied === "link" ? (
-													<Check className="h-3.5 w-3.5 text-green-500" />
+													<Check className="h-3.5 w-3.5 text-success" />
 												) : (
 													<Copy className="h-3.5 w-3.5" />
 												)}

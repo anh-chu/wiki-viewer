@@ -137,7 +137,7 @@ export function AIPanel({ currentPath }: { currentPath?: string | null }) {
 		<>
 			{/* Backdrop */}
 			<div
-				className="fixed inset-0 z-40 bg-black/20 backdrop-blur-[1px]"
+				className="fixed inset-0 z-40 bg-overlay backdrop-blur-[1px]"
 				onClick={close}
 				aria-hidden
 			/>

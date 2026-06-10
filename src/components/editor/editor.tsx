@@ -1244,7 +1244,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 										saveStatus === "saving"
 											? "bg-muted text-muted-foreground"
 											: saveStatus === "saved"
-												? "bg-green-500/10 text-green-600 dark:text-green-400"
+												? "bg-success/10 text-success"
 												: saveStatus === "error"
 													? "bg-destructive/10 text-destructive"
 													: ""

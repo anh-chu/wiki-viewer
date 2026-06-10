@@ -258,7 +258,7 @@ export function CsvViewer({ path }: CsvViewerProps) {
 										<td className="border border-border px-1 py-1 text-center text-[10px] text-muted-foreground/50">
 											<span className="group-hover:hidden">{ri + 1}</span>
 											<button
-												className="hidden group-hover:inline text-red-400 hover:text-red-300 text-[10px]"
+												className="hidden group-hover:inline text-destructive hover:text-destructive/80 text-[10px]"
 												onClick={() => deleteRow(r)}
 												title="Delete row"
 											>
