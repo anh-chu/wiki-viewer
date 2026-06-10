@@ -232,7 +232,7 @@ export function SourceViewer({ path }: SourceViewerProps) {
 					Raw
 				</Button>
 			</ViewerToolbar>
-			<div className="flex-1 overflow-auto source-viewer-code bg-[#1e1e1e]">
+			<div className="flex-1 overflow-auto source-viewer-code bg-muted">
 				{loading ? (
 					<div className="flex items-center justify-center h-full text-muted-foreground text-sm">
 						Loading...
@@ -250,12 +250,12 @@ export function SourceViewer({ path }: SourceViewerProps) {
 					<table className="w-full border-collapse text-[13px] leading-relaxed font-mono">
 						<tbody>
 							{shownLines.map((lineHtml, i) => (
-								<tr key={i} className="hover:bg-white/5">
-									<td className="w-12 pr-4 text-right text-[#858585] select-none align-top sticky left-0 bg-[#1e1e1e]">
+								<tr key={i} className="hover:bg-foreground/5">
+									<td className="w-12 pr-4 text-right text-muted-foreground select-none align-top sticky left-0 bg-muted">
 										{i + 1}
 									</td>
 									<td
-										className={`text-[#d4d4d4] pl-2 ${wrap ? "whitespace-pre-wrap break-all" : "whitespace-pre"}`}
+										className={`text-foreground pl-2 ${wrap ? "whitespace-pre-wrap break-all" : "whitespace-pre"}`}
 										dangerouslySetInnerHTML={{ __html: lineHtml || " " }}
 									/>
 								</tr>
@@ -263,10 +263,10 @@ export function SourceViewer({ path }: SourceViewerProps) {
 						</tbody>
 					</table>
 					{hasMore && (
-						<div className="flex items-center gap-3 px-4 py-3 border-t border-white/10 font-sans">
+						<div className="flex items-center gap-3 px-4 py-3 border-t border-border font-sans">
 							<button
 								onClick={() => setVisibleCount((v) => v + RENDER_CHUNK)}
-								className="text-[11px] text-[#d4d4d4] hover:text-white px-2.5 py-1 rounded bg-white/10 hover:bg-white/20 transition-colors"
+								className="text-[11px] text-foreground hover:text-foreground px-2.5 py-1 rounded bg-foreground/10 hover:bg-foreground/20 transition-colors"
 							>
 								Show{" "}
 								{Math.min(
@@ -275,7 +275,7 @@ export function SourceViewer({ path }: SourceViewerProps) {
 							).toLocaleString()}{" "}
 								more
 							</button>
-							<span className="text-[11px] text-[#858585]">
+							<span className="text-[11px] text-muted-foreground">
 								{visibleCount.toLocaleString()} /{" "}
 								{highlightedLines.length.toLocaleString()} lines
 							</span>

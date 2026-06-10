@@ -392,6 +392,66 @@ nextjs-portal {
   font-weight: 600;
 }
 
+/* Standalone source viewer (non-Markdown files). Mirrors the tiptap palette
+   so syntax colors follow the active theme instead of a hardcoded dark scheme. */
+.source-viewer-code .hljs-keyword,
+.source-viewer-code .hljs-selector-tag,
+.source-viewer-code .hljs-built_in {
+  color: var(--accent-foreground);
+  font-weight: 500;
+}
+
+.source-viewer-code .hljs-string,
+.source-viewer-code .hljs-attr {
+  color: var(--success);
+}
+
+.source-viewer-code .hljs-number,
+.source-viewer-code .hljs-literal,
+.source-viewer-code .hljs-bullet,
+.source-viewer-code .hljs-symbol {
+  color: var(--warning-ink);
+}
+
+.source-viewer-code .hljs-comment,
+.source-viewer-code .hljs-quote {
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+
+.source-viewer-code .hljs-function,
+.source-viewer-code .hljs-title,
+.source-viewer-code .hljs-section {
+  color: var(--accent-foreground);
+  font-weight: 600;
+}
+
+.source-viewer-code .hljs-type,
+.source-viewer-code .hljs-class .hljs-title,
+.source-viewer-code .hljs-name,
+.source-viewer-code .hljs-meta {
+  color: var(--warning-ink);
+}
+
+.source-viewer-code .hljs-variable,
+.source-viewer-code .hljs-template-variable,
+.source-viewer-code .hljs-attribute {
+  color: var(--foreground);
+}
+
+.source-viewer-code .hljs-tag,
+.source-viewer-code .hljs-regexp {
+  color: var(--destructive);
+}
+
+.source-viewer-code .hljs-emphasis {
+  font-style: italic;
+}
+
+.source-viewer-code .hljs-strong {
+  font-weight: 600;
+}
+
 .tiptap hr {
   border: 0;
   border-top: 1px solid var(--border);
