@@ -1245,7 +1245,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 								<span className="w-3.5 shrink-0" />
 							)}
 
-							{node.type === "dir" ? (
+							<span className="editorial-tree-typeicon">{node.type === "dir" ? (
 								node.expanded ? (
 									<FolderOpen className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-warning")} />
 								) : (
@@ -1263,7 +1263,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 								<FileText className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-foreground/70")} />
 							) : (
 								<File className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-foreground/60")} />
-							)}
+							)}</span>
 
 							<span className="min-w-0 flex-1 truncate">{node.name}</span>
 
@@ -1768,7 +1768,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 					<div
 						ref={sidebarScrollRef}
 						className={cn(
-							"flex-1 overflow-auto py-1",
+							"flex-1 overflow-auto py-1 editorial-file-tree",
 							dragOverPath === "" &&
 								"ring-2 ring-inset ring-primary bg-primary/5",
 						)}
@@ -1987,7 +1987,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 								/>
 							) : (
 								<div className="flex-1 flex flex-col overflow-hidden min-w-0">
-									<div className="flex items-center justify-between px-4 py-2 border-b bg-muted shrink-0">
+									<div className="flex items-center justify-between px-4 py-2 border-b bg-muted shrink-0 editorial-doc-header">
 										<div className="flex items-center gap-2 min-w-0">
 											<Globe className="h-4 w-4 shrink-0 text-accent" />
 											<span
@@ -2097,7 +2097,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 						})()
 					) : (
 						<div className="flex-1 flex flex-col overflow-hidden min-w-0">
-							<div className="flex items-center justify-between px-4 py-2 border-b bg-muted shrink-0">
+							<div className="flex items-center justify-between px-4 py-2 border-b bg-muted shrink-0 editorial-doc-header">
 								<div className="flex items-center gap-2 min-w-0">
 									{isImage(openFile.name) ? (
 										<ImageIcon className="h-4 w-4 shrink-0 text-sunshine-700" />

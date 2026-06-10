@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetClose } from "@/components/ui/sheet";
 import { showError } from "@/lib/toast";
 import { authClient } from "@/lib/auth/client";
+import { useSkinStore, SKIN_ORDER, SKIN_LABEL } from "@/stores/skin-store";
 
 interface AuthSettings {
 	allowedEmails: string[];
@@ -25,6 +26,30 @@ function textToList(text: string): string[] {
 		.split(/[\n,]/)
 		.map((s) => s.trim())
 		.filter(Boolean);
+}
+
+function SkinSelector() {
+	const skin = useSkinStore((s) => s.skin);
+	const setSkin = useSkinStore((s) => s.setSkin);
+	return (
+		<div className="flex gap-1.5">
+			{SKIN_ORDER.map((s) => (
+				<button
+					key={s}
+					type="button"
+					onClick={() => setSkin(s)}
+					aria-pressed={skin === s}
+					className={`flex-1 rounded-md border px-3 py-2 text-sm transition-colors ${
+						skin === s
+							? "border-ring bg-accent font-medium text-accent-foreground"
+							: "border-border text-muted-foreground hover:bg-accent/50"
+					}`}
+				>
+					{SKIN_LABEL[s]}
+				</button>
+			))}
+		</div>
+	);
 }
 
 export function AuthSettingsSheet({
@@ -172,7 +197,19 @@ export function AuthSettingsSheet({
 							</section>
 						)}
 
-						{/* Signup allowlist */}
+						{/* Appearance */}
+						<section className="space-y-2">
+							<h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+								Appearance
+							</h3>
+							<p className="text-xs text-muted-foreground">
+								Choose the visual style. Editorial uses a printed-journal
+								aesthetic with serif type and warm paper tones.
+							</p>
+							<SkinSelector />
+						</section>
+
+					{/* Signup allowlist */}
 						<section className="space-y-2">
 							<h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
 								Signup allowlist

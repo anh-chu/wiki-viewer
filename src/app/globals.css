@@ -735,3 +735,406 @@ proof-span.proof-span:hover,
   font-size: 0.85em;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
+
+/* ============================================================ */
+/* EDITORIAL SKIN — "Literary Review"                           */
+/* All rules MUST remain scoped under [data-skin="editorial"]   */
+/* ============================================================ */
+
+/* === Token overrides: light === */
+[data-skin="editorial"] {
+  --background: #faf6f0;
+  --foreground: #1a1714;
+  --card: #fffdfa;
+  --card-foreground: #1a1714;
+  --popover: #fffdfa;
+  --popover-foreground: #1a1714;
+  --primary: #b54a1f;
+  --primary-foreground: #fffdfa;
+  --primary-soft: #f3e2d8;
+  --secondary: #f1ebe1;
+  --secondary-foreground: #1a1714;
+  --muted: #f1ebe1;
+  --muted-foreground: #756c5f;
+  --accent: #f1ebe1;
+  --accent-foreground: #b54a1f;
+  --accent-soft: #f3e2d8;
+  --destructive: #b3261e;
+  --destructive-foreground: #fffdfa;
+  --destructive-soft: #f7dcda;
+  --success: #4a7c59;
+  --success-soft: #dceadf;
+  --warning: #b8860b;
+  --warning-soft: #f5ecd2;
+  --warning-ink: #8a6508;
+  --info: #1a1714;
+  --border: #ddd2c2;
+  --input: #ccc0ad;
+  --switch-checked: #b54a1f;
+  --ring: #b54a1f;
+  --overlay: rgb(26 23 20 / 0.4);
+  --radius: 4px;
+  --sidebar-background: #f4eee4;
+  --sidebar-foreground: #1a1714;
+  --sidebar-primary: #b54a1f;
+  --sidebar-primary-foreground: #fffdfa;
+  --sidebar-accent: #faf6f0;
+  --sidebar-accent-foreground: #b54a1f;
+  --sidebar-border: #ddd2c2;
+  --sidebar-ring: #b54a1f;
+}
+
+/* === Token overrides: dark === */
+[data-skin="editorial"].dark {
+  --background: #1a1714;
+  --foreground: #ece4d8;
+  --card: #221e1a;
+  --card-foreground: #ece4d8;
+  --popover: #221e1a;
+  --popover-foreground: #ece4d8;
+  --primary: #e8a07d;
+  --primary-foreground: #1a1714;
+  --primary-soft: #3a2c22;
+  --secondary: #262019;
+  --secondary-foreground: #ece4d8;
+  --muted: #262019;
+  --muted-foreground: #a89e8e;
+  --accent: #2c2620;
+  --accent-foreground: #e8a07d;
+  --accent-soft: #3a2c22;
+  --destructive: #e5544b;
+  --destructive-foreground: #1a1714;
+  --destructive-soft: #4a211d;
+  --success: #7fae8c;
+  --success-soft: #24341f;
+  --warning: #d9a441;
+  --warning-soft: #3a2e18;
+  --warning-ink: #d9a441;
+  --info: #ece4d8;
+  --border: #382f26;
+  --input: #4a3f33;
+  --switch-checked: #e8a07d;
+  --ring: #e8a07d;
+  --overlay: rgb(0 0 0 / 0.6);
+  --sidebar-background: #161310;
+  --sidebar-foreground: #ece4d8;
+  --sidebar-primary: #e8a07d;
+  --sidebar-primary-foreground: #1a1714;
+  --sidebar-accent: #221e1a;
+  --sidebar-accent-foreground: #e8a07d;
+  --sidebar-border: #382f26;
+  --sidebar-ring: #e8a07d;
+}
+
+/* === Body typography === */
+[data-skin="editorial"] body {
+  font-family: var(--font-newsreader), Georgia, serif;
+}
+
+/* === Prose redesign: .tiptap === */
+[data-skin="editorial"] .tiptap {
+  font-family: var(--font-newsreader), Georgia, serif;
+  font-size: 1.0625rem;
+  line-height: 1.65;
+  letter-spacing: 0;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "liga", "kern";
+  /* Width is controlled by the Narrow/Normal/Wide toggle via --editor-max-w.
+     Do not hardcode a measure here or the toggle stops working in editorial. */
+}
+
+[data-skin="editorial"] .tiptap h1,
+[data-skin="editorial"] .tiptap h2,
+[data-skin="editorial"] .tiptap h3,
+[data-skin="editorial"] .tiptap h4,
+[data-skin="editorial"] .tiptap h5,
+[data-skin="editorial"] .tiptap h6 {
+  font-family: var(--font-fraunces), Georgia, serif;
+  letter-spacing: -0.01em;
+}
+
+[data-skin="editorial"] .tiptap h1 {
+  font-size: 2.25rem;
+  font-weight: 600;
+  line-height: 1.15;
+  margin: 0 0 0.5rem;
+}
+
+[data-skin="editorial"] .tiptap h2 {
+  font-size: 1.6rem;
+  font-weight: 600;
+  line-height: 1.2;
+  margin: 2em 0 0.45rem;
+}
+
+[data-skin="editorial"] .tiptap h3 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 1.6em 0 0.4rem;
+}
+
+[data-skin="editorial"] .tiptap h4 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  font-variant: small-caps;
+  margin: 1.4em 0 0.35rem;
+}
+
+/* Drop cap on first paragraph */
+[data-skin="editorial"] .tiptap > p:first-child::first-letter {
+  float: left;
+  font-family: var(--font-fraunces), Georgia, serif;
+  font-size: 3.4em;
+  line-height: 0.72;
+  padding: 0.05em 0.12em 0 0;
+  color: var(--primary);
+  font-weight: 600;
+}
+
+[data-skin="editorial"] .tiptap p {
+  margin-bottom: 0.75rem;
+}
+
+/* Blockquote */
+[data-skin="editorial"] .tiptap blockquote {
+  border-left: 3px solid var(--primary);
+  border-radius: 4px;
+  background: transparent;
+  padding: 0.25rem 0 0.25rem 1.1rem;
+  font-style: italic;
+  font-size: 1.15rem;
+  color: var(--foreground);
+  margin: 1.25rem 0;
+}
+
+/* Inline code */
+[data-skin="editorial"] .tiptap code {
+  font-family: var(--font-plex-mono), ui-monospace, Menlo, monospace;
+  font-size: 0.85em;
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 0.05rem 0.3rem;
+}
+
+/* Code block */
+[data-skin="editorial"] .tiptap pre {
+  font-family: var(--font-plex-mono), ui-monospace, Menlo, monospace;
+  border-radius: 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  border-left: none;
+  border-right: none;
+  background: var(--muted);
+}
+
+[data-skin="editorial"] .tiptap pre code {
+  font-family: inherit;
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+/* Links */
+[data-skin="editorial"] .tiptap a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+}
+
+/* Lists */
+[data-skin="editorial"] .tiptap ul {
+  list-style-type: square;
+}
+
+[data-skin="editorial"] .tiptap ol {
+  list-style-type: decimal;
+}
+
+/* HR — asterism ornament */
+[data-skin="editorial"] .tiptap hr {
+  border: none;
+  margin: 2.5rem 0;
+  height: 0;
+}
+
+[data-skin="editorial"] .tiptap hr::before {
+  content: "\2733 \00A0 \2733 \00A0 \2733";
+  display: block;
+  text-align: center;
+  font-family: var(--font-fraunces), Georgia, serif;
+  color: var(--muted-foreground);
+  letter-spacing: 0.4em;
+  font-size: 0.9rem;
+}
+
+/* Tables */
+[data-skin="editorial"] .tiptap table {
+  border-radius: 4px;
+  border-collapse: collapse;
+}
+
+[data-skin="editorial"] .tiptap th,
+[data-skin="editorial"] .tiptap td {
+  border: 1px solid var(--border);
+  border-radius: 0;
+}
+
+[data-skin="editorial"] .tiptap th {
+  font-family: var(--font-fraunces), Georgia, serif;
+  font-variant: small-caps;
+  font-size: 0.9em;
+  letter-spacing: 0.06em;
+}
+
+/* === Chrome: toolbars === */
+[data-skin="editorial"] .bg-muted.border-b,
+[data-skin="editorial"] .bg-muted\/50.border-b {
+  background-color: var(--background) !important;
+}
+
+/* === File tree: mono font + active terracotta === */
+[data-skin="editorial"] .editorial-file-tree {
+  font-family: var(--font-plex-mono), ui-monospace, Menlo, monospace;
+  font-size: 0.8125rem;
+}
+
+[data-skin="editorial"] .editorial-file-tree .bg-accent-soft {
+  border-left: 2px solid var(--primary);
+  color: var(--primary);
+  background: transparent;
+  border-radius: 4px;
+}
+
+[data-skin="editorial"] .editorial-file-tree [role="treeitem"]:hover,
+[data-skin="editorial"] .editorial-file-tree .hover\:bg-muted:hover {
+  background: var(--muted);
+  border-radius: 4px;
+}
+
+/* === Sidebar header sections === */
+[data-skin="editorial"] h3.editorial-section-label {
+  font-family: var(--font-fraunces), Georgia, serif;
+  font-variant: small-caps;
+  letter-spacing: 0.12em;
+  position: relative;
+  padding-bottom: 0.25rem;
+}
+
+[data-skin="editorial"] h3.editorial-section-label::after {
+  content: "";
+  display: block;
+  width: 1.5rem;
+  height: 1px;
+  background: var(--primary);
+  margin-top: 0.25rem;
+}
+
+/* === Content pane document header: Scotch rule (double rule) === */
+[data-skin="editorial"] .editorial-doc-header {
+  border-bottom: 3px double var(--foreground) !important;
+  background-color: var(--background) !important;
+}
+
+[data-skin="editorial"] .editorial-doc-header span {
+  font-family: var(--font-fraunces), Georgia, serif;
+  letter-spacing: -0.01em;
+  font-size: 0.9375rem;
+}
+
+/* === Outline panel: mono + uppercase tracked label === */
+[data-skin="editorial"] .editorial-outline {
+  font-family: var(--font-plex-mono), ui-monospace, Menlo, monospace;
+  font-size: 0.8125rem;
+}
+
+[data-skin="editorial"] .editorial-outline .editorial-outline-heading {
+  font-family: var(--font-fraunces), Georgia, serif;
+  font-variant: small-caps;
+  letter-spacing: 0.12em;
+  color: var(--muted-foreground);
+}
+
+[data-skin="editorial"] .editorial-outline a:hover,
+[data-skin="editorial"] .editorial-outline .editorial-outline-active {
+  color: var(--primary);
+}
+
+/* === Buttons: soft 4px corners === */
+[data-skin="editorial"] button,
+[data-skin="editorial"] [role="button"] {
+  border-radius: 4px;
+}
+
+/* === Inputs: soft 4px corners === */
+[data-skin="editorial"] input,
+[data-skin="editorial"] textarea,
+[data-skin="editorial"] select {
+  border-radius: 4px;
+}
+
+/* === Settings section labels (h3) === */
+[data-skin="editorial"] .settings-section-label {
+  font-family: var(--font-fraunces), Georgia, serif;
+  font-variant: small-caps;
+  letter-spacing: 0.1em;
+}
+
+/* === Load fade-in === */
+[data-skin="editorial"] main,
+[data-skin="editorial"] .editorial-content-pane {
+  animation: editorial-fade-in 400ms ease-out;
+}
+
+@keyframes editorial-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* === Hover transitions === */
+[data-skin="editorial"] a,
+[data-skin="editorial"] button {
+  transition:
+    color 120ms,
+    background-color 120ms;
+}
+
+/* === md-pre / md-code viewer in editorial === */
+[data-skin="editorial"] .md-pre {
+  font-family: var(--font-plex-mono), ui-monospace, Menlo, monospace;
+  border-radius: 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--muted);
+}
+
+[data-skin="editorial"] .md-code {
+  font-family: var(--font-plex-mono), ui-monospace, Menlo, monospace;
+  border-radius: 0;
+  border: 1px solid var(--border);
+}
+
+/* === File-type icon wrapper: transparent to layout in default skin === */
+.editorial-tree-typeicon {
+  display: contents;
+}
+
+/* Editorial: keep file-type icons for scanning, but render as restrained
+   monochrome ink (drop the colored type tints) for a print-engraving feel. */
+[data-skin="editorial"] .editorial-tree-typeicon svg {
+  color: var(--muted-foreground) !important;
+  stroke-width: 1.75;
+  opacity: 0.85;
+}
+
+/* Active file: icon picks up the terracotta accent like its label */
+[data-skin="editorial"] .bg-accent-soft .editorial-tree-typeicon svg {
+  color: var(--primary) !important;
+  opacity: 1;
+}

@@ -107,6 +107,16 @@ const config: Config = {
 					"sans-serif",
 				],
 				serif: ["Waldenburg", "EB Garamond", "Times New Roman", "serif"],
+				// Editorial skin font families (scoped to [data-skin="editorial"])
+				display: ["var(--font-fraunces)", "Georgia", "serif"],
+				reading: ["var(--font-newsreader)", "Georgia", "serif"],
+				mono: [
+					"var(--font-plex-mono)",
+					"ui-monospace",
+					"SFMono-Regular",
+					"Menlo",
+					"monospace",
+				],
 			},
 			fontSize: {
 				"display-mega": [
