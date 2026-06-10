@@ -26,7 +26,12 @@ import {
 	Pin,
 	Plus,
 	RefreshCw,
+	Search,
 	Settings,
+	Share,
+	Slash,
+	SortAsc,
+	Sparkles,
 	Star,
 	Terminal,
 	Trash2,
@@ -62,6 +67,7 @@ import { getActiveWorkspaceId, withWs, wsFetch } from "@/lib/workspace-client";
 import { markdownToHtml } from "@/lib/markdown/to-html";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { AuthSettingsSheet } from "@/components/auth-settings-sheet";
+import { ShareDialog } from "@/components/share-dialog";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
@@ -367,6 +373,7 @@ export default function Page() {
 	const [appKey, setAppKey] = useState(0);
 	const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 	const [settingsOpen, setSettingsOpen] = useState(false);
+const [shareDialogOpen, setShareDialogOpen] = useState(false);
 	const [fileContent, setFileContent] = useState<string | null>(null);
 	const [fileRevision, setFileRevision] = useState(0);
 	const [fileLoading, setFileLoading] = useState(false);
@@ -2108,6 +2115,15 @@ export default function Page() {
 								</div>
 								<div className="flex items-center gap-1 shrink-0">
 									{renderCopyMenu(openFile)}
+									<Button
+										size="sm"
+										variant="ghost"
+										className="h-7 w-7 p-0"
+										title="Share"
+										onClick={() => setShareDialogOpen(true)}
+									>
+										<Share className="h-3.5 w-3.5" />
+									</Button>
 									{isText(openFile.name) &&
 										!editing &&
 										(fileContent !== null || isMarkdown(openFile.name)) && (
@@ -2296,6 +2312,11 @@ export default function Page() {
 				)}
 			</div>
 
+			<ShareDialog
+				open={shareDialogOpen}
+				onOpenChange={setShareDialogOpen}
+				filePath={openFile?.path ?? ""}
+			/>
 			<AuthSettingsSheet open={settingsOpen} onOpenChange={setSettingsOpen} />
 			<AIPanel currentPath={openFile?.path} />
 			<input

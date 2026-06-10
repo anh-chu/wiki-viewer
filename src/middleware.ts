@@ -6,6 +6,7 @@ import { NextResponse, type NextRequest } from "next/server";
 const PASSTHROUGH_PREFIXES = [
 	"/signin",
 	"/api/",            // ALL API routes self-gate; middleware never redirects API
+	"/s/",              // Public shared doc pages (auth handled by the page/api)
 	"/_next",
 	"/icon.svg",
 	"/favicon.ico",
