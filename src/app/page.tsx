@@ -87,7 +87,11 @@ import { SearchCommandDialog } from "@/components/search/search-command-dialog";
 import { SidebarSearchBox } from "@/components/search/sidebar-search-box";
 import { useAIPanelStore } from "@/stores/ai-panel-store";
 import { useEditorStore } from "@/stores/editor-store";
-import { useViewWidthStore, VIEW_WIDTH_CLASS } from "@/stores/view-width-store";
+import {
+	useViewWidthStore,
+	VIEW_WIDTH_CLASS,
+	VIEW_ALIGN_CLASS,
+} from "@/stores/view-width-store";
 import {
 	useSidebarWidthStore,
 	SIDEBAR_MIN_WIDTH,
@@ -1140,6 +1144,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 		: null;
 
 	const viewWidth = useViewWidthStore((s) => s.width);
+	const viewAlign = useViewWidthStore((s) => s.align);
 	// Width toggle only meaningful for text-flow viewers (long prose lines).
 	const widthAwareViewer =
 		openFileViewerKind === null ||
@@ -1149,6 +1154,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 		openFileViewerKind === "notebook" ||
 		openFileViewerKind === "fallback";
 	const contentWidthClass = widthAwareViewer ? VIEW_WIDTH_CLASS[viewWidth] : "";
+	const contentAlignClass = widthAwareViewer ? VIEW_ALIGN_CLASS[viewAlign] : "";
 
 	function renderNodes(nodes: TreeNode[], depth = 0): React.ReactNode {
 		return nodes.map((node) => {
@@ -2261,7 +2267,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 								</div>
 							) : (
 								<div className="flex-1 overflow-auto p-4 min-h-0">
-									<div className={cn("mx-auto w-full", contentWidthClass)}>
+									<div className={cn("w-full", contentAlignClass, contentWidthClass)}>
 									{fileLoading ? (
 										<div className="flex justify-center py-8">
 											<Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />

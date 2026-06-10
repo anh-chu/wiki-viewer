@@ -11,7 +11,11 @@ import { parseFrontmatter } from "@/lib/markdown/parse-frontmatter";
 import { useAIPanelStore } from "@/stores/ai-panel-store";
 import { useEditorStore } from "@/stores/editor-store";
 import { useTreeStore } from "@/stores/tree-store";
-import { useViewWidthStore, VIEW_WIDTH_CSS } from "@/stores/view-width-store";
+import {
+	useViewWidthStore,
+	VIEW_WIDTH_CSS,
+	VIEW_ALIGN_ML,
+} from "@/stores/view-width-store";
 import { useWikiSlugsStore } from "@/stores/wiki-slugs-store";
 import type { TreeNode } from "@/types";
 import { useProofStore } from "@/stores/proof-store";
@@ -172,6 +176,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	);
 	const nodes = useTreeStore((s) => s.nodes);
 	const editorMaxW = useViewWidthStore((s) => VIEW_WIDTH_CSS[s.width]);
+	const editorMl = useViewWidthStore((s) => VIEW_ALIGN_ML[s.align]);
 	const isRtl = isViewing
 		? parsedViewingContent.data.dir === "rtl"
 		: frontmatter?.dir === "rtl";
@@ -595,7 +600,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		editorProps: {
 			attributes: {
 				class:
-					"focus:outline-none min-h-[calc(100vh-12rem)] px-4 sm:px-8 py-6 max-w-[var(--editor-max-w,48rem)] mx-auto",
+					"focus:outline-none min-h-[calc(100vh-12rem)] px-4 sm:px-8 py-6 max-w-[var(--editor-max-w,48rem)] ml-[var(--editor-ml,auto)] mr-auto",
 			},
 			handleKeyDown: (view, event) => {
 				if (
@@ -1015,7 +1020,10 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 									className={`absolute inset-0 overflow-y-auto ${
 										isSuggesting ? "pt-7" : ""
 								}`}
-									style={{ ["--editor-max-w" as string]: editorMaxW }}
+									style={{
+										["--editor-max-w" as string]: editorMaxW,
+										["--editor-ml" as string]: editorMl,
+									}}
 									data-editor-scroll
 								>
 									{/* Absolutely-positioned overlay for comment pips and suggestion cards.
@@ -1103,7 +1111,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 									)}
 
 									{isViewing && Object.keys(parsedViewingContent.data).length > 0 && (
-										<div className="max-w-[var(--editor-max-w,48rem)] mx-auto px-4 sm:px-8 pt-6">
+										<div className="max-w-[var(--editor-max-w,48rem)] ml-[var(--editor-ml,auto)] mr-auto px-4 sm:px-8 pt-6">
 											<FrontmatterHeader
 												data={parsedViewingContent.data as Record<string, never>}
 											/>
@@ -1157,7 +1165,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 									)}
 
 									{/* AI Edit Prompt + slash hint */}
-									<div className="max-w-[var(--editor-max-w,48rem)] mx-auto px-8 pb-8 flex items-center gap-4">
+									<div className="max-w-[var(--editor-max-w,48rem)] ml-[var(--editor-ml,auto)] mr-auto px-8 pb-8 flex items-center gap-4">
 										<button
 											onClick={handleOpenAI}
 											className="group flex items-center gap-2 text-[13px] text-muted-foreground/50 hover:text-muted-foreground transition-colors cursor-pointer"
