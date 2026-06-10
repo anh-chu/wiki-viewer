@@ -45,6 +45,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { CsvViewer } from "@/components/editor/csv-viewer";
 import { KBEditor } from "@/components/editor/editor";
 import { FileFallbackViewer } from "@/components/editor/file-fallback-viewer";
+import { LargeFileGate } from "@/components/editor/large-file-gate";
 import { ImageViewer } from "@/components/editor/image-viewer";
 import { MediaViewer } from "@/components/editor/media-viewer";
 import { MermaidViewer } from "@/components/editor/mermaid-viewer";
@@ -129,6 +130,22 @@ type ViewerKind =
 	| "html"
 	| "node-app"
 	| "text";
+
+// Viewer kinds safe to open at any size: they stream, paginate, or proxy and
+// never load the whole file into JS. Everything else goes behind LargeFileGate,
+// so a new viewer is fail-safe by default until proven safe here.
+const SAFE_VIEWER_KINDS = new Set<ViewerKind>([
+	"image",
+	"media",
+	"pdf",
+	"fallback",
+	"app",
+	"node-app",
+	"html",
+]);
+
+// Files above this size open behind a confirmation gate for unsafe viewers.
+const LARGE_FILE_GATE_BYTES = 5 * 1024 * 1024; // 5 MB
 
 function ext(name: string) {
 	return name.split(".").pop()?.toLowerCase() ?? "";
@@ -378,7 +395,11 @@ export default function Page() {
 		path: string;
 		name: string;
 		nodeType: "file" | "app" | "node-app";
+		size?: number;
 	} | null>(null);
+	// Path the user clicked "open anyway" for. Keyed by path so confirming one
+	// large file does not open the next.
+	const [gateBypassPath, setGateBypassPath] = useState<string | null>(null);
 	const [appFullscreen, setAppFullscreen] = useState(false);
 	const [appKey, setAppKey] = useState(0);
 	const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -666,6 +687,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 		setOpenFile({
 			path: node.path,
 			name: node.name,
+			size: node.size,
 			nodeType:
 				node.type === "app"
 					? "app"
@@ -1136,6 +1158,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 					path: newPath,
 					name: node.name,
 					nodeType: openFile.nodeType,
+					size: openFile.size,
 				});
 		}
 	}
@@ -1143,6 +1166,15 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 	const openFileViewerKind = openFile
 		? viewerKindFor(openFile.name, openFile.nodeType)
 		: null;
+
+	// Gate everything not explicitly safe. Markdown ("editor") is gated too:
+	// TipTap builds a node per block and freezes on big docs.
+	const showLargeFileGate =
+		!!openFile &&
+		openFileViewerKind !== null &&
+		!SAFE_VIEWER_KINDS.has(openFileViewerKind) &&
+		(openFile.size ?? 0) > LARGE_FILE_GATE_BYTES &&
+		gateBypassPath !== openFile.path;
 
 	const viewWidth = useViewWidthStore((s) => s.width);
 	const viewAlign = useViewWidthStore((s) => s.align);
@@ -2263,7 +2295,13 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 								</div>
 							</div>
 
-							{editing ? (
+							{showLargeFileGate ? (
+								<LargeFileGate
+									path={openFile.path}
+									size={openFile.size ?? 0}
+									onOpen={() => setGateBypassPath(openFile.path)}
+								/>
+							) : editing ? (
 								<div className="flex-1 flex flex-col overflow-hidden min-h-0">
 									{isMarkdown(openFile.name) ? (
 										<KBEditor />

@@ -11,6 +11,12 @@ interface CsvViewerProps {
 	title: string;
 }
 
+// Big CSVs render one editable <td> per cell (rows x cols), which freezes the
+// tab. Above these limits we open in read-only source mode and cap rendered rows.
+const LARGE_BYTES = 2 * 1024 * 1024; // 2 MB
+const LARGE_ROWS = 2000;
+const ROW_CHUNK = 1000; // rows added per "Show more"
+
 function parseCsv(text: string): string[][] {
 	const rows: string[][] = [];
 	let current = "";
@@ -77,6 +83,8 @@ export function CsvViewer({ path }: CsvViewerProps) {
 	const [editCell, setEditCell] = useState<{ r: number; c: number } | null>(
 		null,
 	);
+	const [isLarge, setIsLarge] = useState(false);
+	const [visibleRows, setVisibleRows] = useState(ROW_CHUNK);
 
 	const csvUrl = `/api/assets/${path}`;
 
@@ -84,8 +92,13 @@ export function CsvViewer({ path }: CsvViewerProps) {
 		wsFetch(csvUrl)
 			.then((r) => r.text())
 			.then((text) => {
+				const parsed = parseCsv(text);
+				const large = text.length > LARGE_BYTES || parsed.length > LARGE_ROWS;
 				setRawText(text);
-				setRows(parseCsv(text));
+				setRows(parsed);
+				setIsLarge(large);
+				// Open large files in source mode so the editable table never paints.
+				setSourceMode(large);
 				setDirty(false);
 			});
 	}, [csvUrl]);
@@ -151,7 +164,11 @@ export function CsvViewer({ path }: CsvViewerProps) {
 	};
 
 	const headers = rows[0] || [];
-	const dataRows = rows.slice(1);
+	const allDataRows = rows.slice(1);
+	const dataRows = isLarge
+		? allDataRows.slice(0, visibleRows)
+		: allDataRows;
+	const hasMoreRows = isLarge && visibleRows < allDataRows.length;
 
 	return (
 		<div className="flex-1 flex flex-col overflow-hidden">
@@ -170,6 +187,12 @@ export function CsvViewer({ path }: CsvViewerProps) {
 						<Save className="h-3.5 w-3.5" />
 						{saving ? "Saving..." : "Save"}
 					</Button>
+				)}
+				{isLarge && (
+					<span className="text-[11px] text-amber-600 dark:text-amber-400 px-1">
+						Large file ({(rawText.length / (1024 * 1024)).toFixed(1)} MB,{" "}
+						{rows.length.toLocaleString()} rows)
+					</span>
 				)}
 				<button
 					onClick={toggleSource}
@@ -313,6 +336,26 @@ export function CsvViewer({ path }: CsvViewerProps) {
 							})}
 						</tbody>
 					</table>
+
+					{hasMoreRows && (
+						<div className="flex items-center gap-3 px-4 py-2 border-t border-border">
+							<button
+								onClick={() => setVisibleRows((v) => v + ROW_CHUNK)}
+								className="text-[11px] text-foreground hover:bg-accent transition-colors px-2.5 py-1 rounded border border-border"
+							>
+								Show{" "}
+								{Math.min(
+									ROW_CHUNK,
+								allDataRows.length - visibleRows,
+							).toLocaleString()}{" "}
+								more rows
+							</button>
+							<span className="text-[11px] text-muted-foreground">
+								{visibleRows.toLocaleString()} /{" "}
+								{allDataRows.length.toLocaleString()} rows
+							</span>
+						</div>
+					)}
 
 					{/* Add row/column buttons */}
 					<div className="flex items-center gap-2 px-4 py-2 border-t border-border">

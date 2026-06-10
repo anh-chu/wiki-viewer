@@ -32,6 +32,19 @@ interface SourceViewerProps {
 
 const lowlight = createLowlight(common);
 
+// Large files skip syntax highlighting (lowlight is synchronous and blocks the
+// main thread) and render in chunks (one <tr> per line freezes the tab).
+const LARGE_BYTES = 2 * 1024 * 1024; // 2 MB
+const LARGE_LINES = 5000;
+const RENDER_CHUNK = 2000; // lines added per "Show more"
+
+function escapeHtml(s: string): string {
+	return s
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;");
+}
+
 const EXT_TO_LANG: Record<string, string> = {
 	".js": "javascript",
 	".cjs": "javascript",
@@ -90,10 +103,12 @@ function formatBadge(filename: string): string {
 
 export function SourceViewer({ path }: SourceViewerProps) {
 	const [content, setContent] = useState<string | null>(null);
+	const [byteSize, setByteSize] = useState(0);
 	const [binary, setBinary] = useState(false);
 	const [loading, setLoading] = useState(true);
 	const [wrap, setWrap] = useState(false);
 	const [copied, setCopied] = useState(false);
+	const [visibleCount, setVisibleCount] = useState(RENDER_CHUNK);
 
 	const assetUrl = withWs(`/api/assets/${path}`);
 	const filename = path.split("/").pop() || path;
@@ -108,6 +123,7 @@ export function SourceViewer({ path }: SourceViewerProps) {
 				if (looksBinary(bytes)) {
 					setBinary(true);
 				} else {
+					setByteSize(bytes.length);
 					setContent(new TextDecoder("utf-8").decode(bytes));
 				}
 			}
@@ -122,27 +138,31 @@ export function SourceViewer({ path }: SourceViewerProps) {
 		void fetchContent();
 	}, [fetchContent]);
 
+	const lineCount = useMemo(
+		() => (content ? content.split("\n").length : 0),
+		[content],
+	);
+
+	const isLarge = byteSize > LARGE_BYTES || lineCount > LARGE_LINES;
+
 	const highlightedLines = useMemo(() => {
 		if (!content) return [];
+		if (isLarge) return content.split("\n").map(escapeHtml);
 		try {
 			const tree = language
 				? lowlight.highlight(language, content)
 				: lowlight.highlightAuto(content);
-			const html = toHtml(tree);
-			// Split by newlines while preserving HTML tags that span lines
-			return html.split("\n");
+			// Split on newlines, preserving tags that span lines.
+			return toHtml(tree).split("\n");
 		} catch {
-			// Fallback: no highlighting
-			return content
-				.split("\n")
-				.map((line) =>
-					line
-						.replace(/&/g, "&amp;")
-						.replace(/</g, "&lt;")
-						.replace(/>/g, "&gt;"),
-				);
+			return content.split("\n").map(escapeHtml);
 		}
-	}, [content, language]);
+	}, [content, language, isLarge]);
+
+	const shownLines = isLarge
+		? highlightedLines.slice(0, visibleCount)
+		: highlightedLines;
+	const hasMore = isLarge && visibleCount < highlightedLines.length;
 
 	const copyToClipboard = () => {
 		if (!content) return;
@@ -218,9 +238,18 @@ export function SourceViewer({ path }: SourceViewerProps) {
 						Loading...
 					</div>
 				) : (
+					<>
+					{isLarge && (
+						<div className="px-4 py-2 text-[11px] text-amber-200/90 bg-amber-900/30 border-b border-amber-700/40 font-sans">
+							Large file ({(byteSize / (1024 * 1024)).toFixed(1)} MB,{" "}
+							{highlightedLines.length.toLocaleString()} lines). Syntax
+							highlighting disabled for performance. Use Raw or Download for
+							the full file.
+						</div>
+					)}
 					<table className="w-full border-collapse text-[13px] leading-relaxed font-mono">
 						<tbody>
-							{highlightedLines.map((lineHtml, i) => (
+							{shownLines.map((lineHtml, i) => (
 								<tr key={i} className="hover:bg-white/5">
 									<td className="w-12 pr-4 text-right text-[#858585] select-none align-top sticky left-0 bg-[#1e1e1e]">
 										{i + 1}
@@ -233,6 +262,26 @@ export function SourceViewer({ path }: SourceViewerProps) {
 							))}
 						</tbody>
 					</table>
+					{hasMore && (
+						<div className="flex items-center gap-3 px-4 py-3 border-t border-white/10 font-sans">
+							<button
+								onClick={() => setVisibleCount((v) => v + RENDER_CHUNK)}
+								className="text-[11px] text-[#d4d4d4] hover:text-white px-2.5 py-1 rounded bg-white/10 hover:bg-white/20 transition-colors"
+							>
+								Show{" "}
+								{Math.min(
+									RENDER_CHUNK,
+								highlightedLines.length - visibleCount,
+							).toLocaleString()}{" "}
+								more
+							</button>
+							<span className="text-[11px] text-[#858585]">
+								{visibleCount.toLocaleString()} /{" "}
+								{highlightedLines.length.toLocaleString()} lines
+							</span>
+						</div>
+					)}
+					</>
 				)}
 			</div>
 		</div>
