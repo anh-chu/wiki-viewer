@@ -1198,3 +1198,28 @@ proof-span.proof-span:hover,
   color: var(--primary) !important;
   opacity: 1;
 }
+
+/* === Mobile readiness === */
+
+/* Coarse-pointer (touch) devices: hover-gated row actions are always visible.
+   Desktop hover-reveal behavior is preserved via the existing
+   `opacity-0 group-hover:opacity-100 ... max-w-0 group-hover:max-w-7` classes. */
+@media (hover: none) {
+  .hover-reveal {
+    opacity: 1 !important;
+    max-width: none !important;
+  }
+}
+
+/* Scoped tap-target sizing: only the specific controls marked
+   `touch-target` get the 44×44 minimum on coarse pointers. We avoid a
+   blanket button rule so the editor toolbar density does not regress. */
+@media (hover: none) and (pointer: coarse) {
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  .resize-hit {
+    width: 1.5rem;
+  }
+}

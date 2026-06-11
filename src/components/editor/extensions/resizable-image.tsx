@@ -97,14 +97,14 @@ function ResizableImageComponent(props: NodeViewProps) {
 						<div
 							aria-label="Resize from left"
 							onPointerDown={(e) => beginResize(e, "left")}
-							className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+							className="hover-reveal resize-hit absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
 						>
 							<div className="w-1 h-8 bg-card border border-border rounded-full shadow" />
 						</div>
 						<div
 							aria-label="Resize from right"
 							onPointerDown={(e) => beginResize(e, "right")}
-							className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+							className="hover-reveal resize-hit absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
 						>
 							<div className="w-1 h-8 bg-card border border-border rounded-full shadow" />
 						</div>

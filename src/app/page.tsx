@@ -101,6 +101,7 @@ import {
 } from "@/stores/sidebar-width-store";
 import { ViewWidthToggle } from "@/components/view-width-toggle";
 import { useWikiSlugsStore } from "@/stores/wiki-slugs-store";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 
 interface TreeNode {
 	name: string;
@@ -402,9 +403,15 @@ export default function Page() {
 	const [gateBypassPath, setGateBypassPath] = useState<string | null>(null);
 	const [appFullscreen, setAppFullscreen] = useState(false);
 	const [appKey, setAppKey] = useState(0);
+	const isMobile = useIsMobile();
 	const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 	const sidebarWidth = useSidebarWidthStore((s) => s.width);
 	const setSidebarWidth = useSidebarWidthStore((s) => s.setWidth);
+	// Mobile: when the viewport is mobile, the sidebar defaults to closed.
+	// Re-runs when isMobile flips (orientation change, devtools resize).
+	useEffect(() => {
+		if (isMobile) setSidebarCollapsed(true);
+	}, [isMobile]);
 	const [sidebarResizing, setSidebarResizing] = useState(false);
 	const [settingsOpen, setSettingsOpen] = useState(false);
 const [shareDialogOpen, setShareDialogOpen] = useState(false);
@@ -1199,7 +1206,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 						<div
 							role="treeitem"
 							tabIndex={0}
-							draggable
+							draggable={!isMobile}
 							onKeyDown={(e) => {
 								if (e.key === "Enter" || e.key === " ") {
 									e.preventDefault();
@@ -1266,7 +1273,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 									: e.preventDefault()
 							}
 							className={cn(
-								"flex items-center gap-1.5 rounded-sm px-2 py-1 text-sm cursor-pointer group transition-colors select-none",
+								"flex items-center gap-1.5 rounded-sm px-2 py-1 text-sm cursor-pointer group transition-colors select-none touch-target",
 								openFile?.path === node.path
 									? "bg-accent-soft text-foreground font-medium"
 									: "hover:bg-muted",
@@ -1276,8 +1283,8 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 							style={{ paddingLeft: `${depth * 14 + 8}px` }}
 							onClick={() => {
 								if (node.type === "dir") toggleFolder(node);
-								else if (node.type === "app" || node.type === "node-app") { void openViewer(node); void toggleFolder(node); }
-								else void openViewer(node);
+								else if (node.type === "app" || node.type === "node-app") { void openViewer(node); void toggleFolder(node); if (isMobile) setSidebarCollapsed(true); }
+								else { void openViewer(node); if (isMobile) setSidebarCollapsed(true); }
 							}}
 						>
 							{(node.type === "dir" || node.type === "app" || node.type === "node-app") ? (
@@ -1323,7 +1330,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 							)}
 
 							<div
-								className="flex max-w-0 shrink-0 items-center overflow-hidden opacity-0 transition-all duration-150 group-hover:max-w-7 group-hover:opacity-100 focus-within:max-w-7 focus-within:opacity-100"
+								className="hover-reveal flex max-w-0 shrink-0 items-center overflow-hidden opacity-0 transition-all duration-150 group-hover:max-w-7 group-hover:opacity-100 focus-within:max-w-7 focus-within:opacity-100"
 								onClick={(e) => e.stopPropagation()}
 								onKeyDown={(e) => e.stopPropagation()}
 							>
@@ -1603,17 +1610,30 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 			{rootConfigured === true && !addingWorkspace && <>
 			<SearchCommandDialog
 				onOpenFile={openFromSearch}
-				onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
+				onToggleSidebar={() =>
+				setSidebarCollapsed((v) => {
+					const next = !v;
+					if (isMobile && next === false) useAIPanelStore.getState().close();
+					return next;
+				})
+			}
 				onNewFile={() => setNewFileParent("")}
 				onCopyPath={() => {
 					if (openFile) void navigator.clipboard.writeText(openFile.path);
 				}}
 			/>
 			{/* Tree sidebar */}
+			{!sidebarCollapsed && isMobile && (
+				<div
+					className="fixed inset-0 z-40 bg-overlay backdrop-blur-[1px] md:hidden"
+					onClick={() => setSidebarCollapsed(true)}
+					aria-hidden
+				/>
+			)}
 			{!sidebarCollapsed && (
 				<Card
-					style={{ width: sidebarWidth }}
-					className="relative flex flex-col shrink-0 overflow-hidden rounded-none border-r border-l-0 border-t-0 border-b-0">
+					style={isMobile ? undefined : { width: sidebarWidth }}
+					className="fixed inset-y-0 left-0 z-50 w-[85vw] max-w-[20rem] md:relative md:z-auto md:w-auto md:max-w-none flex flex-col shrink-0 overflow-hidden rounded-none border-r border-l-0 border-t-0 border-b-0">
 					{/* Row 1: brand + collapse */}
 					<div className="flex items-center justify-between gap-2 px-3 py-2 border-b bg-muted shrink-0">
 						<div className="flex min-w-0 items-center gap-1.5">
@@ -1704,7 +1724,10 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 								variant="ghost"
 								className="h-7 w-7 p-0"
 								title="AI Agent panel"
-								onClick={() => useAIPanelStore.getState().toggle()}
+								onClick={() => {
+									useAIPanelStore.getState().toggle();
+									if (isMobile) setSidebarCollapsed(true);
+								}}
 							>
 								<Bot className="h-3.5 w-3.5" />
 							</Button>
@@ -1850,7 +1873,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 											"group flex items-center gap-1.5 rounded-sm px-2 py-1 text-sm cursor-pointer transition-colors select-none",
 											openFile?.path === p.path ? "bg-accent-soft text-foreground font-medium" : "hover:bg-muted",
 										)}
-										onClick={() => void openViewer({ path: p.path, name: p.name, type: (p.type ?? "file") as TreeNode["type"], modifiedAt: "" } as TreeNode)}
+										onClick={() => { void openViewer({ path: p.path, name: p.name, type: (p.type ?? "file") as TreeNode["type"], modifiedAt: "" } as TreeNode); if (isMobile) setSidebarCollapsed(true); }}
 										onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); void openViewer({ path: p.path, name: p.name, type: (p.type ?? "file") as TreeNode["type"], modifiedAt: "" } as TreeNode); } }}
 									>
 										<Star className="h-3 w-3 shrink-0 fill-current text-amber-400" />
@@ -1858,7 +1881,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 										<span className="max-w-[80px] truncate text-[10px] text-muted-foreground/60">{p.path.split("/").slice(0, -1).join("/")}</span>
 										<button
 											type="button"
-											className="shrink-0 rounded p-0.5 text-muted-foreground/50 opacity-0 transition-colors hover:bg-muted hover:text-amber-400 group-hover:opacity-100 focus:opacity-100"
+											className="hover-reveal shrink-0 rounded p-0.5 text-muted-foreground/50 opacity-0 transition-colors hover:bg-muted hover:text-amber-400 group-hover:opacity-100 focus:opacity-100"
 											title="Remove from pinned"
 											onClick={(e) => {
 												e.stopPropagation();
@@ -1894,7 +1917,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 											"flex items-center gap-1.5 rounded-sm px-2 py-1 text-sm cursor-pointer transition-colors select-none",
 											openFile?.path === r.path ? "bg-accent-soft text-foreground font-medium" : "hover:bg-muted",
 										)}
-										onClick={() => void openViewer({ path: r.path, name: r.name, type: (r.type ?? "file") as TreeNode["type"], modifiedAt: "" } as TreeNode)}
+										onClick={() => { void openViewer({ path: r.path, name: r.name, type: (r.type ?? "file") as TreeNode["type"], modifiedAt: "" } as TreeNode); if (isMobile) setSidebarCollapsed(true); }}
 										onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); void openViewer({ path: r.path, name: r.name, type: (r.type ?? "file") as TreeNode["type"], modifiedAt: "" } as TreeNode); } }}
 									>
 										<FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -2043,7 +2066,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 						aria-valuemax={SIDEBAR_MAX_WIDTH}
 						aria-valuenow={sidebarWidth}
 						className={cn(
-							"absolute right-0 top-0 z-20 h-full w-1.5 cursor-col-resize -mr-px transition-colors hover:bg-primary/40 focus:bg-primary/40 focus:outline-none",
+							"absolute right-0 top-0 z-20 h-full w-1.5 cursor-col-resize -mr-px transition-colors hover:bg-primary/40 focus:bg-primary/40 focus:outline-none hidden md:block",
 							sidebarResizing && "bg-primary/60",
 						)}
 					/>
@@ -2052,17 +2075,48 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 
 			{/* Right panel */}
 			<div className="flex-1 flex flex-col min-w-0 relative">
+				{/* Desktop: floating reopen button when sidebar is collapsed */}
 				{sidebarCollapsed && (
 					<Button
 						size="sm"
 						variant="ghost"
-						className="absolute left-2 top-2 z-10 h-7 w-7 p-0"
+						className="hidden md:flex absolute left-2 top-2 z-10 h-7 w-7 p-0"
 						title="Show sidebar"
 						onClick={() => setSidebarCollapsed(false)}
 					>
 						<PanelLeftOpen className="h-3.5 w-3.5" />
 					</Button>
 				)}
+				{/* Mobile: dedicated top bar hosting the drawer + AI panel toggles */}
+				<div className="md:hidden flex h-11 shrink-0 items-center justify-between gap-2 border-b bg-muted px-1">
+					<Button
+						size="sm"
+						variant="ghost"
+						className="h-9 w-9 p-0"
+						title="Show sidebar"
+						onClick={() => {
+							setSidebarCollapsed(false);
+							useAIPanelStore.getState().close();
+						}}
+					>
+						<PanelLeftOpen className="h-4 w-4" />
+					</Button>
+					<span className="truncate text-xs font-semibold tracking-tight text-muted-foreground">
+						Wiki Viewer
+					</span>
+					<Button
+						size="sm"
+						variant="ghost"
+						className="h-9 w-9 p-0"
+						title="AI Agent panel"
+						onClick={() => {
+							useAIPanelStore.getState().open();
+							setSidebarCollapsed(true);
+						}}
+					>
+						<Bot className="h-4 w-4" />
+					</Button>
+				</div>
 				{openFile ? (
 					openFileViewerKind === "node-app" ? (
 						<NodeAppViewer path={openFile.path} title={openFile.name} />
@@ -2083,7 +2137,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 								/>
 							) : (
 								<div className="flex-1 flex flex-col overflow-hidden min-w-0">
-									<div className={cn("flex items-center justify-between px-4 py-2 border-b bg-muted shrink-0 editorial-doc-header", sidebarCollapsed && "pl-11")}>
+									<div className={cn("flex items-center justify-between px-4 py-2 border-b bg-muted shrink-0 editorial-doc-header", !isMobile && sidebarCollapsed && "pl-11")}>
 										<div className="flex items-center gap-2 min-w-0">
 											<span className="editorial-tree-typeicon">
 												<Globe className="h-4 w-4 shrink-0 text-foreground/70" />
@@ -2195,7 +2249,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 						})()
 					) : (
 						<div className="flex-1 flex flex-col overflow-hidden min-w-0">
-							<div className={cn("flex items-center justify-between px-4 py-2 border-b bg-muted shrink-0 editorial-doc-header", sidebarCollapsed && "pl-11")}>
+							<div className={cn("flex items-center justify-between px-4 py-2 border-b bg-muted shrink-0 editorial-doc-header", !isMobile && sidebarCollapsed && "pl-11")}>
 								<div className="flex items-center gap-2 min-w-0">
 									<span className="editorial-tree-typeicon">
 										{isImage(openFile.name) ? (

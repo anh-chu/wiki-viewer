@@ -149,7 +149,7 @@ export function AIPanel({ currentPath }: { currentPath?: string | null }) {
 				role="dialog"
 				aria-modal="true"
 				aria-label="AI Agent Panel"
-				className="fixed right-0 top-0 bottom-0 z-50 flex w-80 flex-col border-l border-border bg-background shadow-xl outline-none"
+				className="fixed right-0 top-0 bottom-0 z-50 flex w-[90vw] max-w-sm md:w-80 flex-col border-l border-border bg-background shadow-xl outline-none"
 			>
 				{/* Header */}
 				<div className="flex items-center justify-between border-b border-border px-4 py-3 shrink-0">

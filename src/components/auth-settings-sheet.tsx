@@ -155,7 +155,7 @@ export function AuthSettingsSheet({
 		<Sheet open={open} onOpenChange={onOpenChange}>
 			<SheetContent
 				side="right"
-				className="w-80 sm:max-w-md flex flex-col border-l border-border p-0"
+				className="w-[90vw] max-w-sm md:w-80 sm:max-w-md flex flex-col border-l border-border p-0"
 			>
 				{/* Header — matches AI panel chrome */}
 				<div className="flex items-center justify-between border-b border-border px-4 py-3 shrink-0">
