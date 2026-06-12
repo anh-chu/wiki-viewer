@@ -126,6 +126,7 @@ interface TreeNode {
 	children?: TreeNode[];
 	expanded?: boolean;
 	loading?: boolean;
+	git?: { branch: string; dirty: boolean };
 }
 
 type ViewerKind =
@@ -247,9 +248,10 @@ async function fetchDir(dir: string): Promise<TreeNode[]> {
 	const data: {
 		entries: Array<{
 			name: string;
-			type: "dir" | "file" | "app";
+			type: "dir" | "file" | "app" | "node-app";
 			size?: number;
 			modifiedAt: string;
+			git?: { branch: string; dirty: boolean };
 		}>;
 	} = await res.json();
 	return data.entries.map((e) => ({
@@ -259,6 +261,7 @@ async function fetchDir(dir: string): Promise<TreeNode[]> {
 		size: e.size,
 		modifiedAt: e.modifiedAt,
 		expanded: false,
+		git: e.git,
 	}));
 }
 
@@ -526,6 +529,31 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 			);
 		}
 	}, []);
+
+	const [pullingRepo, setPullingRepo] = useState<string | null>(null);
+
+	const handleGitPull = useCallback(async (nodePath: string, parentDir: string) => {
+		if (pullingRepo) return;
+		setPullingRepo(nodePath);
+		try {
+			const res = await wsFetch("/api/wiki/git-pull", {
+				method: "POST",
+				body: JSON.stringify({ path: nodePath }),
+			});
+			if (!res.ok) {
+				const e: { error?: string; message?: string } = await res.json();
+				showError(e.message ?? e.error ?? "Pull failed");
+				return;
+			}
+			const data: { branch: string; sha: string } = await res.json();
+			showSuccess(`Pulled ${nodePath} (${data.branch} @ ${data.sha.slice(0, 7)})`);
+			await reloadDir(parentDir);
+		} catch {
+			showError("Pull failed");
+		} finally {
+			setPullingRepo(null);
+		}
+	}, [pullingRepo, reloadDir]);
 
 	const collectExpandedPaths = useCallback((nodes: TreeNode[]): string[] => {
 		const paths: string[] = [];
@@ -1352,6 +1380,32 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 							)}</span>
 
 							<span className="min-w-0 flex-1 truncate">{node.name}</span>
+
+							{/* Git repo badge */}
+							{node.git && (
+								<span className="flex shrink-0 items-center gap-0.5 rounded-sm bg-muted px-1 py-0.5 text-[10px] text-muted-foreground">
+									<GitBranch className="h-2.5 w-2.5" />
+									{node.git.branch}
+									{node.git.dirty && <span className="ml-0.5 text-warning">*</span>}
+									{pullingRepo === node.path ? (
+										<Loader2 className="ml-0.5 h-2.5 w-2.5 animate-spin" />
+									) : (
+										<button
+											onClick={(e) => {
+												e.stopPropagation();
+												const parentDir = node.path.includes("/")
+													? node.path.substring(0, node.path.lastIndexOf("/"))
+													: "";
+												void handleGitPull(node.path, parentDir);
+											}}
+											className="ml-0.5 text-muted-foreground hover:text-foreground"
+											title="Pull latest"
+										>
+											<RefreshCw className="h-2.5 w-2.5" />
+										</button>
+									)}
+								</span>
+							)}
 
 							{/* Agent presence dot */}
 							{activePaths.has(node.path) && (

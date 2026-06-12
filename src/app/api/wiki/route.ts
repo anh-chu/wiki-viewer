@@ -5,6 +5,7 @@ import { checkOrigin } from "@/lib/auth/csrf";
 import { resolveWorkspaceForUser } from "@/lib/workspace-context";
 import { safeWorkspacePath } from "@/lib/workspaces";
 import { isAppFolder, isNodeApp } from "@/lib/wiki-helpers";
+import { detectGitRepo } from "@/lib/git";
 
 export async function GET(request: Request) {
 	const ctx = await resolveWorkspaceForUser(request);
@@ -30,29 +31,34 @@ export async function GET(request: Request) {
 			names.map(async (name) => {
 				const filePath = path.join(targetDir, name);
 				const info = await stat(filePath);
-				if (info.isDirectory()) {
-					const relPath = dir ? `${dir}/${name}` : name;
-					const nodeApp = await isNodeApp(rootDir, relPath);
-					if (nodeApp) {
-						return {
-							name,
-							type: "node-app" as const,
-							modifiedAt: info.mtime.toISOString(),
-						};
-					}
-					const isApp = await isAppFolder(rootDir, relPath);
+				if (!info.isDirectory()) {
 					return {
 						name,
-						type: (isApp ? "app" : "dir") as "app" | "dir",
+						type: "file" as const,
+						size: info.size,
 						modifiedAt: info.mtime.toISOString(),
 					};
 				}
-				return {
+
+				const relPath = dir ? `${dir}/${name}` : name;
+				const nodeApp = await isNodeApp(rootDir, relPath);
+				const isApp = nodeApp ? false : await isAppFolder(rootDir, relPath);
+				const type = nodeApp ? "node-app" as const : (isApp ? "app" as const : "dir" as const);
+
+				const entry: {
+					name: string;
+					type: "node-app" | "app" | "dir";
+					modifiedAt: string;
+					git?: { branch: string; dirty: boolean };
+				} = {
 					name,
-					type: "file" as const,
-					size: info.size,
+					type,
 					modifiedAt: info.mtime.toISOString(),
 				};
+
+				const gitInfo = await detectGitRepo(filePath);
+				if (gitInfo) entry.git = gitInfo;
+				return entry;
 			}),
 		);
 

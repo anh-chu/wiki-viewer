@@ -7,7 +7,7 @@
 import { execFile as _execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { writeFileSync, unlinkSync, rmSync, chmodSync } from "node:fs";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -275,4 +275,49 @@ export async function currentBranch(rootDir: string): Promise<string> {
 		"HEAD",
 	]);
 	return stdout.trim();
+}
+
+export interface GitRepoInfo {
+	branch: string;
+	dirty: boolean;
+}
+
+/**
+ * Check if a directory is a git repo root and return branch + dirty status.
+ * Returns null if dirPath is not a git repo root.
+ */
+export async function detectGitRepo(
+	dirPath: string,
+): Promise<GitRepoInfo | null> {
+	try {
+		// stat .git (file for submodules, dir for regular repos)
+		await stat(path.join(dirPath, ".git"));
+	} catch {
+		return null;
+	}
+
+	try {
+		// Verify it's the repo root, not inside a submodule
+		const { stdout: toplevel } = await execFile("git", [
+			"-C",
+			dirPath,
+			"rev-parse",
+			"--show-toplevel",
+		]);
+		if (toplevel.trim() !== dirPath) return null;
+
+		const branch = await currentBranch(dirPath);
+
+		const { stdout: statusOut } = await execFile("git", [
+			"-C",
+			dirPath,
+			"status",
+			"--porcelain",
+		]);
+		const dirty = statusOut.trim().length > 0;
+
+		return { branch, dirty };
+	} catch {
+		return null;
+	}
 }
