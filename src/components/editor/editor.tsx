@@ -6,7 +6,6 @@ import { AlertCircle, Check, Code2, FilePlus, Loader2, Sparkles } from "lucide-r
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { findNodeByPath } from "@/lib/cabinets/tree";
 import { markdownToHtml } from "@/lib/markdown/to-html";
-import { markdownToHtmlOffThread } from "@/lib/markdown/markdown-worker-client";
 import { htmlToMarkdown } from "@/lib/markdown/to-markdown";
 import { parseFrontmatter } from "@/lib/markdown/parse-frontmatter";
 import { useAIPanelStore } from "@/stores/ai-panel-store";
@@ -825,7 +824,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		let cancelled = false;
 		const setContent = async () => {
 			isLoadingRef.current = true;
-			const html = await markdownToHtmlOffThread(
+			const html = await markdownToHtml(
 				renderMarkdown,
 				isViewing ? { pagePath: currentPath, sanitize: true } : currentPath,
 			);
