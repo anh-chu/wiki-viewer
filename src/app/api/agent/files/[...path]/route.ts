@@ -111,7 +111,7 @@ export async function POST(
 		return NextResponse.json({ error: "INVALID_PATH", message: "Path must be .md or .markdown" }, { status: 400 });
 	}
 
-	const wsx = await resolveWorkspaceForAgent(req);
+	const wsx = await resolveWorkspaceForAgent(req, "write");
 	if (!wsx.ok) return NextResponse.json({ error: wsx.code }, { status: wsx.status });
 	const { ws, rootDir } = wsx;
 

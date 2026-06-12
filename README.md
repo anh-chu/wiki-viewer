@@ -38,6 +38,7 @@ Single-user, no-auth mode still works. Auth turns on automatically once anyone s
 | **File viewers** | Markdown (with frontmatter), PDF, images (PNG / JPG / SVG / WebP), video & audio, CSV (table view), source code (syntax highlighting), DOCX, XLSX, PPTX, Jupyter notebooks, Mermaid diagrams, HTML |
 | **Editor**       | Rich TipTap editor for Markdown files                                                                                                                                                              |
 | **File ops**     | Upload files, create folders, delete, drag-to-move                                                                                                                                                 |
+| **Git repos**    | Add a remote git repo (GitHub, GitLab, Bitbucket, Gitea, GHE) as a read-only workspace. Clones on the server, browse with the full viewer, refresh on demand. Private repos via access token.       |
 | **Wiki links**   | `[[page-name]]` links between Markdown files                                                                                                                                                       |
 | **Dark mode**    | System-aware, with manual toggle                                                                                                                                                                   |
 | **Auth**         | Google OAuth and email + password via [Better Auth](https://better-auth.com). Email allowlist. SQLite-backed sessions.                                                                             |
@@ -199,6 +200,33 @@ new root directory. Switching navigates to `?ws=<id>` and resets the view.
 The legacy single-directory flow is unchanged: launching with `ROOT_DIR` or
 `wiki-viewer <dir>` auto-registers that directory as the first workspace, and a
 single-workspace install behaves exactly as before (no `?ws=` needed).
+
+### Git-backed workspaces (read-only)
+
+Teams that keep docs in a git repo can browse them with the full viewer instead
+of reading raw files on a host like GitHub. In the directory picker, switch to
+**From Git**, paste a repository URL, and the server clones it into a managed
+workspace under `~/.wiki-viewer/repos/<id>/`.
+
+- **Read-only.** The clone is served for reading only. Every file-mutating route
+  (editor saves, uploads, moves, deletes, and both agent API tiers) is rejected
+  `403 WORKSPACE_READ_ONLY`. Edits belong upstream in git, not here.
+- **Any git host.** Works with GitHub, GitLab, Bitbucket, Gitea, and self-hosted
+  GitHub Enterprise. Only `https://` URLs are accepted by default.
+- **Private repos.** Supply an access token (PAT). It is stored on the server in
+  `~/.wiki-viewer/git-secrets.json` (chmod 0600), never written to `config.json`,
+  never logged, and never returned by any API. Some hosts need a specific
+  username (GitLab uses `oauth2`, Bitbucket uses your account username).
+- **Refresh.** Git workspaces show a **Refresh** button in the switcher. It runs
+  `git pull --ff-only` to pull the latest commit. Refresh is manual by design,
+  so there is no background polling or webhook to configure.
+- **Branch.** Leave the branch blank to track the default branch, or pin a
+  specific one.
+
+Host policy is configurable in `config.json` under a `git` block: set
+`git.allowedHosts` (a list) to restrict which hosts can be cloned, or
+`git.allowInsecureHttp: true` to permit plain `http://` for a trusted internal
+host. Both are optional; the default allows any `https://` host.
 
 ### Admins and access control
 

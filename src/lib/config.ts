@@ -4,6 +4,16 @@ import path from "node:path";
 
 // Workspace type is defined in workspaces.ts; we use a forward-compatible
 // inline shape here to avoid a circular import between config ↔ workspaces.
+export interface WorkspaceGitEntry {
+	remoteUrl: string;
+	branch?: string;
+	tokenRef?: string;
+	username?: string;
+	lastPulledAt?: string;
+	lastSha?: string;
+	lastError?: string;
+}
+
 export interface WorkspaceEntry {
 	id: string;
 	name: string;
@@ -13,6 +23,8 @@ export interface WorkspaceEntry {
 	pinnedPaths?: string[];
 	createdBy?: string;
 	allowedUserIds?: string[];
+	readOnly?: boolean;
+	git?: WorkspaceGitEntry;
 }
 
 export interface WikiViewerConfig {
@@ -26,10 +38,20 @@ export interface WikiViewerConfig {
 	workspaces?: WorkspaceEntry[];
 	/** User IDs with admin privileges. Empty = no admins yet (bootstrap on first request). */
 	adminUserIds?: string[];
+	/** Git-backed workspace host policy. */
+	git?: {
+		allowedHosts?: string[];
+		allowInsecureHttp?: boolean;
+	};
 }
 
 function configPath() {
 	return path.join(os.homedir(), ".wiki-viewer", "config.json");
+}
+
+/** Absolute path to the managed git clone directory. */
+export function reposDir(): string {
+	return path.join(os.homedir(), ".wiki-viewer", "repos");
 }
 
 async function ensureDir() {

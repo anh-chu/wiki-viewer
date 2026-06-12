@@ -80,10 +80,14 @@ export interface WorkspaceError {
  *   2. `x-workspace` header.
  *   3. Fall back to the workspace with the most recent lastOpenedAt.
  *      If exactly one workspace exists, use it.
- *      If zero workspaces → 400 WORKSPACE_REQUIRED.
+ *      If zero workspaces -> 400 WORKSPACE_REQUIRED.
+ *
+ * Pass intent="write" on any route that mutates the filesystem.
+ * Returns 403 WORKSPACE_READ_ONLY for write intent on a readOnly workspace.
  */
 export async function resolveWorkspaceForUser(
 	req: Request,
+	intent: "read" | "write" = "read",
 ): Promise<WorkspaceContext | WorkspaceError> {
 	// --no-auth bypass
 	if (process.env.WIKI_NO_AUTH === "1") {
@@ -94,6 +98,9 @@ export async function resolveWorkspaceForUser(
 				status: 400,
 				code: "WORKSPACE_REQUIRED",
 			};
+		}
+		if (intent === "write" && ws.readOnly) {
+			return { ok: false, status: 403, code: "WORKSPACE_READ_ONLY" };
 		}
 		return { ok: true, ws, rootDir: ws.rootDir, userId: "local", isAdmin: true };
 	}
@@ -121,6 +128,10 @@ export async function resolveWorkspaceForUser(
 		return { ok: false, status: 403, code: "WORKSPACE_FORBIDDEN" };
 	}
 
+	if (intent === "write" && ws.readOnly) {
+		return { ok: false, status: 403, code: "WORKSPACE_READ_ONLY" };
+	}
+
 	return { ok: true, ws, rootDir: ws.rootDir, userId: auth.user.id, isAdmin: admin };
 }
 
@@ -133,12 +144,16 @@ export interface AgentWorkspaceContext {
 /**
  * Resolve the target workspace for an AUTHENTICATED agent request.
  *
- * Phase B: resolution only (no per-agent workspace grant check — that is added
+ * Phase B: resolution only (no per-agent workspace grant check - that is added
  * in Phase C, which will verify the agent's scope.workspaceId === ws.id).
  * Selection mirrors the session resolver: ?ws / x-workspace / default / global.
+ *
+ * Pass intent="write" on any route that mutates the filesystem.
+ * Returns 403 WORKSPACE_READ_ONLY for write intent on a readOnly workspace.
  */
 export async function resolveWorkspaceForAgent(
 	req: Request,
+	intent: "read" | "write" = "read",
 ): Promise<AgentWorkspaceContext | WorkspaceError> {
 	const ws = await pickWorkspace(req);
 	if (!ws) {
@@ -150,6 +165,9 @@ export async function resolveWorkspaceForAgent(
 			status: explicit ? 404 : 400,
 			code: explicit ? "WORKSPACE_NOT_FOUND" : "WORKSPACE_REQUIRED",
 		};
+	}
+	if (intent === "write" && ws.readOnly) {
+		return { ok: false, status: 403, code: "WORKSPACE_READ_ONLY" };
 	}
 	return { ok: true, ws, rootDir: ws.rootDir };
 }

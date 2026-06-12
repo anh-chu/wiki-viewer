@@ -33,7 +33,7 @@ export async function POST(
 	request: Request,
 	{ params }: { params: Promise<{ path: string[] }> },
 ) {
-	const wsx = await resolveWorkspaceForAgent(request);
+	const wsx = await resolveWorkspaceForAgent(request, "write");
 	if (!wsx.ok) return NextResponse.json({ error: wsx.code }, { status: wsx.status });
 	const { rootDir } = wsx;
 

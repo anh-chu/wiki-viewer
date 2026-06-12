@@ -8,8 +8,28 @@
  */
 
 import path from "node:path";
+import { rmSync } from "node:fs";
 import { randomBytes } from "node:crypto";
-import { readConfig, updateConfig } from "./config";
+import { readConfig, updateConfig, reposDir } from "./config";
+import {
+	assertGitAvailable,
+	validateRemoteUrl,
+	cloneRepo,
+	pullRepo,
+	headSha,
+	currentBranch,
+} from "./git";
+import { genTokenRef, setToken, getToken, deleteToken } from "./git-secrets";
+
+export interface WorkspaceGit {
+	remoteUrl: string;
+	branch?: string;
+	tokenRef?: string;
+	username?: string;
+	lastPulledAt?: string;
+	lastSha?: string;
+	lastError?: string;
+}
 
 export interface Workspace {
 	/** "ws_" + 6 random url-safe bytes. Stable, used in ?ws= query param. */
@@ -29,6 +49,21 @@ export interface Workspace {
 	 * Admin users always have access regardless of this list.
 	 */
 	allowedUserIds?: string[];
+	/** True for git-backed read-only workspaces. Blocks all fs mutations. */
+	readOnly?: boolean;
+	/** Git remote metadata. Present only on git-backed workspaces. */
+	git?: WorkspaceGit;
+}
+
+/**
+ * Strip secret-bearing fields before returning a workspace over HTTP.
+ * tokenRef is an internal handle into the PAT store and must never leave the
+ * server. Use this on every response that includes workspace objects.
+ */
+export function sanitizeWorkspace(ws: Workspace): Workspace {
+	if (!ws.git) return ws;
+	const { tokenRef: _omit, ...gitSafe } = ws.git;
+	return { ...ws, git: gitSafe };
 }
 
 // ── Queries ────────────────────────────────────────────────────────────────────
@@ -71,6 +106,117 @@ export async function createWorkspace(input: {
 	return ws;
 }
 
+export async function createGitWorkspace(input: {
+	remoteUrl: string;
+	branch?: string;
+	token?: string;
+	username?: string;
+	name?: string;
+	createdBy?: string;
+	allowedHosts?: string[];
+	allowInsecureHttp?: boolean;
+	/** Internal: skip URL scheme validation (e.g. local filesystem path in tests). */
+	allowLocalPath?: boolean;
+}): Promise<Workspace> {
+	await assertGitAvailable();
+
+	if (!input.allowLocalPath) {
+		const check = validateRemoteUrl(input.remoteUrl, {
+			allowedHosts: input.allowedHosts,
+			allowInsecureHttp: input.allowInsecureHttp,
+		});
+		if (!check.ok) {
+			throw new Error(check.reason);
+		}
+	}
+
+	const id = "ws_" + randomBytes(6).toString("base64url");
+	const destDir = path.join(reposDir(), id);
+
+	let tokenRef: string | undefined;
+	if (input.token) {
+		tokenRef = genTokenRef();
+		await setToken(tokenRef, input.token);
+	}
+
+	try {
+		await cloneRepo({
+			remoteUrl: input.remoteUrl,
+			branch: input.branch,
+			token: input.token,
+			username: input.username,
+			destDir,
+		});
+	} catch (err) {
+		if (tokenRef) {
+			try { await deleteToken(tokenRef); } catch { /* ignore */ }
+		}
+		try { rmSync(destDir, { recursive: true, force: true }); } catch { /* ignore */ }
+		throw err;
+	}
+
+	const now = new Date().toISOString();
+	const sha = await headSha(destDir);
+	const detectedBranch = !input.branch ? await currentBranch(destDir) : undefined;
+	const repoName = input.name ??
+		path.basename(input.remoteUrl.replace(/\.git$/, ""));
+
+	const ws: Workspace = {
+		id,
+		name: repoName,
+		rootDir: destDir,
+		createdAt: now,
+		lastOpenedAt: now,
+		createdBy: input.createdBy,
+		readOnly: true,
+		git: {
+			remoteUrl: input.remoteUrl,
+			branch: input.branch ?? detectedBranch,
+			tokenRef,
+			username: input.username,
+			lastPulledAt: now,
+			lastSha: sha,
+		},
+	};
+
+	await updateConfig((cfg) => ({
+		...cfg,
+		workspaces: [...((cfg.workspaces ?? []) as Workspace[]), ws],
+	}));
+
+	return ws;
+}
+
+export async function refreshGitWorkspace(
+	id: string,
+): Promise<{ lastSha: string; lastPulledAt: string }> {
+	const ws = await getWorkspace(id);
+	if (!ws) throw new Error(`Workspace ${id} not found`);
+	if (!ws.git) throw new Error(`Workspace ${id} is not a git-backed workspace`);
+
+	const token = ws.git.tokenRef ? await getToken(ws.git.tokenRef) ?? undefined : undefined;
+
+	try {
+		await pullRepo({ rootDir: ws.rootDir, token, username: ws.git.username });
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
+		await mutateWorkspace(id, (w) => ({
+			...w,
+			git: w.git ? { ...w.git, lastError: msg } : w.git,
+		}));
+		throw err;
+	}
+
+	const sha = await headSha(ws.rootDir);
+	const now = new Date().toISOString();
+	await mutateWorkspace(id, (w) => ({
+		...w,
+		git: w.git ? { ...w.git, lastSha: sha, lastPulledAt: now, lastError: undefined } : w.git,
+	}));
+
+	return { lastSha: sha, lastPulledAt: now };
+}
+
 function mutateWorkspace(
 	id: string,
 	fn: (w: Workspace) => Workspace,
@@ -88,10 +234,22 @@ export async function renameWorkspace(id: string, name: string): Promise<void> {
 }
 
 export async function removeWorkspace(id: string): Promise<void> {
+	const ws = await getWorkspace(id);
 	await updateConfig((cfg) => ({
 		...cfg,
 		workspaces: ((cfg.workspaces ?? []) as Workspace[]).filter((w) => w.id !== id),
 	}));
+	// Cleanup git-backed workspace artifacts.
+	if (ws?.git?.tokenRef) {
+		try { await deleteToken(ws.git.tokenRef); } catch { /* best-effort */ }
+	}
+	if (ws?.git) {
+		// Only remove the clone dir if it is inside the managed repos dir.
+		const managed = reposDir();
+		if (ws.rootDir.startsWith(managed + path.sep) || ws.rootDir === managed) {
+			try { rmSync(ws.rootDir, { recursive: true, force: true }); } catch { /* best-effort */ }
+		}
+	}
 	// Purge search index for the removed workspace. Import dynamically to avoid
 	// circular dependency if search modules ever import from workspaces.
 	try {

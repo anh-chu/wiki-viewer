@@ -8,7 +8,7 @@ import { safeWorkspacePath } from "@/lib/workspaces";
 export async function POST(request: Request) {
 	const csrf = checkOrigin(request);
 	if (csrf) return csrf;
-	const ctx = await resolveWorkspaceForUser(request);
+	const ctx = await resolveWorkspaceForUser(request, "write");
 	if (!ctx.ok)
 		return NextResponse.json({ error: ctx.code }, { status: ctx.status });
 	const { rootDir } = ctx;

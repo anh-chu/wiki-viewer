@@ -48,7 +48,7 @@ export async function POST(req: Request): Promise<NextResponse> {
 	const toRel = body.to;
 	const ifMatch = typeof body.ifMatch === "string" ? body.ifMatch : undefined;
 
-	const wsx = await resolveWorkspaceForAgent(req);
+	const wsx = await resolveWorkspaceForAgent(req, "write");
 	if (!wsx.ok) return errJson(wsx.code, wsx.code, wsx.status);
 	const { ws, rootDir } = wsx;
 

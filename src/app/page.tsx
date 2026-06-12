@@ -14,6 +14,7 @@ import {
 	Folder,
 	FolderOpen,
 	FolderPlus,
+	GitBranch,
 	Globe,
 	Image as ImageIcon,
 	Link,
@@ -102,6 +103,19 @@ import {
 import { ViewWidthToggle } from "@/components/view-width-toggle";
 import { useWikiSlugsStore } from "@/stores/wiki-slugs-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+
+function timeAgo(iso: string): string {
+	const t = new Date(iso).getTime();
+	if (!Number.isFinite(t)) return "";
+	const diff = Math.max(0, Date.now() - t);
+	const s = Math.floor(diff / 1000);
+	if (s < 60) return "just now";
+	const m = Math.floor(s / 60);
+	if (m < 60) return `${m}m ago`;
+	const h = Math.floor(m / 60);
+	if (h < 24) return `${h}h ago`;
+	return `${Math.floor(h / 24)}d ago`;
+}
 
 interface TreeNode {
 	name: string;
@@ -283,16 +297,17 @@ export default function Page() {
 	const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(() =>
 		typeof window !== "undefined" ? getActiveWorkspaceId() : null
 	);
-	const [workspaces, setWorkspaces] = useState<Array<{id:string;name:string;rootDir:string;lastOpenedAt?:string;createdAt:string}>>([]);
+	const [workspaces, setWorkspaces] = useState<Array<{id:string;name:string;rootDir:string;lastOpenedAt?:string;createdAt:string;readOnly?:boolean;git?:{remoteUrl:string;branch?:string;username?:string;lastPulledAt?:string;lastSha?:string;lastError?:string}}>>([]);
 	const [isWsAdmin, setIsWsAdmin] = useState(false);
 	const [addingWorkspace, setAddingWorkspace] = useState(false);
 	const [deletingWorkspaceId, setDeletingWorkspaceId] = useState<string | null>(null);
+	const [refreshingWsId, setRefreshingWsId] = useState<string | null>(null);
 
 	const loadWorkspaces = useCallback(async () => {
 		try {
 			const res = await fetch("/api/system/workspaces");
 			if (!res.ok) throw new Error("Failed");
-			const d: { workspaces: Array<{id:string;name:string;rootDir:string;lastOpenedAt?:string;createdAt:string}>; isAdmin: boolean } = await res.json();
+			const d: { workspaces: Array<{id:string;name:string;rootDir:string;lastOpenedAt?:string;createdAt:string;readOnly?:boolean;git?:{remoteUrl:string;branch?:string;username?:string;lastPulledAt?:string;lastSha?:string;lastError?:string}}>; isAdmin: boolean } = await res.json();
 			setWorkspaces(d.workspaces);
 			setIsWsAdmin(d.isAdmin);
 			if (d.workspaces.length > 0) {
@@ -845,6 +860,23 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 			setDeletingWorkspaceId(null);
 		}
 	}, [deletingWorkspaceId, activeWorkspaceId, workspaces, switchWorkspace, loadWorkspaces]);
+
+	const handleRefreshWorkspace = useCallback(async (id: string) => {
+		if (refreshingWsId) return;
+		setRefreshingWsId(id);
+		try {
+			const res = await fetch(`/api/system/workspaces/${id}/refresh`, { method: "POST" });
+			if (!res.ok) {
+				const e: { error?: string } = await res.json();
+				showError(e.error ?? "Refresh failed");
+			}
+			await loadWorkspaces();
+		} catch {
+			showError("Refresh failed");
+		} finally {
+			setRefreshingWsId(null);
+		}
+	}, [refreshingWsId, loadWorkspaces]);
 
 	async function handleSave() {
 		if (!openFile) return;
@@ -1994,12 +2026,39 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 											<span className="w-3.5 shrink-0" />
 										)}
 										<span className="flex flex-col min-w-0 flex-1">
-											<span className="truncate">{w.name}</span>
+											<span className="flex items-center gap-1.5 truncate">
+												<span className="truncate">{w.name}</span>
+												{w.readOnly && (
+													<span className="inline-flex items-center gap-0.5 rounded bg-muted px-1.5 text-[10px] text-muted-foreground font-normal shrink-0">
+														<GitBranch className="h-2.5 w-2.5" /> read-only
+													</span>
+												)}
+											</span>
 											<span className="truncate text-[10px] text-muted-foreground font-mono">{w.rootDir}</span>
+											{w.git?.lastPulledAt && timeAgo(w.git.lastPulledAt) && (
+												<span className="text-[10px] text-muted-foreground/70">synced {timeAgo(w.git.lastPulledAt)}</span>
+											)}
 										</span>
+										{isWsAdmin && w.git && (
+											<button
+												className={cn(
+													"shrink-0 rounded p-0.5 hover:bg-accent transition-colors",
+													w.git.lastError ? "text-destructive" : "text-muted-foreground hover:text-foreground",
+												)}
+												title={w.git.lastError ? `Last refresh failed: ${w.git.lastError}` : "Refresh"}
+												disabled={refreshingWsId === w.id}
+												onClick={(e) => {
+													e.stopPropagation();
+													e.preventDefault();
+													void handleRefreshWorkspace(w.id);
+												}}
+											>
+												<RefreshCw className={cn("h-3.5 w-3.5", refreshingWsId === w.id && "animate-spin")} />
+											</button>
+										)}
 										{isWsAdmin && (
 											<button
-												className="ml-auto shrink-0 rounded p-0.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+												className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
 												title="Delete workspace (does not delete files)"
 												onClick={(e) => {
 													e.stopPropagation();

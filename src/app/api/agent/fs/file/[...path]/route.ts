@@ -152,7 +152,7 @@ async function applyMutation(
 	const auth = await checkAuth(req);
 	if (!auth.ok) return errJson("UNAUTHORIZED", auth.message ?? "Unauthorized", 401);
 
-	const wsx = await resolveWorkspaceForAgent(req);
+	const wsx = await resolveWorkspaceForAgent(req, "write");
 	if (!wsx.ok) return errJson(wsx.code, wsx.code, wsx.status);
 	const { ws, rootDir } = wsx;
 
@@ -385,7 +385,7 @@ export async function DELETE(
 	const url = new URL(req.url);
 	const recursive = url.searchParams.get("recursive") === "true";
 
-	const wsx = await resolveWorkspaceForAgent(req);
+	const wsx = await resolveWorkspaceForAgent(req, "write");
 	if (!wsx.ok) return errJson(wsx.code, wsx.code, wsx.status);
 	const { ws, rootDir } = wsx;
 

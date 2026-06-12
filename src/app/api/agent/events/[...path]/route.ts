@@ -89,7 +89,7 @@ export async function POST(
 		return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
 	}
 
-	const wsx = await resolveWorkspaceForAgent(req);
+	const wsx = await resolveWorkspaceForAgent(req, "write");
 	if (!wsx.ok) {
 		return NextResponse.json({ error: wsx.code }, { status: wsx.status });
 	}

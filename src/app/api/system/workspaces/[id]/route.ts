@@ -17,6 +17,7 @@ import {
 	setWorkspaceAccess,
 	setWorkspacePins,
 	userCanAccess,
+	sanitizeWorkspace,
 } from "@/lib/workspaces";
 
 export const runtime = "nodejs";
@@ -54,7 +55,10 @@ export async function PATCH(request: Request, { params }: Params) {
 	if (body.allowedUserIds !== undefined) await setWorkspaceAccess(id, body.allowedUserIds);
 
 	const updated = await getWorkspace(id);
-	return NextResponse.json({ ok: true, workspace: updated });
+	return NextResponse.json({
+		ok: true,
+		workspace: updated ? sanitizeWorkspace(updated) : updated,
+	});
 }
 
 export async function DELETE(request: Request, { params }: Params) {

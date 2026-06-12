@@ -4,8 +4,10 @@ import {
 	ChevronRight,
 	Folder,
 	FolderOpen,
+	GitBranch,
 	HardDrive,
 	Home,
+	Key,
 	Loader2,
 	Pin,
 	PinOff,
@@ -34,6 +36,9 @@ interface Props {
 }
 
 export function DirPicker({ onSelect }: Props) {
+	const [mode, setMode] = useState<"local" | "git">("local");
+
+	// Local folder state
 	const [data, setData] = useState<BrowseResult | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
@@ -43,6 +48,50 @@ export function DirPicker({ onSelect }: Props) {
 	const [pinLoading, setPinLoading] = useState(false);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+	// From Git state
+	const [gitRemoteUrl, setGitRemoteUrl] = useState("");
+	const [gitBranch, setGitBranch] = useState("");
+	const [gitUsername, setGitUsername] = useState("");
+	const [gitToken, setGitToken] = useState("");
+	const [gitName, setGitName] = useState("");
+	const [gitSubmitting, setGitSubmitting] = useState(false);
+	const [gitError, setGitError] = useState<string | null>(null);
+
+	const handleGitSubmit = async () => {
+		const remoteUrl = gitRemoteUrl.trim();
+		if (!remoteUrl) {
+			setGitError("Repository URL is required.");
+			return;
+		}
+		setGitSubmitting(true);
+		setGitError(null);
+		try {
+			const body: Record<string, string> = { remoteUrl };
+			if (gitBranch.trim()) body.branch = gitBranch.trim();
+			if (gitUsername.trim()) body.username = gitUsername.trim();
+			if (gitToken.trim()) body.token = gitToken.trim();
+			if (gitName.trim()) body.name = gitName.trim();
+			const res = await fetch("/api/system/workspaces", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(body),
+			});
+			if (!res.ok) {
+				const e: { error?: string; message?: string } = await res.json();
+				setGitError(e.error ?? e.message ?? "Clone failed.");
+				return;
+			}
+			const { workspace }: { workspace: { id: string } } = await res.json();
+			// Drop the token from memory as soon as the clone succeeds.
+			setGitToken("");
+			onSelect(workspace.id);
+		} catch {
+			setGitError("Network error.");
+		} finally {
+			setGitSubmitting(false);
+		}
+	};
 
 	const navigate = useCallback(async (dir: string, updateInput = true) => {
 		if (debounceRef.current) {
@@ -196,16 +245,160 @@ export function DirPicker({ onSelect }: Props) {
 						<img src="/logo.svg" alt="Wiki Viewer" className="h-8 w-8" />
 						<span className="text-xl font-semibold tracking-tight">Wiki Viewer</span>
 					</div>
-					<h1 className="text-xl font-medium">Choose a directory</h1>
+					<h1 className="text-xl font-medium">
+						{mode === "git" ? "Add a Git repository" : "Choose a directory"}
+					</h1>
 					<p className="text-sm text-muted-foreground">
-						Select the folder wiki-viewer should serve.
-						<br />
-						This directory lives on the server — use the browser below.
+						{mode === "git" ? (
+							<>
+								Clone a remote repo and serve it as a read-only workspace.
+								<br />
+								The server clones it, so the URL must be reachable from the server.
+							</>
+						) : (
+							<>
+								Select the folder wiki-viewer should serve.
+								<br />
+								This directory lives on the server, so use the browser below.
+							</>
+						)}
 					</p>
 				</div>
 
+				{/* Mode toggle */}
+				<div className="flex items-center self-center rounded-lg border bg-muted p-0.5 gap-0.5">
+					<Button
+						variant={mode === "local" ? "default" : "ghost"}
+						size="sm"
+						className="h-7 px-3 text-xs gap-1.5"
+						onClick={() => { setMode("local"); setGitToken(""); setGitError(null); }}
+					>
+						<Folder className="h-3.5 w-3.5" />
+						Local folder
+					</Button>
+					<Button
+						variant={mode === "git" ? "default" : "ghost"}
+						size="sm"
+						className="h-7 px-3 text-xs gap-1.5"
+						onClick={() => setMode("git")}
+					>
+						<GitBranch className="h-3.5 w-3.5" />
+						From Git
+					</Button>
+				</div>
+
+				{/* From Git form */}
+				{mode === "git" && (
+					<div className="rounded-lg border bg-card shadow-sm overflow-hidden">
+						<div className="px-4 pt-4 pb-3 flex flex-col gap-3">
+							{/* Remote URL */}
+							<div className="flex flex-col gap-1">
+								<label className="text-xs font-medium">Repository URL</label>
+								<div className="flex items-center gap-2 rounded-md border bg-muted px-3 py-2">
+									<input
+										className="flex-1 bg-transparent text-sm outline-none font-mono min-w-0"
+										placeholder="https://github.com/org/repo.git"
+										value={gitRemoteUrl}
+										onChange={(e) => { setGitRemoteUrl(e.target.value); setGitError(null); }}
+										disabled={gitSubmitting}
+										autoComplete="off"
+										spellCheck={false}
+									/>
+								</div>
+								<p className="text-[11px] text-muted-foreground">Only https:// URLs are supported.</p>
+							</div>
+
+							{/* Branch */}
+							<div className="flex flex-col gap-1">
+								<label className="text-xs font-medium">Branch <span className="font-normal text-muted-foreground">(optional)</span></label>
+								<div className="flex items-center gap-2 rounded-md border bg-muted px-3 py-2">
+									<input
+										className="flex-1 bg-transparent text-sm outline-none min-w-0"
+										placeholder="main (default branch if empty)"
+										value={gitBranch}
+										onChange={(e) => { setGitBranch(e.target.value); setGitError(null); }}
+										disabled={gitSubmitting}
+									/>
+								</div>
+							</div>
+
+							{/* Username */}
+							<div className="flex flex-col gap-1">
+								<label className="text-xs font-medium">Username <span className="font-normal text-muted-foreground">(optional)</span></label>
+								<div className="flex items-center gap-2 rounded-md border bg-muted px-3 py-2">
+									<input
+										className="flex-1 bg-transparent text-sm outline-none min-w-0"
+										placeholder="x-access-token (default)"
+										value={gitUsername}
+										onChange={(e) => { setGitUsername(e.target.value); setGitError(null); }}
+										disabled={gitSubmitting}
+										autoComplete="off"
+									/>
+								</div>
+								<p className="text-[11px] text-muted-foreground">GitLab uses <code className="font-mono">oauth2</code>; Bitbucket uses your account username.</p>
+							</div>
+
+							{/* Token */}
+							<div className="flex flex-col gap-1">
+								<label className="text-xs font-medium">Access token <span className="font-normal text-muted-foreground">(optional)</span></label>
+								<div className="flex items-center gap-2 rounded-md border bg-muted px-3 py-2">
+									<Key className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+									<input
+										type="password"
+										className="flex-1 bg-transparent text-sm outline-none min-w-0"
+										placeholder="Personal access token"
+										value={gitToken}
+										onChange={(e) => { setGitToken(e.target.value); setGitError(null); }}
+										disabled={gitSubmitting}
+										autoComplete="off"
+									/>
+								</div>
+								<p className="text-[11px] text-muted-foreground">Required only for private repos. Stored securely on the server and never shown again.</p>
+							</div>
+
+							{/* Display name */}
+							<div className="flex flex-col gap-1">
+								<label className="text-xs font-medium">Display name <span className="font-normal text-muted-foreground">(optional)</span></label>
+								<div className="flex items-center gap-2 rounded-md border bg-muted px-3 py-2">
+									<input
+										className="flex-1 bg-transparent text-sm outline-none min-w-0"
+										placeholder="Defaults to the repository name"
+										value={gitName}
+										onChange={(e) => { setGitName(e.target.value); setGitError(null); }}
+										disabled={gitSubmitting}
+									/>
+								</div>
+							</div>
+
+							{/* Error */}
+							{gitError && (
+								<p className="text-sm text-destructive">{gitError}</p>
+							)}
+						</div>
+
+						{/* Footer */}
+						<div className="border-t px-4 py-3 flex items-center justify-between gap-3 bg-muted">
+							<p className="text-[11px] text-muted-foreground">
+								Git workspaces are read-only, so editing is disabled.
+							</p>
+							<Button
+								size="sm"
+								className="shrink-0 gap-1.5"
+								disabled={gitSubmitting}
+								onClick={handleGitSubmit}
+							>
+								{gitSubmitting ? (
+									<><Loader2 className="h-3.5 w-3.5 animate-spin" /> Cloning...</>
+								) : (
+									<><GitBranch className="h-3.5 w-3.5" /> Clone and add</>
+								)}
+							</Button>
+						</div>
+					</div>
+				)}
+
 				{/* Main browser card */}
-				<div className="rounded-lg border bg-card shadow-sm overflow-hidden">
+				{mode === "local" && <div className="rounded-lg border bg-card shadow-sm overflow-hidden">
 					{/* Path input bar — always visible, reactive with browser */}
 					<div className="flex items-center gap-2 border-b px-3 py-2 bg-muted">
 						<input
@@ -330,10 +523,10 @@ export function DirPicker({ onSelect }: Props) {
 							Select
 						</Button>
 					</div>
-				</div>
+				</div>}
 
 				{/* Pinned paths */}
-				{pins.length > 0 && (
+				{mode === "local" && pins.length > 0 && (
 					<div className="rounded-lg border bg-card shadow-sm overflow-hidden">
 						<div className="px-3 py-2 border-b bg-muted">
 							<span className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
@@ -369,7 +562,7 @@ export function DirPicker({ onSelect }: Props) {
 				)}
 
 				{/* Shortcuts */}
-				{data?.shortcuts && data.shortcuts.length > 0 && (
+				{mode === "local" && data?.shortcuts && data.shortcuts.length > 0 && (
 					<div className="flex flex-wrap gap-1.5 justify-center">
 						{data.shortcuts.map((s) => (
 							<Button

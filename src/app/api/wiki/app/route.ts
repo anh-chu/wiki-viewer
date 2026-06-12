@@ -22,7 +22,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
 	const csrf = checkOrigin(request);
 	if (csrf) return csrf;
-	const ctx = await resolveWorkspaceForUser(request);
+	const ctx = await resolveWorkspaceForUser(request, "write");
 	if (!ctx.ok) return NextResponse.json({ error: ctx.code }, { status: ctx.status });
 	const { rootDir } = ctx;
 
@@ -47,7 +47,7 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
 	const csrf = checkOrigin(request);
 	if (csrf) return csrf;
-	const ctx = await resolveWorkspaceForUser(request);
+	const ctx = await resolveWorkspaceForUser(request, "write");
 	if (!ctx.ok) return NextResponse.json({ error: ctx.code }, { status: ctx.status });
 
 	const body: { path?: string } = await request.json();
