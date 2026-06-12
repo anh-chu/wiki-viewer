@@ -41,13 +41,22 @@ export function DocumentOutline({ editor, scrollContainerRef }: DocumentOutlineP
 	const [scrollProgress, setScrollProgress] = useState(0);
 	const observerRef = useRef<IntersectionObserver | null>(null);
 
-	// Extract headings on every doc update
+	// Extract headings on doc update, debounced. Walking the whole doc + rebuilding
+	// the IntersectionObserver on every keystroke is wasteful; headings change
+	// rarely, so a trailing 250ms debounce is imperceptible.
 	useEffect(() => {
 		if (!editor) return;
-		const update = () => setHeadings(extractHeadings(editor));
+		let timer: ReturnType<typeof setTimeout> | null = null;
+		const update = () => {
+			if (timer) clearTimeout(timer);
+			timer = setTimeout(() => setHeadings(extractHeadings(editor)), 250);
+		};
 		editor.on("update", update);
-		update();
-		return () => { editor.off("update", update); };
+		setHeadings(extractHeadings(editor)); // initial, immediate
+		return () => {
+			if (timer) clearTimeout(timer);
+			editor.off("update", update);
+		};
 	}, [editor]);
 
 	// Reading-progress bar: track scroll on the scroll container

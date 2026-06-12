@@ -24,6 +24,8 @@ interface SearchState {
 }
 
 let abortRef: AbortController | null = null;
+let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+const DEBOUNCE_MS = 150;
 
 export const useSearchStore = create<SearchState>((set) => ({
 	query: "",
@@ -36,22 +38,38 @@ export const useSearchStore = create<SearchState>((set) => ({
 	setOpen: (b) => set({ open: b }),
 
 	clear: () => {
+		if (debounceTimer) clearTimeout(debounceTimer);
 		abortRef?.abort();
 		set({ query: "", results: [], loading: false, truncated: false });
 	},
 
-	search: async (q) => {
-		abortRef?.abort();
-		const ctrl = new AbortController();
-		abortRef = ctrl;
-
+	// Debounced: coalesces keystroke bursts into one network round-trip. The
+	// trailing fetch still aborts any prior in-flight request via abortRef.
+	search: (q) => {
+		if (debounceTimer) clearTimeout(debounceTimer);
 		if (!q.trim()) {
+			abortRef?.abort();
 			set({ results: [], loading: false, truncated: false });
-			return;
+			return Promise.resolve();
 		}
-
 		set({ loading: true });
+		return new Promise<void>((resolve) => {
+			debounceTimer = setTimeout(() => {
+				void runSearch(set, q).finally(resolve);
+			}, DEBOUNCE_MS);
+		});
+	},
+}));
 
+async function runSearch(
+	set: (partial: Partial<SearchState>) => void,
+	q: string,
+): Promise<void> {
+	abortRef?.abort();
+	const ctrl = new AbortController();
+	abortRef = ctrl;
+
+	{
 		try {
 			const r = await wsFetch("/api/wiki/search", {
 				method: "POST",
@@ -82,5 +100,5 @@ export const useSearchStore = create<SearchState>((set) => ({
 				set({ loading: false });
 			}
 		}
-	},
-}));
+	}
+}

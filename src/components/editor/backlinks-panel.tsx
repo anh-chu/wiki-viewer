@@ -10,23 +10,6 @@ interface BacklinkEntry {
 	snippet: string;
 }
 
-function slugFromPath(filePath: string): string {
-	const base = filePath.split("/").pop() ?? filePath;
-	return base.replace(/\.md$/i, "");
-}
-
-/**
- * True if `content` contains an actual wiki-link to `slug`, i.e. `[[slug]]`,
- * `[[slug|alias]]`, or `[[slug#anchor]]`. FTS matches tokenised prose, so we
- * re-check the raw text to drop false positives (a page merely mentioning the
- * word, not linking to it).
- */
-function hasWikiLinkTo(content: string, slug: string): boolean {
-	const esc = slug.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-	const re = new RegExp(`\\[\\[${esc}(?:\\|[^\\]#|]+|#[a-z0-9-]+)?\\]\\]`, "i");
-	return re.test(content);
-}
-
 /** Display the last two path segments, e.g. "notes/my-page.md" → "notes / my-page" */
 function displayPath(filePath: string): string {
 	const parts = filePath.replace(/\.md$/i, "").split("/");
@@ -42,65 +25,39 @@ export function BacklinksPanel({ currentPath }: BacklinksPanelProps) {
 	const [loading, setLoading] = useState(false);
 	const [collapsed, setCollapsed] = useState(false);
 
-	const slug = slugFromPath(currentPath);
-
 	useEffect(() => {
-		if (!slug) return;
+		if (!currentPath) return;
 		let cancelled = false;
 		setLoading(true);
 		setBacklinks([]);
 
-		// Search for the slug surrounded by [[ ]] — FTS may not match brackets,
-		// but we pass the full pattern; backend uses BM25 on tokenised text so
-		// results will include pages that mention the slug near [[ ]].
-		// FTS is a coarse candidate filter (it tokenises and strips brackets), so
-		// we fetch each candidate's raw content and confirm a literal [[slug]] link.
-		(async () => {
-			try {
-				const r = await wsFetch("/api/wiki/search", {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ query: slug, limit: 50 }),
-				});
-				const d: {
-					matches?: Array<{ path: string; score: number; snippet: string }>;
-				} = r.ok ? await r.json() : { matches: [] };
-
-				const candidates = (d.matches ?? []).filter(
-					(m) => m.path !== currentPath && /\.md$/i.test(m.path),
-				);
-
-				const confirmed = await Promise.all(
-					candidates.map(async (m) => {
-						try {
-							const cr = await wsFetch(
-								`/api/wiki/content?path=${encodeURIComponent(m.path)}`,
-							);
-							if (!cr.ok) return null;
-							const { content } = (await cr.json()) as { content: string };
-							if (!hasWikiLinkTo(content, slug)) return null;
-							return { path: m.path, snippet: m.snippet } as BacklinkEntry;
-						} catch {
-							return null;
-						}
-					}),
-				);
-
-				if (cancelled) return;
-				setBacklinks(
-					confirmed.filter((b): b is BacklinkEntry => b !== null),
-				);
-			} catch {
-				if (!cancelled) setBacklinks([]);
-			} finally {
-				if (!cancelled) setLoading(false);
-			}
-		})();
+		// Debounced + single server-side resolution: rapid navigation shouldn't
+		// fire a backlinks query per pass-through. Backend runs FTS and confirms
+		// literal [[slug]] links against indexed body text in-process.
+		const timer = setTimeout(() => {
+			(async () => {
+				try {
+					const r = await wsFetch(
+						`/api/wiki/backlinks?path=${encodeURIComponent(currentPath)}`,
+					);
+					const d: { backlinks?: BacklinkEntry[] } = r.ok
+						? await r.json()
+						: { backlinks: [] };
+					if (cancelled) return;
+					setBacklinks(d.backlinks ?? []);
+				} catch {
+					if (!cancelled) setBacklinks([]);
+				} finally {
+					if (!cancelled) setLoading(false);
+				}
+			})();
+		}, 200);
 
 		return () => {
 			cancelled = true;
+			clearTimeout(timer);
 		};
-	}, [currentPath, slug]);
+	}, [currentPath]);
 
 	// Hide entirely when loading with no prior results or genuinely empty
 	if (!loading && backlinks.length === 0) return null;

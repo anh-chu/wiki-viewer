@@ -43,7 +43,7 @@ import {
 	Upload,
 	X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -93,7 +93,7 @@ import { AIPanel } from "@/components/ai-panel/ai-panel";
 import { SearchCommandDialog } from "@/components/search/search-command-dialog";
 import { SidebarSearchBox } from "@/components/search/sidebar-search-box";
 import { useAIPanelStore } from "@/stores/ai-panel-store";
-import { useEditorStore } from "@/stores/editor-store";
+import { useEditorStore, prefetchPage } from "@/stores/editor-store";
 import {
 	useViewWidthStore,
 	VIEW_WIDTH_CLASS,
@@ -269,6 +269,33 @@ async function fetchDir(dir: string): Promise<TreeNode[]> {
 	}));
 }
 
+// One-shot hover-prefetch cache for directory listings: warmed on tree-row hover,
+// consumed (read + deleted) by the first expand so there's no long-lived staleness.
+// reloadDir/the file-watcher always fetch fresh and bypass this.
+const dirPrefetchCache = new Map<string, TreeNode[]>();
+const dirPrefetchInflight = new Map<string, Promise<TreeNode[]>>();
+
+function prefetchDir(dir: string): void {
+	if (dirPrefetchCache.has(dir) || dirPrefetchInflight.has(dir)) return;
+	const promise = fetchDir(dir)
+		.then((children) => {
+			dirPrefetchCache.set(dir, children);
+			return children;
+		})
+		.finally(() => dirPrefetchInflight.delete(dir));
+	dirPrefetchInflight.set(dir, promise);
+	promise.catch(() => {});
+}
+
+/** Consume a prefetched (or in-flight) dir listing, if any. One-shot. */
+async function takePrefetchedDir(dir: string): Promise<TreeNode[] | null> {
+	const ready = dirPrefetchCache.get(dir);
+	if (ready) { dirPrefetchCache.delete(dir); return ready; }
+	const inflight = dirPrefetchInflight.get(dir);
+	if (inflight) { const r = await inflight; dirPrefetchCache.delete(dir); return r; }
+	return null;
+}
+
 function updateNodes(
 	nodes: TreeNode[],
 	targetPath: string,
@@ -289,6 +316,573 @@ function removeNode(nodes: TreeNode[], targetPath: string): TreeNode[] {
 			n.children ? { ...n, children: removeNode(n.children, targetPath) } : n,
 		);
 }
+
+/**
+ * Stable handler bundle passed to FileTree. Every method is referentially stable
+ * across Page() renders (backed by a ref dispatcher), so FileTree's React.memo
+ * holds and the whole tree skips re-rendering when unrelated Page state changes
+ * (dialogs, search, editor typing, sidebar resize, dropdowns, etc.).
+ */
+interface TreeCtx {
+	toggleFolder: (node: TreeNode) => void;
+	openViewer: (node: TreeNode) => void;
+	copyPath: (path: string) => void;
+	copyWikiLink: (name: string) => void;
+	copyUrl: (path: string) => void;
+	copyRawContent: (path: string) => void;
+	copyFormattedContent: (path: string, name: string) => void;
+	handleDownload: (node: TreeNode) => void;
+	triggerUpload: (dir: string) => void;
+	handleCreateFile: () => void;
+	handleCreateFolder: () => void;
+	handleDragStart: (e: React.DragEvent, node: TreeNode) => void;
+	handleDragOver: (e: React.DragEvent, targetPath: string, targetType: "dir" | "root") => void;
+	handleDropOnFolder: (e: React.DragEvent, targetDirPath: string) => void;
+	handleGitPull: (nodePath: string, parentDir: string) => void;
+	handleCheckout: (nodePath: string, branch: string, parentDir: string) => void;
+	loadBranches: (nodePath: string) => void;
+	prefetch: (node: TreeNode) => void;
+	togglePin: (node: TreeNode, wsId: string | null) => void;
+	setDragOverPath: (p: string | null) => void;
+	setSidebarCollapsed: (b: boolean) => void;
+	setBranchDropdownNode: (p: string | null) => void;
+	setBranchDropdownPos: (p: { top: number; left: number } | null) => void;
+	setNewFileParent: (p: string | null) => void;
+	setNewFileName: (s: string) => void;
+	setFileCreateError: (s: string | null) => void;
+	setNewFolderParent: (p: string | null) => void;
+	setNewFolderName: (s: string) => void;
+	setFolderError: (s: string | null) => void;
+	setDeletingPath: (p: string | null) => void;
+	setDeletingIsDir: (b: boolean) => void;
+}
+
+interface FileTreeProps {
+	ctx: TreeCtx;
+	nodes: TreeNode[];
+	openPath: string | null;
+	dragOverPath: string | null;
+	branchDropdownNode: string | null;
+	branchDropdownPos: { top: number; left: number } | null;
+	nodeBranches: Record<string, { name: string; current: boolean }[]>;
+	branchesLoading: Record<string, boolean>;
+	checkingOutBranch: string | null;
+	pullingRepo: string | null;
+	activePaths: Set<string>;
+	pins: Array<{ path: string }>;
+	isMobile: boolean;
+	activeWorkspaceId: string | null;
+	newFileParent: string | null;
+	newFileName: string;
+	fileCreateError: string | null;
+	newFolderParent: string | null;
+	newFolderName: string;
+	folderError: string | null;
+	sidebarScrollRef: React.RefObject<HTMLDivElement | null>;
+}
+
+const FileTree = memo(function FileTree(p: FileTreeProps) {
+	const {
+		ctx,
+		openPath,
+		dragOverPath,
+		branchDropdownNode,
+		branchDropdownPos,
+		nodeBranches,
+		branchesLoading,
+		checkingOutBranch,
+		pullingRepo,
+		activePaths,
+		pins,
+		isMobile,
+		activeWorkspaceId,
+		newFileParent,
+		newFileName,
+		fileCreateError,
+		newFolderParent,
+		newFolderName,
+		folderError,
+		sidebarScrollRef,
+	} = p;
+
+	// Hover-intent prefetch: a single shared timer so only the row the pointer
+	// settles on (>120ms) is prefetched — passing the cursor over rows doesn't
+	// fire a request per row.
+	const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const schedulePrefetch = (node: TreeNode) => {
+		// Files prefetch content; collapsed folders prefetch their listing.
+		const isCollapsedDir =
+			(node.type === "dir" || node.type === "app" || node.type === "node-app") &&
+			!node.expanded &&
+			node.children === undefined;
+		if (node.type !== "file" && !isCollapsedDir) return;
+		if (hoverTimer.current) clearTimeout(hoverTimer.current);
+		hoverTimer.current = setTimeout(() => ctx.prefetch(node), 120);
+	};
+	const cancelPrefetch = () => {
+		if (hoverTimer.current) { clearTimeout(hoverTimer.current); hoverTimer.current = null; }
+	};
+
+	function renderNodes(nodes: TreeNode[], depth = 0): React.ReactNode {
+		return nodes.map((node) => {
+			const isNodePinned = pins.some((pin) => pin.path === node.path);
+			return (
+			<ContextMenu key={node.path}>
+				<ContextMenuTrigger asChild>
+					<div>
+						<div
+							role="treeitem"
+							tabIndex={0}
+							draggable={!isMobile}
+							onKeyDown={(e) => {
+								if (e.key === "Enter" || e.key === " ") {
+									e.preventDefault();
+									if (node.type === "dir") ctx.toggleFolder(node);
+									else if (node.type === "app" || node.type === "node-app") { ctx.openViewer(node); ctx.toggleFolder(node); }
+									else ctx.openViewer(node);
+								} else if (e.key === "ArrowDown") {
+									e.preventDefault();
+									const container = sidebarScrollRef.current;
+									if (!container) return;
+									const items = Array.from(container.querySelectorAll<HTMLElement>('[role="treeitem"]'));
+									const idx = items.indexOf(e.currentTarget as HTMLElement);
+									items[idx + 1]?.focus();
+								} else if (e.key === "ArrowUp") {
+									e.preventDefault();
+									const container = sidebarScrollRef.current;
+									if (!container) return;
+									const items = Array.from(container.querySelectorAll<HTMLElement>('[role="treeitem"]'));
+									const idx = items.indexOf(e.currentTarget as HTMLElement);
+									items[idx - 1]?.focus();
+								} else if (e.key === "ArrowRight") {
+									e.preventDefault();
+									if (node.type === "dir" || node.type === "app" || node.type === "node-app") {
+										if (!node.expanded) {
+											ctx.toggleFolder(node);
+										} else {
+											const container = sidebarScrollRef.current;
+											if (!container) return;
+											const items = Array.from(container.querySelectorAll<HTMLElement>('[role="treeitem"]'));
+											const idx = items.indexOf(e.currentTarget as HTMLElement);
+											items[idx + 1]?.focus();
+										}
+									}
+								} else if (e.key === "ArrowLeft") {
+									e.preventDefault();
+									if ((node.type === "dir" || node.type === "app" || node.type === "node-app") && node.expanded) {
+										ctx.toggleFolder(node);
+									} else if (depth > 0) {
+										const container = sidebarScrollRef.current;
+										if (!container) return;
+										const items = Array.from(container.querySelectorAll<HTMLElement>('[role="treeitem"]'));
+										const current = e.currentTarget as HTMLElement;
+										const idx = items.indexOf(current);
+										const currentPL = Number.parseInt(current.style.paddingLeft ?? "0", 10);
+										for (let i = idx - 1; i >= 0; i--) {
+											const pl = Number.parseInt(items[i].style.paddingLeft ?? "0", 10);
+											if (pl < currentPL) { items[i].focus(); break; }
+										}
+									}
+								}
+							}}
+							onDragStart={(e) => ctx.handleDragStart(e, node)}
+							onDragOver={(e) =>
+								node.type === "dir"
+									? ctx.handleDragOver(e, node.path, "dir")
+									: e.preventDefault()
+							}
+							onDragLeave={() => ctx.setDragOverPath(null)}
+							onDrop={(e) =>
+								node.type === "dir"
+									? ctx.handleDropOnFolder(e, node.path)
+									: e.preventDefault()
+							}
+							onMouseEnter={() => schedulePrefetch(node)}
+							onMouseLeave={cancelPrefetch}
+							className={cn(
+								"flex items-center gap-1.5 rounded-sm px-2 py-1 text-sm cursor-pointer group transition-colors select-none touch-target",
+								openPath === node.path
+									? "bg-accent-soft text-foreground font-medium"
+									: "hover:bg-muted",
+								dragOverPath === node.path && "ring-2 ring-primary bg-primary-soft",
+								node.name.startsWith(".") && "opacity-40",
+							)}
+							style={{ paddingLeft: `${depth * 14 + 8}px` }}
+							onClick={() => {
+								if (node.type === "dir") ctx.toggleFolder(node);
+								else if (node.type === "app" || node.type === "node-app") { ctx.openViewer(node); ctx.toggleFolder(node); if (isMobile) ctx.setSidebarCollapsed(true); }
+								else { ctx.openViewer(node); if (isMobile) ctx.setSidebarCollapsed(true); }
+							}}
+						>
+							{(node.type === "dir" || node.type === "app" || node.type === "node-app") ? (
+								node.loading ? (
+									<Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
+								) : node.expanded ? (
+									<ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+								) : (
+									<ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+								)
+							) : (
+								<span className="w-3.5 shrink-0" />
+							)}
+
+							<span className="editorial-tree-typeicon">{node.type === "dir" ? (
+								node.expanded ? (
+									<FolderOpen className={cn("h-4 w-4 shrink-0", openPath !== node.path && "text-warning")} />
+								) : (
+									<Folder className={cn("h-4 w-4 shrink-0", openPath !== node.path && "text-warning")} />
+								)
+							) : node.type === "app" ? (
+								<Globe className={cn("h-4 w-4 shrink-0", openPath !== node.path && "text-foreground/70")} />
+							) : node.type === "node-app" ? (
+								<Terminal className={cn("h-4 w-4 shrink-0", openPath !== node.path && "text-emerald-500")} />
+							) : isHtmlFile(node.name) ? (
+								<Globe className={cn("h-4 w-4 shrink-0", openPath !== node.path && "text-foreground/60")} />
+							) : isImage(node.name) ? (
+								<ImageIcon className={cn("h-4 w-4 shrink-0", openPath !== node.path && "text-sunshine-700")} />
+							) : isText(node.name) ? (
+								<FileText className={cn("h-4 w-4 shrink-0", openPath !== node.path && "text-foreground/70")} />
+							) : (
+								<File className={cn("h-4 w-4 shrink-0", openPath !== node.path && "text-foreground/60")} />
+							)}</span>
+
+							<span className="min-w-0 flex-1 truncate">{node.name}</span>
+
+							{/* Git repo badge */}
+							{node.git && (
+								<span className="relative flex shrink-0 items-center gap-0.5 rounded-sm bg-muted px-1 py-0.5 text-[10px] text-muted-foreground">
+									<button
+										type="button"
+										className="flex items-center gap-0.5 hover:text-foreground"
+										title="Switch branch"
+										onClick={(e) => {
+											e.stopPropagation();
+											const isOpen = branchDropdownNode === node.path;
+											if (isOpen) { ctx.setBranchDropdownNode(null); ctx.setBranchDropdownPos(null); return; }
+											const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+											ctx.setBranchDropdownPos({ top: rect.bottom + 4, left: rect.left });
+											ctx.setBranchDropdownNode(node.path);
+											ctx.loadBranches(node.path);
+										}}
+									>
+										<GitBranch className="h-2.5 w-2.5" />
+										{node.git.branch}
+										{node.git.dirty && <span className="ml-0.5 text-warning">*</span>}
+									</button>
+									{pullingRepo === node.path ? (
+										<Loader2 className="ml-0.5 h-2.5 w-2.5 animate-spin" />
+									) : (
+										<button
+											type="button"
+											onClick={(e) => {
+												e.stopPropagation();
+												const parentDir = node.path.includes("/")
+													? node.path.substring(0, node.path.lastIndexOf("/"))
+													: "";
+												ctx.handleGitPull(node.path, parentDir);
+											}}
+											className="ml-0.5 text-muted-foreground hover:text-foreground"
+											title="Pull latest"
+										>
+											<RefreshCw className="h-2.5 w-2.5" />
+										</button>
+									)}
+									{/* Branch dropdown rendered as portal to escape overflow-hidden */}
+									{branchDropdownNode === node.path && branchDropdownPos && typeof document !== "undefined" && createPortal(
+										<div
+											style={{ position: "fixed", top: branchDropdownPos.top, left: branchDropdownPos.left }}
+											className="z-[9999] min-w-[120px] rounded-md border bg-popover p-1 shadow-md"
+											onKeyDown={(e) => { if (e.key === "Escape") { ctx.setBranchDropdownNode(null); ctx.setBranchDropdownPos(null); } }}
+											onClick={(e) => e.stopPropagation()}
+										>
+											{branchesLoading[node.path] ? (
+												<div className="flex justify-center py-2">
+													<Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+												</div>
+											) : (nodeBranches[node.path] ?? []).length === 0 ? (
+												<p className="px-2 py-1 text-[10px] text-muted-foreground">No branches</p>
+											) : (
+												(nodeBranches[node.path] ?? []).map((b) => {
+													const parentDir = node.path.includes("/")
+														? node.path.substring(0, node.path.lastIndexOf("/"))
+														: "";
+													return (
+														<button
+															key={b.name}
+															type="button"
+															disabled={checkingOutBranch !== null || b.current}
+															className={cn(
+																"flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[11px] hover:bg-muted",
+																b.current && "font-semibold text-foreground",
+																!b.current && "text-muted-foreground",
+															)}
+															onClick={(e) => {
+																e.stopPropagation();
+																if (!b.current) ctx.handleCheckout(node.path, b.name, parentDir);
+															}}
+														>
+															{b.current ? <Check className="h-3 w-3 shrink-0" /> : <span className="w-3 shrink-0" />}
+															{checkingOutBranch === b.name ? <Loader2 className="h-3 w-3 animate-spin" /> : b.name}
+														</button>
+													);
+												})
+											)}
+										</div>,
+										document.body,
+									)}
+								</span>
+							)}
+
+							{/* Agent presence dot */}
+							{activePaths.has(node.path) && (
+								<span
+									className="ml-0.5 h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0 animate-pulse"
+									title="Agent recently active"
+								/>
+							)}
+
+							<div
+								className="hover-reveal flex max-w-0 shrink-0 items-center overflow-hidden opacity-0 transition-all duration-150 group-hover:max-w-7 group-hover:opacity-100 focus-within:max-w-7 focus-within:opacity-100"
+								onClick={(e) => e.stopPropagation()}
+								onKeyDown={(e) => e.stopPropagation()}
+							>
+								<DropdownMenu>
+									<DropdownMenuTrigger asChild>
+										<Button
+											size="sm"
+											variant="ghost"
+											className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+											title="File actions"
+										>
+											<MoreHorizontal className="h-3.5 w-3.5" />
+										</Button>
+									</DropdownMenuTrigger>
+									<DropdownMenuContent align="end" className="w-48">
+										<DropdownMenuItem onClick={() => ctx.copyPath(node.path)}>
+											<Copy className="mr-2 h-3.5 w-3.5" />
+											Copy path
+										</DropdownMenuItem>
+										{isMarkdown(node.name) && (
+											<DropdownMenuItem onClick={() => ctx.copyWikiLink(node.name)}>
+												<FileText className="mr-2 h-3.5 w-3.5" />
+												Copy wiki link
+											</DropdownMenuItem>
+										)}
+										<DropdownMenuItem onClick={() => ctx.copyUrl(node.path)}>
+											<Link className="mr-2 h-3.5 w-3.5" />
+											Copy URL
+										</DropdownMenuItem>
+										{node.type === "file" && isText(node.name) && (
+											<>
+												<DropdownMenuItem onClick={() => ctx.copyRawContent(node.path)}>
+													<FileText className="mr-2 h-3.5 w-3.5" />
+													Copy raw content
+												</DropdownMenuItem>
+												<DropdownMenuItem onClick={() => ctx.copyFormattedContent(node.path, node.name)}>
+													<FileText className="mr-2 h-3.5 w-3.5" />
+													Copy formatted content
+												</DropdownMenuItem>
+											</>
+										)}
+										<DropdownMenuSeparator />
+										{node.type === "dir" && (
+											<>
+												<DropdownMenuItem
+													onClick={async () => {
+														if (!node.expanded) ctx.toggleFolder(node);
+														ctx.setNewFileParent(node.path);
+														ctx.setNewFileName("");
+														ctx.setFileCreateError(null);
+													}}
+												>
+													<FilePlus className="mr-2 h-3.5 w-3.5" />
+													New file here
+												</DropdownMenuItem>
+												<DropdownMenuItem onClick={() => ctx.triggerUpload(node.path)}>
+													<Upload className="mr-2 h-3.5 w-3.5" />
+													Upload here
+												</DropdownMenuItem>
+												<DropdownMenuItem
+													onClick={() => {
+														ctx.setNewFolderParent(node.path);
+														ctx.setNewFolderName("");
+														ctx.setFolderError(null);
+													}}
+												>
+													<FolderPlus className="mr-2 h-3.5 w-3.5" />
+													New subfolder
+												</DropdownMenuItem>
+												<DropdownMenuSeparator />
+											</>
+										)}
+										<DropdownMenuItem onClick={() => ctx.handleDownload(node)}>
+											<Download className="mr-2 h-3.5 w-3.5" />
+											{node.type === "file" ? "Download" : "Download as zip"}
+										</DropdownMenuItem>
+										<DropdownMenuItem
+											onClick={() => ctx.togglePin(node, activeWorkspaceId)}
+										>
+											<Star className={cn("mr-2 h-3.5 w-3.5", isNodePinned && "fill-current text-amber-400")} />
+											{isNodePinned ? "Unpin" : "Pin to top"}
+										</DropdownMenuItem>
+										<DropdownMenuSeparator />
+										<DropdownMenuItem
+											className="text-destructive focus:text-destructive"
+											onClick={() => {
+												ctx.setDeletingPath(node.path);
+												ctx.setDeletingIsDir(node.type !== "file");
+											}}
+										>
+											<Trash2 className="mr-2 h-3.5 w-3.5" />
+											Delete
+										</DropdownMenuItem>
+									</DropdownMenuContent>
+								</DropdownMenu>
+							</div>
+						</div>
+
+				{newFolderParent === node.path && node.type === "dir" && (
+					<div
+						className="flex items-center gap-1.5 px-2 py-1"
+						style={{ paddingLeft: `${(depth + 1) * 14 + 8}px` }}
+					>
+						<span className="w-3.5 shrink-0" />
+						<Folder className="h-4 w-4 shrink-0 text-warning" />
+						<input
+							className="flex-1 bg-transparent text-sm outline-none border-b border-border min-w-0"
+							placeholder="Folder name"
+							value={newFolderName}
+							onChange={(e) => ctx.setNewFolderName(e.target.value)}
+							onKeyDown={(e) => {
+								if (e.key === "Enter") ctx.handleCreateFolder();
+								if (e.key === "Escape") {
+									ctx.setNewFolderParent(null);
+									ctx.setNewFolderName("");
+								}
+							}}
+						/>
+						{folderError && (
+							<span className="text-xs text-destructive">{folderError}</span>
+						)}
+						<Button
+							size="sm"
+							variant="ghost"
+							className="h-6 w-6 p-0"
+							onClick={ctx.handleCreateFolder}
+						>
+							<Check className="h-3 w-3" />
+						</Button>
+						<Button
+							size="sm"
+							variant="ghost"
+							className="h-6 w-6 p-0"
+							onClick={() => {
+								ctx.setNewFolderParent(null);
+								ctx.setNewFolderName("");
+							}}
+						>
+							<X className="h-3 w-3" />
+						</Button>
+					</div>
+				)}
+
+				{newFileParent === node.path && node.type === "dir" && (
+					<div
+						className="flex items-center gap-1.5 px-2 py-1"
+						style={{ paddingLeft: `${(depth + 1) * 14 + 8}px` }}
+					>
+						<span className="w-3.5 shrink-0" />
+						<FileText className="h-4 w-4 shrink-0 text-accent" />
+						<input
+							autoFocus
+							className="flex-1 bg-transparent text-sm outline-none border-b border-border min-w-0"
+							placeholder="filename (default .md)"
+							value={newFileName}
+							onChange={(e) => ctx.setNewFileName(e.target.value)}
+							onKeyDown={(e) => {
+								if (e.key === "Enter") ctx.handleCreateFile();
+								if (e.key === "Escape") {
+									ctx.setNewFileParent(null);
+									ctx.setNewFileName("");
+								}
+							}}
+						/>
+						{fileCreateError && (
+							<span className="text-xs text-destructive">{fileCreateError}</span>
+						)}
+						<Button
+							size="sm"
+							variant="ghost"
+							className="h-6 w-6 p-0"
+							onClick={ctx.handleCreateFile}
+						>
+							<Check className="h-3 w-3" />
+						</Button>
+						<Button
+							size="sm"
+							variant="ghost"
+							className="h-6 w-6 p-0"
+							onClick={() => {
+								ctx.setNewFileParent(null);
+								ctx.setNewFileName("");
+							}}
+						>
+							<X className="h-3 w-3" />
+						</Button>
+					</div>
+				)}
+
+				{(node.type === "dir" || node.type === "app" || node.type === "node-app") &&
+					node.expanded &&
+					node.children &&
+					node.children.length > 0 &&
+					renderNodes(node.children, depth + 1)}
+				{(node.type === "dir" || node.type === "app" || node.type === "node-app") &&
+					node.expanded &&
+					node.children?.length === 0 && (
+						<div
+							className="text-xs text-muted-foreground/50 py-0.5"
+							style={{
+								paddingLeft: `${(depth + 1) * 14 + 8 + 14 + 6 + 16 + 6}px`,
+							}}
+						>
+							Empty
+						</div>
+					)}
+					</div>
+				</ContextMenuTrigger>
+				<ContextMenuContent>
+					<ContextMenuItem onSelect={() => ctx.copyPath(node.path)}>
+						Copy path
+					</ContextMenuItem>
+					{isMarkdown(node.name) && (
+						<ContextMenuItem onSelect={() => ctx.copyWikiLink(node.name)}>
+							Copy wiki link
+						</ContextMenuItem>
+					)}
+					<ContextMenuSeparator />
+					<ContextMenuItem onSelect={() => ctx.copyUrl(node.path)}>
+						Copy URL
+					</ContextMenuItem>
+					{node.type === "file" && isText(node.name) && (
+						<>
+							<ContextMenuSeparator />
+							<ContextMenuItem onSelect={() => ctx.copyRawContent(node.path)}>
+								Copy raw content
+							</ContextMenuItem>
+							<ContextMenuItem onSelect={() => ctx.copyFormattedContent(node.path, node.name)}>
+								Copy formatted content
+							</ContextMenuItem>
+						</>
+					)}
+				</ContextMenuContent>
+			</ContextMenu>
+			);
+		});
+	}
+
+	return <>{renderNodes(p.nodes)}</>;
+});
 
 export default function Page() {
 	const slugsLoadedAt = useWikiSlugsStore((s) => s.loadedAt);
@@ -382,6 +976,31 @@ export default function Page() {
 		useRecentStore.getState().loadForWorkspace(activeWorkspaceId);
 		usePinStore.getState().loadForWorkspace(activeWorkspaceId);
 	}, [activeWorkspaceId]);
+
+	// Speculative warm-up: at idle, prefetch the markdown files the user is most
+	// likely to open next — pins and recents (the top of the sidebar). prefetchPage
+	// dedups, so this is a no-op for already-cached pages. Bounded to keep it cheap.
+	useEffect(() => {
+		const paths = [
+			...pins.map((p) => p.path),
+			...recents.slice(0, 8).map((r) => r.path),
+		]
+			.filter((p, i, arr) => isMarkdown(p) && arr.indexOf(p) === i)
+			.slice(0, 12);
+		if (paths.length === 0) return;
+		const ric: (cb: () => void) => number =
+			typeof window !== "undefined" && "requestIdleCallback" in window
+				? (cb) => (window as unknown as { requestIdleCallback: (c: () => void) => number }).requestIdleCallback(cb)
+				: (cb) => window.setTimeout(cb, 400);
+		const id = ric(() => { for (const p of paths) prefetchPage(p); });
+		return () => {
+			if (typeof window !== "undefined" && "cancelIdleCallback" in window) {
+				(window as unknown as { cancelIdleCallback: (h: number) => void }).cancelIdleCallback(id);
+			} else {
+				clearTimeout(id);
+			}
+		};
+	}, [pins, recents]);
 
 	// Path captured from the URL at first render, before any effect can clear it.
 	// Restore reads from this ref (never the live URL) so URL sync can't break it.
@@ -585,22 +1204,26 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 		setDiffContent(null);
 	}, [openFile?.path]);
 
-	// Fetch git metadata for open file
+	// Fetch git metadata for open file. Keyed on path only: re-fetching on every
+	// openFile object re-ref (unrelated re-renders) wastes a git round-trip.
+	const openPath = openFile?.path;
 	useEffect(() => {
-		if (!openFile) { setGitFileInfo(null); return; }
-		const path = openFile.path;
+		if (!openPath) { setGitFileInfo(null); return; }
 		let cancelled = false;
-		void (async () => {
-			try {
-				const res = await wsFetch(`/api/wiki/git-file-info?path=${encodeURIComponent(path)}`);
-				if (cancelled) return;
-				if (!res.ok) { setGitFileInfo(null); return; }
-				const d: { info: { sha: string; author: string; date: string } | null } = await res.json();
-				if (!cancelled) setGitFileInfo(d.info);
-			} catch { if (!cancelled) setGitFileInfo(null); }
-		})();
-		return () => { cancelled = true; };
-	}, [openFile]);
+		// Debounced: rapid navigation shouldn't fire a git round-trip per pass-through.
+		const timer = setTimeout(() => {
+			void (async () => {
+				try {
+					const res = await wsFetch(`/api/wiki/git-file-info?path=${encodeURIComponent(openPath)}`);
+					if (cancelled) return;
+					if (!res.ok) { setGitFileInfo(null); return; }
+					const d: { info: { sha: string; author: string; date: string } | null } = await res.json();
+					if (!cancelled) setGitFileInfo(d.info);
+				} catch { if (!cancelled) setGitFileInfo(null); }
+			})();
+		}, 200);
+		return () => { cancelled = true; clearTimeout(timer); };
+	}, [openPath]);
 
 	const loadHistory = useCallback(async () => {
 		if (!openFile) return;
@@ -828,6 +1451,18 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 		if (node.type !== "dir" && node.type !== "app" && node.type !== "node-app") return;
 		if (!node.expanded) {
 			if (node.children === undefined) {
+				const prefetched = await takePrefetchedDir(node.path);
+				if (prefetched) {
+					setRoots((prev) =>
+						updateNodes(prev, node.path, (n) => ({
+							...n,
+							loading: false,
+							children: prefetched,
+							expanded: true,
+						})),
+					);
+					return;
+				}
 				setRoots((prev) =>
 					updateNodes(prev, node.path, (n) => ({ ...n, loading: true })),
 				);
@@ -1386,467 +2021,85 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 	const contentWidthClass = widthAwareViewer ? VIEW_WIDTH_CLASS[viewWidth] : "";
 	const contentAlignClass = widthAwareViewer ? VIEW_ALIGN_CLASS[viewAlign] : "";
 
-	function renderNodes(nodes: TreeNode[], depth = 0): React.ReactNode {
-		return nodes.map((node) => {
-			const isNodePinned = pins.some((p) => p.path === node.path);
-			return (
-			<ContextMenu key={node.path}>
-				<ContextMenuTrigger asChild>
-					<div>
-						<div
-							role="treeitem"
-							tabIndex={0}
-							draggable={!isMobile}
-							onKeyDown={(e) => {
-								if (e.key === "Enter" || e.key === " ") {
-									e.preventDefault();
-									if (node.type === "dir") toggleFolder(node);
-									else if (node.type === "app" || node.type === "node-app") { void openViewer(node); void toggleFolder(node); }
-									else void openViewer(node);
-								} else if (e.key === "ArrowDown") {
-									e.preventDefault();
-									const container = sidebarScrollRef.current;
-									if (!container) return;
-									const items = Array.from(container.querySelectorAll<HTMLElement>('[role="treeitem"]'));
-									const idx = items.indexOf(e.currentTarget as HTMLElement);
-									items[idx + 1]?.focus();
-								} else if (e.key === "ArrowUp") {
-									e.preventDefault();
-									const container = sidebarScrollRef.current;
-									if (!container) return;
-									const items = Array.from(container.querySelectorAll<HTMLElement>('[role="treeitem"]'));
-									const idx = items.indexOf(e.currentTarget as HTMLElement);
-									items[idx - 1]?.focus();
-								} else if (e.key === "ArrowRight") {
-									e.preventDefault();
-									if (node.type === "dir" || node.type === "app" || node.type === "node-app") {
-										if (!node.expanded) {
-											void toggleFolder(node);
-										} else {
-											// Focus first visible child
-											const container = sidebarScrollRef.current;
-											if (!container) return;
-											const items = Array.from(container.querySelectorAll<HTMLElement>('[role="treeitem"]'));
-											const idx = items.indexOf(e.currentTarget as HTMLElement);
-											items[idx + 1]?.focus();
-										}
-									}
-								} else if (e.key === "ArrowLeft") {
-									e.preventDefault();
-									if ((node.type === "dir" || node.type === "app" || node.type === "node-app") && node.expanded) {
-										void toggleFolder(node);
-									} else if (depth > 0) {
-										// Focus nearest ancestor (smaller paddingLeft)
-										const container = sidebarScrollRef.current;
-										if (!container) return;
-										const items = Array.from(container.querySelectorAll<HTMLElement>('[role="treeitem"]'));
-										const current = e.currentTarget as HTMLElement;
-										const idx = items.indexOf(current);
-										const currentPL = Number.parseInt(current.style.paddingLeft ?? "0", 10);
-										for (let i = idx - 1; i >= 0; i--) {
-											const pl = Number.parseInt(items[i].style.paddingLeft ?? "0", 10);
-											if (pl < currentPL) { items[i].focus(); break; }
-										}
-									}
-								}
-							}}
-							onDragStart={(e) => handleDragStart(e, node)}
-							onDragOver={(e) =>
-								node.type === "dir"
-									? handleDragOver(e, node.path, "dir")
-									: e.preventDefault()
-							}
-							onDragLeave={() => setDragOverPath(null)}
-							onDrop={(e) =>
-								node.type === "dir"
-									? handleDropOnFolder(e, node.path)
-									: e.preventDefault()
-							}
-							className={cn(
-								"flex items-center gap-1.5 rounded-sm px-2 py-1 text-sm cursor-pointer group transition-colors select-none touch-target",
-								openFile?.path === node.path
-									? "bg-accent-soft text-foreground font-medium"
-									: "hover:bg-muted",
-								dragOverPath === node.path && "ring-2 ring-primary bg-primary-soft",
-								node.name.startsWith(".") && "opacity-40",
-							)}
-							style={{ paddingLeft: `${depth * 14 + 8}px` }}
-							onClick={() => {
-								if (node.type === "dir") toggleFolder(node);
-								else if (node.type === "app" || node.type === "node-app") { void openViewer(node); void toggleFolder(node); if (isMobile) setSidebarCollapsed(true); }
-								else { void openViewer(node); if (isMobile) setSidebarCollapsed(true); }
-							}}
-						>
-							{(node.type === "dir" || node.type === "app" || node.type === "node-app") ? (
-								node.loading ? (
-									<Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
-								) : node.expanded ? (
-									<ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-								) : (
-									<ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-								)
-							) : (
-								<span className="w-3.5 shrink-0" />
-							)}
-
-							<span className="editorial-tree-typeicon">{node.type === "dir" ? (
-								node.expanded ? (
-									<FolderOpen className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-warning")} />
-								) : (
-									<Folder className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-warning")} />
-								)
-							) : node.type === "app" ? (
-								<Globe className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-foreground/70")} />
-							) : node.type === "node-app" ? (
-								<Terminal className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-emerald-500")} />
-							) : isHtmlFile(node.name) ? (
-								<Globe className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-foreground/60")} />
-							) : isImage(node.name) ? (
-								<ImageIcon className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-sunshine-700")} />
-							) : isText(node.name) ? (
-								<FileText className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-foreground/70")} />
-							) : (
-								<File className={cn("h-4 w-4 shrink-0", openFile?.path !== node.path && "text-foreground/60")} />
-							)}</span>
-
-							<span className="min-w-0 flex-1 truncate">{node.name}</span>
-
-							{/* Git repo badge */}
-							{node.git && (
-								<span className="relative flex shrink-0 items-center gap-0.5 rounded-sm bg-muted px-1 py-0.5 text-[10px] text-muted-foreground">
-									<button
-										type="button"
-										className="flex items-center gap-0.5 hover:text-foreground"
-										title="Switch branch"
-										onClick={(e) => {
-											e.stopPropagation();
-											const isOpen = branchDropdownNode === node.path;
-											if (isOpen) { setBranchDropdownNode(null); setBranchDropdownPos(null); return; }
-											const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-											setBranchDropdownPos({ top: rect.bottom + 4, left: rect.left });
-											setBranchDropdownNode(node.path);
-											void loadBranches(node.path);
-										}}
-									>
-										<GitBranch className="h-2.5 w-2.5" />
-										{node.git.branch}
-										{node.git.dirty && <span className="ml-0.5 text-warning">*</span>}
-									</button>
-									{pullingRepo === node.path ? (
-										<Loader2 className="ml-0.5 h-2.5 w-2.5 animate-spin" />
-									) : (
-										<button
-											type="button"
-											onClick={(e) => {
-												e.stopPropagation();
-												const parentDir = node.path.includes("/")
-													? node.path.substring(0, node.path.lastIndexOf("/"))
-													: "";
-												void handleGitPull(node.path, parentDir);
-											}}
-											className="ml-0.5 text-muted-foreground hover:text-foreground"
-											title="Pull latest"
-										>
-											<RefreshCw className="h-2.5 w-2.5" />
-										</button>
-									)}
-									{/* Branch dropdown rendered as portal to escape overflow-hidden */}
-									{branchDropdownNode === node.path && branchDropdownPos && typeof document !== "undefined" && createPortal(
-										<div
-											style={{ position: "fixed", top: branchDropdownPos.top, left: branchDropdownPos.left }}
-											className="z-[9999] min-w-[120px] rounded-md border bg-popover p-1 shadow-md"
-											onKeyDown={(e) => { if (e.key === "Escape") { setBranchDropdownNode(null); setBranchDropdownPos(null); } }}
-											onClick={(e) => e.stopPropagation()}
-										>
-											{branchesLoading[node.path] ? (
-												<div className="flex justify-center py-2">
-													<Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-												</div>
-											) : (nodeBranches[node.path] ?? []).length === 0 ? (
-												<p className="px-2 py-1 text-[10px] text-muted-foreground">No branches</p>
-											) : (
-												(nodeBranches[node.path] ?? []).map((b) => {
-													const parentDir = node.path.includes("/")
-														? node.path.substring(0, node.path.lastIndexOf("/"))
-														: "";
-													return (
-														<button
-															key={b.name}
-															type="button"
-															disabled={checkingOutBranch !== null || b.current}
-															className={cn(
-																"flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[11px] hover:bg-muted",
-																b.current && "font-semibold text-foreground",
-																!b.current && "text-muted-foreground",
-															)}
-															onClick={(e) => {
-																e.stopPropagation();
-																if (!b.current) void handleCheckout(node.path, b.name, parentDir);
-															}}
-														>
-															{b.current ? <Check className="h-3 w-3 shrink-0" /> : <span className="w-3 shrink-0" />}
-															{checkingOutBranch === b.name ? <Loader2 className="h-3 w-3 animate-spin" /> : b.name}
-														</button>
-													);
-												})
-											)}
-										</div>,
-										document.body,
-									)}
-								</span>
-							)}
-
-							{/* Agent presence dot */}
-							{activePaths.has(node.path) && (
-								<span
-									className="ml-0.5 h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0 animate-pulse"
-									title="Agent recently active"
-								/>
-							)}
-
-							<div
-								className="hover-reveal flex max-w-0 shrink-0 items-center overflow-hidden opacity-0 transition-all duration-150 group-hover:max-w-7 group-hover:opacity-100 focus-within:max-w-7 focus-within:opacity-100"
-								onClick={(e) => e.stopPropagation()}
-								onKeyDown={(e) => e.stopPropagation()}
-							>
-								<DropdownMenu>
-									<DropdownMenuTrigger asChild>
-										<Button
-											size="sm"
-											variant="ghost"
-											className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-											title="File actions"
-										>
-											<MoreHorizontal className="h-3.5 w-3.5" />
-										</Button>
-									</DropdownMenuTrigger>
-									<DropdownMenuContent align="end" className="w-48">
-										<DropdownMenuItem onClick={() => copyPath(node.path)}>
-											<Copy className="mr-2 h-3.5 w-3.5" />
-											Copy path
-										</DropdownMenuItem>
-										{isMarkdown(node.name) && (
-											<DropdownMenuItem onClick={() => copyWikiLink(node.name)}>
-												<FileText className="mr-2 h-3.5 w-3.5" />
-												Copy wiki link
-											</DropdownMenuItem>
-										)}
-										<DropdownMenuItem onClick={() => copyUrl(node.path)}>
-											<Link className="mr-2 h-3.5 w-3.5" />
-											Copy URL
-										</DropdownMenuItem>
-										{node.type === "file" && isText(node.name) && (
-											<>
-												<DropdownMenuItem onClick={() => void copyRawContent(node.path)}>
-													<FileText className="mr-2 h-3.5 w-3.5" />
-													Copy raw content
-												</DropdownMenuItem>
-												<DropdownMenuItem onClick={() => void copyFormattedContent(node.path, node.name)}>
-													<FileText className="mr-2 h-3.5 w-3.5" />
-													Copy formatted content
-												</DropdownMenuItem>
-											</>
-										)}
-										<DropdownMenuSeparator />
-										{node.type === "dir" && (
-											<>
-												<DropdownMenuItem
-													onClick={async () => {
-														if (!node.expanded) await toggleFolder(node);
-														setNewFileParent(node.path);
-														setNewFileName("");
-														setFileCreateError(null);
-													}}
-												>
-													<FilePlus className="mr-2 h-3.5 w-3.5" />
-													New file here
-												</DropdownMenuItem>
-												<DropdownMenuItem onClick={() => triggerUpload(node.path)}>
-													<Upload className="mr-2 h-3.5 w-3.5" />
-													Upload here
-												</DropdownMenuItem>
-												<DropdownMenuItem
-													onClick={() => {
-														setNewFolderParent(node.path);
-														setNewFolderName("");
-														setFolderError(null);
-													}}
-												>
-													<FolderPlus className="mr-2 h-3.5 w-3.5" />
-													New subfolder
-												</DropdownMenuItem>
-												<DropdownMenuSeparator />
-											</>
-										)}
-										<DropdownMenuItem onClick={() => handleDownload(node)}>
-											<Download className="mr-2 h-3.5 w-3.5" />
-											{node.type === "file" ? "Download" : "Download as zip"}
-										</DropdownMenuItem>
-										<DropdownMenuItem
-											onClick={() =>
-												usePinStore
-													.getState()
-													.toggle({ path: node.path, name: node.name, type: (node.type === "dir" ? "file" : node.type) as "file" | "app" | "node-app" }, activeWorkspaceId)
-											}
-										>
-											<Star className={cn("mr-2 h-3.5 w-3.5", isNodePinned && "fill-current text-amber-400")} />
-											{isNodePinned ? "Unpin" : "Pin to top"}
-										</DropdownMenuItem>
-										<DropdownMenuSeparator />
-										<DropdownMenuItem
-											className="text-destructive focus:text-destructive"
-											onClick={() => {
-												setDeletingPath(node.path);
-												setDeletingIsDir(node.type !== "file");
-											}}
-										>
-											<Trash2 className="mr-2 h-3.5 w-3.5" />
-											Delete
-										</DropdownMenuItem>
-									</DropdownMenuContent>
-								</DropdownMenu>
-							</div>
-						</div>
-
-				{newFolderParent === node.path && node.type === "dir" && (
-					<div
-						className="flex items-center gap-1.5 px-2 py-1"
-						style={{ paddingLeft: `${(depth + 1) * 14 + 8}px` }}
-					>
-						<span className="w-3.5 shrink-0" />
-						<Folder className="h-4 w-4 shrink-0 text-warning" />
-						<input
-							className="flex-1 bg-transparent text-sm outline-none border-b border-border min-w-0"
-							placeholder="Folder name"
-							value={newFolderName}
-							onChange={(e) => setNewFolderName(e.target.value)}
-							onKeyDown={(e) => {
-								if (e.key === "Enter") handleCreateFolder();
-								if (e.key === "Escape") {
-									setNewFolderParent(null);
-									setNewFolderName("");
-								}
-							}}
-						/>
-						{folderError && (
-							<span className="text-xs text-destructive">{folderError}</span>
-						)}
-						<Button
-							size="sm"
-							variant="ghost"
-							className="h-6 w-6 p-0"
-							onClick={handleCreateFolder}
-						>
-							<Check className="h-3 w-3" />
-						</Button>
-						<Button
-							size="sm"
-							variant="ghost"
-							className="h-6 w-6 p-0"
-							onClick={() => {
-								setNewFolderParent(null);
-								setNewFolderName("");
-							}}
-						>
-							<X className="h-3 w-3" />
-						</Button>
-					</div>
-				)}
-
-				{newFileParent === node.path && node.type === "dir" && (
-					<div
-						className="flex items-center gap-1.5 px-2 py-1"
-						style={{ paddingLeft: `${(depth + 1) * 14 + 8}px` }}
-					>
-						<span className="w-3.5 shrink-0" />
-						<FileText className="h-4 w-4 shrink-0 text-accent" />
-						<input
-							autoFocus
-							className="flex-1 bg-transparent text-sm outline-none border-b border-border min-w-0"
-							placeholder="filename (default .md)"
-							value={newFileName}
-							onChange={(e) => setNewFileName(e.target.value)}
-							onKeyDown={(e) => {
-								if (e.key === "Enter") handleCreateFile();
-								if (e.key === "Escape") {
-									setNewFileParent(null);
-									setNewFileName("");
-								}
-							}}
-						/>
-						{fileCreateError && (
-							<span className="text-xs text-destructive">{fileCreateError}</span>
-						)}
-						<Button
-							size="sm"
-							variant="ghost"
-							className="h-6 w-6 p-0"
-							onClick={handleCreateFile}
-						>
-							<Check className="h-3 w-3" />
-						</Button>
-						<Button
-							size="sm"
-							variant="ghost"
-							className="h-6 w-6 p-0"
-							onClick={() => {
-								setNewFileParent(null);
-								setNewFileName("");
-							}}
-						>
-							<X className="h-3 w-3" />
-						</Button>
-					</div>
-				)}
-
-				{(node.type === "dir" || node.type === "app" || node.type === "node-app") &&
-					node.expanded &&
-					node.children &&
-					node.children.length > 0 &&
-					renderNodes(node.children, depth + 1)}
-				{(node.type === "dir" || node.type === "app" || node.type === "node-app") &&
-					node.expanded &&
-					node.children?.length === 0 && (
-						<div
-							className="text-xs text-muted-foreground/50 py-0.5"
-							style={{
-								paddingLeft: `${(depth + 1) * 14 + 8 + 14 + 6 + 16 + 6}px`,
-							}}
-						>
-							Empty
-						</div>
-					)}
-				</div>
-			</ContextMenuTrigger>
-			<ContextMenuContent>
-				<ContextMenuItem onSelect={() => copyPath(node.path)}>
-					Copy path
-				</ContextMenuItem>
-				{isMarkdown(node.name) && (
-					<ContextMenuItem onSelect={() => copyWikiLink(node.name)}>
-						Copy wiki link
-					</ContextMenuItem>
-				)}
-				<ContextMenuSeparator />
-				<ContextMenuItem onSelect={() => copyUrl(node.path)}>
-					Copy URL
-				</ContextMenuItem>
-				{node.type === "file" && isText(node.name) && (
-					<>
-						<ContextMenuSeparator />
-						<ContextMenuItem onSelect={() => void copyRawContent(node.path)}>
-							Copy raw content
-						</ContextMenuItem>
-						<ContextMenuItem onSelect={() => void copyFormattedContent(node.path, node.name)}>
-							Copy formatted content
-						</ContextMenuItem>
-					</>
-				)}
-			</ContextMenuContent>
-		</ContextMenu>
-		);
-		});
-	}
+	// Ref-backed dispatcher: handlers below are recreated each render, but the
+	// dispatcher methods are referentially stable, so FileTree's React.memo holds.
+	const treeHandlersRef = useRef<TreeCtx | null>(null);
+	treeHandlersRef.current = {
+		toggleFolder: (n) => void toggleFolder(n),
+		openViewer: (n) => void openViewer(n),
+		copyPath,
+		copyWikiLink,
+		copyUrl,
+		copyRawContent: (path) => void copyRawContent(path),
+		copyFormattedContent: (path, name) => void copyFormattedContent(path, name),
+		handleDownload,
+		triggerUpload,
+		handleCreateFile: () => void handleCreateFile(),
+		handleCreateFolder: () => void handleCreateFolder(),
+		handleDragStart,
+		handleDragOver,
+		handleDropOnFolder: (e, p) => void handleDropOnFolder(e, p),
+		handleGitPull: (p, d) => void handleGitPull(p, d),
+		handleCheckout: (p, b, d) => void handleCheckout(p, b, d),
+		loadBranches: (p) => void loadBranches(p),
+		prefetch: (node) => {
+			if (node.type === "file") { if (isMarkdown(node.name)) prefetchPage(node.path); }
+			else prefetchDir(node.path);
+		},
+		togglePin: (node, wsId) =>
+			usePinStore.getState().toggle(
+				{ path: node.path, name: node.name, type: (node.type === "dir" ? "file" : node.type) as "file" | "app" | "node-app" },
+				wsId,
+			),
+		setDragOverPath,
+		setSidebarCollapsed,
+		setBranchDropdownNode,
+		setBranchDropdownPos,
+		setNewFileParent,
+		setNewFileName,
+		setFileCreateError,
+		setNewFolderParent,
+		setNewFolderName,
+		setFolderError,
+		setDeletingPath,
+		setDeletingIsDir,
+	};
+	const treeCtx = useMemo<TreeCtx>(() => {
+		const r = treeHandlersRef;
+		return {
+			toggleFolder: (n) => r.current!.toggleFolder(n),
+			openViewer: (n) => r.current!.openViewer(n),
+			copyPath: (p) => r.current!.copyPath(p),
+			copyWikiLink: (n) => r.current!.copyWikiLink(n),
+			copyUrl: (p) => r.current!.copyUrl(p),
+			copyRawContent: (p) => r.current!.copyRawContent(p),
+			copyFormattedContent: (p, n) => r.current!.copyFormattedContent(p, n),
+			handleDownload: (n) => r.current!.handleDownload(n),
+			triggerUpload: (d) => r.current!.triggerUpload(d),
+			handleCreateFile: () => r.current!.handleCreateFile(),
+			handleCreateFolder: () => r.current!.handleCreateFolder(),
+			handleDragStart: (e, n) => r.current!.handleDragStart(e, n),
+			handleDragOver: (e, p, t) => r.current!.handleDragOver(e, p, t),
+			handleDropOnFolder: (e, p) => r.current!.handleDropOnFolder(e, p),
+			handleGitPull: (p, d) => r.current!.handleGitPull(p, d),
+			handleCheckout: (p, b, d) => r.current!.handleCheckout(p, b, d),
+			loadBranches: (p) => r.current!.loadBranches(p),
+			prefetch: (n) => r.current!.prefetch(n),
+			togglePin: (n, w) => r.current!.togglePin(n, w),
+			setDragOverPath: (p) => r.current!.setDragOverPath(p),
+			setSidebarCollapsed: (b) => r.current!.setSidebarCollapsed(b),
+			setBranchDropdownNode: (p) => r.current!.setBranchDropdownNode(p),
+			setBranchDropdownPos: (p) => r.current!.setBranchDropdownPos(p),
+			setNewFileParent: (p) => r.current!.setNewFileParent(p),
+			setNewFileName: (s) => r.current!.setNewFileName(s),
+			setFileCreateError: (s) => r.current!.setFileCreateError(s),
+			setNewFolderParent: (p) => r.current!.setNewFolderParent(p),
+			setNewFolderName: (s) => r.current!.setNewFolderName(s),
+			setFolderError: (s) => r.current!.setFolderError(s),
+			setDeletingPath: (p) => r.current!.setDeletingPath(p),
+			setDeletingIsDir: (b) => r.current!.setDeletingIsDir(b),
+		};
+	}, []);
 
 	return (
 		<div key={activeWorkspaceId ?? "none"} className="flex h-screen gap-0 overflow-hidden bg-background">
@@ -2233,7 +2486,29 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 								</Button>
 							</div>
 						) : (
-							renderNodes(roots)
+							<FileTree
+								ctx={treeCtx}
+								nodes={roots}
+								openPath={openFile?.path ?? null}
+								dragOverPath={dragOverPath}
+								branchDropdownNode={branchDropdownNode}
+								branchDropdownPos={branchDropdownPos}
+								nodeBranches={nodeBranches}
+								branchesLoading={branchesLoading}
+								checkingOutBranch={checkingOutBranch}
+								pullingRepo={pullingRepo}
+								activePaths={activePaths}
+								pins={pins}
+								isMobile={isMobile}
+								activeWorkspaceId={activeWorkspaceId}
+								newFileParent={newFileParent}
+								newFileName={newFileName}
+								fileCreateError={fileCreateError}
+								newFolderParent={newFolderParent}
+								newFolderName={newFolderName}
+								folderError={folderError}
+								sidebarScrollRef={sidebarScrollRef}
+							/>
 						)}
 					</div>
 					<div className="border-t px-2 py-2 bg-muted shrink-0">

@@ -23,8 +23,8 @@ interface PageData {
 	revision: number | null;
 }
 
-async function fetchPageFromApi(path: string): Promise<PageData> {
-	const res = await wsFetch(`/api/wiki/content?path=${encodeURIComponent(path)}`);
+async function fetchPageFromApi(path: string, signal?: AbortSignal): Promise<PageData> {
+	const res = await wsFetch(`/api/wiki/content?path=${encodeURIComponent(path)}`, { signal });
 	if (!res.ok) {
 		throw new FetchPageError(`Failed to fetch page: ${path}`, res.status);
 	}
@@ -83,6 +83,52 @@ async function createPageInApi(path: string, content = ""): Promise<void> {
 }
 
 const PAGE_CACHE_KEY = "kb-page-cache";
+
+// In-memory LRU of recently fetched pages. The localStorage cache holds only the
+// single most-recent page; this lets back-and-forth navigation and hover-prefetch
+// paint instantly without a round-trip. Bounded so it can't grow without limit.
+const MEM_CACHE_MAX = 30;
+const pageMemCache = new Map<string, PageData>();
+// Dedups concurrent fetches for the same path (hover-prefetch + click race).
+const inflightPages = new Map<string, Promise<PageData>>();
+
+function memCacheGet(path: string): PageData | null {
+	const hit = pageMemCache.get(path);
+	if (!hit) return null;
+	// Refresh LRU recency.
+	pageMemCache.delete(path);
+	pageMemCache.set(path, hit);
+	return hit;
+}
+
+function memCacheSet(page: PageData): void {
+	pageMemCache.delete(page.path);
+	pageMemCache.set(page.path, page);
+	if (pageMemCache.size > MEM_CACHE_MAX) {
+		const oldest = pageMemCache.keys().next().value;
+		if (oldest !== undefined) pageMemCache.delete(oldest);
+	}
+}
+
+/**
+ * Fetch a page into the in-memory cache ahead of an actual open (e.g. on tree
+ * hover). Deduped via inflightPages so a hover followed by a click reuses the
+ * same request. Best-effort: failures are swallowed.
+ */
+export function prefetchPage(path: string): void {
+	if (pageMemCache.has(path) || inflightPages.has(path)) return;
+	const p = fetchPageFromApi(path)
+		.then((page) => {
+			memCacheSet(page);
+			return page;
+		})
+		.finally(() => {
+			inflightPages.delete(path);
+		});
+	inflightPages.set(path, p);
+	// Swallow rejections so an unawaited prefetch never throws unhandled.
+	p.catch(() => {});
+}
 
 interface CachedPage {
 	path: string;
@@ -160,6 +206,9 @@ function loadEditMode(): EditMode {
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let statusTimer: ReturnType<typeof setTimeout> | null = null;
+// Aborts the in-flight content fetch when a newer loadPage() supersedes it, so
+// rapid navigation doesn't pile up requests behind the browser connection limit.
+let loadAbort: AbortController | null = null;
 
 export const useEditorStore = create<EditorState>((set, get) => ({
 	currentPath: null,
@@ -200,19 +249,50 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 			currentRevision: null,
 		});
 
-		// Paint from cache immediately so the editor feels instant.
-		const cached = loadCachedPage(path);
+		// Paint from cache immediately so the editor feels instant. In-memory LRU
+		// (incl. hover-prefetched pages) wins over the single-slot localStorage cache.
+		const mem = memCacheGet(path);
+		const cached = mem ?? loadCachedPage(path);
 		if (cached) {
 			set({
 				content: cached.content,
 				frontmatter: cached.frontmatter,
 				isLoading: false,
 				loadStatus: "ok",
+				...(mem ? { currentRevision: mem.revision } : {}),
 			});
 		}
 
+		// If a hover-prefetch for this path is already in flight, ride it instead of
+		// firing a second request.
+		const pending = inflightPages.get(path);
+		if (pending) {
+			try {
+				const page = await pending;
+				if (get().currentPath !== path) return;
+				set({
+					content: page.content,
+					frontmatter: page.frontmatter,
+					isLoading: false,
+					loadStatus: "ok",
+					currentRevision: page.revision,
+				});
+				saveCachedPage({ path, content: page.content, frontmatter: page.frontmatter });
+				return;
+			} catch {
+				// fall through to a fresh fetch below
+			}
+		}
+
+		// Abort any prior in-flight content fetch — rapid navigation otherwise
+		// queues N fetches behind the browser's ~6-connection-per-host limit.
+		loadAbort?.abort();
+		const ctrl = new AbortController();
+		loadAbort = ctrl;
+
 		try {
-			const page = await fetchPageFromApi(path);
+			const page = await fetchPageFromApi(path, ctrl.signal);
+			memCacheSet(page);
 			// A newer loadPage() call may have superseded us.
 			if (get().currentPath !== path) return;
 			set({
@@ -228,6 +308,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 				frontmatter: page.frontmatter,
 			});
 		} catch (err) {
+			// Superseded fetch was aborted — newer navigation owns the state now.
+			if (err instanceof DOMException && err.name === "AbortError") return;
 			if (get().currentPath !== path) return;
 			if (err instanceof FetchPageError && err.status === 404) {
 				set({ isLoading: false, loadStatus: "missing", content: "" });
@@ -286,6 +368,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 				path: currentPath,
 				content,
 				frontmatter: get().frontmatter,
+			});
+			memCacheSet({
+				path: currentPath,
+				content,
+				frontmatter: get().frontmatter,
+				revision: result.revision ?? currentRevision,
 			});
 
 			if (statusTimer) clearTimeout(statusTimer);

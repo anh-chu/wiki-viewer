@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import type { ActivityEvent } from "@/lib/proof/activity-shared";
 
 function timeAgo(iso: string): string {
@@ -32,7 +33,7 @@ function verbFor(type: string): string {
 	return map[type] ?? type;
 }
 
-export function ActivityRow({ event }: { event: ActivityEvent }) {
+function ActivityRowImpl({ event }: { event: ActivityEvent }) {
 	const filename = event.path.split("/").pop() ?? event.path;
 	const ref = typeof event["ref"] === "string" ? (event["ref"] as string) : "";
 
@@ -62,3 +63,7 @@ export function ActivityRow({ event }: { event: ActivityEvent }) {
 		</div>
 	);
 }
+
+// Memoised: the activity list re-renders on every 10s poll and on any AI-panel
+// state change. Rows only change when their event object changes.
+export const ActivityRow = memo(ActivityRowImpl);

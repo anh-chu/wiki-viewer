@@ -210,10 +210,15 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		void useWikiSlugsStore.getState().load();
 	}, []);
 
-	// Load sidecar when the current path changes.
+	// Load sidecar when the current path changes. Debounced: rapid navigation
+	// otherwise fires a sidecar fetch per pass-through file, flooding the
+	// connection pool. The cleanup clears the timer, so only the settled path loads.
 	useEffect(() => {
 		if (!currentPath) return;
-		void useProofStore.getState().loadSidecar(currentPath);
+		const id = setTimeout(() => {
+			void useProofStore.getState().loadSidecar(currentPath);
+		}, 200);
+		return () => clearTimeout(id);
 	}, [currentPath]);
 
 	// Human edit-lease heartbeat: tell the server a human has this markdown doc
@@ -240,18 +245,27 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 			});
 		};
 
-		ping("open");
-		// Refresh well within the 90s server lease TTL.
-		const id = setInterval(() => ping("heartbeat"), 30_000);
+		// Debounce the "open" ping: rapid navigation through files otherwise emits
+		// an open+close pair per pass-through. Only claim the lease once the user
+		// settles on a file for >200ms; if we never opened, we never close.
+		let opened = false;
+		let id: ReturnType<typeof setInterval> | null = null;
 		const onHidden = () => {
-			if (document.visibilityState === "hidden") ping("heartbeat");
+			if (opened && document.visibilityState === "hidden") ping("heartbeat");
 		};
-		document.addEventListener("visibilitychange", onHidden);
+		const openTimer = setTimeout(() => {
+			opened = true;
+			ping("open");
+			// Refresh well within the 90s server lease TTL.
+			id = setInterval(() => ping("heartbeat"), 30_000);
+			document.addEventListener("visibilitychange", onHidden);
+		}, 200);
 
 		return () => {
-			clearInterval(id);
+			clearTimeout(openTimer);
+			if (id) clearInterval(id);
 			document.removeEventListener("visibilitychange", onHidden);
-			ping("close");
+			if (opened) ping("close");
 		};
 	}, [currentPath, isViewing]);
 
@@ -527,7 +541,10 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	// can look up block content by ref.
 	useEffect(() => {
 		if (!currentPath) return;
-		void useProofStore.getState().loadSnapshot(currentPath);
+		const id = setTimeout(() => {
+			void useProofStore.getState().loadSnapshot(currentPath);
+		}, 200);
+		return () => clearTimeout(id);
 	}, [currentPath]);
 
 	/**
@@ -804,12 +821,19 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		}
 		prevPathRef.current = currentPath;
 
+		let cancelled = false;
 		const setContent = async () => {
 			isLoadingRef.current = true;
 			const html = await markdownToHtml(
 				renderMarkdown,
 				isViewing ? { pagePath: currentPath, sanitize: true } : currentPath,
 			);
+			// Rapid navigation: a newer page may have superseded this render while
+			// markdownToHtml was awaiting. Don't stamp stale HTML into the editor.
+			if (cancelled || useEditorStore.getState().currentPath !== currentPath) {
+				isLoadingRef.current = false;
+				return;
+			}
 			editor.commands.setContent(html);
 			renderedKeyRef.current = key;
 			setRenderedPath(currentPath);
@@ -819,6 +843,9 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		};
 
 		setContent();
+		return () => {
+			cancelled = true;
+		};
 	}, [editor, content, currentPath, isLoading, renderedPath, parsedViewingContent.body, isViewing]);
 
 	useEffect(() => {
@@ -832,8 +859,20 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 			});
 	}, [isViewing, renderedPath, parsedViewingContent.body]);
 
-	const showLoadingOverlay =
+	const isLoadingState =
 		currentPath !== null && (isLoading || renderedPath !== currentPath);
+	// Don't flash a spinner for fast/cached opens: only reveal the overlay if the
+	// load is still pending after a grace period. Instant (prefetched/cached) opens
+	// resolve well within it and never show a loader — the world-class default.
+	const [showLoadingOverlay, setShowLoadingOverlay] = useState(false);
+	useEffect(() => {
+		if (!isLoadingState) {
+			setShowLoadingOverlay(false);
+			return;
+		}
+		const id = setTimeout(() => setShowLoadingOverlay(true), 150);
+		return () => clearTimeout(id);
+	}, [isLoadingState]);
 
 	const handleOpenAI = () => {
 		clearMessages();

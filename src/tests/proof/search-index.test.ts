@@ -31,6 +31,7 @@ after(async () => {
 import {
 	ensureIndexer,
 	ftsSearch,
+	resolveBacklinks,
 	indexFile,
 	deleteFile,
 	purgeWorkspace,
@@ -311,6 +312,42 @@ test("rename via delete+add keeps only the new path", async () => {
 	const res = ftsSearch("wsA", "renametoken", 10);
 	assert.equal(res.matches.length, 1);
 	assert.equal(res.matches[0]!.path, "new.md");
+});
+
+test("resolveBacklinks confirms literal [[slug]] links, drops mere mentions", async () => {
+	// target.md is the page being linked to (slug = "target").
+	await writeFile(path.join(rootA, "target.md"), "I am the target page.");
+	// linker.md has a real wiki-link.
+	await writeFile(path.join(rootA, "linker.md"), "See [[target]] for details.");
+	// alias.md links with an alias form.
+	await writeFile(path.join(rootA, "alias.md"), "Read [[target|the target]] now.");
+	// mention.md merely says the word, no link → must be excluded.
+	await writeFile(path.join(rootA, "mention.md"), "The target was reached.");
+	await scan("wsA", rootA);
+
+	const links = resolveBacklinks("wsA", "target", "target.md", 50);
+	const paths = links.map((b) => b.path).sort();
+	assert.deepEqual(paths, ["alias.md", "linker.md"]);
+});
+
+test("resolveBacklinks excludes the page itself and non-md files", async () => {
+	await writeFile(path.join(rootA, "self.md"), "[[self]] self-reference and stuff");
+	await writeFile(path.join(rootA, "note.txt"), "[[self]] in a text file");
+	await writeFile(path.join(rootA, "other.md"), "links to [[self]] here");
+	await scan("wsA", rootA);
+
+	const links = resolveBacklinks("wsA", "self", "self.md", 50);
+	assert.deepEqual(links.map((b) => b.path), ["other.md"]);
+});
+
+test("resolveBacklinks is ws-isolated", async () => {
+	await writeFile(path.join(rootA, "a.md"), "[[shared]] link in A");
+	await writeFile(path.join(rootB, "b.md"), "[[shared]] link in B");
+	await scan("wsA", rootA);
+	await scan("wsB", rootB);
+
+	assert.deepEqual(resolveBacklinks("wsA", "shared", "", 50).map((b) => b.path), ["a.md"]);
+	assert.deepEqual(resolveBacklinks("wsB", "shared", "", 50).map((b) => b.path), ["b.md"]);
 });
 
 test("DEFENSIVE: every 'FROM docs' in indexer.ts is ws-scoped", () => {

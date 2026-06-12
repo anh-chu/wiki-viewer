@@ -544,6 +544,73 @@ export function ftsSearch(wsId: string, query: string, limit: number): SearchRes
 	};
 }
 
+// ── Backlinks ────────────────────────────────────────────────────────────────
+
+export interface Backlink {
+	path: string;
+	snippet: string;
+}
+
+/**
+ * True if `body` contains an actual wiki-link to `slug`: `[[slug]]`,
+ * `[[slug|alias]]`, or `[[slug#anchor]]`. FTS matches tokenised prose, so we
+ * re-check the raw text to drop false positives (a page merely mentioning the
+ * word, not linking to it).
+ */
+function hasWikiLinkTo(body: string, slug: string): boolean {
+	const esc = slug.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	const re = new RegExp(`\\[\\[${esc}(?:\\|[^\\]#|]+|#[a-z0-9-]+)?\\]\\]`, "i");
+	return re.test(body);
+}
+
+/**
+ * Resolve confirmed backlinks to a page in one in-process pass.
+ *
+ * Replaces the old client-side N+1 (search → fetch each candidate's content over
+ * HTTP). FTS is a coarse candidate filter; we read each candidate's `body` column
+ * directly from SQLite and confirm a literal `[[slug]]` link. No file I/O, no
+ * HTTP round-trips.
+ *
+ * ws isolation enforced by `WHERE ws = ?` (see ftsSearch contract).
+ */
+export function resolveBacklinks(
+	wsId: string,
+	slug: string,
+	excludePath: string,
+	limit: number,
+): Backlink[] {
+	const sanitized = sanitizeFtsQuery(slug);
+	if (!sanitized) return [];
+
+	const candidateCap = Math.min(Math.max(1, limit), 200);
+	const db = getSearchDb();
+
+	let rows: Array<{ path: string; snippet: string; body: string }>;
+	try {
+		rows = db.prepare(`
+			SELECT path,
+				snippet(docs, 4, '<mark>', '</mark>', '…', 12) AS snippet,
+				body
+			FROM docs
+			WHERE ws = ? AND docs MATCH ?
+			ORDER BY rank
+			LIMIT ?
+		`).all(wsId, sanitized, candidateCap) as typeof rows;
+	} catch (e) {
+		console.error("[search] resolveBacklinks error", e);
+		return [];
+	}
+
+	const out: Backlink[] = [];
+	for (const r of rows) {
+		if (r.path === excludePath) continue;
+		if (!/\.md$/i.test(r.path)) continue;
+		if (!hasWikiLinkTo(r.body, slug)) continue;
+		out.push({ path: r.path, snippet: r.snippet ?? "" });
+	}
+	return out;
+}
+
 // ── Test hooks ─────────────────────────────────────────────────────────────────
 
 /** Reset all module-level state (for tests). */

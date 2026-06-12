@@ -160,6 +160,28 @@ const sanitizerOnly = unified()
 	.use(rehypeStringify)
 	.freeze();
 
+// Render cache: the remark→rehype pipeline is the heaviest synchronous work on
+// the open path. Keying rendered HTML by (content, options) makes re-opening a
+// doc — or returning to it — parse-free. Bounded LRU so it can't grow unbounded.
+const RENDER_CACHE_MAX = 50;
+// Skip caching very large outputs to bound memory (still parsed, just not retained).
+const RENDER_CACHE_MAX_HTML = 256 * 1024;
+const renderCache = new Map<string, string>();
+
+/** Cheap, stable 53-bit string hash (cyrb53) — no crypto, no allocations per char. */
+function hashStr(s: string): string {
+	let h1 = 0xdeadbeef ^ s.length;
+	let h2 = 0x41c6ce57 ^ s.length;
+	for (let i = 0; i < s.length; i++) {
+		const ch = s.charCodeAt(i);
+		h1 = Math.imul(h1 ^ ch, 2654435761);
+		h2 = Math.imul(h2 ^ ch, 1597334677);
+	}
+	h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+	h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+	return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+}
+
 export interface MarkdownToHtmlOptions {
 	/** File path used to resolve relative URLs (./image.png etc.). */
 	pagePath?: string;
@@ -175,6 +197,16 @@ export async function markdownToHtml(
 		typeof optsOrPagePath === "string"
 			? { pagePath: optsOrPagePath }
 			: (optsOrPagePath ?? {});
+
+	// Parse-free fast path: identical (content, options) was rendered before.
+	const cacheKey = `${opts.sanitize ? 1 : 0}:${opts.pagePath ?? ""}:${markdown.length}:${hashStr(markdown)}`;
+	const cached = renderCache.get(cacheKey);
+	if (cached !== undefined) {
+		// Refresh LRU recency.
+		renderCache.delete(cacheKey);
+		renderCache.set(cacheKey, cached);
+		return cached;
+	}
 
 	// Pre-process wiki-links before remark (which would treat [[ as text)
 	const preprocessed = convertWikiLinks(markdown);
@@ -200,6 +232,14 @@ export async function markdownToHtml(
 	// content escapes the sanitizer.
 	if (opts.sanitize) {
 		html = String(await sanitizerOnly.process(html));
+	}
+
+	if (html.length <= RENDER_CACHE_MAX_HTML) {
+		renderCache.set(cacheKey, html);
+		if (renderCache.size > RENDER_CACHE_MAX) {
+			const oldest = renderCache.keys().next().value;
+			if (oldest !== undefined) renderCache.delete(oldest);
+		}
 	}
 
 	return html;
