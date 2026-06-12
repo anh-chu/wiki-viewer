@@ -139,7 +139,7 @@ export function DocumentOutline({ editor, scrollContainerRef }: DocumentOutlineP
 					}}
 					title={h.text}
 					className={cn(
-						"text-left text-[10.5px] leading-snug py-0.5 rounded truncate transition-colors",
+						"text-left text-[10.5px] leading-snug py-0.5 rounded truncate transition-colors shrink-0",
 						activeUid === h.uid
 							? "text-primary bg-primary/10 font-medium"
 							: "text-muted-foreground/60 hover:text-foreground hover:bg-accent",
