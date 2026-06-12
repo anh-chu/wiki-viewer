@@ -212,7 +212,9 @@
     transform: translateY(-3px);
   }
   to {
-    opacity: 1;
+    /* opacity omitted on purpose: with fill-mode both it animates toward the
+       element's underlying value, so dotfiles keep their opacity-40 dimming
+       instead of being forced to full opacity. */
     transform: translateY(0);
   }
 }
