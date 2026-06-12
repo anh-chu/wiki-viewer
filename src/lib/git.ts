@@ -282,6 +282,186 @@ export interface GitRepoInfo {
 	dirty: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// Read-only history / diff / branch helpers
+// ---------------------------------------------------------------------------
+
+export interface GitCommit {
+	sha: string;
+	shortSha: string;
+	message: string;
+	author: string;
+	date: string; // ISO 8601
+}
+
+/** Return up to `limit` commits that touched `filePath` inside `repoDir`. */
+export async function gitFileHistory(
+	repoDir: string,
+	filePath: string,
+	limit = 50,
+): Promise<GitCommit[]> {
+	const SEP = "\x1f";
+	const { stdout } = await execFile("git", [
+		"-C", repoDir,
+		"log",
+		"--follow",
+		`--max-count=${limit}`,
+		`--pretty=format:%H${SEP}%s${SEP}%an${SEP}%aI`,
+		"--",
+		filePath,
+	]);
+	if (!stdout.trim()) return [];
+	return stdout.trim().split("\n").map((line) => {
+		const parts = line.split(SEP);
+		const sha = (parts[0] ?? "").trim();
+		return {
+			sha,
+			shortSha: sha.slice(0, 7),
+			message: (parts[1] ?? "").trim(),
+			author: (parts[2] ?? "").trim(),
+			date: (parts[3] ?? "").trim(),
+		};
+	});
+}
+
+/**
+ * Return unified diff for a single commit affecting `filePath`.
+ * Falls back to `git show` for the initial commit (no parent).
+ */
+export async function gitFileDiff(
+	repoDir: string,
+	filePath: string,
+	sha: string,
+): Promise<string> {
+	try {
+		const { stdout } = await execFile("git", [
+			"-C", repoDir,
+			"diff",
+			`${sha}^`,
+			sha,
+			"--",
+			filePath,
+		]);
+		return stdout;
+	} catch {
+		const { stdout } = await execFile("git", [
+			"-C", repoDir,
+			"show",
+			sha,
+			"--",
+			filePath,
+		]);
+		return stdout;
+	}
+}
+
+export interface GitFileInfo {
+	sha: string;
+	author: string;
+	date: string; // ISO 8601
+}
+
+/** Return metadata for the last commit that touched `filePath`. */
+export async function gitFileInfo(
+	repoDir: string,
+	filePath: string,
+): Promise<GitFileInfo | null> {
+	const SEP = "\x1f";
+	try {
+		const { stdout } = await execFile("git", [
+			"-C", repoDir,
+			"log", "-1",
+			`--pretty=format:%H${SEP}%an${SEP}%aI`,
+			"--",
+			filePath,
+		]);
+		if (!stdout.trim()) return null;
+		const parts = stdout.trim().split(SEP);
+		return {
+			sha: (parts[0] ?? "").trim(),
+			author: (parts[1] ?? "").trim(),
+			date: (parts[2] ?? "").trim(),
+		};
+	} catch {
+		return null;
+	}
+}
+
+export interface GitBranch {
+	name: string;
+	current: boolean;
+}
+
+/** List local branches in `repoDir`. */
+export async function gitBranches(repoDir: string): Promise<GitBranch[]> {
+	const { stdout } = await execFile("git", ["-C", repoDir, "branch"]);
+	return stdout
+		.split("\n")
+		.filter(Boolean)
+		.map((line) => ({
+			current: line.startsWith("*"),
+			name: line.replace(/^\*?\s+/, "").trim(),
+		}));
+}
+
+/** Validate a local branch name before passing it to git. */
+function isValidBranchName(name: string): boolean {
+	if (!name || name.length > 200) return false;
+	if (FORBIDDEN_CHARS.test(name)) return false;
+	if (name.includes("..")) return false;
+	if (name.startsWith("-") || name.startsWith("/") || name.endsWith("/")) return false;
+	if (!/^[a-zA-Z0-9._\-/]+$/.test(name)) return false;
+	return true;
+}
+
+/**
+ * Checkout `branch` in `repoDir`.
+ * Throws with `.dirty = true` if the working tree has uncommitted changes.
+ * Throws with `.invalidBranch = true` for bad branch names.
+ */
+export async function gitCheckout(
+	repoDir: string,
+	branch: string,
+): Promise<{ branch: string; sha: string }> {
+	if (!isValidBranchName(branch)) {
+		const err = new Error("Invalid branch name") as Error & { invalidBranch?: boolean };
+		err.invalidBranch = true;
+		throw err;
+	}
+	const { stdout: statusOut } = await execFile("git", [
+		"-C", repoDir, "status", "--porcelain",
+	]);
+	if (statusOut.trim().length > 0) {
+		const err = new Error("Repository has uncommitted changes") as Error & { dirty?: boolean };
+		err.dirty = true;
+		throw err;
+	}
+	await execFile("git", ["-C", repoDir, "checkout", branch]);
+	const [sha, br] = await Promise.all([headSha(repoDir), currentBranch(repoDir)]);
+	return { sha, branch: br };
+}
+
+/**
+ * Walk up from `relFilePath` inside `rootDir`, looking for a git repo root.
+ * Returns `{ repoDir, relFromRepo }` for the nearest enclosing repo, or null.
+ */
+export async function findEnclosingGitRepo(
+	rootDir: string,
+	relFilePath: string,
+): Promise<{ repoDir: string; relFromRepo: string } | null> {
+	const parts = relFilePath.split("/").filter(Boolean);
+	for (let depth = parts.length - 1; depth >= 0; depth--) {
+		const candidate =
+			depth === 0 ? rootDir : path.join(rootDir, ...parts.slice(0, depth));
+		const gitInfo = await detectGitRepo(candidate);
+		if (gitInfo) {
+			const relFromRepo = parts.slice(depth).join("/");
+			return { repoDir: candidate, relFromRepo };
+		}
+	}
+	return null;
+}
+
 /**
  * Check if a directory is a git repo root and return branch + dirty status.
  * Returns null if dirPath is not a git repo root.

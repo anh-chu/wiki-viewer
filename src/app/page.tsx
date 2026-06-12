@@ -15,7 +15,10 @@ import {
 	FolderOpen,
 	FolderPlus,
 	GitBranch,
+	GitMerge,
 	Globe,
+	History,
+	User,
 	Image as ImageIcon,
 	Link,
 	Loader2,
@@ -532,6 +535,23 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 
 	const [pullingRepo, setPullingRepo] = useState<string | null>(null);
 
+	// Git file info (last author + date for open file)
+	const [gitFileInfo, setGitFileInfo] = useState<{ sha: string; author: string; date: string } | null>(null);
+
+	// History panel
+	const [showHistory, setShowHistory] = useState(false);
+	const [historyCommits, setHistoryCommits] = useState<{ sha: string; shortSha: string; message: string; author: string; date: string }[]>([]);
+	const [historyLoading, setHistoryLoading] = useState(false);
+	const [selectedDiffSha, setSelectedDiffSha] = useState<string | null>(null);
+	const [diffContent, setDiffContent] = useState<string | null>(null);
+	const [diffLoading, setDiffLoading] = useState(false);
+
+	// Branch switcher
+	const [nodeBranches, setNodeBranches] = useState<Record<string, { name: string; current: boolean }[]>>({});
+	const [branchesLoading, setBranchesLoading] = useState<Record<string, boolean>>({});
+	const [checkingOutBranch, setCheckingOutBranch] = useState<string | null>(null);
+	const [branchDropdownNode, setBranchDropdownNode] = useState<string | null>(null);
+
 	const handleGitPull = useCallback(async (nodePath: string, parentDir: string) => {
 		if (pullingRepo) return;
 		setPullingRepo(nodePath);
@@ -554,6 +574,104 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 			setPullingRepo(null);
 		}
 	}, [pullingRepo, reloadDir]);
+
+	// Reset history panel when file changes
+	useEffect(() => {
+		setShowHistory(false);
+		setHistoryCommits([]);
+		setSelectedDiffSha(null);
+		setDiffContent(null);
+	}, [openFile?.path]);
+
+	// Fetch git metadata for open file
+	useEffect(() => {
+		if (!openFile) { setGitFileInfo(null); return; }
+		const path = openFile.path;
+		void (async () => {
+			try {
+				const res = await wsFetch(`/api/wiki/git-file-info?path=${encodeURIComponent(path)}`);
+				if (!res.ok) { setGitFileInfo(null); return; }
+				const d: { info: { sha: string; author: string; date: string } | null } = await res.json();
+				setGitFileInfo(d.info);
+			} catch { setGitFileInfo(null); }
+		})();
+	}, [openFile]);
+
+	const loadHistory = useCallback(async () => {
+		if (!openFile) return;
+		setShowHistory(true);
+		setHistoryLoading(true);
+		setHistoryCommits([]);
+		setSelectedDiffSha(null);
+		setDiffContent(null);
+		try {
+			const res = await wsFetch(`/api/wiki/git-history?path=${encodeURIComponent(openFile.path)}`);
+			if (!res.ok) { showError("Could not load history"); return; }
+			const d: { commits: { sha: string; shortSha: string; message: string; author: string; date: string }[] } = await res.json();
+			setHistoryCommits(d.commits);
+		} catch { showError("Could not load history"); }
+		finally { setHistoryLoading(false); }
+	}, [openFile]);
+
+	const selectDiff = useCallback(async (sha: string) => {
+		if (!openFile) return;
+		if (selectedDiffSha === sha) { setSelectedDiffSha(null); setDiffContent(null); return; }
+		setSelectedDiffSha(sha);
+		setDiffLoading(true);
+		setDiffContent(null);
+		try {
+			const res = await wsFetch(`/api/wiki/git-diff?path=${encodeURIComponent(openFile.path)}&sha=${encodeURIComponent(sha)}`);
+			if (!res.ok) { showError("Could not load diff"); return; }
+			const d: { diff: string } = await res.json();
+			setDiffContent(d.diff);
+		} catch { showError("Could not load diff"); }
+		finally { setDiffLoading(false); }
+	}, [openFile, selectedDiffSha]);
+
+	const loadBranches = useCallback(async (nodePath: string) => {
+		if (nodeBranches[nodePath] || branchesLoading[nodePath]) return;
+		setBranchesLoading((prev) => ({ ...prev, [nodePath]: true }));
+		try {
+			const res = await wsFetch(`/api/wiki/git-branches?path=${encodeURIComponent(nodePath)}`);
+			if (!res.ok) { showError("Could not load branches"); return; }
+			const d: { branches: { name: string; current: boolean }[] } = await res.json();
+			setNodeBranches((prev) => ({ ...prev, [nodePath]: d.branches }));
+		} catch { showError("Could not load branches"); }
+		finally { setBranchesLoading((prev) => ({ ...prev, [nodePath]: false })); }
+	}, [nodeBranches, branchesLoading]);
+
+	const handleCheckout = useCallback(async (nodePath: string, branch: string, parentDir: string) => {
+		if (checkingOutBranch) return;
+		setCheckingOutBranch(branch);
+		try {
+			const res = await wsFetch("/api/wiki/git-checkout", {
+				method: "POST",
+				body: JSON.stringify({ path: nodePath, branch }),
+			});
+			if (res.status === 409) { showError("Repository has uncommitted changes"); return; }
+			if (!res.ok) { const e: { error?: string } = await res.json(); showError(e.error ?? "Checkout failed"); return; }
+			const d: { branch: string; sha: string } = await res.json();
+			showSuccess(`Switched to ${d.branch}`);
+			// Invalidate cached branches so next open re-fetches
+			setNodeBranches((prev) => { const n = { ...prev }; delete n[nodePath]; return n; });
+			setBranchDropdownNode(null);
+			await reloadDir(parentDir);
+		} catch { showError("Checkout failed"); }
+		finally { setCheckingOutBranch(null); }
+	}, [checkingOutBranch, reloadDir]);
+
+	// Close branch dropdown on outside click or Escape
+	useEffect(() => {
+		if (!branchDropdownNode) return;
+		const handleClick = () => setBranchDropdownNode(null);
+		const handleKey = (e: KeyboardEvent) => { if (e.key === "Escape") setBranchDropdownNode(null); };
+		document.addEventListener("click", handleClick);
+		document.addEventListener("keydown", handleKey);
+		return () => {
+			document.removeEventListener("click", handleClick);
+			document.removeEventListener("keydown", handleKey);
+		};
+	}, [branchDropdownNode]);
 
 	const collectExpandedPaths = useCallback((nodes: TreeNode[]): string[] => {
 		const paths: string[] = [];
@@ -1383,14 +1501,28 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 
 							{/* Git repo badge */}
 							{node.git && (
-								<span className="flex shrink-0 items-center gap-0.5 rounded-sm bg-muted px-1 py-0.5 text-[10px] text-muted-foreground">
-									<GitBranch className="h-2.5 w-2.5" />
-									{node.git.branch}
-									{node.git.dirty && <span className="ml-0.5 text-warning">*</span>}
+								<span className="relative flex shrink-0 items-center gap-0.5 rounded-sm bg-muted px-1 py-0.5 text-[10px] text-muted-foreground">
+									<button
+										type="button"
+										className="flex items-center gap-0.5 hover:text-foreground"
+										title="Switch branch"
+										onClick={(e) => {
+											e.stopPropagation();
+											const isOpen = branchDropdownNode === node.path;
+											if (isOpen) { setBranchDropdownNode(null); return; }
+											setBranchDropdownNode(node.path);
+											void loadBranches(node.path);
+										}}
+									>
+										<GitBranch className="h-2.5 w-2.5" />
+										{node.git.branch}
+										{node.git.dirty && <span className="ml-0.5 text-warning">*</span>}
+									</button>
 									{pullingRepo === node.path ? (
 										<Loader2 className="ml-0.5 h-2.5 w-2.5 animate-spin" />
 									) : (
 										<button
+											type="button"
 											onClick={(e) => {
 												e.stopPropagation();
 												const parentDir = node.path.includes("/")
@@ -1403,6 +1535,46 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 										>
 											<RefreshCw className="h-2.5 w-2.5" />
 										</button>
+									)}
+									{/* Branch dropdown */}
+									{branchDropdownNode === node.path && (
+										<div
+											className="absolute left-0 top-full z-50 mt-1 min-w-[120px] rounded-md border bg-popover p-1 shadow-md"
+											onKeyDown={(e) => { if (e.key === "Escape") setBranchDropdownNode(null); }}
+										>
+											{branchesLoading[node.path] ? (
+												<div className="flex justify-center py-2">
+													<Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+												</div>
+											) : (nodeBranches[node.path] ?? []).length === 0 ? (
+												<p className="px-2 py-1 text-[10px] text-muted-foreground">No branches</p>
+											) : (
+												(nodeBranches[node.path] ?? []).map((b) => {
+													const parentDir = node.path.includes("/")
+														? node.path.substring(0, node.path.lastIndexOf("/"))
+														: "";
+													return (
+														<button
+															key={b.name}
+															type="button"
+															disabled={checkingOutBranch !== null || b.current}
+															className={cn(
+																"flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[11px] hover:bg-muted",
+																b.current && "font-semibold text-foreground",
+																!b.current && "text-muted-foreground",
+															)}
+															onClick={(e) => {
+																e.stopPropagation();
+																if (!b.current) void handleCheckout(node.path, b.name, parentDir);
+															}}
+														>
+															{b.current ? <Check className="h-3 w-3 shrink-0" /> : <span className="w-3 shrink-0" />}
+															{checkingOutBranch === b.name ? <Loader2 className="h-3 w-3 animate-spin" /> : b.name}
+														</button>
+													);
+												})
+											)}
+										</div>
 									)}
 								</span>
 							)}
@@ -2379,9 +2551,26 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 									>
 										{openFile.path}
 									</span>
+									{gitFileInfo && (
+										<span className="hidden sm:flex items-center gap-1 text-[11px] text-muted-foreground shrink-0 ml-1">
+											<User className="h-3 w-3 shrink-0" />
+											<span className="truncate max-w-[100px]">{gitFileInfo.author}</span>
+											<span title={new Date(gitFileInfo.date).toLocaleString()} className="shrink-0">{timeAgo(gitFileInfo.date)}</span>
+										</span>
+									)}
 								</div>
 								<div className="flex items-center gap-1 shrink-0">
 									{renderCopyMenu(openFile)}
+									<Button
+										size="sm"
+										variant="ghost"
+										className="h-7 gap-1.5 px-2 text-xs"
+										title="File history"
+										onClick={() => { if (showHistory) setShowHistory(false); else void loadHistory(); }}
+									>
+										<History className="h-3.5 w-3.5" />
+										History
+									</Button>
 									<Button
 										size="sm"
 										variant="ghost"
@@ -2461,6 +2650,58 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 									</Button>
 								</div>
 							</div>
+
+							{/* History panel */}
+							{showHistory && (
+								<div className="border-b bg-muted/30 shrink-0 max-h-[40vh] overflow-auto">
+									<div className="flex items-center justify-between px-4 py-1.5 border-b">
+										<span className="text-xs font-semibold text-muted-foreground">History</span>
+										<button type="button" className="text-muted-foreground hover:text-foreground" onClick={() => setShowHistory(false)}>
+											<X className="h-3.5 w-3.5" />
+										</button>
+									</div>
+									{historyLoading ? (
+										<div className="flex justify-center py-4">
+											<Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+										</div>
+									) : historyCommits.length === 0 ? (
+										<p className="px-4 py-3 text-xs text-muted-foreground">No history found.</p>
+									) : (
+										<div>
+											{historyCommits.map((c) => (
+												<div key={c.sha}>
+													<button
+														type="button"
+														className={cn(
+															"w-full text-left px-4 py-2 hover:bg-muted transition-colors",
+															selectedDiffSha === c.sha && "bg-muted",
+														)}
+														onClick={() => void selectDiff(c.sha)}
+													>
+														<div className="flex items-center gap-2">
+															<code className="text-[11px] font-mono text-muted-foreground shrink-0">{c.shortSha}</code>
+															<span className="flex-1 truncate text-xs">{c.message}</span>
+															<span className="shrink-0 text-[11px] text-muted-foreground">{c.author}</span>
+															<span className="shrink-0 text-[11px] text-muted-foreground" title={new Date(c.date).toLocaleString()}>{timeAgo(c.date)}</span>
+														</div>
+													</button>
+													{selectedDiffSha === c.sha && (
+														<div className="border-t">
+															{diffLoading ? (
+																<div className="flex justify-center py-3">
+																	<Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+																</div>
+															) : diffContent !== null ? (
+																<pre className="overflow-auto px-4 py-2 text-[11px] font-mono leading-relaxed whitespace-pre text-foreground/80 max-h-60">{diffContent}</pre>
+															) : null}
+														</div>
+													)}
+												</div>
+											))}
+										</div>
+									)}
+								</div>
+							)}
 
 							{showLargeFileGate ? (
 								<LargeFileGate
