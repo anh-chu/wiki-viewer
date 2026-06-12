@@ -189,24 +189,52 @@ export interface MarkdownToHtmlOptions {
 	sanitize?: boolean;
 }
 
-export async function markdownToHtml(
+function normalizeOpts(
+	optsOrPagePath?: string | MarkdownToHtmlOptions,
+): MarkdownToHtmlOptions {
+	return typeof optsOrPagePath === "string"
+		? { pagePath: optsOrPagePath }
+		: (optsOrPagePath ?? {});
+}
+
+/** Stable cache key for a (markdown, options) render. Shared by sync + worker paths. */
+export function renderCacheKeyFor(
+	markdown: string,
+	optsOrPagePath?: string | MarkdownToHtmlOptions,
+): string {
+	const opts = normalizeOpts(optsOrPagePath);
+	return `${opts.sanitize ? 1 : 0}:${opts.pagePath ?? ""}:${markdown.length}:${hashStr(markdown)}`;
+}
+
+/** Look up a previously rendered result (LRU-refreshed). */
+export function renderCacheGet(key: string): string | undefined {
+	const cached = renderCache.get(key);
+	if (cached === undefined) return undefined;
+	renderCache.delete(key);
+	renderCache.set(key, cached);
+	return cached;
+}
+
+/** Store a rendered result, evicting the oldest entry past the cap. */
+export function renderCacheStore(key: string, html: string): void {
+	if (html.length > RENDER_CACHE_MAX_HTML) return;
+	renderCache.set(key, html);
+	if (renderCache.size > RENDER_CACHE_MAX) {
+		const oldest = renderCache.keys().next().value;
+		if (oldest !== undefined) renderCache.delete(oldest);
+	}
+}
+
+/**
+ * Pure markdown→HTML transform with NO cache. Safe to run in a Web Worker
+ * (string-only post-processing, no DOM). The cache lives on the main thread so
+ * cache hits never pay a worker round-trip.
+ */
+export async function renderMarkdownUncached(
 	markdown: string,
 	optsOrPagePath?: string | MarkdownToHtmlOptions,
 ): Promise<string> {
-	const opts: MarkdownToHtmlOptions =
-		typeof optsOrPagePath === "string"
-			? { pagePath: optsOrPagePath }
-			: (optsOrPagePath ?? {});
-
-	// Parse-free fast path: identical (content, options) was rendered before.
-	const cacheKey = `${opts.sanitize ? 1 : 0}:${opts.pagePath ?? ""}:${markdown.length}:${hashStr(markdown)}`;
-	const cached = renderCache.get(cacheKey);
-	if (cached !== undefined) {
-		// Refresh LRU recency.
-		renderCache.delete(cacheKey);
-		renderCache.set(cacheKey, cached);
-		return cached;
-	}
+	const opts = normalizeOpts(optsOrPagePath);
 
 	// Pre-process wiki-links before remark (which would treat [[ as text)
 	const preprocessed = convertWikiLinks(markdown);
@@ -234,13 +262,21 @@ export async function markdownToHtml(
 		html = String(await sanitizerOnly.process(html));
 	}
 
-	if (html.length <= RENDER_CACHE_MAX_HTML) {
-		renderCache.set(cacheKey, html);
-		if (renderCache.size > RENDER_CACHE_MAX) {
-			const oldest = renderCache.keys().next().value;
-			if (oldest !== undefined) renderCache.delete(oldest);
-		}
-	}
+	return html;
+}
 
+export async function markdownToHtml(
+	markdown: string,
+	optsOrPagePath?: string | MarkdownToHtmlOptions,
+): Promise<string> {
+	const opts = normalizeOpts(optsOrPagePath);
+
+	// Parse-free fast path: identical (content, options) was rendered before.
+	const cacheKey = renderCacheKeyFor(markdown, opts);
+	const cached = renderCacheGet(cacheKey);
+	if (cached !== undefined) return cached;
+
+	const html = await renderMarkdownUncached(markdown, opts);
+	renderCacheStore(cacheKey, html);
 	return html;
 }
