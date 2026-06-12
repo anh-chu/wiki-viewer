@@ -38,7 +38,7 @@ Single-user, no-auth mode still works. Auth turns on automatically once anyone s
 | **File viewers** | Markdown (with frontmatter), PDF, images (PNG / JPG / SVG / WebP), video & audio, CSV (table view), source code (syntax highlighting), DOCX, XLSX, PPTX, Jupyter notebooks, Mermaid diagrams, HTML |
 | **Editor**       | Rich TipTap editor for Markdown files                                                                                                                                                              |
 | **File ops**     | Upload files, create folders, delete, drag-to-move                                                                                                                                                 |
-| **Git repos**    | Add a remote git repo (GitHub, GitLab, Bitbucket, Gitea, GHE) as a read-only workspace. Clones on the server, browse with the full viewer, refresh on demand. Private repos via access token.       |
+| **Git repos**    | Add a remote git repo (GitHub, GitLab, Bitbucket, Gitea, GHE) as a read-only workspace. Clones on the server, browse with the full viewer, refresh on demand. Private repos via access token.      |
 | **Wiki links**   | `[[page-name]]` links between Markdown files                                                                                                                                                       |
 | **Dark mode**    | System-aware, with manual toggle                                                                                                                                                                   |
 | **Auth**         | Google OAuth and email + password via [Better Auth](https://better-auth.com). Email allowlist. SQLite-backed sessions.                                                                             |
@@ -222,6 +222,11 @@ workspace under `~/.wiki-viewer/repos/<id>/`.
   so there is no background polling or webhook to configure.
 - **Branch.** Leave the branch blank to track the default branch, or pin a
   specific one.
+- **Subdirectory.** If the docs live in a subfolder (for example `docs/`),
+  set the optional **Subdirectory** field. The server does a blobless sparse
+  checkout that fetches only that subtree, so a large repo with a small docs
+  folder clones fast and uses little disk. The workspace then serves only that
+  folder. Leave it blank to serve the whole repo.
 
 Host policy is configurable in `config.json` under a `git` block: set
 `git.allowedHosts` (a list) to restrict which hosts can be cloned, or

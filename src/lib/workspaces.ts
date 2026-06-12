@@ -29,6 +29,10 @@ export interface WorkspaceGit {
 	lastPulledAt?: string;
 	lastSha?: string;
 	lastError?: string;
+	/** Sparse-checkout cone path (e.g. "docs"). rootDir points inside cloneRoot. */
+	subpath?: string;
+	/** Absolute path of the clone root. rootDir may differ when subpath is set. */
+	cloneRoot?: string;
 }
 
 export interface Workspace {
@@ -115,6 +119,8 @@ export async function createGitWorkspace(input: {
 	createdBy?: string;
 	allowedHosts?: string[];
 	allowInsecureHttp?: boolean;
+	/** Sparse-checkout cone path (e.g. "docs"). rootDir will point inside the clone. */
+	subpath?: string;
 	/** Internal: skip URL scheme validation (e.g. local filesystem path in tests). */
 	allowLocalPath?: boolean;
 }): Promise<Workspace> {
@@ -131,7 +137,10 @@ export async function createGitWorkspace(input: {
 	}
 
 	const id = "ws_" + randomBytes(6).toString("base64url");
-	const destDir = path.join(reposDir(), id);
+	const cloneRoot = path.join(reposDir(), id);
+	const rootDir = input.subpath
+		? path.join(cloneRoot, input.subpath)
+		: cloneRoot;
 
 	let tokenRef: string | undefined;
 	if (input.token) {
@@ -145,26 +154,49 @@ export async function createGitWorkspace(input: {
 			branch: input.branch,
 			token: input.token,
 			username: input.username,
-			destDir,
+			destDir: cloneRoot,
+			subpath: input.subpath,
 		});
 	} catch (err) {
 		if (tokenRef) {
 			try { await deleteToken(tokenRef); } catch { /* ignore */ }
 		}
-		try { rmSync(destDir, { recursive: true, force: true }); } catch { /* ignore */ }
+		try { rmSync(cloneRoot, { recursive: true, force: true }); } catch { /* ignore */ }
 		throw err;
 	}
 
+	// If subpath was requested, verify the cone materialized a REAL subdir that
+	// stays inside the clone. A repo can ship a symlink (e.g. docs -> /etc); stat
+	// would follow it and we would serve an arbitrary host dir. Use lstat to
+	// reject the symlink itself, then confirm the resolved path is under cloneRoot.
+	if (input.subpath) {
+		const { lstat, realpath } = await import("node:fs/promises");
+		let subdirOk = false;
+		try {
+			const info = await lstat(rootDir);
+			if (info.isDirectory()) {
+				const realRoot = await realpath(cloneRoot);
+				const realSub = await realpath(rootDir);
+				subdirOk = realSub === realRoot || realSub.startsWith(realRoot + path.sep);
+			}
+		} catch { /* missing or unreadable */ }
+		if (!subdirOk) {
+			if (tokenRef) try { await deleteToken(tokenRef); } catch { /* ignore */ }
+			try { rmSync(cloneRoot, { recursive: true, force: true }); } catch { /* ignore */ }
+			throw new Error(`Subpath '${input.subpath}' not found in the repository.`);
+		}
+	}
+
 	const now = new Date().toISOString();
-	const sha = await headSha(destDir);
-	const detectedBranch = !input.branch ? await currentBranch(destDir) : undefined;
+	const sha = await headSha(cloneRoot);
+	const detectedBranch = !input.branch ? await currentBranch(cloneRoot) : undefined;
 	const repoName = input.name ??
 		path.basename(input.remoteUrl.replace(/\.git$/, ""));
 
 	const ws: Workspace = {
 		id,
 		name: repoName,
-		rootDir: destDir,
+		rootDir,
 		createdAt: now,
 		lastOpenedAt: now,
 		createdBy: input.createdBy,
@@ -176,6 +208,8 @@ export async function createGitWorkspace(input: {
 			username: input.username,
 			lastPulledAt: now,
 			lastSha: sha,
+			subpath: input.subpath,
+			cloneRoot: input.subpath ? cloneRoot : undefined,
 		},
 	};
 
@@ -195,9 +229,11 @@ export async function refreshGitWorkspace(
 	if (!ws.git) throw new Error(`Workspace ${id} is not a git-backed workspace`);
 
 	const token = ws.git.tokenRef ? await getToken(ws.git.tokenRef) ?? undefined : undefined;
+	// Pull against clone root so git can find .git/ even when rootDir is a subdir.
+	const pullTarget = ws.git.cloneRoot ?? ws.rootDir;
 
 	try {
-		await pullRepo({ rootDir: ws.rootDir, token, username: ws.git.username });
+		await pullRepo({ rootDir: pullTarget, token, username: ws.git.username });
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
 		await mutateWorkspace(id, (w) => ({
@@ -207,7 +243,7 @@ export async function refreshGitWorkspace(
 		throw err;
 	}
 
-	const sha = await headSha(ws.rootDir);
+	const sha = await headSha(pullTarget);
 	const now = new Date().toISOString();
 	await mutateWorkspace(id, (w) => ({
 		...w,
@@ -244,10 +280,20 @@ export async function removeWorkspace(id: string): Promise<void> {
 		try { await deleteToken(ws.git.tokenRef); } catch { /* best-effort */ }
 	}
 	if (ws?.git) {
-		// Only remove the clone dir if it is inside the managed repos dir.
-		const managed = reposDir();
-		if (ws.rootDir.startsWith(managed + path.sep) || ws.rootDir === managed) {
-			try { rmSync(ws.rootDir, { recursive: true, force: true }); } catch { /* best-effort */ }
+		// Delete the clone root (not rootDir, which may be a subdir of the clone).
+		// Resolve both sides and compare with path.relative so a tampered config
+		// value like "<repos>/../outside" cannot pass a raw prefix check and trigger
+		// a delete outside the managed repos dir.
+		const cloneDir = path.resolve(ws.git.cloneRoot ?? ws.rootDir);
+		const managed = path.resolve(reposDir());
+		const rel = path.relative(managed, cloneDir);
+		const inside =
+			cloneDir !== managed &&
+			rel !== "" &&
+			!rel.startsWith("..") &&
+			!path.isAbsolute(rel);
+		if (inside) {
+			try { rmSync(cloneDir, { recursive: true, force: true }); } catch { /* best-effort */ }
 		}
 	}
 	// Purge search index for the removed workspace. Import dynamically to avoid

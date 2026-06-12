@@ -52,6 +52,7 @@ export function DirPicker({ onSelect }: Props) {
 	// From Git state
 	const [gitRemoteUrl, setGitRemoteUrl] = useState("");
 	const [gitBranch, setGitBranch] = useState("");
+	const [gitSubpath, setGitSubpath] = useState("");
 	const [gitUsername, setGitUsername] = useState("");
 	const [gitToken, setGitToken] = useState("");
 	const [gitName, setGitName] = useState("");
@@ -69,6 +70,7 @@ export function DirPicker({ onSelect }: Props) {
 		try {
 			const body: Record<string, string> = { remoteUrl };
 			if (gitBranch.trim()) body.branch = gitBranch.trim();
+			if (gitSubpath.trim()) body.subpath = gitSubpath.trim();
 			if (gitUsername.trim()) body.username = gitUsername.trim();
 			if (gitToken.trim()) body.token = gitToken.trim();
 			if (gitName.trim()) body.name = gitName.trim();
@@ -320,6 +322,22 @@ export function DirPicker({ onSelect }: Props) {
 										disabled={gitSubmitting}
 									/>
 								</div>
+							</div>
+
+							{/* Subpath */}
+							<div className="flex flex-col gap-1">
+								<label className="text-xs font-medium">Subdirectory <span className="font-normal text-muted-foreground">(optional)</span></label>
+								<div className="flex items-center gap-2 rounded-md border bg-muted px-3 py-2">
+									<input
+										className="flex-1 bg-transparent text-sm outline-none font-mono min-w-0"
+										placeholder="docs (whole repo if empty)"
+										value={gitSubpath}
+										onChange={(e) => { setGitSubpath(e.target.value); setGitError(null); }}
+										disabled={gitSubmitting}
+										spellCheck={false}
+									/>
+								</div>
+								<p className="text-[11px] text-muted-foreground">Serve only this folder from the repo. Faster to clone for large repos with docs in a subfolder.</p>
 							</div>
 
 							{/* Username */}

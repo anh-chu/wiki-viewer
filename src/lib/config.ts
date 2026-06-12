@@ -12,6 +12,10 @@ export interface WorkspaceGitEntry {
 	lastPulledAt?: string;
 	lastSha?: string;
 	lastError?: string;
+	/** Sparse-checkout cone path (e.g. "docs"). rootDir points here inside the clone. */
+	subpath?: string;
+	/** Absolute path of the clone root. rootDir may differ when subpath is set. */
+	cloneRoot?: string;
 }
 
 export interface WorkspaceEntry {

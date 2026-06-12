@@ -166,17 +166,39 @@ export interface CloneArgs {
 	username?: string;
 	destDir: string;
 	depth?: number;
+	/** Sparse cone path (e.g. "docs"). When set, uses --filter=blob:none + sparse-checkout. */
+	subpath?: string;
+}
+
+/** Validate a subpath for sparse checkout. Throws on invalid input. Returns normalized subpath. */
+function validateSubpath(subpath: string): string {
+	if (path.isAbsolute(subpath)) throw new Error("subpath must be relative");
+	if (subpath.includes("..")) throw new Error("subpath must not contain '..'");
+	if (/[\0\n]/.test(subpath)) throw new Error("subpath contains forbidden characters");
+	if (FORBIDDEN_CHARS.test(subpath)) throw new Error("subpath contains forbidden characters");
+	const normalized = subpath.split(path.sep).join("/").replace(/\/+$/, "");
+	if (normalized === ".git" || normalized.startsWith(".git/"))
+		throw new Error("subpath must not point at .git");
+	return normalized;
 }
 
 /** Clone a remote repository. Shallow (depth=1) by default. */
 export async function cloneRepo(args: CloneArgs): Promise<void> {
-	const { branch, token, destDir } = args;
+	const { branch, token, destDir, subpath } = args;
 	const depth = args.depth ?? 1;
 	const username = args.username ?? "x-access-token";
 
-	const cloneArgs: string[] = ["clone", "--depth", String(depth)];
+	let normalizedSubpath: string | undefined;
+	if (subpath) {
+		normalizedSubpath = validateSubpath(subpath);
+	}
+
+	const cloneArgs: string[] = ["clone", "--depth", String(depth), "--single-branch", "--no-tags"];
 	if (branch) {
-		cloneArgs.push("--branch", branch, "--single-branch");
+		cloneArgs.push("--branch", branch);
+	}
+	if (normalizedSubpath) {
+		cloneArgs.push("--filter=blob:none", "--sparse");
 	}
 
 	// For auth: embed username in URL userinfo; token comes from askpass env.
@@ -196,6 +218,14 @@ export async function cloneRepo(args: CloneArgs): Promise<void> {
 			await execFile("git", cloneArgs, {
 				env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
 			});
+		}
+		// Apply sparse cone after clone if subpath specified.
+		if (normalizedSubpath) {
+			await execFile(
+				"git",
+				["-C", destDir, "sparse-checkout", "set", "--cone", normalizedSubpath],
+				{ env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } },
+			);
 		}
 	} finally {
 		if (askpassPath) removeAskpassScript(askpassPath);

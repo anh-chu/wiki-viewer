@@ -65,10 +65,25 @@ export async function POST(request: Request) {
 		branch?: string;
 		token?: string;
 		username?: string;
+		subpath?: string;
 	} = await request.json();
 
 	// Git-backed workspace path
 	if (body.remoteUrl) {
+		// Fast subpath validation before hitting git.
+		if (body.subpath !== undefined && typeof body.subpath !== "string") {
+			return NextResponse.json({ error: "Invalid subpath" }, { status: 400 });
+		}
+		const rawSubpath = body.subpath?.trim() || undefined;
+		if (rawSubpath) {
+			if (
+				rawSubpath.startsWith("/") ||
+				rawSubpath.includes("..") ||
+				/[;|&$`<>(){}\n\0]/.test(rawSubpath)
+			) {
+				return NextResponse.json({ error: "Invalid subpath" }, { status: 400 });
+			}
+		}
 		const cfg = await readConfig();
 		try {
 			const workspace = await createGitWorkspace({
@@ -80,6 +95,7 @@ export async function POST(request: Request) {
 				createdBy: authResult.user.id,
 				allowedHosts: cfg.git?.allowedHosts,
 				allowInsecureHttp: cfg.git?.allowInsecureHttp,
+				subpath: rawSubpath,
 			});
 			// Never echo token in response; sanitizeWorkspace strips tokenRef.
 			return NextResponse.json({ ok: true, workspace: sanitizeWorkspace(workspace) });
