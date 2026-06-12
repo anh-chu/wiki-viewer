@@ -381,6 +381,383 @@ interface FileTreeProps {
 	sidebarScrollRef: React.RefObject<HTMLDivElement | null>;
 }
 
+// content-visibility:auto lets the browser skip layout/paint for off-screen
+// rows — virtualization without JS scroll math, and rows stay in the DOM so
+// keyboard nav (querySelectorAll) and Ctrl+F still work. Combined with per-row
+// memo (below), large trees stay cheap on both the React and browser sides.
+const ROW_CV: React.CSSProperties = { contentVisibility: "auto", containIntrinsicSize: "auto 32px" };
+
+interface TreeRowViewProps {
+	node: TreeNode;
+	depth: number;
+	ctx: TreeCtx;
+	isMobile: boolean;
+	activeWorkspaceId: string | null;
+	sidebarScrollRef: React.RefObject<HTMLDivElement | null>;
+	isActive: boolean;
+	isDragOver: boolean;
+	isPinned: boolean;
+	isAgentActive: boolean;
+	isPulling: boolean;
+	branchOpen: boolean;
+	branchPos: { top: number; left: number } | null;
+	branches: { name: string; current: boolean }[];
+	branchLoading: boolean;
+	checkingOut: string | null;
+	onHoverEnter: (node: TreeNode) => void;
+	onHoverLeave: () => void;
+}
+
+// Memoized row: re-renders only when its OWN derived props change. Navigation
+// (openPath change) re-renders just the two affected rows, not the whole tree.
+const TreeRowView = memo(function TreeRowView({
+	node, depth, ctx, isMobile, activeWorkspaceId, sidebarScrollRef,
+	isActive, isDragOver, isPinned, isAgentActive, isPulling,
+	branchOpen, branchPos, branches, branchLoading, checkingOut,
+	onHoverEnter, onHoverLeave,
+}: TreeRowViewProps) {
+	return (
+		<ContextMenu>
+			<ContextMenuTrigger asChild>
+				<div
+					role="treeitem"
+					tabIndex={0}
+					draggable={!isMobile}
+					onKeyDown={(e) => {
+						if (e.key === "Enter" || e.key === " ") {
+							e.preventDefault();
+							if (node.type === "dir") ctx.toggleFolder(node);
+							else if (node.type === "app" || node.type === "node-app") { ctx.openViewer(node); ctx.toggleFolder(node); }
+							else ctx.openViewer(node);
+						} else if (e.key === "ArrowDown") {
+							e.preventDefault();
+							const container = sidebarScrollRef.current;
+							if (!container) return;
+							const items = Array.from(container.querySelectorAll<HTMLElement>('[role="treeitem"]'));
+							const idx = items.indexOf(e.currentTarget as HTMLElement);
+							items[idx + 1]?.focus();
+						} else if (e.key === "ArrowUp") {
+							e.preventDefault();
+							const container = sidebarScrollRef.current;
+							if (!container) return;
+							const items = Array.from(container.querySelectorAll<HTMLElement>('[role="treeitem"]'));
+							const idx = items.indexOf(e.currentTarget as HTMLElement);
+							items[idx - 1]?.focus();
+						} else if (e.key === "ArrowRight") {
+							e.preventDefault();
+							if (node.type === "dir" || node.type === "app" || node.type === "node-app") {
+								if (!node.expanded) {
+									ctx.toggleFolder(node);
+								} else {
+									const container = sidebarScrollRef.current;
+									if (!container) return;
+									const items = Array.from(container.querySelectorAll<HTMLElement>('[role="treeitem"]'));
+									const idx = items.indexOf(e.currentTarget as HTMLElement);
+									items[idx + 1]?.focus();
+								}
+							}
+						} else if (e.key === "ArrowLeft") {
+							e.preventDefault();
+							if ((node.type === "dir" || node.type === "app" || node.type === "node-app") && node.expanded) {
+								ctx.toggleFolder(node);
+							} else if (depth > 0) {
+								const container = sidebarScrollRef.current;
+								if (!container) return;
+								const items = Array.from(container.querySelectorAll<HTMLElement>('[role="treeitem"]'));
+								const current = e.currentTarget as HTMLElement;
+								const idx = items.indexOf(current);
+								const currentPL = Number.parseInt(current.style.paddingLeft ?? "0", 10);
+								for (let i = idx - 1; i >= 0; i--) {
+									const pl = Number.parseInt(items[i].style.paddingLeft ?? "0", 10);
+									if (pl < currentPL) { items[i].focus(); break; }
+								}
+							}
+						}
+					}}
+					onDragStart={(e) => ctx.handleDragStart(e, node)}
+					onDragOver={(e) =>
+						node.type === "dir"
+							? ctx.handleDragOver(e, node.path, "dir")
+							: e.preventDefault()
+					}
+					onDragLeave={() => ctx.setDragOverPath(null)}
+					onDrop={(e) =>
+						node.type === "dir"
+							? ctx.handleDropOnFolder(e, node.path)
+							: e.preventDefault()
+					}
+					onMouseEnter={() => onHoverEnter(node)}
+					onMouseLeave={onHoverLeave}
+					className={cn(
+						"flex items-center gap-1.5 rounded-sm px-2 py-1 text-sm cursor-pointer group transition-colors select-none touch-target",
+						isActive
+							? "bg-accent-soft text-foreground font-medium"
+							: "hover:bg-muted",
+						isDragOver && "ring-2 ring-primary bg-primary-soft",
+						node.name.startsWith(".") && "opacity-40",
+					)}
+					style={{ paddingLeft: `${depth * 14 + 8}px`, ...ROW_CV }}
+					onClick={() => {
+						if (node.type === "dir") ctx.toggleFolder(node);
+						else if (node.type === "app" || node.type === "node-app") { ctx.openViewer(node); ctx.toggleFolder(node); if (isMobile) ctx.setSidebarCollapsed(true); }
+						else { ctx.openViewer(node); if (isMobile) ctx.setSidebarCollapsed(true); }
+					}}
+				>
+					{(node.type === "dir" || node.type === "app" || node.type === "node-app") ? (
+						node.loading ? (
+							<Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
+						) : node.expanded ? (
+							<ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+						) : (
+							<ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+						)
+					) : (
+						<span className="w-3.5 shrink-0" />
+					)}
+
+					<span className="editorial-tree-typeicon">{node.type === "dir" ? (
+						node.expanded ? (
+							<FolderOpen className={cn("h-4 w-4 shrink-0", !isActive && "text-warning")} />
+						) : (
+							<Folder className={cn("h-4 w-4 shrink-0", !isActive && "text-warning")} />
+						)
+					) : node.type === "app" ? (
+						<Globe className={cn("h-4 w-4 shrink-0", !isActive && "text-foreground/70")} />
+					) : node.type === "node-app" ? (
+						<Terminal className={cn("h-4 w-4 shrink-0", !isActive && "text-emerald-500")} />
+					) : isHtmlFile(node.name) ? (
+						<Globe className={cn("h-4 w-4 shrink-0", !isActive && "text-foreground/60")} />
+					) : isImage(node.name) ? (
+						<ImageIcon className={cn("h-4 w-4 shrink-0", !isActive && "text-sunshine-700")} />
+					) : isText(node.name) ? (
+						<FileText className={cn("h-4 w-4 shrink-0", !isActive && "text-foreground/70")} />
+					) : (
+						<File className={cn("h-4 w-4 shrink-0", !isActive && "text-foreground/60")} />
+					)}</span>
+
+					<span className="min-w-0 flex-1 truncate">{node.name}</span>
+
+					{/* Git repo badge */}
+					{node.git && (
+						<span className="relative flex shrink-0 items-center gap-0.5 rounded-sm bg-muted px-1 py-0.5 text-[10px] text-muted-foreground">
+							<button
+								type="button"
+								className="flex items-center gap-0.5 hover:text-foreground"
+								title="Switch branch"
+								onClick={(e) => {
+									e.stopPropagation();
+									if (branchOpen) { ctx.setBranchDropdownNode(null); ctx.setBranchDropdownPos(null); return; }
+									const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+									ctx.setBranchDropdownPos({ top: rect.bottom + 4, left: rect.left });
+									ctx.setBranchDropdownNode(node.path);
+									ctx.loadBranches(node.path);
+								}}
+							>
+								<GitBranch className="h-2.5 w-2.5" />
+								{node.git.branch}
+								{node.git.dirty && <span className="ml-0.5 text-warning">*</span>}
+							</button>
+							{isPulling ? (
+								<Loader2 className="ml-0.5 h-2.5 w-2.5 animate-spin" />
+							) : (
+								<button
+									type="button"
+									onClick={(e) => {
+										e.stopPropagation();
+										const parentDir = node.path.includes("/")
+											? node.path.substring(0, node.path.lastIndexOf("/"))
+											: "";
+										ctx.handleGitPull(node.path, parentDir);
+									}}
+									className="ml-0.5 text-muted-foreground hover:text-foreground"
+									title="Pull latest"
+								>
+									<RefreshCw className="h-2.5 w-2.5" />
+								</button>
+							)}
+							{/* Branch dropdown rendered as portal to escape overflow-hidden */}
+							{branchOpen && branchPos && typeof document !== "undefined" && createPortal(
+								<div
+									style={{ position: "fixed", top: branchPos.top, left: branchPos.left }}
+									className="z-[9999] min-w-[120px] rounded-md border bg-popover p-1 shadow-md"
+									onKeyDown={(e) => { if (e.key === "Escape") { ctx.setBranchDropdownNode(null); ctx.setBranchDropdownPos(null); } }}
+									onClick={(e) => e.stopPropagation()}
+								>
+									{branchLoading ? (
+										<div className="flex justify-center py-2">
+											<Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+										</div>
+									) : branches.length === 0 ? (
+										<p className="px-2 py-1 text-[10px] text-muted-foreground">No branches</p>
+									) : (
+										branches.map((b) => {
+											const parentDir = node.path.includes("/")
+												? node.path.substring(0, node.path.lastIndexOf("/"))
+												: "";
+											return (
+												<button
+													key={b.name}
+													type="button"
+													disabled={checkingOut !== null || b.current}
+													className={cn(
+														"flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[11px] hover:bg-muted",
+														b.current && "font-semibold text-foreground",
+														!b.current && "text-muted-foreground",
+													)}
+													onClick={(e) => {
+														e.stopPropagation();
+														if (!b.current) ctx.handleCheckout(node.path, b.name, parentDir);
+													}}
+												>
+													{b.current ? <Check className="h-3 w-3 shrink-0" /> : <span className="w-3 shrink-0" />}
+													{checkingOut === b.name ? <Loader2 className="h-3 w-3 animate-spin" /> : b.name}
+												</button>
+											);
+										})
+									)}
+								</div>,
+								document.body,
+							)}
+						</span>
+					)}
+
+					{/* Agent presence dot */}
+					{isAgentActive && (
+						<span
+							className="ml-0.5 h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0 animate-pulse"
+							title="Agent recently active"
+						/>
+					)}
+
+					<div
+						className="hover-reveal flex max-w-0 shrink-0 items-center overflow-hidden opacity-0 transition-all duration-150 group-hover:max-w-7 group-hover:opacity-100 focus-within:max-w-7 focus-within:opacity-100"
+						onClick={(e) => e.stopPropagation()}
+						onKeyDown={(e) => e.stopPropagation()}
+					>
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<Button
+									size="sm"
+									variant="ghost"
+									className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+									title="File actions"
+								>
+									<MoreHorizontal className="h-3.5 w-3.5" />
+								</Button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="end" className="w-48">
+								<DropdownMenuItem onClick={() => ctx.copyPath(node.path)}>
+									<Copy className="mr-2 h-3.5 w-3.5" />
+									Copy path
+								</DropdownMenuItem>
+								{isMarkdown(node.name) && (
+									<DropdownMenuItem onClick={() => ctx.copyWikiLink(node.name)}>
+										<FileText className="mr-2 h-3.5 w-3.5" />
+										Copy wiki link
+									</DropdownMenuItem>
+								)}
+								<DropdownMenuItem onClick={() => ctx.copyUrl(node.path)}>
+									<Link className="mr-2 h-3.5 w-3.5" />
+									Copy URL
+								</DropdownMenuItem>
+								{node.type === "file" && isText(node.name) && (
+									<>
+										<DropdownMenuItem onClick={() => ctx.copyRawContent(node.path)}>
+											<FileText className="mr-2 h-3.5 w-3.5" />
+											Copy raw content
+										</DropdownMenuItem>
+										<DropdownMenuItem onClick={() => ctx.copyFormattedContent(node.path, node.name)}>
+											<FileText className="mr-2 h-3.5 w-3.5" />
+											Copy formatted content
+										</DropdownMenuItem>
+									</>
+								)}
+								<DropdownMenuSeparator />
+								{node.type === "dir" && (
+									<>
+										<DropdownMenuItem
+											onClick={async () => {
+												if (!node.expanded) ctx.toggleFolder(node);
+												ctx.setNewFileParent(node.path);
+												ctx.setNewFileName("");
+												ctx.setFileCreateError(null);
+											}}
+										>
+											<FilePlus className="mr-2 h-3.5 w-3.5" />
+											New file here
+										</DropdownMenuItem>
+										<DropdownMenuItem onClick={() => ctx.triggerUpload(node.path)}>
+											<Upload className="mr-2 h-3.5 w-3.5" />
+											Upload here
+										</DropdownMenuItem>
+										<DropdownMenuItem
+											onClick={() => {
+												ctx.setNewFolderParent(node.path);
+												ctx.setNewFolderName("");
+												ctx.setFolderError(null);
+											}}
+										>
+											<FolderPlus className="mr-2 h-3.5 w-3.5" />
+											New subfolder
+										</DropdownMenuItem>
+										<DropdownMenuSeparator />
+									</>
+								)}
+								<DropdownMenuItem onClick={() => ctx.handleDownload(node)}>
+									<Download className="mr-2 h-3.5 w-3.5" />
+									{node.type === "file" ? "Download" : "Download as zip"}
+								</DropdownMenuItem>
+								<DropdownMenuItem
+									onClick={() => ctx.togglePin(node, activeWorkspaceId)}
+								>
+									<Star className={cn("mr-2 h-3.5 w-3.5", isPinned && "fill-current text-amber-400")} />
+									{isPinned ? "Unpin" : "Pin to top"}
+								</DropdownMenuItem>
+								<DropdownMenuSeparator />
+								<DropdownMenuItem
+									className="text-destructive focus:text-destructive"
+									onClick={() => {
+										ctx.setDeletingPath(node.path);
+										ctx.setDeletingIsDir(node.type !== "file");
+									}}
+								>
+									<Trash2 className="mr-2 h-3.5 w-3.5" />
+									Delete
+								</DropdownMenuItem>
+							</DropdownMenuContent>
+						</DropdownMenu>
+					</div>
+				</div>
+			</ContextMenuTrigger>
+			<ContextMenuContent>
+				<ContextMenuItem onSelect={() => ctx.copyPath(node.path)}>
+					Copy path
+				</ContextMenuItem>
+				{isMarkdown(node.name) && (
+					<ContextMenuItem onSelect={() => ctx.copyWikiLink(node.name)}>
+						Copy wiki link
+					</ContextMenuItem>
+				)}
+				<ContextMenuSeparator />
+				<ContextMenuItem onSelect={() => ctx.copyUrl(node.path)}>
+					Copy URL
+				</ContextMenuItem>
+				{node.type === "file" && isText(node.name) && (
+					<>
+						<ContextMenuSeparator />
+						<ContextMenuItem onSelect={() => ctx.copyRawContent(node.path)}>
+							Copy raw content
+						</ContextMenuItem>
+						<ContextMenuItem onSelect={() => ctx.copyFormattedContent(node.path, node.name)}>
+							Copy formatted content
+						</ContextMenuItem>
+					</>
+				)}
+			</ContextMenuContent>
+		</ContextMenu>
+	);
+});
+
 const FileTree = memo(function FileTree(p: FileTreeProps) {
 	const {
 		ctx,
@@ -407,10 +784,9 @@ const FileTree = memo(function FileTree(p: FileTreeProps) {
 
 	// Hover-intent prefetch: a single shared timer so only the row the pointer
 	// settles on (>120ms) is prefetched — passing the cursor over rows doesn't
-	// fire a request per row.
+	// fire a request per row. Stable identities so TreeRowView's memo holds.
 	const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-	const schedulePrefetch = (node: TreeNode) => {
-		// Files prefetch content; collapsed folders prefetch their listing.
+	const onHoverEnter = useCallback((node: TreeNode) => {
 		const isCollapsedDir =
 			(node.type === "dir" || node.type === "app" || node.type === "node-app") &&
 			!node.expanded &&
@@ -418,470 +794,135 @@ const FileTree = memo(function FileTree(p: FileTreeProps) {
 		if (node.type !== "file" && !isCollapsedDir) return;
 		if (hoverTimer.current) clearTimeout(hoverTimer.current);
 		hoverTimer.current = setTimeout(() => ctx.prefetch(node), 120);
-	};
-	const cancelPrefetch = () => {
+	}, [ctx]);
+	const onHoverLeave = useCallback(() => {
 		if (hoverTimer.current) { clearTimeout(hoverTimer.current); hoverTimer.current = null; }
-	};
+	}, []);
 
-	function renderNodes(nodes: TreeNode[], depth = 0): React.ReactNode {
-		return nodes.map((node) => {
-			const isNodePinned = pins.some((pin) => pin.path === node.path);
-			return (
-			<ContextMenu key={node.path}>
-				<ContextMenuTrigger asChild>
-					<div>
-						<div
-							role="treeitem"
-							tabIndex={0}
-							draggable={!isMobile}
-							onKeyDown={(e) => {
-								if (e.key === "Enter" || e.key === " ") {
-									e.preventDefault();
-									if (node.type === "dir") ctx.toggleFolder(node);
-									else if (node.type === "app" || node.type === "node-app") { ctx.openViewer(node); ctx.toggleFolder(node); }
-									else ctx.openViewer(node);
-								} else if (e.key === "ArrowDown") {
-									e.preventDefault();
-									const container = sidebarScrollRef.current;
-									if (!container) return;
-									const items = Array.from(container.querySelectorAll<HTMLElement>('[role="treeitem"]'));
-									const idx = items.indexOf(e.currentTarget as HTMLElement);
-									items[idx + 1]?.focus();
-								} else if (e.key === "ArrowUp") {
-									e.preventDefault();
-									const container = sidebarScrollRef.current;
-									if (!container) return;
-									const items = Array.from(container.querySelectorAll<HTMLElement>('[role="treeitem"]'));
-									const idx = items.indexOf(e.currentTarget as HTMLElement);
-									items[idx - 1]?.focus();
-								} else if (e.key === "ArrowRight") {
-									e.preventDefault();
-									if (node.type === "dir" || node.type === "app" || node.type === "node-app") {
-										if (!node.expanded) {
-											ctx.toggleFolder(node);
-										} else {
-											const container = sidebarScrollRef.current;
-											if (!container) return;
-											const items = Array.from(container.querySelectorAll<HTMLElement>('[role="treeitem"]'));
-											const idx = items.indexOf(e.currentTarget as HTMLElement);
-											items[idx + 1]?.focus();
-										}
-									}
-								} else if (e.key === "ArrowLeft") {
-									e.preventDefault();
-									if ((node.type === "dir" || node.type === "app" || node.type === "node-app") && node.expanded) {
-										ctx.toggleFolder(node);
-									} else if (depth > 0) {
-										const container = sidebarScrollRef.current;
-										if (!container) return;
-										const items = Array.from(container.querySelectorAll<HTMLElement>('[role="treeitem"]'));
-										const current = e.currentTarget as HTMLElement;
-										const idx = items.indexOf(current);
-										const currentPL = Number.parseInt(current.style.paddingLeft ?? "0", 10);
-										for (let i = idx - 1; i >= 0; i--) {
-											const pl = Number.parseInt(items[i].style.paddingLeft ?? "0", 10);
-											if (pl < currentPL) { items[i].focus(); break; }
-										}
-									}
-								}
-							}}
-							onDragStart={(e) => ctx.handleDragStart(e, node)}
-							onDragOver={(e) =>
-								node.type === "dir"
-									? ctx.handleDragOver(e, node.path, "dir")
-									: e.preventDefault()
-							}
-							onDragLeave={() => ctx.setDragOverPath(null)}
-							onDrop={(e) =>
-								node.type === "dir"
-									? ctx.handleDropOnFolder(e, node.path)
-									: e.preventDefault()
-							}
-							onMouseEnter={() => schedulePrefetch(node)}
-							onMouseLeave={cancelPrefetch}
-							className={cn(
-								"flex items-center gap-1.5 rounded-sm px-2 py-1 text-sm cursor-pointer group transition-colors select-none touch-target",
-								openPath === node.path
-									? "bg-accent-soft text-foreground font-medium"
-									: "hover:bg-muted",
-								dragOverPath === node.path && "ring-2 ring-primary bg-primary-soft",
-								node.name.startsWith(".") && "opacity-40",
-							)}
-							style={{ paddingLeft: `${depth * 14 + 8}px` }}
-							onClick={() => {
-								if (node.type === "dir") ctx.toggleFolder(node);
-								else if (node.type === "app" || node.type === "node-app") { ctx.openViewer(node); ctx.toggleFolder(node); if (isMobile) ctx.setSidebarCollapsed(true); }
-								else { ctx.openViewer(node); if (isMobile) ctx.setSidebarCollapsed(true); }
-							}}
-						>
-							{(node.type === "dir" || node.type === "app" || node.type === "node-app") ? (
-								node.loading ? (
-									<Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
-								) : node.expanded ? (
-									<ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-								) : (
-									<ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-								)
-							) : (
-								<span className="w-3.5 shrink-0" />
-							)}
+	// Flatten the visible tree into a list. Removes the recursion that blocks
+	// per-row memo and lets create-inputs / empty markers be plain siblings.
+	// Recomputed only when the tree shape or which folder is mid-create changes.
+	const flat = useMemo(() => {
+		const out: Array<{ kind: "row" | "newfolder" | "newfile" | "empty"; node: TreeNode; depth: number }> = [];
+		const walk = (nodes: TreeNode[], depth: number) => {
+			for (const node of nodes) {
+				out.push({ kind: "row", node, depth });
+				if (node.type === "dir") {
+					if (newFolderParent === node.path) out.push({ kind: "newfolder", node, depth });
+					if (newFileParent === node.path) out.push({ kind: "newfile", node, depth });
+				}
+				if ((node.type === "dir" || node.type === "app" || node.type === "node-app") && node.expanded) {
+					if (node.children && node.children.length > 0) walk(node.children, depth + 1);
+					else if (node.children?.length === 0) out.push({ kind: "empty", node, depth });
+				}
+			}
+		};
+		walk(p.nodes, 0);
+		return out;
+	}, [p.nodes, newFileParent, newFolderParent]);
 
-							<span className="editorial-tree-typeicon">{node.type === "dir" ? (
-								node.expanded ? (
-									<FolderOpen className={cn("h-4 w-4 shrink-0", openPath !== node.path && "text-warning")} />
-								) : (
-									<Folder className={cn("h-4 w-4 shrink-0", openPath !== node.path && "text-warning")} />
-								)
-							) : node.type === "app" ? (
-								<Globe className={cn("h-4 w-4 shrink-0", openPath !== node.path && "text-foreground/70")} />
-							) : node.type === "node-app" ? (
-								<Terminal className={cn("h-4 w-4 shrink-0", openPath !== node.path && "text-emerald-500")} />
-							) : isHtmlFile(node.name) ? (
-								<Globe className={cn("h-4 w-4 shrink-0", openPath !== node.path && "text-foreground/60")} />
-							) : isImage(node.name) ? (
-								<ImageIcon className={cn("h-4 w-4 shrink-0", openPath !== node.path && "text-sunshine-700")} />
-							) : isText(node.name) ? (
-								<FileText className={cn("h-4 w-4 shrink-0", openPath !== node.path && "text-foreground/70")} />
-							) : (
-								<File className={cn("h-4 w-4 shrink-0", openPath !== node.path && "text-foreground/60")} />
-							)}</span>
-
-							<span className="min-w-0 flex-1 truncate">{node.name}</span>
-
-							{/* Git repo badge */}
-							{node.git && (
-								<span className="relative flex shrink-0 items-center gap-0.5 rounded-sm bg-muted px-1 py-0.5 text-[10px] text-muted-foreground">
-									<button
-										type="button"
-										className="flex items-center gap-0.5 hover:text-foreground"
-										title="Switch branch"
-										onClick={(e) => {
-											e.stopPropagation();
-											const isOpen = branchDropdownNode === node.path;
-											if (isOpen) { ctx.setBranchDropdownNode(null); ctx.setBranchDropdownPos(null); return; }
-											const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-											ctx.setBranchDropdownPos({ top: rect.bottom + 4, left: rect.left });
-											ctx.setBranchDropdownNode(node.path);
-											ctx.loadBranches(node.path);
-										}}
-									>
-										<GitBranch className="h-2.5 w-2.5" />
-										{node.git.branch}
-										{node.git.dirty && <span className="ml-0.5 text-warning">*</span>}
-									</button>
-									{pullingRepo === node.path ? (
-										<Loader2 className="ml-0.5 h-2.5 w-2.5 animate-spin" />
-									) : (
-										<button
-											type="button"
-											onClick={(e) => {
-												e.stopPropagation();
-												const parentDir = node.path.includes("/")
-													? node.path.substring(0, node.path.lastIndexOf("/"))
-													: "";
-												ctx.handleGitPull(node.path, parentDir);
-											}}
-											className="ml-0.5 text-muted-foreground hover:text-foreground"
-											title="Pull latest"
-										>
-											<RefreshCw className="h-2.5 w-2.5" />
-										</button>
-									)}
-									{/* Branch dropdown rendered as portal to escape overflow-hidden */}
-									{branchDropdownNode === node.path && branchDropdownPos && typeof document !== "undefined" && createPortal(
-										<div
-											style={{ position: "fixed", top: branchDropdownPos.top, left: branchDropdownPos.left }}
-											className="z-[9999] min-w-[120px] rounded-md border bg-popover p-1 shadow-md"
-											onKeyDown={(e) => { if (e.key === "Escape") { ctx.setBranchDropdownNode(null); ctx.setBranchDropdownPos(null); } }}
-											onClick={(e) => e.stopPropagation()}
-										>
-											{branchesLoading[node.path] ? (
-												<div className="flex justify-center py-2">
-													<Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-												</div>
-											) : (nodeBranches[node.path] ?? []).length === 0 ? (
-												<p className="px-2 py-1 text-[10px] text-muted-foreground">No branches</p>
-											) : (
-												(nodeBranches[node.path] ?? []).map((b) => {
-													const parentDir = node.path.includes("/")
-														? node.path.substring(0, node.path.lastIndexOf("/"))
-														: "";
-													return (
-														<button
-															key={b.name}
-															type="button"
-															disabled={checkingOutBranch !== null || b.current}
-															className={cn(
-																"flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[11px] hover:bg-muted",
-																b.current && "font-semibold text-foreground",
-																!b.current && "text-muted-foreground",
-															)}
-															onClick={(e) => {
-																e.stopPropagation();
-																if (!b.current) ctx.handleCheckout(node.path, b.name, parentDir);
-															}}
-														>
-															{b.current ? <Check className="h-3 w-3 shrink-0" /> : <span className="w-3 shrink-0" />}
-															{checkingOutBranch === b.name ? <Loader2 className="h-3 w-3 animate-spin" /> : b.name}
-														</button>
-													);
-												})
-											)}
-										</div>,
-										document.body,
-									)}
-								</span>
-							)}
-
-							{/* Agent presence dot */}
-							{activePaths.has(node.path) && (
-								<span
-									className="ml-0.5 h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0 animate-pulse"
-									title="Agent recently active"
-								/>
-							)}
-
-							<div
-								className="hover-reveal flex max-w-0 shrink-0 items-center overflow-hidden opacity-0 transition-all duration-150 group-hover:max-w-7 group-hover:opacity-100 focus-within:max-w-7 focus-within:opacity-100"
-								onClick={(e) => e.stopPropagation()}
-								onKeyDown={(e) => e.stopPropagation()}
-							>
-								<DropdownMenu>
-									<DropdownMenuTrigger asChild>
-										<Button
-											size="sm"
-											variant="ghost"
-											className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-											title="File actions"
-										>
-											<MoreHorizontal className="h-3.5 w-3.5" />
-										</Button>
-									</DropdownMenuTrigger>
-									<DropdownMenuContent align="end" className="w-48">
-										<DropdownMenuItem onClick={() => ctx.copyPath(node.path)}>
-											<Copy className="mr-2 h-3.5 w-3.5" />
-											Copy path
-										</DropdownMenuItem>
-										{isMarkdown(node.name) && (
-											<DropdownMenuItem onClick={() => ctx.copyWikiLink(node.name)}>
-												<FileText className="mr-2 h-3.5 w-3.5" />
-												Copy wiki link
-											</DropdownMenuItem>
-										)}
-										<DropdownMenuItem onClick={() => ctx.copyUrl(node.path)}>
-											<Link className="mr-2 h-3.5 w-3.5" />
-											Copy URL
-										</DropdownMenuItem>
-										{node.type === "file" && isText(node.name) && (
-											<>
-												<DropdownMenuItem onClick={() => ctx.copyRawContent(node.path)}>
-													<FileText className="mr-2 h-3.5 w-3.5" />
-													Copy raw content
-												</DropdownMenuItem>
-												<DropdownMenuItem onClick={() => ctx.copyFormattedContent(node.path, node.name)}>
-													<FileText className="mr-2 h-3.5 w-3.5" />
-													Copy formatted content
-												</DropdownMenuItem>
-											</>
-										)}
-										<DropdownMenuSeparator />
-										{node.type === "dir" && (
-											<>
-												<DropdownMenuItem
-													onClick={async () => {
-														if (!node.expanded) ctx.toggleFolder(node);
-														ctx.setNewFileParent(node.path);
-														ctx.setNewFileName("");
-														ctx.setFileCreateError(null);
-													}}
-												>
-													<FilePlus className="mr-2 h-3.5 w-3.5" />
-													New file here
-												</DropdownMenuItem>
-												<DropdownMenuItem onClick={() => ctx.triggerUpload(node.path)}>
-													<Upload className="mr-2 h-3.5 w-3.5" />
-													Upload here
-												</DropdownMenuItem>
-												<DropdownMenuItem
-													onClick={() => {
-														ctx.setNewFolderParent(node.path);
-														ctx.setNewFolderName("");
-														ctx.setFolderError(null);
-													}}
-												>
-													<FolderPlus className="mr-2 h-3.5 w-3.5" />
-													New subfolder
-												</DropdownMenuItem>
-												<DropdownMenuSeparator />
-											</>
-										)}
-										<DropdownMenuItem onClick={() => ctx.handleDownload(node)}>
-											<Download className="mr-2 h-3.5 w-3.5" />
-											{node.type === "file" ? "Download" : "Download as zip"}
-										</DropdownMenuItem>
-										<DropdownMenuItem
-											onClick={() => ctx.togglePin(node, activeWorkspaceId)}
-										>
-											<Star className={cn("mr-2 h-3.5 w-3.5", isNodePinned && "fill-current text-amber-400")} />
-											{isNodePinned ? "Unpin" : "Pin to top"}
-										</DropdownMenuItem>
-										<DropdownMenuSeparator />
-										<DropdownMenuItem
-											className="text-destructive focus:text-destructive"
-											onClick={() => {
-												ctx.setDeletingPath(node.path);
-												ctx.setDeletingIsDir(node.type !== "file");
-											}}
-										>
-											<Trash2 className="mr-2 h-3.5 w-3.5" />
-											Delete
-										</DropdownMenuItem>
-									</DropdownMenuContent>
-								</DropdownMenu>
-							</div>
-						</div>
-
-				{newFolderParent === node.path && node.type === "dir" && (
-					<div
-						className="flex items-center gap-1.5 px-2 py-1"
-						style={{ paddingLeft: `${(depth + 1) * 14 + 8}px` }}
-					>
-						<span className="w-3.5 shrink-0" />
-						<Folder className="h-4 w-4 shrink-0 text-warning" />
-						<input
-							className="flex-1 bg-transparent text-sm outline-none border-b border-border min-w-0"
-							placeholder="Folder name"
-							value={newFolderName}
-							onChange={(e) => ctx.setNewFolderName(e.target.value)}
-							onKeyDown={(e) => {
-								if (e.key === "Enter") ctx.handleCreateFolder();
-								if (e.key === "Escape") {
-									ctx.setNewFolderParent(null);
-									ctx.setNewFolderName("");
-								}
-							}}
+	return (
+		<>
+			{flat.map((item) => {
+				const { node, depth } = item;
+				if (item.kind === "row") {
+					const branchOpen = branchDropdownNode === node.path;
+					return (
+						<TreeRowView
+							key={node.path}
+							node={node}
+							depth={depth}
+							ctx={ctx}
+							isMobile={isMobile}
+							activeWorkspaceId={activeWorkspaceId}
+							sidebarScrollRef={sidebarScrollRef}
+							isActive={openPath === node.path}
+							isDragOver={dragOverPath === node.path}
+							isPinned={pins.some((pin) => pin.path === node.path)}
+							isAgentActive={activePaths.has(node.path)}
+							isPulling={pullingRepo === node.path}
+							branchOpen={branchOpen}
+							branchPos={branchOpen ? branchDropdownPos : null}
+							branches={node.git ? (nodeBranches[node.path] ?? []) : []}
+							branchLoading={node.git ? !!branchesLoading[node.path] : false}
+							checkingOut={branchOpen ? checkingOutBranch : null}
+							onHoverEnter={onHoverEnter}
+							onHoverLeave={onHoverLeave}
 						/>
-						{folderError && (
-							<span className="text-xs text-destructive">{folderError}</span>
-						)}
-						<Button
-							size="sm"
-							variant="ghost"
-							className="h-6 w-6 p-0"
-							onClick={ctx.handleCreateFolder}
-						>
-							<Check className="h-3 w-3" />
-						</Button>
-						<Button
-							size="sm"
-							variant="ghost"
-							className="h-6 w-6 p-0"
-							onClick={() => {
-								ctx.setNewFolderParent(null);
-								ctx.setNewFolderName("");
-							}}
-						>
-							<X className="h-3 w-3" />
-						</Button>
-					</div>
-				)}
-
-				{newFileParent === node.path && node.type === "dir" && (
-					<div
-						className="flex items-center gap-1.5 px-2 py-1"
-						style={{ paddingLeft: `${(depth + 1) * 14 + 8}px` }}
-					>
-						<span className="w-3.5 shrink-0" />
-						<FileText className="h-4 w-4 shrink-0 text-accent" />
-						<input
-							autoFocus
-							className="flex-1 bg-transparent text-sm outline-none border-b border-border min-w-0"
-							placeholder="filename (default .md)"
-							value={newFileName}
-							onChange={(e) => ctx.setNewFileName(e.target.value)}
-							onKeyDown={(e) => {
-								if (e.key === "Enter") ctx.handleCreateFile();
-								if (e.key === "Escape") {
-									ctx.setNewFileParent(null);
-									ctx.setNewFileName("");
-								}
-							}}
-						/>
-						{fileCreateError && (
-							<span className="text-xs text-destructive">{fileCreateError}</span>
-						)}
-						<Button
-							size="sm"
-							variant="ghost"
-							className="h-6 w-6 p-0"
-							onClick={ctx.handleCreateFile}
-						>
-							<Check className="h-3 w-3" />
-						</Button>
-						<Button
-							size="sm"
-							variant="ghost"
-							className="h-6 w-6 p-0"
-							onClick={() => {
-								ctx.setNewFileParent(null);
-								ctx.setNewFileName("");
-							}}
-						>
-							<X className="h-3 w-3" />
-						</Button>
-					</div>
-				)}
-
-				{(node.type === "dir" || node.type === "app" || node.type === "node-app") &&
-					node.expanded &&
-					node.children &&
-					node.children.length > 0 &&
-					renderNodes(node.children, depth + 1)}
-				{(node.type === "dir" || node.type === "app" || node.type === "node-app") &&
-					node.expanded &&
-					node.children?.length === 0 && (
+					);
+				}
+				if (item.kind === "newfolder") {
+					return (
 						<div
-							className="text-xs text-muted-foreground/50 py-0.5"
-							style={{
-								paddingLeft: `${(depth + 1) * 14 + 8 + 14 + 6 + 16 + 6}px`,
-							}}
+							key={`nf-${node.path}`}
+							className="flex items-center gap-1.5 px-2 py-1"
+							style={{ paddingLeft: `${(depth + 1) * 14 + 8}px`, ...ROW_CV }}
 						>
-							Empty
+							<span className="w-3.5 shrink-0" />
+							<Folder className="h-4 w-4 shrink-0 text-warning" />
+							<input
+								className="flex-1 bg-transparent text-sm outline-none border-b border-border min-w-0"
+								placeholder="Folder name"
+								value={newFolderName}
+								onChange={(e) => ctx.setNewFolderName(e.target.value)}
+								onKeyDown={(e) => {
+									if (e.key === "Enter") ctx.handleCreateFolder();
+									if (e.key === "Escape") { ctx.setNewFolderParent(null); ctx.setNewFolderName(""); }
+								}}
+							/>
+							{folderError && <span className="text-xs text-destructive">{folderError}</span>}
+							<Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={ctx.handleCreateFolder}>
+								<Check className="h-3 w-3" />
+							</Button>
+							<Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => { ctx.setNewFolderParent(null); ctx.setNewFolderName(""); }}>
+								<X className="h-3 w-3" />
+							</Button>
 						</div>
-					)}
+					);
+				}
+				if (item.kind === "newfile") {
+					return (
+						<div
+							key={`ff-${node.path}`}
+							className="flex items-center gap-1.5 px-2 py-1"
+							style={{ paddingLeft: `${(depth + 1) * 14 + 8}px`, ...ROW_CV }}
+						>
+							<span className="w-3.5 shrink-0" />
+							<FileText className="h-4 w-4 shrink-0 text-accent" />
+							<input
+								autoFocus
+								className="flex-1 bg-transparent text-sm outline-none border-b border-border min-w-0"
+								placeholder="filename (default .md)"
+								value={newFileName}
+								onChange={(e) => ctx.setNewFileName(e.target.value)}
+								onKeyDown={(e) => {
+									if (e.key === "Enter") ctx.handleCreateFile();
+									if (e.key === "Escape") { ctx.setNewFileParent(null); ctx.setNewFileName(""); }
+								}}
+							/>
+							{fileCreateError && <span className="text-xs text-destructive">{fileCreateError}</span>}
+							<Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={ctx.handleCreateFile}>
+								<Check className="h-3 w-3" />
+							</Button>
+							<Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => { ctx.setNewFileParent(null); ctx.setNewFileName(""); }}>
+								<X className="h-3 w-3" />
+							</Button>
+						</div>
+					);
+				}
+				// empty
+				return (
+					<div
+						key={`empty-${node.path}`}
+						className="text-xs text-muted-foreground/50 py-0.5"
+						style={{ paddingLeft: `${(depth + 1) * 14 + 8 + 14 + 6 + 16 + 6}px`, ...ROW_CV }}
+					>
+						Empty
 					</div>
-				</ContextMenuTrigger>
-				<ContextMenuContent>
-					<ContextMenuItem onSelect={() => ctx.copyPath(node.path)}>
-						Copy path
-					</ContextMenuItem>
-					{isMarkdown(node.name) && (
-						<ContextMenuItem onSelect={() => ctx.copyWikiLink(node.name)}>
-							Copy wiki link
-						</ContextMenuItem>
-					)}
-					<ContextMenuSeparator />
-					<ContextMenuItem onSelect={() => ctx.copyUrl(node.path)}>
-						Copy URL
-					</ContextMenuItem>
-					{node.type === "file" && isText(node.name) && (
-						<>
-							<ContextMenuSeparator />
-							<ContextMenuItem onSelect={() => ctx.copyRawContent(node.path)}>
-								Copy raw content
-							</ContextMenuItem>
-							<ContextMenuItem onSelect={() => ctx.copyFormattedContent(node.path, node.name)}>
-								Copy formatted content
-							</ContextMenuItem>
-						</>
-					)}
-				</ContextMenuContent>
-			</ContextMenu>
-			);
-		});
-	}
-
-	return <>{renderNodes(p.nodes)}</>;
+				);
+			})}
+		</>
+	);
 });
 
 export default function Page() {
