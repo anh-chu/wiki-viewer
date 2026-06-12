@@ -44,6 +44,7 @@ import {
 	X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { CsvViewer } from "@/components/editor/csv-viewer";
@@ -551,6 +552,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 	const [branchesLoading, setBranchesLoading] = useState<Record<string, boolean>>({});
 	const [checkingOutBranch, setCheckingOutBranch] = useState<string | null>(null);
 	const [branchDropdownNode, setBranchDropdownNode] = useState<string | null>(null);
+	const [branchDropdownPos, setBranchDropdownPos] = useState<{ top: number; left: number } | null>(null);
 
 	const handleGitPull = useCallback(async (nodePath: string, parentDir: string) => {
 		if (pullingRepo) return;
@@ -664,6 +666,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 			// Invalidate cached branches so next open re-fetches
 			setNodeBranches((prev) => { const n = { ...prev }; delete n[nodePath]; return n; });
 			setBranchDropdownNode(null);
+			setBranchDropdownPos(null);
 			await reloadDir(parentDir);
 		} catch { showError("Checkout failed"); }
 		finally { setCheckingOutBranch(null); }
@@ -672,8 +675,8 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 	// Close branch dropdown on outside click or Escape
 	useEffect(() => {
 		if (!branchDropdownNode) return;
-		const handleClick = () => setBranchDropdownNode(null);
-		const handleKey = (e: KeyboardEvent) => { if (e.key === "Escape") setBranchDropdownNode(null); };
+		const handleClick = () => { setBranchDropdownNode(null); setBranchDropdownPos(null); };
+		const handleKey = (e: KeyboardEvent) => { if (e.key === "Escape") { setBranchDropdownNode(null); setBranchDropdownPos(null); } };
 		document.addEventListener("click", handleClick);
 		document.addEventListener("keydown", handleKey);
 		return () => {
@@ -1518,7 +1521,9 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 										onClick={(e) => {
 											e.stopPropagation();
 											const isOpen = branchDropdownNode === node.path;
-											if (isOpen) { setBranchDropdownNode(null); return; }
+											if (isOpen) { setBranchDropdownNode(null); setBranchDropdownPos(null); return; }
+											const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+											setBranchDropdownPos({ top: rect.bottom + 4, left: rect.left });
 											setBranchDropdownNode(node.path);
 											void loadBranches(node.path);
 										}}
@@ -1545,11 +1550,13 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 											<RefreshCw className="h-2.5 w-2.5" />
 										</button>
 									)}
-									{/* Branch dropdown */}
-									{branchDropdownNode === node.path && (
+									{/* Branch dropdown rendered as portal to escape overflow-hidden */}
+									{branchDropdownNode === node.path && branchDropdownPos && typeof document !== "undefined" && createPortal(
 										<div
-											className="absolute left-0 top-full z-50 mt-1 min-w-[120px] rounded-md border bg-popover p-1 shadow-md"
-											onKeyDown={(e) => { if (e.key === "Escape") setBranchDropdownNode(null); }}
+											style={{ position: "fixed", top: branchDropdownPos.top, left: branchDropdownPos.left }}
+											className="z-[9999] min-w-[120px] rounded-md border bg-popover p-1 shadow-md"
+											onKeyDown={(e) => { if (e.key === "Escape") { setBranchDropdownNode(null); setBranchDropdownPos(null); } }}
+											onClick={(e) => e.stopPropagation()}
 										>
 											{branchesLoading[node.path] ? (
 												<div className="flex justify-center py-2">
@@ -1583,7 +1590,8 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 													);
 												})
 											)}
-										</div>
+										</div>,
+										document.body,
 									)}
 								</span>
 							)}
