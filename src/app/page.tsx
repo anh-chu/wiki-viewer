@@ -587,28 +587,32 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 	useEffect(() => {
 		if (!openFile) { setGitFileInfo(null); return; }
 		const path = openFile.path;
+		let cancelled = false;
 		void (async () => {
 			try {
 				const res = await wsFetch(`/api/wiki/git-file-info?path=${encodeURIComponent(path)}`);
+				if (cancelled) return;
 				if (!res.ok) { setGitFileInfo(null); return; }
 				const d: { info: { sha: string; author: string; date: string } | null } = await res.json();
-				setGitFileInfo(d.info);
-			} catch { setGitFileInfo(null); }
+				if (!cancelled) setGitFileInfo(d.info);
+			} catch { if (!cancelled) setGitFileInfo(null); }
 		})();
+		return () => { cancelled = true; };
 	}, [openFile]);
 
 	const loadHistory = useCallback(async () => {
 		if (!openFile) return;
+		const path = openFile.path;
 		setShowHistory(true);
 		setHistoryLoading(true);
 		setHistoryCommits([]);
 		setSelectedDiffSha(null);
 		setDiffContent(null);
 		try {
-			const res = await wsFetch(`/api/wiki/git-history?path=${encodeURIComponent(openFile.path)}`);
+			const res = await wsFetch(`/api/wiki/git-history?path=${encodeURIComponent(path)}`);
 			if (!res.ok) { showError("Could not load history"); return; }
 			const d: { commits: { sha: string; shortSha: string; message: string; author: string; date: string }[] } = await res.json();
-			setHistoryCommits(d.commits);
+			if (openFile.path === path) setHistoryCommits(d.commits);
 		} catch { showError("Could not load history"); }
 		finally { setHistoryLoading(false); }
 	}, [openFile]);
@@ -616,28 +620,33 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 	const selectDiff = useCallback(async (sha: string) => {
 		if (!openFile) return;
 		if (selectedDiffSha === sha) { setSelectedDiffSha(null); setDiffContent(null); return; }
+		const path = openFile.path;
+		const targetSha = sha;
 		setSelectedDiffSha(sha);
 		setDiffLoading(true);
 		setDiffContent(null);
 		try {
-			const res = await wsFetch(`/api/wiki/git-diff?path=${encodeURIComponent(openFile.path)}&sha=${encodeURIComponent(sha)}`);
+			const res = await wsFetch(`/api/wiki/git-diff?path=${encodeURIComponent(path)}&sha=${encodeURIComponent(sha)}`);
 			if (!res.ok) { showError("Could not load diff"); return; }
 			const d: { diff: string } = await res.json();
-			setDiffContent(d.diff);
+			if (openFile.path === path && selectedDiffSha === targetSha) setDiffContent(d.diff);
 		} catch { showError("Could not load diff"); }
 		finally { setDiffLoading(false); }
 	}, [openFile, selectedDiffSha]);
 
 	const loadBranches = useCallback(async (nodePath: string) => {
 		if (nodeBranches[nodePath] || branchesLoading[nodePath]) return;
+		let cancelled = false;
 		setBranchesLoading((prev) => ({ ...prev, [nodePath]: true }));
 		try {
 			const res = await wsFetch(`/api/wiki/git-branches?path=${encodeURIComponent(nodePath)}`);
+			if (cancelled) return;
 			if (!res.ok) { showError("Could not load branches"); return; }
 			const d: { branches: { name: string; current: boolean }[] } = await res.json();
-			setNodeBranches((prev) => ({ ...prev, [nodePath]: d.branches }));
-		} catch { showError("Could not load branches"); }
-		finally { setBranchesLoading((prev) => ({ ...prev, [nodePath]: false })); }
+			if (!cancelled) setNodeBranches((prev) => ({ ...prev, [nodePath]: d.branches }));
+		} catch { if (!cancelled) showError("Could not load branches"); }
+		finally { if (!cancelled) setBranchesLoading((prev) => ({ ...prev, [nodePath]: false })); }
+		return () => { cancelled = true; };
 	}, [nodeBranches, branchesLoading]);
 
 	const handleCheckout = useCallback(async (nodePath: string, branch: string, parentDir: string) => {
