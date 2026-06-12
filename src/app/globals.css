@@ -203,6 +203,30 @@
   animation: fade-in-up 0.3s ease-out both;
 }
 
+/* File-tree row reveal: newly mounted rows (e.g. children of a just-expanded
+   folder) fade + slide in. Existing rows keep their DOM node across re-renders,
+   so the animation plays once on mount and never replays on re-render. */
+@keyframes tree-row-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.tree-row-reveal {
+  animation: tree-row-reveal 0.16s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tree-row-reveal {
+    animation: none;
+  }
+}
+
 /* Hide Next.js dev mode indicator */
 [data-next-mark],
 nextjs-portal {

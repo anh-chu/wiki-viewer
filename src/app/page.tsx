@@ -489,7 +489,7 @@ const TreeRowView = memo(function TreeRowView({
 					onMouseEnter={() => onHoverEnter(node)}
 					onMouseLeave={onHoverLeave}
 					className={cn(
-						"flex items-center gap-1.5 rounded-sm px-2 py-1 text-sm cursor-pointer group transition-colors select-none touch-target",
+						"tree-row-reveal flex items-center gap-1.5 rounded-sm px-2 py-1 text-sm cursor-pointer group transition-colors select-none touch-target",
 						isActive
 							? "bg-accent-soft text-foreground font-medium"
 							: "hover:bg-muted",
@@ -506,10 +506,11 @@ const TreeRowView = memo(function TreeRowView({
 					{(node.type === "dir" || node.type === "app" || node.type === "node-app") ? (
 						node.loading ? (
 							<Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
-						) : node.expanded ? (
-							<ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
 						) : (
-							<ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+							<ChevronRight
+								className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200 ease-out"
+								style={{ transform: node.expanded ? "rotate(90deg)" : "rotate(0deg)" }}
+							/>
 						)
 					) : (
 						<span className="w-3.5 shrink-0" />
