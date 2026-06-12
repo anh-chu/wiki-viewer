@@ -2937,12 +2937,11 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 									<Button
 										size="sm"
 										variant="ghost"
-										className="h-7 gap-1.5 px-2 text-xs"
+										className="h-7 w-7 p-0"
 										title="File history"
 										onClick={() => { if (showHistory) setShowHistory(false); else void loadHistory(); }}
 									>
 										<History className="h-3.5 w-3.5" />
-										History
 									</Button>
 									<Button
 										size="sm"
