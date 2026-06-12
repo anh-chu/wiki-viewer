@@ -2739,8 +2739,26 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 					>
 						<PanelLeftOpen className="h-4 w-4" />
 					</Button>
-					<span className="truncate text-xs font-semibold tracking-tight text-muted-foreground">
-						Wiki Viewer
+					<span
+						className="flex min-w-0 items-center gap-1.5 text-xs font-semibold tracking-tight text-muted-foreground"
+						title={openFile?.path}
+					>
+						{openFile && (
+							<span className="editorial-tree-typeicon shrink-0">
+								{openFileViewerKind === "app" || openFileViewerKind === "html" ? (
+									<Globe className="h-4 w-4 text-foreground/70" />
+								) : isImage(openFile.name) ? (
+									<ImageIcon className="h-4 w-4 text-sunshine-700" />
+								) : isText(openFile.name) ? (
+									<FileText className="h-4 w-4 text-foreground/70" />
+								) : (
+									<File className="h-4 w-4 text-foreground/60" />
+								)}
+							</span>
+						)}
+						<span className="truncate">
+							{openFile ? openFile.name : "Wiki Viewer"}
+						</span>
 					</span>
 					<Button
 						size="sm"
@@ -2777,11 +2795,13 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 								<div className="flex-1 flex flex-col overflow-hidden min-w-0">
 									<div className={cn("flex items-center justify-between px-4 py-2 border-b bg-muted shrink-0 editorial-doc-header", !isMobile && sidebarCollapsed && "pl-11")}>
 										<div className="flex items-center gap-2 min-w-0">
-											<span className="editorial-tree-typeicon">
-												<Globe className="h-4 w-4 shrink-0 text-foreground/70" />
+											<span className="hidden md:inline-flex">
+												<span className="editorial-tree-typeicon">
+													<Globe className="h-4 w-4 shrink-0 text-foreground/70" />
+												</span>
 											</span>
 											<span
-												className="text-sm font-normal truncate"
+												className="hidden md:inline text-sm font-normal truncate"
 												title={openFile.path}
 											>
 												{openFile.path}
@@ -2889,7 +2909,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 						<div className="flex-1 flex flex-col overflow-hidden min-w-0">
 							<div className={cn("flex items-center justify-between px-4 py-2 border-b bg-muted shrink-0 editorial-doc-header", !isMobile && sidebarCollapsed && "pl-11")}>
 								<div className="flex items-center gap-2 min-w-0">
-									<span className="editorial-tree-typeicon">
+									<span className="hidden md:inline-flex"><span className="editorial-tree-typeicon">
 										{isImage(openFile.name) ? (
 											<ImageIcon className="h-4 w-4 shrink-0 text-sunshine-700" />
 										) : isText(openFile.name) ? (
@@ -2897,15 +2917,15 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 										) : (
 											<File className="h-4 w-4 shrink-0 text-foreground/60" />
 										)}
-									</span>
+									</span></span>
 									<span
-										className="text-sm font-normal truncate"
+										className="hidden md:inline text-sm font-normal truncate"
 										title={openFile.path}
 									>
 										{openFile.path}
 									</span>
 									{gitFileInfo && (
-										<span className="hidden sm:flex items-center gap-1 text-[11px] text-muted-foreground shrink-0 ml-1">
+										<span className="hidden md:flex items-center gap-1 text-[11px] text-muted-foreground shrink-0 ml-1">
 											<User className="h-3 w-3 shrink-0" />
 											<span className="truncate max-w-[100px]">{gitFileInfo.author}</span>
 											<span title={new Date(gitFileInfo.date).toLocaleString()} className="shrink-0">{timeAgo(gitFileInfo.date)}</span>
