@@ -7,6 +7,8 @@ Context for AI agents working in the **wiki-viewer** codebase.
 Local-or-remote file browser + editor. Run from terminal, starts a Next.js web server,
 navigate/read/edit any directory. Single-user no-auth by default; multi-user auth turns on
 once anyone signs up. Exposes an HTTP API for AI agents (two tiers) plus an MCP adapter.
+Git-aware: detects repos, shows branch/history/diff, supports git-backed read-only workspaces.
+Public shared-doc links via `/api/share`.
 
 Published to npm as `wiki-viewer`. CLI entry: `bin/wiki-viewer.js`.
 
@@ -27,7 +29,7 @@ pnpm install
 ROOT_DIR=~/notes pnpm dev      # dev server, hot reload
 pnpm dev:https                 # dev with experimental HTTPS
 pnpm build                     # production build (standalone)
-pnpm test                      # proof + auth suite (tsx node:test, 33 files / 180+ tests)
+pnpm test                      # proof + auth suite (tsx node:test, 40 files / 180+ tests)
 ```
 
 Test runner: `tsx --import ./src/tests/proof/preload.ts --test src/tests/proof/*.test.ts`.
@@ -38,11 +40,13 @@ Single file: `tsx --import ./src/tests/proof/preload.ts --test src/tests/proof/<
 ```
 bin/wiki-viewer.js     CLI: arg parse, config, HTTPS proxy, systemd/launchd service, init wizard
 src/app/
-  api/agent/           Agent HTTP API — fs (tier1), files/events/sidecar (tier2), register, admin
+  api/agent/           Agent HTTP API — fs (tier1), files/events/sidecar (tier2),
+                       activity, register, admin, internal, settings
   api/agents/          Public install/skill discovery endpoints
   api/auth/            Better Auth handler
   api/wiki/            File browser API (session-gated)
   api/system/          System config API (session-gated)
+  api/share/           Public shared-doc links (token-gated)
   api/owner/ api/upload/ api/assets/ api/app-proxy/
   signin/  layout.tsx  page.tsx  manifest.ts
 src/components/
@@ -51,8 +55,12 @@ src/components/
   wiki/ layout/ search/ ui/ auth-settings-sheet.tsx dir-picker.tsx
 src/lib/
   proof/               Agent protocol core: ops-applier, registry, file-lock, raw-fs,
-                       collab-state, sidecar, blocks, block-refs, idempotency, rate-limit, audit
+                       collab-state, sidecar, blocks, block-refs, idempotency, rate-limit,
+                       audit, lease, mutex, activity, event-bus, pending, glob
   auth/                Better Auth server+client, allowlist, CSRF
+  git.ts git-secrets.ts  System-git wrapper (provider-agnostic; token via GIT_ASKPASS),
+                       secret scanning. Backs git-history/diff/branch + read-only repo workspaces.
+  shared-docs/         Public shared-doc link store (db.ts)
   workspaces.ts        Workspace registry (multi-root)
   config.ts root-dir.ts app-runner.ts markdown/ search/ cabinets/ embeds/ google/
 src/stores/            Zustand stores
@@ -102,3 +110,5 @@ header or `?ws=`. State (leases, locks, idempotency, sidecars, audit) namespaced
 - Agent paths reject traversal, symlink escape, and anything under `.proof/`.
 - When adding agent-API behavior, add/extend tests in `src/tests/proof/` and run `pnpm test`.
 - `AGENT_BEARER_TOKEN` (legacy single-secret) is dead — does nothing.
+- Git access uses the system `git` binary; tokens injected via `GIT_ASKPASS`, never in
+  process args / `.git/config` / `ps` output. `git-secrets.ts` scans for leaked secrets.

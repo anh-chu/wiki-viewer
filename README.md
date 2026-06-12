@@ -26,6 +26,7 @@ Originally a zero-config single-user tool, it now supports:
 - A **working-vs-collaborating** safety model: when you have a Markdown doc open, agents automatically defer to the reviewable collab path instead of overwriting it.
 - Per-agent registration and scoped tokens. No shared bearer secret.
 - An optional `npx wiki-viewer-mcp` adapter so MCP-capable agents (Claude Code, Cursor, Codex) get native file tools against a remote instance.
+- Full-text search (FTS5), public share links with optional password and expiry, git-backed read-only workspaces with history and diffs, and a Launch button to run any `package.json` app in place.
 
 Single-user, no-auth mode still works. Auth turns on automatically once anyone signs up.
 
@@ -33,17 +34,22 @@ Single-user, no-auth mode still works. Auth turns on automatically once anyone s
 
 ## Features
 
-| Category         | What's included                                                                                                                                                                                    |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **File viewers** | Markdown (with frontmatter), PDF, images (PNG / JPG / SVG / WebP), video & audio, CSV (table view), source code (syntax highlighting), DOCX, XLSX, PPTX, Jupyter notebooks, Mermaid diagrams, HTML |
-| **Editor**       | Rich TipTap editor for Markdown files                                                                                                                                                              |
-| **File ops**     | Upload files, create folders, delete, drag-to-move                                                                                                                                                 |
-| **Git repos**    | Add a remote git repo (GitHub, GitLab, Bitbucket, Gitea, GHE) as a read-only workspace. Clones on the server, browse with the full viewer, refresh on demand. Private repos via access token.      |
-| **Wiki links**   | `[[page-name]]` links between Markdown files                                                                                                                                                       |
-| **Dark mode**    | System-aware, with manual toggle                                                                                                                                                                   |
-| **Auth**         | Google OAuth and email + password via [Better Auth](https://better-auth.com). Email allowlist. SQLite-backed sessions.                                                                             |
-| **AI agents**    | Per-agent HTTP API. Trust On First Use registration. Comments, suggestions, inline provenance marks (`<proof-span>`). Block-level revision check. Idempotency keys. Per-IP rate limiting.          |
-| **HTTPS**        | Required for remote access. Self-signed cert (OpenSSL), trusted local cert (mkcert), or your own TLS in front of plain HTTP.                                                                       |
+| Category         | What's included                                                                                                                                                                                                                                                                                   |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **File viewers** | Markdown (with frontmatter), PDF, images (PNG / JPG / SVG / WebP), video & audio, CSV (table view), source code (syntax highlighting), DOCX, XLSX, PPTX, Jupyter notebooks, Mermaid diagrams, HTML                                                                                                |
+| **Editor**       | Rich TipTap editor for Markdown files, with an exit-edit toggle to flip between read and edit modes                                                                                                                                                                                               |
+| **File ops**     | Upload files, create folders, delete, drag-to-move                                                                                                                                                                                                                                                |
+| **Search**       | Full-text search across the whole workspace, backed by SQLite FTS5 (BM25 ranking). Incremental indexing via file watcher. App and `.git` contents skipped.                                                                                                                                        |
+| **Sharing**      | Generate public, read-only share links for any file. Optional password protection and expiry date. View counts tracked.                                                                                                                                                                           |
+| **Node apps**    | A directory with a `package.json` becomes runnable: a Launch button starts any npm script (or the default), proxied through the viewer with live status and logs.                                                                                                                                 |
+| **Git repos**    | Add a remote git repo (GitHub, GitLab, Bitbucket, Gitea, GHE) as a read-only workspace. Clones on the server, browse with the full viewer, refresh on demand. Private repos via access token. Per-file commit history, diffs, last-commit metadata, and a branch switcher for git-backed content. |
+| **Wiki links**   | `[[page-name]]` links between Markdown files                                                                                                                                                                                                                                                      |
+| **Layout**       | Resizable sidebar (persisted), content width (narrow / normal / wide) and alignment (center / left), selectable Editorial reading skin. Mobile-responsive.                                                                                                                                        |
+| **PWA**          | Web app manifest, Apple meta tags, home-screen icons. Installable to the home screen.                                                                                                                                                                                                             |
+| **Dark mode**    | System-aware, with manual toggle                                                                                                                                                                                                                                                                  |
+| **Auth**         | Google OAuth and email + password via [Better Auth](https://better-auth.com). Email allowlist. SQLite-backed sessions.                                                                                                                                                                            |
+| **AI agents**    | Per-agent HTTP API. Trust On First Use registration. Comments, suggestions, inline provenance marks (`<proof-span>`). Block-level revision check. Idempotency keys. Per-IP rate limiting.                                                                                                         |
+| **HTTPS**        | Required for remote access. Self-signed cert (OpenSSL), trusted local cert (mkcert), or your own TLS in front of plain HTTP.                                                                                                                                                                      |
 
 ---
 
@@ -221,7 +227,11 @@ workspace under `~/.wiki-viewer/repos/<id>/`.
   `git pull --ff-only` to pull the latest commit. Refresh is manual by design,
   so there is no background polling or webhook to configure.
 - **Branch.** Leave the branch blank to track the default branch, or pin a
-  specific one.
+  specific one. Git-backed content shows a **branch switcher** in the UI to
+  check out any branch on demand, plus a branch badge.
+- **History and diffs.** For files inside a git repo (including sub-folder repos
+  detected automatically), the viewer surfaces per-file commit history, the diff
+  for each commit, and last-commit metadata (author, date, message).
 - **Subdirectory.** If the docs live in a subfolder (for example `docs/`),
   set the optional **Subdirectory** field. The server does a blobless sparse
   checkout that fetches only that subtree, so a large repo with a small docs
@@ -251,6 +261,55 @@ OS-level permissions):
 > Note: removing a workspace only unregisters it — the directory on disk is
 > never touched. The last admin cannot be demoted unless `WIKI_ADMIN_EMAILS`
 > provides a fallback.
+
+## Search
+
+Full-text search runs across the whole active workspace. Press the search box
+in the sidebar, type a query, and results rank by relevance.
+
+- **FTS5 + BM25.** Backed by a SQLite FTS5 index, separate from `auth.db`, in
+  `~/.wiki-viewer/`. Ranking uses BM25.
+- **Incremental.** A background initial scan builds the index on first use, then
+  a file watcher keeps it current as files change. Search returns results from
+  whatever is already indexed, so it is usable while the first scan runs.
+- **Scoped per workspace.** Each workspace has its own index. Deleting a
+  workspace purges its index. Node-app directories and `.git`, `node_modules`,
+  `.next`, `.proof` are skipped. Body indexing is capped at 1 MiB per file.
+
+## Sharing documents
+
+Generate a public, read-only link to any file so people without an account can
+read it.
+
+- Open a file and use **Share** to mint a link. It serves a rendered, read-only
+  view at `/share/<token>`.
+- **Password (optional).** Protect a link with a password; only the hash is
+  stored. Visitors unlock before reading.
+- **Expiry (optional).** Set a number of days; the link returns `410` once
+  expired.
+- **View counts.** Each open increments a counter visible in the share dialog.
+
+Share links are managed per file. Creating a link requires being signed in;
+reading one does not.
+
+## Node apps
+
+Any directory containing a `package.json` is treated as a runnable node app. In
+the file browser it shows a **Launch** button.
+
+- **Pick a script.** Launch runs the default script (`start`, then `preview`
+  when a `dist/` exists, then `dev`), or you choose any script from the
+  package's `scripts`. A package with only a `main` entry runs that.
+- **Proxied.** The child process binds a free local port and is proxied through
+  the viewer under `/app-proxy/`, so you view the running app inside
+  wiki-viewer. Live status (`installing` / `starting` / `running` / `error`)
+  and logs are shown.
+- **Package manager auto-detected.** pnpm / yarn / npm based on the lockfile.
+- A directory with an `index.html` but no `package.json` is served as a static
+  app instead.
+
+> Launching runs arbitrary project code on the host. Only launch apps you
+> trust. Git-backed (read-only) workspaces still run apps but reject writes.
 
 ## Auth and multi-user mode
 
@@ -721,7 +780,9 @@ wiki-viewer/
 │   │   ├── api/agent/            Agent HTTP API
 │   │   ├── api/agents/           Public install endpoints
 │   │   ├── api/auth/             Better Auth handler
-│   │   ├── api/wiki/             File browser API (session-gated)
+│   │   ├── api/wiki/             File browser API (session-gated): search, git-*, app, share
+│   │   ├── api/share/           Public share-link resolve/unlock
+│   │   ├── api/app-proxy/        Reverse proxy to launched node apps
 │   │   ├── api/system/           System config API (session-gated)
 │   │   └── signin/               Sign-in page
 │   ├── components/
@@ -729,6 +790,10 @@ wiki-viewer/
 │   │   └── ai-panel/             Right-side AI panel (agents, activity, install)
 │   ├── lib/
 │   │   ├── auth/                 Better Auth server + client + allowlist + CSRF
+│   │   ├── search/               FTS5 indexer + search DB + file-watcher pool
+│   │   ├── shared-docs/          Share-link store (tokens, password hash, expiry)
+│   │   ├── git.ts                Git history / diff / branch / file-info helpers
+│   │   ├── app-runner.ts         Launches and supervises node-app child processes
 │   │   └── proof/                Agent protocol core (ops-applier, registry, file-lock)
 │   ├── stores/                   Zustand state
 │   ├── tests/proof/              Node test runner suite (180+ tests)
