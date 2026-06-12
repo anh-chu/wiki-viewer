@@ -28,6 +28,7 @@ import {
 	PanelLeftOpen,
 	Pencil,
 	Eye,
+	EyeOff,
 	Pin,
 	Plus,
 	RefreshCw,
@@ -106,6 +107,7 @@ import {
 } from "@/stores/sidebar-width-store";
 import { ViewWidthToggle } from "@/components/view-width-toggle";
 import { useWikiSlugsStore } from "@/stores/wiki-slugs-store";
+import { useShowHiddenStore } from "@/stores/show-hidden-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 
 function timeAgo(iso: string): string {
@@ -783,6 +785,8 @@ const FileTree = memo(function FileTree(p: FileTreeProps) {
 		sidebarScrollRef,
 	} = p;
 
+	const showHidden = useShowHiddenStore((s) => s.showHidden);
+
 	// Hover-intent prefetch: a single shared timer so only the row the pointer
 	// settles on (>120ms) is prefetched — passing the cursor over rows doesn't
 	// fire a request per row. Stable identities so TreeRowView's memo holds.
@@ -807,6 +811,7 @@ const FileTree = memo(function FileTree(p: FileTreeProps) {
 		const out: Array<{ kind: "row" | "newfolder" | "newfile" | "empty"; node: TreeNode; depth: number }> = [];
 		const walk = (nodes: TreeNode[], depth: number) => {
 			for (const node of nodes) {
+				if (!showHidden && node.name.startsWith(".")) continue;
 				out.push({ kind: "row", node, depth });
 				if (node.type === "dir") {
 					if (newFolderParent === node.path) out.push({ kind: "newfolder", node, depth });
@@ -820,7 +825,7 @@ const FileTree = memo(function FileTree(p: FileTreeProps) {
 		};
 		walk(p.nodes, 0);
 		return out;
-	}, [p.nodes, newFileParent, newFolderParent]);
+	}, [p.nodes, newFileParent, newFolderParent, showHidden]);
 
 	return (
 		<>
@@ -1089,6 +1094,7 @@ export default function Page() {
 	const isMobile = useIsMobile();
 	const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 	const sidebarWidth = useSidebarWidthStore((s) => s.width);
+	const showHidden = useShowHiddenStore((s) => s.showHidden);
 	const setSidebarWidth = useSidebarWidthStore((s) => s.setWidth);
 	// Mobile: when the viewport is mobile, the sidebar defaults to closed.
 	// Re-runs when isMobile flips (orientation change, devtools resize).
@@ -2286,6 +2292,19 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 									<Loader2 className="h-3.5 w-3.5 animate-spin" />
 								) : (
 									<RefreshCw className="h-3.5 w-3.5" />
+								)}
+							</Button>
+							<Button
+								size="sm"
+								variant="ghost"
+								className="h-7 w-7 p-0"
+								title={showHidden ? "Hide hidden files" : "Show hidden files"}
+								onClick={() => useShowHiddenStore.getState().toggle()}
+							>
+								{showHidden ? (
+									<Eye className="h-3.5 w-3.5" />
+								) : (
+									<EyeOff className="h-3.5 w-3.5" />
 								)}
 							</Button>
 							<ThemeToggle />
