@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronDown, ChevronRight, Link2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Link2, Unlink } from "lucide-react";
 import { wsFetch } from "@/lib/workspace-client";
 import { useEditorStore } from "@/stores/editor-store";
+import { useWikiSlugsStore } from "@/stores/wiki-slugs-store";
 
 interface BacklinkEntry {
 	path: string;
@@ -16,6 +17,12 @@ function displayPath(filePath: string): string {
 	return parts.length > 1 ? parts.slice(-2).join(" / ") : parts[0] ?? filePath;
 }
 
+/** Last segment sans .md — the wiki slug used for existence checks. */
+function slugFromPath(filePath: string): string {
+	const base = filePath.split("/").pop() ?? filePath;
+	return base.replace(/\.md$/i, "");
+}
+
 interface BacklinksPanelProps {
 	currentPath: string;
 }
@@ -24,6 +31,7 @@ export function BacklinksPanel({ currentPath }: BacklinksPanelProps) {
 	const [backlinks, setBacklinks] = useState<BacklinkEntry[]>([]);
 	const [loading, setLoading] = useState(false);
 	const [collapsed, setCollapsed] = useState(false);
+	const hasSlug = useWikiSlugsStore((s) => s.has);
 
 	useEffect(() => {
 		if (!currentPath) return;
@@ -85,22 +93,44 @@ export function BacklinksPanel({ currentPath }: BacklinksPanelProps) {
 
 				{!collapsed && backlinks.length > 0 && (
 					<ul className="flex flex-col gap-1.5">
-						{backlinks.map((bl) => (
-							<li key={bl.path} className="flex flex-col">
-								<button
-									onClick={() => useEditorStore.getState().loadPage(bl.path)}
-									className="text-left text-[12px] text-primary/70 hover:text-primary hover:underline underline-offset-2 truncate transition-colors"
-									title={bl.path}
-								>
-									{displayPath(bl.path)}
-								</button>
-								{bl.snippet && (
-									<p className="text-[10.5px] text-muted-foreground/50 line-clamp-1 mt-0.5">
-										{bl.snippet}
-									</p>
-								)}
-							</li>
-						))}
+						{backlinks.map((bl) => {
+							const exists = hasSlug(slugFromPath(bl.path));
+							return (
+								<li key={bl.path} className="flex flex-col">
+									<button
+										onClick={() =>
+											exists && useEditorStore.getState().loadPage(bl.path)
+										}
+										className={
+											exists
+												? "text-left text-[12px] text-primary/70 hover:text-primary hover:underline underline-offset-2 truncate transition-colors flex items-center gap-1"
+												: "text-left text-[12px] text-muted-foreground/40 truncate cursor-default flex items-center gap-1"
+										}
+										title={
+											exists
+												? bl.path
+												: `${bl.path} (file not found)`
+										}
+									>
+										{!exists && (
+											<Unlink className="h-2.5 w-2.5 shrink-0 text-muted-foreground/30" />
+										)}
+										{displayPath(bl.path)}
+									</button>
+									{bl.snippet && (
+										<p
+											className={
+												exists
+													? "text-[10.5px] text-muted-foreground/50 line-clamp-1 mt-0.5"
+													: "text-[10.5px] text-muted-foreground/25 line-clamp-1 mt-0.5"
+											}
+										>
+											{bl.snippet}
+										</p>
+									)}
+								</li>
+							);
+						})}
 					</ul>
 				)}
 			</div>

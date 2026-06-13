@@ -743,12 +743,21 @@ nextjs-portal {
   background: color-mix(in srgb, var(--accent-foreground) 10%, transparent);
   border-bottom-style: solid;
 }
-.wiki-link[data-broken="true"] {
+.wiki-link[data-broken="true"],
+.wiki-link:has([data-broken="true"]) {
   color: var(--destructive);
-  border-bottom-color: var(--destructive);
-  border-bottom-style: dashed;
+  opacity: 0.6;
+  border-bottom: none;
+  text-decoration: line-through;
 }
-.wiki-link[data-broken="true"]:hover {
+/* ProseMirror wraps text in a span — also target it directly */
+.wiki-link [data-broken="true"] {
+  text-decoration: line-through;
+  color: var(--destructive);
+}
+.wiki-link[data-broken="true"]:hover,
+.wiki-link:has([data-broken="true"]):hover {
+  opacity: 1;
   background: color-mix(in srgb, var(--destructive) 10%, transparent);
 }
 
