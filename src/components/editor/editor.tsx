@@ -1121,6 +1121,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 															void useProofStore.getState().loadSidecar(currentPath);
 															void useProofStore.getState().loadSnapshot(currentPath);
 														}}
+														readOnly={isViewing}
 													/>
 												</div>
 											);
@@ -1135,6 +1136,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 											comments={commentsByRef[threadTarget.blockRef] ?? []}
 											anchorEl={threadTarget.el}
 											onClose={() => setThreadTarget(null)}
+											readOnly={isViewing}
 										/>
 									)}
 

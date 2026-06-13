@@ -16,6 +16,7 @@ interface Props {
 	left: number;
 	width: number;
 	onSettled: () => void; // called after accept or reject so parent can refresh
+	readOnly?: boolean;
 }
 
 function kindVerb(kind: Suggestion["kind"]): string {
@@ -68,6 +69,7 @@ export function SuggestionCard({
 	left,
 	width,
 	onSettled,
+	readOnly,
 }: Props) {
 	const [busy, setBusy] = useState(false);
 
@@ -179,6 +181,7 @@ export function SuggestionCard({
 			</div>
 
 			{/* Actions */}
+			{!readOnly && (
 			<div className="flex items-center gap-2 px-3 py-2 border-t border-border bg-muted/30">
 				<button
 					type="button"
@@ -197,6 +200,7 @@ export function SuggestionCard({
 					Reject
 				</button>
 			</div>
+			)}
 		</div>
 	);
 }

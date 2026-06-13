@@ -58,9 +58,10 @@ interface Props {
 	comments: Comment[];
 	anchorEl: HTMLElement | null;
 	onClose: () => void;
+	readOnly?: boolean;
 }
 
-export function CommentThread({ path, blockRef, comments, anchorEl, onClose }: Props) {
+export function CommentThread({ path, blockRef, comments, anchorEl, onClose, readOnly }: Props) {
 	const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
 	const [text, setText] = useState("");
 	const [busy, setBusy] = useState(false);
@@ -187,7 +188,7 @@ export function CommentThread({ path, blockRef, comments, anchorEl, onClose }: P
 						<span className="text-[11px] font-mono text-muted-foreground/60 truncate">
 							{blockRef}
 						</span>
-						{activeComment && (
+						{activeComment && !readOnly && (
 							<button
 								type="button"
 								disabled={busy}
@@ -214,7 +215,7 @@ export function CommentThread({ path, blockRef, comments, anchorEl, onClose }: P
 					)}
 
 					{/* Reply / new comment footer */}
-					{(!activeComment?.resolved || comments.length === 0) && (
+					{!readOnly && (!activeComment?.resolved || comments.length === 0) && (
 						<div className="space-y-1.5 pt-1">
 							<textarea
 								ref={textareaRef}
