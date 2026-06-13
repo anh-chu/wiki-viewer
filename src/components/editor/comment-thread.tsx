@@ -215,7 +215,7 @@ export function CommentThread({ path, blockRef, comments, anchorEl, onClose, rea
 					)}
 
 					{/* Reply / new comment footer */}
-					{!readOnly && (!activeComment?.resolved || comments.length === 0) && (
+					{(!activeComment?.resolved || comments.length === 0) && (
 						<div className="space-y-1.5 pt-1">
 							<textarea
 								ref={textareaRef}
