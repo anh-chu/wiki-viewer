@@ -41,6 +41,7 @@ import {
 } from "./wiki-link-create-dialog";
 import { WikiLinkPicker } from "./wiki-link-picker";
 import { FrontmatterHeader } from "@/components/wiki/frontmatter-header";
+import { ViewModeCommentButton } from "./view-mode-comment-button";
 
 async function uploadFile(
 	pagePath: string,
@@ -1191,6 +1192,11 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 									)}
 									{!isViewing && (
 										<>
+											<EditorBubbleMenu
+												editor={editor}
+												onSuggestEdit={openSuggestForSelection}
+												onComment={openCommentForSelection}
+											/>
 											<TableMenu editor={editor} />
 											<SlashCommands editor={editor} />
 											<WikiLinkPicker
@@ -1199,12 +1205,12 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 											/>
 										</>
 									)}
-									<EditorBubbleMenu
-										editor={editor}
-										onSuggestEdit={isViewing ? undefined : openSuggestForSelection}
-										onComment={openCommentForSelection}
-										readOnly={isViewing}
-									/>
+									{isViewing && (
+										<ViewModeCommentButton
+											containerRef={scrollContainerRef}
+											onComment={openCommentForSelection}
+										/>
+									)}
 									{/* AI Edit Prompt + slash hint */}
 									<div className="max-w-[var(--editor-max-w,48rem)] ml-[var(--editor-ml,auto)] mr-auto px-8 pb-8 flex items-center gap-4">
 										<button
