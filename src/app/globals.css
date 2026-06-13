@@ -976,17 +976,6 @@ proof-span.proof-span:hover,
   margin: 1.4em 0 0.35rem;
 }
 
-/* Drop cap on first paragraph */
-[data-skin="editorial"] .tiptap > p:first-child::first-letter {
-  float: left;
-  font-family: var(--font-fraunces), Georgia, serif;
-  font-size: 3.4em;
-  line-height: 0.72;
-  padding: 0.05em 0.12em 0 0;
-  color: var(--primary);
-  font-weight: 600;
-}
-
 [data-skin="editorial"] .tiptap p {
   margin-bottom: 0.75rem;
 }
