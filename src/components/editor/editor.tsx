@@ -1191,11 +1191,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 									)}
 									{!isViewing && (
 										<>
-											<EditorBubbleMenu
-												editor={editor}
-												onSuggestEdit={openSuggestForSelection}
-												onComment={openCommentForSelection}
-											/>
 											<TableMenu editor={editor} />
 											<SlashCommands editor={editor} />
 											<WikiLinkPicker
@@ -1204,7 +1199,12 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 											/>
 										</>
 									)}
-
+									<EditorBubbleMenu
+										editor={editor}
+										onSuggestEdit={isViewing ? undefined : openSuggestForSelection}
+										onComment={openCommentForSelection}
+										readOnly={isViewing}
+									/>
 									{/* AI Edit Prompt + slash hint */}
 									<div className="max-w-[var(--editor-max-w,48rem)] ml-[var(--editor-ml,auto)] mr-auto px-8 pb-8 flex items-center gap-4">
 										<button

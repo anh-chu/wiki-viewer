@@ -28,6 +28,8 @@ interface Props {
 	onSuggestEdit?: () => void;
 	/** Open a comment thread on the current selection's block. */
 	onComment?: () => void;
+	/** Hide all formatting controls; show only comment button. */
+	readOnly?: boolean;
 }
 
 type OpenPopover =
@@ -40,7 +42,7 @@ type OpenPopover =
 			anchor: { top: number; left: number };
 	  };
 
-export function EditorBubbleMenu({ editor, onSuggestEdit, onComment }: Props) {
+export function EditorBubbleMenu({ editor, onSuggestEdit, onComment, readOnly }: Props) {
 	const [popover, setPopover] = useState<OpenPopover>(null);
 
 	useEffect(() => {
@@ -127,6 +129,8 @@ export function EditorBubbleMenu({ editor, onSuggestEdit, onComment }: Props) {
 				options={{ placement: "top", offset: 8 }}
 				className="flex items-center gap-0.5 px-1 py-1 bg-popover border border-border rounded-sm shadow-lg"
 			>
+				{!readOnly && (
+				<>
 				<button
 					type="button"
 					className={btn(editor.isActive("bold"))}
@@ -299,6 +303,23 @@ export function EditorBubbleMenu({ editor, onSuggestEdit, onComment }: Props) {
 						</div>
 					)}
 				</div>
+				</>
+				)}
+				{readOnly && onComment && (
+					<button
+						type="button"
+						className={btn(false)}
+						onMouseDown={(e) => e.preventDefault()}
+						onClick={(e) => {
+							e.preventDefault();
+							onComment();
+						}}
+						aria-label="Comment"
+						title="Add comment"
+					>
+						<MessageCircle className="w-3.5 h-3.5" />
+					</button>
+				)}
 			</BubbleMenu>
 
 			{popover?.type === "link" && (
