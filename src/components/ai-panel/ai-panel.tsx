@@ -5,7 +5,7 @@ import { X, Copy, Check, Bot, Wifi, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAIPanelStore } from "@/stores/ai-panel-store";
 import { TokenSection } from "./token-section";
-import { ActivityRow } from "./activity-row";
+import { ActivityFeed } from "./activity-row";
 const SKILL_CLI = "npx skills add anh-chu/wiki-viewer/agents/wiki-viewer-skill";
 
 function useCopyCurl(currentPath: string | null) {
@@ -288,14 +288,8 @@ export function AIPanel({ currentPath }: { currentPath?: string | null }) {
 						<h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
 							Recent Activity
 						</h3>
-						<div className="rounded-md border border-border bg-muted/40 px-3 py-1 max-h-72 overflow-y-auto">
-							{activity.length === 0 ? (
-								<p className="text-xs text-muted-foreground/60 py-2">No events recorded</p>
-							) : (
-								activity.map((ev) => (
-									<ActivityRow key={`${ev.path}-${ev.id}`} event={ev} />
-								))
-							)}
+						<div className="rounded-md border border-border bg-muted/40 px-3 py-2 max-h-72 overflow-y-auto">
+							<ActivityFeed activity={activity} />
 						</div>
 					</section>
 
