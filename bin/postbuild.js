@@ -75,4 +75,25 @@ if (existsSync(serverDir)) {
   console.log(`postbuild: stripped Turbopack hashes in ${rewrites} file(s)`);
 }
 
+// 4. Next traces from the pnpm workspace root and copies the whole repo into
+// standalone (including .git, source, docs, lockfiles). None of it is used at
+// runtime: the server runs the compiled bundle under .next/. Prune the cruft so
+// the published tarball stays small. Keep only what the server needs:
+// server.js, .next/, node_modules/, public/, package.json.
+const PRUNE = [
+  ".git", ".github", ".handoffs", ".pi", "certificates", "docs", "packages",
+  "src", "agents", "AGENTS.md", "CLAUDE.md", "DESIGN.md", "README.md",
+  "TODO.md", "pnpm-lock.yaml", "pnpm-workspace.yaml", "postcss.config.mjs",
+  "tailwind.config.ts", "tsconfig.json", "tsconfig.tsbuildinfo", "bin",
+];
+let pruned = 0;
+for (const name of PRUNE) {
+  const target = path.join(standalone, name);
+  if (existsSync(target)) {
+    rmSync(target, { recursive: true, force: true });
+    pruned++;
+  }
+}
+console.log(`postbuild: pruned ${pruned} traced repo path(s) from standalone`);
+
 console.log("postbuild: done");
