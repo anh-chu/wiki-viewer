@@ -3123,9 +3123,18 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 										<KBEditor mode="viewing" />
 									)}
 								</div>
-							) : (
-								<div className="flex-1 overflow-auto p-4 min-h-0">
-									<div className={cn("w-full", contentAlignClass, contentWidthClass)}>
+							) : openFileViewerKind === "csv" ||
+								openFileViewerKind === "pdf" ||
+								openFileViewerKind === "mermaid" ||
+								openFileViewerKind === "notebook" ||
+								openFileViewerKind === "image" ||
+								openFileViewerKind === "media" ||
+								openFileViewerKind === "docx" ||
+								openFileViewerKind === "xlsx" ||
+								openFileViewerKind === "pptx" ||
+								openFileViewerKind === "source" ||
+								openFileViewerKind === "fallback" ? (
+								<div className="flex-1 flex flex-col overflow-hidden min-h-0">
 									{fileLoading ? (
 										<div className="flex justify-center py-8">
 											<Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -3151,11 +3160,11 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 											path={openFile.path}
 											title={openFile.name}
 											type={
-												["mp4", "webm", "mov", "m4v"].includes(
-													ext(openFile.name),
-												)
-													? "video"
-													: "audio"
+											["mp4", "webm", "mov", "m4v"].includes(
+												ext(openFile.name),
+											)
+												? "video"
+												: "audio"
 											}
 										/>
 									) : openFileViewerKind === "docx" ? (
@@ -3169,11 +3178,20 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 											path={openFile.path}
 											title={openFile.name}
 										/>
-									) : openFileViewerKind === "fallback" ? (
+									) : (
 										<FileFallbackViewer
 											path={openFile.path}
 											title={openFile.name}
 										/>
+									)}
+								</div>
+							) : (
+								<div className="flex-1 overflow-auto p-4 min-h-0">
+									<div className={cn("w-full", contentAlignClass, contentWidthClass)}>
+									{fileLoading ? (
+										<div className="flex justify-center py-8">
+											<Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+										</div>
 									) : fileContent !== null ? (
 										<pre className="text-xs font-mono whitespace-pre-wrap break-words leading-relaxed">
 											{fileContent}
