@@ -34,22 +34,23 @@ Single-user, no-auth mode still works. Auth turns on automatically once anyone s
 
 ## Features
 
-| Category         | What's included                                                                                                                                                                                                                                                                                   |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **File viewers** | Markdown (with frontmatter), PDF, images (PNG / JPG / SVG / WebP), video & audio, CSV (table view), source code (syntax highlighting), DOCX, XLSX, PPTX, Jupyter notebooks, Mermaid diagrams, HTML                                                                                                |
-| **Editor**       | Rich TipTap editor for Markdown files, with an exit-edit toggle to flip between read and edit modes                                                                                                                                                                                               |
-| **File ops**     | Upload files, create folders, delete, drag-to-move                                                                                                                                                                                                                                                |
-| **Search**       | Full-text search across the whole workspace, backed by SQLite FTS5 (BM25 ranking). Incremental indexing via file watcher. App and `.git` contents skipped.                                                                                                                                        |
-| **Sharing**      | Generate public, read-only share links for any file. Optional password protection and expiry date. View counts tracked.                                                                                                                                                                           |
-| **Node apps**    | A directory with a `package.json` becomes runnable: a Launch button starts any npm script (or the default), proxied through the viewer with live status and logs.                                                                                                                                 |
-| **Git repos**    | Add a remote git repo (GitHub, GitLab, Bitbucket, Gitea, GHE) as a read-only workspace. Clones on the server, browse with the full viewer, refresh on demand. Private repos via access token. Per-file commit history, diffs, last-commit metadata, and a branch switcher for git-backed content. |
-| **Wiki links**   | `[[page-name]]` links between Markdown files                                                                                                                                                                                                                                                      |
-| **Layout**       | Resizable sidebar (persisted), content width (narrow / normal / wide) and alignment (center / left), selectable Editorial reading skin. Mobile-responsive.                                                                                                                                        |
-| **PWA**          | Web app manifest, Apple meta tags, home-screen icons. Installable to the home screen.                                                                                                                                                                                                             |
-| **Dark mode**    | System-aware, with manual toggle                                                                                                                                                                                                                                                                  |
-| **Auth**         | Google OAuth and email + password via [Better Auth](https://better-auth.com). Email allowlist. SQLite-backed sessions.                                                                                                                                                                            |
-| **AI agents**    | Per-agent HTTP API. Trust On First Use registration. Comments, suggestions, inline provenance marks (`<proof-span>`). Block-level revision check. Idempotency keys. Per-IP rate limiting.                                                                                                         |
-| **HTTPS**        | Required for remote access. Self-signed cert (OpenSSL), trusted local cert (mkcert), or your own TLS in front of plain HTTP.                                                                                                                                                                      |
+| Category         | What's included                                                                                                                                                                                                                                                                                        |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **File viewers** | Markdown (with frontmatter), PDF, images (PNG / JPG / SVG / WebP), video & audio, CSV (table view), source code (syntax highlighting), DOCX, XLSX, PPTX, Jupyter notebooks, Mermaid diagrams, HTML                                                                                                     |
+| **Editor**       | Rich TipTap editor for Markdown files, with an exit-edit toggle to flip between read and edit modes                                                                                                                                                                                                    |
+| **File ops**     | Upload files, create folders, delete, drag-to-move                                                                                                                                                                                                                                                     |
+| **Search**       | Full-text search across the whole workspace, backed by SQLite FTS5 (BM25 ranking). Incremental indexing via file watcher. App and `.git` contents skipped.                                                                                                                                             |
+| **Sharing**      | Generate public, read-only share links for any file. Optional password protection and expiry date. View counts tracked.                                                                                                                                                                                |
+| **Node apps**    | A directory with a `package.json` becomes runnable: a Launch button starts any npm script (or the default), proxied through the viewer with live status and logs.                                                                                                                                      |
+| **Git repos**    | Add a remote git repo (GitHub, GitLab, Bitbucket, Gitea, GHE) as a read-only workspace. Clones on the server, browse with the full viewer, refresh on demand. Private repos via access token. Per-file commit history, diffs, last-commit metadata, and a branch switcher for git-backed content.      |
+| **Remote (SSH)** | Mount a remote directory over SSH (sshfs) as a workspace — **no local clone**. Browse, view, edit, search, upload, and the agent API all work live against the remote files. Auth via ssh-agent, key file, or password. Optional read-only mount. Requires `sshfs` + FUSE on the server (Linux/macOS). |
+| **Wiki links**   | `[[page-name]]` links between Markdown files                                                                                                                                                                                                                                                           |
+| **Layout**       | Resizable sidebar (persisted), content width (narrow / normal / wide) and alignment (center / left), selectable Editorial reading skin. Mobile-responsive.                                                                                                                                             |
+| **PWA**          | Web app manifest, Apple meta tags, home-screen icons. Installable to the home screen.                                                                                                                                                                                                                  |
+| **Dark mode**    | System-aware, with manual toggle                                                                                                                                                                                                                                                                       |
+| **Auth**         | Google OAuth and email + password via [Better Auth](https://better-auth.com). Email allowlist. SQLite-backed sessions.                                                                                                                                                                                 |
+| **AI agents**    | Per-agent HTTP API. Trust On First Use registration. Comments, suggestions, inline provenance marks (`<proof-span>`). Block-level revision check. Idempotency keys. Per-IP rate limiting.                                                                                                              |
+| **HTTPS**        | Required for remote access. Self-signed cert (OpenSSL), trusted local cert (mkcert), or your own TLS in front of plain HTTP.                                                                                                                                                                           |
 
 ---
 
@@ -68,6 +69,9 @@ npx wiki-viewer
 
 # Running on a remote machine? HTTPS is required (see note below)
 npx wiki-viewer ~/notes --https
+
+# Serve a remote directory over SSH — mounted live, no local clone
+npx wiki-viewer me@server:/srv/docs
 ```
 
 The wizard walks you through every option and writes `~/.wiki-viewer/config.json`, so you do not have to remember flags. You can re-run it any time, or edit the config with `wiki-viewer config set`.
@@ -85,13 +89,19 @@ On first run with no users in the database, the app works in single-user mode an
 ```
 wiki-viewer [directory] [options]
 
-  directory            Directory to serve  (optional — pick in the browser if omitted)
+  directory            Directory to serve  (optional — pick in the browser if omitted).
+                       May also be an SSH target (user@host:/path) — mounted via
+                       sshfs and served live, no local clone.
 
 Options:
   -p, --port <port>   Port to listen on        (default: 3000)
   -H, --host <host>   Host to bind to          (default: localhost)
       --https         Enable HTTPS             (self-signed cert, required on remote)
       --no-auth       No sign-in, no session    (open to anyone on the network)
+      --ssh-key <path>   Private key for the SSH target (default: ssh-agent / host keys)
+      --ssh-port <port>  SSH port for the target        (default: 22)
+      --ssh-password     Prompt for an SSH password (or set WIKI_SSH_PASSWORD)
+      --ssh-readonly     Mount the SSH target read-only
   -v, --version       Print version
   -h, --help          Show this help message
 
@@ -115,6 +125,12 @@ npx wiki-viewer ~/notes -H 0.0.0.0
 
 # HTTPS on a custom port
 npx wiki-viewer ~/notes --https -p 8443
+
+# Remote directory over SSH (sshfs), using a specific key, mounted read-only
+npx wiki-viewer me@server:/srv/docs --ssh-key ~/.ssh/id_ed25519 --ssh-readonly
+
+# Remote over a non-standard SSH port, with a password (prompted)
+npx wiki-viewer me@host:/data --ssh-port 2222 --ssh-password
 ```
 
 ### Run as a service (reboot persistence)
@@ -242,6 +258,59 @@ Host policy is configurable in `config.json` under a `git` block: set
 `git.allowedHosts` (a list) to restrict which hosts can be cloned, or
 `git.allowInsecureHttp: true` to permit plain `http://` for a trusted internal
 host. Both are optional; the default allows any `https://` host.
+
+### Remote workspaces over SSH (no clone)
+
+When the files live on another machine and you do **not** want a local copy,
+mount them over SSH. In the directory picker switch to **Over SSH**, enter an
+SSH target (`user@host:/abs/path`), pick an auth method, and the server mounts
+the remote directory with [sshfs](https://github.com/libfuse/sshfs) under
+`~/.wiki-viewer/mounts/<id>/`. From there it is just a path, so the **full**
+viewer works against it — browse, view, edit, search, upload, move, delete, and
+both agent API tiers — with no clone and no copy.
+
+- **Requirements.** `sshfs` + FUSE on the server. Linux: `apt install sshfs`
+  (or your distro's package). macOS: `brew install macfuse sshfs`. Not
+  supported on Windows.
+- **Auth.** Three methods:
+  - **SSH agent / host keys** (default) — uses the server's `ssh-agent` and
+    `~/.ssh/id_*`.
+  - **Key file** — an explicit private key path on the server.
+  - **Password** — stored on the server in `~/.wiki-viewer/git-secrets.json`
+    (chmod 0600), never written to `config.json`, never logged, never returned
+    by any API. It is piped to `sshfs` via stdin, so it never appears in the
+    process list.
+- **Read-write by default.** Tick **Mount read-only** to mount with `-o ro`
+  (every mutating route then returns `403 WORKSPACE_READ_ONLY`, like git
+  workspaces).
+- **Live, resilient mounts.** Mounted with `reconnect` + keep-alives. The server
+  remounts automatically on restart and heals a stale/dropped mount on the next
+  request. Removing the workspace unmounts it and deletes any stored password.
+- **Live file watch** still works (the search index and the SSE watcher fall
+  back to polling, since FUSE has no inotify), so remote-side changes show up.
+- **Latency.** Every directory listing and stat is a network round-trip, so a
+  remote workspace is slower than local on big trees. The mount enables sshfs
+  caching + compression to soften this.
+
+The same thing is available straight from the CLI, symmetric with serving a
+local directory:
+
+```bash
+# Mount and serve a remote directory (ssh-agent / host keys)
+wiki-viewer me@server:/srv/docs
+
+# With an explicit key, mounted read-only
+wiki-viewer me@server:/srv/docs --ssh-key ~/.ssh/id_ed25519 --ssh-readonly
+
+# Non-standard port + password (prompted, or set WIKI_SSH_PASSWORD)
+wiki-viewer me@host:/data --ssh-port 2222 --ssh-password
+```
+
+The CLI mount is ephemeral and is unmounted when the process exits. To keep a
+remote workspace across reboots, install it as a service
+(`wiki-viewer service install me@server:/srv/docs --ssh-key ~/.ssh/id_ed25519`)
+— password auth is rejected there since services run non-interactively, so use
+ssh-agent or a key file.
 
 ### Admins and access control
 
@@ -667,6 +736,7 @@ The dev server supports hot reload.
 | `WIKI_ALLOW_INSECURE`  | Set to `1` to bypass the prod-https guard (dev / CI only)                         | unset                 |
 | `WIKI_ADMIN_EMAILS`    | csv: emails treated as admins (seed/override; otherwise first signup is admin)    | unset                 |
 | `AGENT_RATE_LIMIT`     | Max mutation ops per minute per agent identity                                    | `60`                  |
+| `WIKI_SSH_PASSWORD`    | Password for a `--ssh-password` CLI mount (avoids the interactive prompt)         | unset                 |
 
 ---
 
@@ -793,6 +863,7 @@ wiki-viewer/
 │   │   ├── search/               FTS5 indexer + search DB + file-watcher pool
 │   │   ├── shared-docs/          Share-link store (tokens, password hash, expiry)
 │   │   ├── git.ts                Git history / diff / branch / file-info helpers
+│   │   ├── sshfs.ts              SSH (sshfs) mount manager for remote workspaces
 │   │   ├── app-runner.ts         Launches and supervises node-app child processes
 │   │   └── proof/                Agent protocol core (ops-applier, registry, file-lock)
 │   ├── stores/                   Zustand state

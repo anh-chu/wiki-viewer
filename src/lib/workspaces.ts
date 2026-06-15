@@ -20,6 +20,17 @@ import {
 	currentBranch,
 } from "./git";
 import { genTokenRef, setToken, getToken, deleteToken } from "./git-secrets";
+import {
+	assertSshfsAvailable,
+	parseSshTarget,
+	isValidKeyPath,
+	mountpointFor,
+	mountsDir,
+	mountSshfs,
+	unmountSshfs,
+	isMounted,
+	type SshAuthMethod,
+} from "./sshfs";
 
 export interface WorkspaceGit {
 	remoteUrl: string;
@@ -33,6 +44,23 @@ export interface WorkspaceGit {
 	subpath?: string;
 	/** Absolute path of the clone root. rootDir may differ when subpath is set. */
 	cloneRoot?: string;
+}
+
+export interface WorkspaceSsh {
+	/** Full target as entered: [user@]host:/path. */
+	target: string;
+	host: string;
+	user?: string;
+	remotePath: string;
+	port?: number;
+	authMethod: SshAuthMethod;
+	keyPath?: string;
+	/** Secret-store ref for the password (authMethod="password"). */
+	secretRef?: string;
+	/** Absolute mount point. Equals rootDir. */
+	mountpoint: string;
+	lastMountedAt?: string;
+	lastError?: string;
 }
 
 export interface Workspace {
@@ -57,6 +85,8 @@ export interface Workspace {
 	readOnly?: boolean;
 	/** Git remote metadata. Present only on git-backed workspaces. */
 	git?: WorkspaceGit;
+	/** SSH/sshfs mount metadata. Present only on sshfs-backed workspaces. */
+	ssh?: WorkspaceSsh;
 }
 
 /**
@@ -65,9 +95,16 @@ export interface Workspace {
  * server. Use this on every response that includes workspace objects.
  */
 export function sanitizeWorkspace(ws: Workspace): Workspace {
-	if (!ws.git) return ws;
-	const { tokenRef: _omit, ...gitSafe } = ws.git;
-	return { ...ws, git: gitSafe };
+	let out = ws;
+	if (out.git) {
+		const { tokenRef: _omitTok, ...gitSafe } = out.git;
+		out = { ...out, git: gitSafe };
+	}
+	if (out.ssh) {
+		const { secretRef: _omitSec, ...sshSafe } = out.ssh;
+		out = { ...out, ssh: sshSafe };
+	}
+	return out;
 }
 
 // ── Queries ────────────────────────────────────────────────────────────────────
@@ -221,6 +258,133 @@ export async function createGitWorkspace(input: {
 	return ws;
 }
 
+export async function createSshWorkspace(input: {
+	target: string;
+	port?: number;
+	authMethod: SshAuthMethod;
+	keyPath?: string;
+	password?: string;
+	readOnly?: boolean;
+	name?: string;
+	createdBy?: string;
+}): Promise<Workspace> {
+	await assertSshfsAvailable();
+
+	const parsed = parseSshTarget(input.target);
+	if (!parsed) {
+		throw new Error("Invalid SSH target. Use the form user@host:/abs/path.");
+	}
+	if (input.authMethod === "keyfile" && (!input.keyPath || !isValidKeyPath(input.keyPath))) {
+		throw new Error("Invalid private key path.");
+	}
+	if (input.authMethod === "password" && !input.password) {
+		throw new Error("Password is required for password auth.");
+	}
+
+	const id = "ws_" + randomBytes(6).toString("base64url");
+	const mountpoint = mountpointFor(id);
+
+	let secretRef: string | undefined;
+	if (input.authMethod === "password" && input.password) {
+		secretRef = genTokenRef();
+		await setToken(secretRef, input.password);
+	}
+
+	try {
+		await mountSshfs({
+			mountpoint,
+			target: parsed,
+			port: input.port,
+			authMethod: input.authMethod,
+			keyPath: input.keyPath,
+			password: input.password,
+			readOnly: input.readOnly,
+		});
+	} catch (err) {
+		if (secretRef) { try { await deleteToken(secretRef); } catch { /* ignore */ } }
+		try { await unmountSshfs(mountpoint); } catch { /* ignore */ }
+		throw err;
+	}
+
+	const now = new Date().toISOString();
+	const name =
+		input.name ??
+		`${parsed.host}:${path.basename(parsed.remotePath) || parsed.remotePath}`;
+	const ws: Workspace = {
+		id,
+		name,
+		rootDir: mountpoint,
+		createdAt: now,
+		lastOpenedAt: now,
+		createdBy: input.createdBy,
+		readOnly: input.readOnly ?? false,
+		ssh: {
+			target: input.target.trim(),
+			host: parsed.host,
+			user: parsed.user,
+			remotePath: parsed.remotePath,
+			port: input.port,
+			authMethod: input.authMethod,
+			keyPath: input.keyPath,
+			secretRef,
+			mountpoint,
+			lastMountedAt: now,
+		},
+	};
+
+	await updateConfig((cfg) => ({
+		...cfg,
+		workspaces: [...((cfg.workspaces ?? []) as Workspace[]), ws],
+	}));
+
+	return ws;
+}
+
+/**
+ * Ensure an sshfs-backed workspace is mounted before use. Lazy remount handles
+ * both server restarts and stale-mount recovery. No-op for non-ssh workspaces.
+ * Best-effort: records lastError on failure but does not throw, so the caller
+ * surfaces a normal fs error instead of a hard 500 here.
+ */
+export async function ensureWorkspaceMounted(ws: Workspace): Promise<void> {
+	if (!ws.ssh) return;
+	if (await isMounted(ws.ssh.mountpoint)) return;
+
+	const parsed = parseSshTarget(ws.ssh.target);
+	if (!parsed) {
+		await mutateWorkspace(ws.id, (w) => ({
+			...w,
+			ssh: w.ssh ? { ...w.ssh, lastError: "Invalid stored SSH target." } : w.ssh,
+		}));
+		return;
+	}
+	const password = ws.ssh.secretRef
+		? (await getToken(ws.ssh.secretRef)) ?? undefined
+		: undefined;
+	try {
+		await mountSshfs({
+			mountpoint: ws.ssh.mountpoint,
+			target: parsed,
+			port: ws.ssh.port,
+			authMethod: ws.ssh.authMethod,
+			keyPath: ws.ssh.keyPath,
+			password,
+			readOnly: ws.readOnly,
+		});
+		await mutateWorkspace(ws.id, (w) => ({
+			...w,
+			ssh: w.ssh
+				? { ...w.ssh, lastMountedAt: new Date().toISOString(), lastError: undefined }
+				: w.ssh,
+		}));
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
+		await mutateWorkspace(ws.id, (w) => ({
+			...w,
+			ssh: w.ssh ? { ...w.ssh, lastError: msg } : w.ssh,
+		}));
+	}
+}
 export async function refreshGitWorkspace(
 	id: string,
 ): Promise<{ lastSha: string; lastPulledAt: string }> {
@@ -294,6 +458,23 @@ export async function removeWorkspace(id: string): Promise<void> {
 			!path.isAbsolute(rel);
 		if (inside) {
 			try { rmSync(cloneDir, { recursive: true, force: true }); } catch { /* best-effort */ }
+		}
+	}
+	// Cleanup sshfs-backed workspace artifacts: unmount + drop password secret.
+	if (ws?.ssh) {
+		const mp = path.resolve(ws.ssh.mountpoint);
+		const managed = path.resolve(mountsDir());
+		const rel = path.relative(managed, mp);
+		const inside =
+			mp !== managed &&
+			rel !== "" &&
+			!rel.startsWith("..") &&
+			!path.isAbsolute(rel);
+		if (inside) {
+			try { await unmountSshfs(mp); } catch { /* best-effort */ }
+		}
+		if (ws.ssh.secretRef) {
+			try { await deleteToken(ws.ssh.secretRef); } catch { /* best-effort */ }
 		}
 	}
 	// Purge search index for the removed workspace. Import dynamically to avoid

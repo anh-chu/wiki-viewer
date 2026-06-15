@@ -17,6 +17,7 @@ import {
 	listWorkspaces,
 	createWorkspace,
 	createGitWorkspace,
+	createSshWorkspace,
 	migrateConfigToWorkspaces,
 	userCanAccess,
 	sanitizeWorkspace,
@@ -66,7 +67,45 @@ export async function POST(request: Request) {
 		token?: string;
 		username?: string;
 		subpath?: string;
+		// SSH/sshfs workspace fields
+		sshTarget?: string;
+		sshPort?: number;
+		sshAuthMethod?: "agent" | "keyfile" | "password";
+		sshKeyPath?: string;
+		sshPassword?: string;
+		sshReadOnly?: boolean;
 	} = await request.json();
+
+	// SSH/sshfs-backed workspace path (no local clone)
+	if (body.sshTarget) {
+		const authMethod = body.sshAuthMethod ?? "agent";
+		if (!["agent", "keyfile", "password"].includes(authMethod)) {
+			return NextResponse.json({ error: "Invalid auth method" }, { status: 400 });
+		}
+		let port: number | undefined;
+		if (body.sshPort !== undefined) {
+			port = Number(body.sshPort);
+			if (!Number.isInteger(port) || port < 1 || port > 65535) {
+				return NextResponse.json({ error: "Invalid port" }, { status: 400 });
+			}
+		}
+		try {
+			const workspace = await createSshWorkspace({
+				target: body.sshTarget,
+				port,
+				authMethod,
+				keyPath: body.sshKeyPath?.trim() || undefined,
+				password: body.sshPassword || undefined,
+				readOnly: body.sshReadOnly === true,
+				name: body.name?.trim() || undefined,
+				createdBy: authResult.user.id,
+			});
+			return NextResponse.json({ ok: true, workspace: sanitizeWorkspace(workspace) });
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			return NextResponse.json({ error: msg }, { status: 400 });
+		}
+	}
 
 	// Git-backed workspace path
 	if (body.remoteUrl) {

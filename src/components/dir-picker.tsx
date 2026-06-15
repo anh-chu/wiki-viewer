@@ -6,6 +6,7 @@ import {
 	FolderOpen,
 	GitBranch,
 	HardDrive,
+	Server,
 	Home,
 	Key,
 	Loader2,
@@ -36,7 +37,7 @@ interface Props {
 }
 
 export function DirPicker({ onSelect }: Props) {
-	const [mode, setMode] = useState<"local" | "git">("local");
+	const [mode, setMode] = useState<"local" | "git" | "ssh">("local");
 
 	// Local folder state
 	const [data, setData] = useState<BrowseResult | null>(null);
@@ -58,6 +59,60 @@ export function DirPicker({ onSelect }: Props) {
 	const [gitName, setGitName] = useState("");
 	const [gitSubmitting, setGitSubmitting] = useState(false);
 	const [gitError, setGitError] = useState<string | null>(null);
+
+	// SSH (sshfs, no local clone) state
+	const [sshTarget, setSshTarget] = useState("");
+	const [sshPort, setSshPort] = useState("");
+	const [sshAuthMethod, setSshAuthMethod] = useState<"agent" | "keyfile" | "password">("agent");
+	const [sshKeyPath, setSshKeyPath] = useState("");
+	const [sshPassword, setSshPassword] = useState("");
+	const [sshReadOnly, setSshReadOnly] = useState(false);
+	const [sshName, setSshName] = useState("");
+	const [sshSubmitting, setSshSubmitting] = useState(false);
+	const [sshError, setSshError] = useState<string | null>(null);
+
+	const handleSshSubmit = async () => {
+		const target = sshTarget.trim();
+		if (!target) {
+			setSshError("SSH target is required (user@host:/path).");
+			return;
+		}
+		if (sshAuthMethod === "keyfile" && !sshKeyPath.trim()) {
+			setSshError("Private key path is required for key-file auth.");
+			return;
+		}
+		if (sshAuthMethod === "password" && !sshPassword) {
+			setSshError("Password is required for password auth.");
+			return;
+		}
+		setSshSubmitting(true);
+		setSshError(null);
+		try {
+			const body: Record<string, unknown> = { sshTarget: target, sshAuthMethod };
+			if (sshPort.trim()) body.sshPort = Number(sshPort.trim());
+			if (sshAuthMethod === "keyfile" && sshKeyPath.trim()) body.sshKeyPath = sshKeyPath.trim();
+			if (sshAuthMethod === "password" && sshPassword) body.sshPassword = sshPassword;
+			if (sshReadOnly) body.sshReadOnly = true;
+			if (sshName.trim()) body.name = sshName.trim();
+			const res = await fetch("/api/system/workspaces", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(body),
+			});
+			if (!res.ok) {
+				const e: { error?: string; message?: string } = await res.json();
+				setSshError(e.error ?? e.message ?? "Mount failed.");
+				return;
+			}
+			const { workspace }: { workspace: { id: string } } = await res.json();
+			setSshPassword("");
+			onSelect(workspace.id);
+		} catch {
+			setSshError("Network error.");
+		} finally {
+			setSshSubmitting(false);
+		}
+	};
 
 	const handleGitSubmit = async () => {
 		const remoteUrl = gitRemoteUrl.trim();
@@ -248,7 +303,11 @@ export function DirPicker({ onSelect }: Props) {
 						<span className="text-xl font-semibold tracking-tight">Wiki Viewer</span>
 					</div>
 					<h1 className="text-xl font-medium">
-						{mode === "git" ? "Add a Git repository" : "Choose a directory"}
+						{mode === "git"
+							? "Add a Git repository"
+							: mode === "ssh"
+								? "Add a remote directory over SSH"
+								: "Choose a directory"}
 					</h1>
 					<p className="text-sm text-muted-foreground">
 						{mode === "git" ? (
@@ -256,6 +315,12 @@ export function DirPicker({ onSelect }: Props) {
 								Clone a remote repo and serve it as a read-only workspace.
 								<br />
 								The server clones it, so the URL must be reachable from the server.
+							</>
+						) : mode === "ssh" ? (
+							<>
+								Mount a remote directory over SSH (sshfs) — no local clone.
+								<br />
+								Requires sshfs + FUSE installed on the server.
 							</>
 						) : (
 							<>
@@ -286,6 +351,15 @@ export function DirPicker({ onSelect }: Props) {
 					>
 						<GitBranch className="h-3.5 w-3.5" />
 						From Git
+					</Button>
+					<Button
+						variant={mode === "ssh" ? "default" : "ghost"}
+						size="sm"
+						className="h-7 px-3 text-xs gap-1.5"
+						onClick={() => { setMode("ssh"); setSshError(null); }}
+					>
+						<Server className="h-3.5 w-3.5" />
+						Over SSH
 					</Button>
 				</div>
 
@@ -415,6 +489,155 @@ export function DirPicker({ onSelect }: Props) {
 					</div>
 				)}
 
+				{/* Over SSH form */}
+				{mode === "ssh" && (
+					<div className="rounded-lg border bg-card shadow-sm overflow-hidden">
+						<div className="px-4 pt-4 pb-3 flex flex-col gap-3">
+							{/* Target */}
+							<div className="flex flex-col gap-1">
+								<label className="text-xs font-medium">SSH target</label>
+								<div className="flex items-center gap-2 rounded-md border bg-muted px-3 py-2">
+									<input
+										className="flex-1 bg-transparent text-sm outline-none font-mono min-w-0"
+										placeholder="user@host:/abs/path"
+										value={sshTarget}
+										onChange={(e) => { setSshTarget(e.target.value); setSshError(null); }}
+										disabled={sshSubmitting}
+										autoComplete="off"
+										spellCheck={false}
+									/>
+								</div>
+								<p className="text-[11px] text-muted-foreground">The remote path must be absolute.</p>
+							</div>
+
+							{/* Port */}
+							<div className="flex flex-col gap-1">
+								<label className="text-xs font-medium">Port <span className="font-normal text-muted-foreground">(optional)</span></label>
+								<div className="flex items-center gap-2 rounded-md border bg-muted px-3 py-2">
+									<input
+										className="flex-1 bg-transparent text-sm outline-none min-w-0"
+										placeholder="22"
+										inputMode="numeric"
+										value={sshPort}
+										onChange={(e) => { setSshPort(e.target.value.replace(/[^0-9]/g, "")); setSshError(null); }}
+										disabled={sshSubmitting}
+									/>
+								</div>
+							</div>
+
+							{/* Auth method */}
+							<div className="flex flex-col gap-1">
+								<label className="text-xs font-medium">Authentication</label>
+								<div className="flex items-center self-start rounded-lg border bg-muted p-0.5 gap-0.5">
+									{(["agent", "keyfile", "password"] as const).map((m) => (
+										<Button
+											key={m}
+											variant={sshAuthMethod === m ? "default" : "ghost"}
+											size="sm"
+											className="h-7 px-3 text-xs"
+											onClick={() => { setSshAuthMethod(m); setSshError(null); }}
+											disabled={sshSubmitting}
+										>
+											{m === "agent" ? "SSH agent" : m === "keyfile" ? "Key file" : "Password"}
+										</Button>
+									))}
+								</div>
+								<p className="text-[11px] text-muted-foreground">
+									{sshAuthMethod === "agent"
+										? "Uses the server's ssh-agent and default keys (~/.ssh/id_*)."
+										: sshAuthMethod === "keyfile"
+											? "Uses a specific private key on the server."
+											: "Stored securely on the server and never shown again."}
+								</p>
+							</div>
+
+							{/* Key path */}
+							{sshAuthMethod === "keyfile" && (
+								<div className="flex flex-col gap-1">
+									<label className="text-xs font-medium">Private key path</label>
+									<div className="flex items-center gap-2 rounded-md border bg-muted px-3 py-2">
+										<Key className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+										<input
+											className="flex-1 bg-transparent text-sm outline-none font-mono min-w-0"
+											placeholder="~/.ssh/id_ed25519"
+											value={sshKeyPath}
+											onChange={(e) => { setSshKeyPath(e.target.value); setSshError(null); }}
+											disabled={sshSubmitting}
+											autoComplete="off"
+											spellCheck={false}
+										/>
+									</div>
+								</div>
+							)}
+
+							{/* Password */}
+							{sshAuthMethod === "password" && (
+								<div className="flex flex-col gap-1">
+									<label className="text-xs font-medium">Password</label>
+									<div className="flex items-center gap-2 rounded-md border bg-muted px-3 py-2">
+										<Key className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+										<input
+											type="password"
+											className="flex-1 bg-transparent text-sm outline-none min-w-0"
+											placeholder="SSH password"
+											value={sshPassword}
+											onChange={(e) => { setSshPassword(e.target.value); setSshError(null); }}
+											disabled={sshSubmitting}
+											autoComplete="off"
+										/>
+									</div>
+								</div>
+							)}
+
+							{/* Display name */}
+							<div className="flex flex-col gap-1">
+								<label className="text-xs font-medium">Display name <span className="font-normal text-muted-foreground">(optional)</span></label>
+								<div className="flex items-center gap-2 rounded-md border bg-muted px-3 py-2">
+									<input
+										className="flex-1 bg-transparent text-sm outline-none min-w-0"
+										placeholder="Defaults to host:path"
+										value={sshName}
+										onChange={(e) => { setSshName(e.target.value); setSshError(null); }}
+										disabled={sshSubmitting}
+									/>
+								</div>
+							</div>
+
+							{/* Read-only toggle */}
+							<label className="flex items-center gap-2 text-xs font-medium cursor-pointer select-none">
+								<input
+									type="checkbox"
+									checked={sshReadOnly}
+									onChange={(e) => setSshReadOnly(e.target.checked)}
+									disabled={sshSubmitting}
+								/>
+								Mount read-only
+							</label>
+
+							{sshError && (
+								<p className="text-sm text-destructive">{sshError}</p>
+							)}
+						</div>
+
+						<div className="border-t px-4 py-3 flex items-center justify-between gap-3 bg-muted">
+							<p className="text-[11px] text-muted-foreground">
+								Served live over SSH — nothing is copied to disk.
+							</p>
+							<Button
+								size="sm"
+								className="shrink-0 gap-1.5"
+								disabled={sshSubmitting}
+								onClick={handleSshSubmit}
+							>
+								{sshSubmitting ? (
+									<><Loader2 className="h-3.5 w-3.5 animate-spin" /> Mounting...</>
+								) : (
+									<><Server className="h-3.5 w-3.5" /> Mount and add</>
+								)}
+							</Button>
+						</div>
+					</div>
+				)}
 				{/* Main browser card */}
 				{mode === "local" && <div className="rounded-lg border bg-card shadow-sm overflow-hidden">
 					{/* Path input bar — always visible, reactive with browser */}

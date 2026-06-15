@@ -23,3 +23,4 @@ tsconfig.tsbuildinfo
 certificates
 TODO.md
 .handoffs/
+.pi/

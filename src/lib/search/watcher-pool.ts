@@ -9,6 +9,21 @@
  */
 import { watch, type FSWatcher } from "chokidar";
 import path from "node:path";
+import { mountsDir } from "@/lib/sshfs";
+
+/**
+ * sshfs/FUSE mounts do not deliver inotify events. Detect a mounted rootDir and
+ * fall back to polling so live watch still fires on remote-side changes.
+ */
+function isMountPath(rootDir: string): boolean {
+	const mounts = path.resolve(mountsDir());
+	const resolved = path.resolve(rootDir);
+	const rel = path.relative(mounts, resolved);
+	return (
+		resolved === mounts ||
+		(rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel))
+	);
+}
 
 export type WatchEvent = "add" | "unlink" | "addDir" | "unlinkDir" | "change";
 export type WatchListener = (ev: WatchEvent, relPath: string) => void;
@@ -33,10 +48,15 @@ export function subscribe(
 ): () => void {
 	let entry = pool.get(wsId);
 	if (!entry) {
+		const polling = isMountPath(rootDir);
 		const watcher = watch(rootDir, {
 			ignoreInitial: true,
 			ignored: /(node_modules|\.git|\.next|\.proof)/,
 			persistent: true,
+			// Remote sshfs mounts: poll (no inotify across FUSE).
+			usePolling: polling,
+			interval: polling ? 1500 : undefined,
+			binaryInterval: polling ? 3000 : undefined,
 			awaitWriteFinish: { stabilityThreshold: 150, pollInterval: 50 },
 		});
 		entry = { watcher, listeners: new Set(), rootDir };

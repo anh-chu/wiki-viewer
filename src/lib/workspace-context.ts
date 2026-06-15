@@ -14,6 +14,7 @@ import {
 	listWorkspaces,
 	userCanAccess,
 	migrateConfigToWorkspaces,
+	ensureWorkspaceMounted,
 	type Workspace,
 } from "@/lib/workspaces";
 
@@ -43,19 +44,28 @@ async function pickWorkspace(req: Request): Promise<Workspace | null> {
 	await migrateConfigToWorkspaces();
 	const url = new URL(req.url);
 	const wsId = url.searchParams.get("ws") ?? req.headers.get("x-workspace") ?? null;
+	let ws: Workspace | null;
 	if (wsId) {
-		return (await getWorkspace(wsId)) ?? null;
+		ws = (await getWorkspace(wsId)) ?? null;
+	} else {
+		const all = await listWorkspaces();
+		if (all.length === 0) {
+			ws = fallbackWorkspace();
+		} else {
+			ws = all
+				.slice()
+				.sort((a, b) => {
+					const ta = a.lastOpenedAt ? new Date(a.lastOpenedAt).getTime() : 0;
+					const tb = b.lastOpenedAt ? new Date(b.lastOpenedAt).getTime() : 0;
+					if (tb !== ta) return tb - ta;
+					return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+				})[0];
+		}
 	}
-	const all = await listWorkspaces();
-	if (all.length === 0) return fallbackWorkspace();
-	return all
-		.slice()
-		.sort((a, b) => {
-			const ta = a.lastOpenedAt ? new Date(a.lastOpenedAt).getTime() : 0;
-			const tb = b.lastOpenedAt ? new Date(b.lastOpenedAt).getTime() : 0;
-			if (tb !== ta) return tb - ta;
-			return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-		})[0];
+	// Lazy remount for sshfs-backed workspaces: handles server restart and
+	// stale-mount recovery uniformly, right before the request touches the fs.
+	if (ws?.ssh) await ensureWorkspaceMounted(ws);
+	return ws;
 }
 
 export interface WorkspaceContext {

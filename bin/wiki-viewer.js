@@ -26,13 +26,19 @@ function printUsage() {
   console.error("Usage: wiki-viewer [directory] [options]");
   console.error("       wiki-viewer <command> [args]");
   console.error("");
-  console.error("  directory            Directory to serve (optional — pick in browser if omitted)");
+  console.error("  directory            Directory to serve (optional — pick in browser if omitted).");
+  console.error("                       May also be an SSH target (user@host:/path) — mounted via");
+  console.error("                       sshfs and served live, no local clone.");
   console.error("");
   console.error("Options:");
   console.error("  -p, --port <port>   Port to listen on (default: 3000)");
   console.error("  -H, --host <host>   Host to bind to (default: localhost)");
   console.error("  --https             Enable HTTPS (self-signed cert, enables service workers)");
   console.error("  --no-auth           Run without authentication — no sign-in, no session check");
+  console.error("  --ssh-key <path>    Private key for the SSH target (default: ssh-agent / host keys)");
+  console.error("  --ssh-port <port>   SSH port for the target (default: 22)");
+  console.error("  --ssh-password      Prompt for an SSH password (or set WIKI_SSH_PASSWORD)");
+  console.error("  --ssh-readonly      Mount the SSH target read-only");
   console.error("  -v, --version       Print version");
   console.error("");
   console.error("  -e, --env <KEY=VALUE>  Set an app env var (repeatable; persisted with service install)");
@@ -55,6 +61,8 @@ function printUsage() {
   console.error("  wiki-viewer ~/notes");
   console.error("  wiki-viewer ~/notes --https");
   console.error("  wiki-viewer ~/notes -p 8080 -H 0.0.0.0");
+  console.error("  wiki-viewer me@server:/srv/docs");
+  console.error("  wiki-viewer me@server:/srv/docs --ssh-key ~/.ssh/id_ed25519 --ssh-readonly");
   console.error("  wiki-viewer service install ~/notes -H 0.0.0.0 -p 3003 --https");
   console.error("  wiki-viewer service install ~/notes --env GOOGLE_CLIENT_ID=... --env GOOGLE_CLIENT_SECRET=...");
   console.error("  wiki-viewer config set AUTH_ALLOWED_DOMAIN=example.com");
@@ -70,6 +78,10 @@ function parseServeArgs(args) {
   let userSpecifiedPort = false;
   let rootDir;
   let noAuth;
+  let sshKey;
+  let sshPort;
+  let sshPassword;
+  let sshReadOnly;
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -78,12 +90,151 @@ function parseServeArgs(args) {
     else if (a === "-e" || a === "--env") { i++; } // consumed by parseEnvFlags
     else if (a === "--https") useHttps = true;
     else if (a === "--no-auth") noAuth = true;
+    else if (a === "--ssh-key") sshKey = args[++i];
+    else if (a === "--ssh-port") sshPort = args[++i];
+    else if (a === "--ssh-password") sshPassword = true;
+    else if (a === "--ssh-readonly") sshReadOnly = true;
     else if (!a.startsWith("-") && rootDir === undefined) rootDir = a;
   }
 
-  return { rootDir, port, host, useHttps, userSpecifiedPort, noAuth: Boolean(noAuth) };
+  return { rootDir, port, host, useHttps, userSpecifiedPort, noAuth: Boolean(noAuth), sshKey, sshPort, sshPassword: Boolean(sshPassword), sshReadOnly: Boolean(sshReadOnly) };
 }
 
+// ── ssh (sshfs) targets ──────────────────────────────────────────────────────
+// Symmetry with the local-directory arg: `wiki-viewer user@host:/path` mounts a
+// remote directory over sshfs and serves it as ROOT_DIR — no local clone. The
+// mount is ephemeral (under ~/.wiki-viewer/mounts) and unmounted on exit. Auth:
+// ssh-agent/host keys by default, --ssh-key <path>, or --ssh-password.
+
+const mountsDir = path.join(configDir, "mounts");
+const FORBIDDEN_SSH = /[;|&$`<>(){}\n\r\0]/;
+let activeMount = null;
+
+function looksLikeSshTarget(s) {
+  if (!s || FORBIDDEN_SSH.test(s)) return false;
+  // [user@]host:/abs/path — host has no slash, remote path is absolute. An
+  // existing local path (e.g. a real dir literally named like this) wins.
+  return /^([\w.-]+@)?[\w.-]+:\/.+/.test(s) && !existsSync(s);
+}
+
+function parseSshTarget(s) {
+  if (!s || FORBIDDEN_SSH.test(s)) return null;
+  const colon = s.indexOf(":");
+  if (colon <= 0) return null;
+  const hostPart = s.slice(0, colon);
+  const remotePath = s.slice(colon + 1);
+  if (!remotePath.startsWith("/") || remotePath.includes("..")) return null;
+  let user;
+  let host = hostPart;
+  const at = hostPart.indexOf("@");
+  if (at >= 0) { user = hostPart.slice(0, at); host = hostPart.slice(at + 1); if (!user) return null; }
+  if (!host || !/^[a-zA-Z0-9.-]+$/.test(host)) return null;
+  if (user && !/^[a-zA-Z0-9._-]+$/.test(user)) return null;
+  return { user, host, remotePath };
+}
+
+// Mirror of src/lib/sshfs.ts buildSshfsArgs — kept in sync intentionally so the
+// bin stays dependency-light (no TS import at runtime).
+function buildSshfsArgs({ target, mountpoint, port, keyPath, password, readOnly }) {
+  const userPart = target.user ? `${target.user}@` : "";
+  const args = [`${userPart}${target.host}:${target.remotePath}`, mountpoint];
+  if (port && Number.isInteger(Number(port)) && Number(port) > 0 && Number(port) < 65536) {
+    args.push("-p", String(port));
+  }
+  const o = [
+    "reconnect", "ServerAliveInterval=15", "ServerAliveCountMax=3",
+    "compression=yes", "cache=yes", "kernel_cache",
+    "StrictHostKeyChecking=accept-new", "BatchMode=yes",
+  ];
+  if (readOnly) o.push("ro");
+  if (keyPath) { o.push(`IdentityFile=${keyPath}`, "IdentitiesOnly=yes"); }
+  if (password != null) {
+    const i = o.indexOf("BatchMode=yes"); if (i >= 0) o.splice(i, 1);
+    o.push("password_stdin", "PreferredAuthentications=password,keyboard-interactive", "PubkeyAuthentication=no", "NumberOfPasswordPrompts=1");
+  }
+  args.push("-o", o.join(","));
+  return args;
+}
+
+function isMountedSync(mp) {
+  try {
+    if (process.platform === "linux") {
+      const m = readFileSync("/proc/mounts", "utf8");
+      return m.split("\n").some((l) => { const p = l.split(" "); return p[1] === mp && /fuse/.test(p[2] || ""); });
+    }
+    const out = execFileSync("mount", [], { encoding: "utf8" });
+    return out.split("\n").some((l) => l.includes(` on ${mp} `));
+  } catch { return false; }
+}
+
+function unmountSync(mp) {
+  const tries = process.platform === "linux"
+    ? [["fusermount", ["-u", "-z", mp]], ["umount", [mp]]]
+    : [["umount", [mp]], ["diskutil", ["unmount", "force", mp]]];
+  for (const [bin, a] of tries) { try { execFileSync(bin, a, { stdio: "ignore" }); break; } catch { /* try next */ } }
+  try { rmSync(mp, { recursive: false, force: true }); } catch { /* best-effort */ }
+}
+
+function registerMountCleanup() {
+  const cleanup = () => { if (activeMount) { const mp = activeMount; activeMount = null; unmountSync(mp); } };
+  process.on("exit", cleanup);
+  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+    process.on(sig, () => { cleanup(); process.exit(0); });
+  }
+}
+
+async function mountSshTarget({ targetStr, port, keyPath, password, readOnly }) {
+  const target = parseSshTarget(targetStr);
+  if (!target) {
+    console.error(`Error: invalid SSH target '${targetStr}'. Use the form user@host:/abs/path.`);
+    process.exit(1);
+  }
+  try { execFileSync("sshfs", ["--version"], { stdio: "ignore" }); }
+  catch {
+    console.error("Error: sshfs not found. Install sshfs + FUSE (e.g. `apt install sshfs`, `brew install macfuse sshfs`).");
+    process.exit(1);
+  }
+
+  mkdirSync(mountsDir, { recursive: true });
+  const mp = path.join(mountsDir, `cli-${process.pid}`);
+  // Reuse-or-clear a stale mountpoint from a previous crashed run.
+  if (isMountedSync(mp)) unmountSync(mp);
+  mkdirSync(mp, { recursive: true });
+
+  const args = buildSshfsArgs({ target, mountpoint: mp, port, keyPath, password, readOnly });
+  registerMountCleanup();
+  await new Promise((resolve, reject) => {
+    const child = spawn("sshfs", args, { stdio: ["pipe", "ignore", "pipe"] });
+    let err = "";
+    const t = setTimeout(() => { child.kill("SIGKILL"); reject(new Error("sshfs mount timed out after 25s")); }, 25_000);
+    child.stderr.on("data", (d) => { err += d.toString(); });
+    child.on("error", (e) => { clearTimeout(t); reject(e); });
+    child.on("close", (code) => { clearTimeout(t); code === 0 ? resolve() : reject(new Error(err.trim() || `sshfs exited ${code}`)); });
+    if (password != null) child.stdin.write(password + "\n");
+    child.stdin.end();
+  }).catch((e) => {
+    console.error(`Error: sshfs mount failed: ${e.message}`);
+    try { unmountSync(mp); } catch { /* ignore */ }
+    process.exit(1);
+  });
+
+  if (!isMountedSync(mp)) {
+    console.error("Error: sshfs reported success but the mount is not live.");
+    unmountSync(mp);
+    process.exit(1);
+  }
+  activeMount = mp;
+  return mp;
+}
+
+// One-shot line prompt (echoes input). Used for --ssh-password when the
+// WIKI_SSH_PASSWORD env var is not set.
+async function promptLine(text) {
+  const io = makePrompter();
+  const ans = await io.prompt(text);
+  io.close();
+  return ans;
+}
 // ── config file ────────────────────────────────────────────────────────────
 
 function loadConfig() {
@@ -108,8 +259,11 @@ function saveConfig(cfg) {
 function resolveServeOptions(args) {
   const cli = parseServeArgs(args);
   const cfg = loadConfig();
+  const isSsh = cli.rootDir != null && looksLikeSshTarget(cli.rootDir);
   return {
-    rootDir: cli.rootDir ? path.resolve(cli.rootDir) : null,
+    rootDir: cli.rootDir && !isSsh ? path.resolve(cli.rootDir) : null,
+    sshTarget: isSsh ? cli.rootDir : null,
+    sshKey: cli.sshKey, sshPort: cli.sshPort, sshPassword: cli.sshPassword, sshReadOnly: cli.sshReadOnly,
     port: String(cli.port ?? "3000"),
     host: cli.host ?? "localhost",
     useHttps: Boolean(cli.useHttps),
@@ -133,8 +287,15 @@ function resolveRunOptions(args) {
   // A config-pinned port is explicit too (don't auto-bump to next free port).
   const userSpecifiedPort = cli.userSpecifiedPort || cfg.port != null;
 
+  const isSsh = rootDir != null && looksLikeSshTarget(rootDir);
   return {
-    rootDir: rootDir ? path.resolve(rootDir) : null,
+    rootDir: rootDir && !isSsh ? path.resolve(rootDir) : null,
+    sshTarget: isSsh ? rootDir : null,
+    // CLI flags win; otherwise fall back to persisted ssh settings (cfg.ssh).
+    sshKey: cli.sshKey ?? cfg.ssh?.key,
+    sshPort: cli.sshPort ?? cfg.ssh?.port,
+    sshPassword: cli.sshPassword,
+    sshReadOnly: cli.sshReadOnly || Boolean(cfg.ssh?.readOnly),
     port: String(port),
     host,
     useHttps: Boolean(useHttps),
@@ -279,13 +440,32 @@ function getNetworkAddress() {
 // ── start ──────────────────────────────────────────────────────────────────
 
 async function start(opts) {
-  const { rootDir: resolvedRoot, useHttps, configEnv = {} } = opts;
+  const { useHttps, configEnv = {} } = opts;
+  let resolvedRoot = opts.rootDir;
   let { port, host, userSpecifiedPort } = opts;
 
   if (!existsSync(serverJs)) {
     console.error("Error: pre-built server not found at", serverJs);
     console.error("This is a bug – please report it at https://github.com/anh-chu/wiki-viewer/issues");
     process.exit(1);
+  }
+
+  // SSH target: mount it over sshfs and serve the mount point as ROOT_DIR.
+  if (opts.sshTarget) {
+    let password = null;
+    if (opts.sshPassword) {
+      password = process.env.WIKI_SSH_PASSWORD
+        ?? await promptLine(`SSH password for ${opts.sshTarget}: `);
+    }
+    console.log(`🔗  Mounting ${opts.sshTarget} over SSH…`);
+    resolvedRoot = await mountSshTarget({
+      targetStr: opts.sshTarget,
+      port: opts.sshPort,
+      keyPath: opts.sshKey,
+      password,
+      readOnly: opts.sshReadOnly,
+    });
+    console.log(`   mounted at ${resolvedRoot}${opts.sshReadOnly ? " (read-only)" : ""}`);
   }
 
   if (resolvedRoot) {
@@ -433,13 +613,25 @@ function serviceInstall(args) {
   const envFlags = parseEnvFlags(args);
   const existing = loadConfig();
   const mergedEnv = { ...(existing.env ?? {}), ...envFlags };
+  const cliIsSsh = cli.rootDir != null && looksLikeSshTarget(cli.rootDir);
   const cfg = {
-    rootDir: cli.rootDir != null ? path.resolve(cli.rootDir) : existing.rootDir ?? null,
+    rootDir: cli.rootDir != null
+      ? (cliIsSsh ? cli.rootDir : path.resolve(cli.rootDir))
+      : existing.rootDir ?? null,
     host: cli.host ?? existing.host ?? "localhost",
     port: cli.port ?? existing.port ?? "3000",
     https: cli.useHttps ?? existing.https ?? false,
+    // Persist ssh options so `service run` can remount on boot. Password auth is
+    // intentionally NOT persisted — services run non-interactively, so use
+    // ssh-agent or --ssh-key for a reboot-persistent SSH workspace.
+    ...(cliIsSsh
+      ? { ssh: { ...(cli.sshKey ? { key: cli.sshKey } : {}), ...(cli.sshPort ? { port: cli.sshPort } : {}), ...(cli.sshReadOnly ? { readOnly: true } : {}) } }
+      : existing.ssh ? { ssh: existing.ssh } : {}),
     ...(Object.keys(mergedEnv).length ? { env: mergedEnv } : {}),
   };
+  if (cliIsSsh && cli.sshPassword) {
+    console.log("⚠️   --ssh-password is ignored for services (non-interactive). Use ssh-agent or --ssh-key.\n");
+  }
   saveConfig(cfg);
   console.log(`Saved config to ${configPath}`);
   console.log(`  dir:   ${cfg.rootDir ?? "(choose in browser)"}`);

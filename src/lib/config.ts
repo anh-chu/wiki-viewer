@@ -18,6 +18,25 @@ export interface WorkspaceGitEntry {
 	cloneRoot?: string;
 }
 
+/** SSH/sshfs mount metadata. Present only on sshfs-backed workspaces. */
+export interface WorkspaceSshEntry {
+	/** Full target as entered: [user@]host:/path. */
+	target: string;
+	host: string;
+	user?: string;
+	remotePath: string;
+	port?: number;
+	authMethod: "agent" | "keyfile" | "password";
+	/** Private key path (authMethod="keyfile"). */
+	keyPath?: string;
+	/** Secret-store ref for the password (authMethod="password"). */
+	secretRef?: string;
+	/** Absolute mount point: ~/.wiki-viewer/mounts/<id>. Equals rootDir. */
+	mountpoint: string;
+	lastMountedAt?: string;
+	lastError?: string;
+}
+
 export interface WorkspaceEntry {
 	id: string;
 	name: string;
@@ -29,6 +48,7 @@ export interface WorkspaceEntry {
 	allowedUserIds?: string[];
 	readOnly?: boolean;
 	git?: WorkspaceGitEntry;
+	ssh?: WorkspaceSshEntry;
 }
 
 export interface WikiViewerConfig {
