@@ -1611,36 +1611,21 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 		} as TreeNode);
 	}, [editorCurrentPath]);
 
-	// Persist the open file to the URL (?path=) so reloads restore it.
-	// replaceState avoids polluting history on every file switch.
-	useEffect(() => {
-		if (typeof window === "undefined") return;
-		const url = new URL(window.location.href);
-		if (openFile) url.searchParams.set("path", openFile.path);
-		else url.searchParams.delete("path");
-		window.history.replaceState(null, "", url.toString());
-	}, [openFile]);
-
-	// Restore the open file from the URL once the root tree is loaded.
+	// Open a file (or clear the viewer) from a workspace-relative path.
 	// Resolves node type from the parent dir listing (file vs app vs node-app).
-	// biome-ignore lint/correctness/useExhaustiveDependencies: openViewer is a hoisted stable fn; restore runs once
-	useEffect(() => {
-		if (didRestoreRef.current) return;
-		if (!rootLoaded) return;
-		const target = initialUrlPathRef.current;
-		if (!target) {
-			didRestoreRef.current = true;
-			return;
-		}
-		didRestoreRef.current = true;
-
-		void (async () => {
+	// biome-ignore lint/correctness/useExhaustiveDependencies: openViewer is a hoisted stable fn
+	const navigateToPath = useCallback(
+		async (target: string | null) => {
+			if (!target) {
+				setOpenFile(null);
+				return;
+			}
 			const parts = target.split("/");
 			const name = parts[parts.length - 1];
 			const parentDir = parts.slice(0, -1).join("/");
 			const siblings = await fetchDir(parentDir);
 			const match = siblings.find((s) => s.path === target);
-			if (!match) return; // file no longer exists; leave home view
+			if (!match) return; // file no longer exists; leave current view
 			await revealPath(target);
 			void openViewer({
 				path: target,
@@ -1648,8 +1633,42 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 				type: match.type,
 				modifiedAt: match.modifiedAt,
 			} as TreeNode);
-		})();
-	}, [rootLoaded, revealPath]);
+		},
+		[revealPath],
+	);
+
+	// Persist the open file to the URL (?path=) so reloads restore it and the
+	// browser back/forward buttons can move between files. pushState creates a
+	// history entry per switch; the guard skips no-op writes (e.g. popstate-driven
+	// openFile changes where the URL already matches), avoiding duplicate entries.
+	useEffect(() => {
+		if (typeof window === "undefined") return;
+		const url = new URL(window.location.href);
+		if (openFile) url.searchParams.set("path", openFile.path);
+		else url.searchParams.delete("path");
+		const next = url.toString();
+		if (next === window.location.href) return;
+		window.history.pushState(null, "", next);
+	}, [openFile]);
+
+	// React to browser back/forward: open the file named in the new URL.
+	useEffect(() => {
+		if (typeof window === "undefined") return;
+		const onPop = () => {
+			const p = new URLSearchParams(window.location.search).get("path");
+			void navigateToPath(p);
+		};
+		window.addEventListener("popstate", onPop);
+		return () => window.removeEventListener("popstate", onPop);
+	}, [navigateToPath]);
+
+	// Restore the open file from the URL once the root tree is loaded.
+	useEffect(() => {
+		if (didRestoreRef.current) return;
+		if (!rootLoaded) return;
+		didRestoreRef.current = true;
+		void navigateToPath(initialUrlPathRef.current);
+	}, [rootLoaded, navigateToPath]);
 
 	const switchWorkspace = useCallback(async (id: string) => {
 		if (id === activeWorkspaceId) return;
