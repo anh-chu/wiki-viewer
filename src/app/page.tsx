@@ -2015,7 +2015,14 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 		e.preventDefault();
 		e.stopPropagation();
 		const dragging = dragNodeRef.current;
-		if (!dragging) return;
+		if (!dragging) {
+			// External OS file drag: allow copy-upload into this folder.
+			if (Array.from(e.dataTransfer.types).includes("Files")) {
+				e.dataTransfer.dropEffect = "copy";
+				setDragOverPath(targetType === "root" ? "" : targetPath);
+			}
+			return;
+		}
 		if (
 			dragging.path === targetPath ||
 			targetPath.startsWith(`${dragging.path}/`)
@@ -2031,7 +2038,12 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 		setDragOverPath(null);
 		const node = dragNodeRef.current;
 		dragNodeRef.current = null;
-		if (!node) return;
+		if (!node) {
+			// External OS file drop: upload into the target folder.
+			if (e.dataTransfer.files.length > 0)
+				await doUpload(e.dataTransfer.files, targetDirPath);
+			return;
+		}
 		if (
 			node.path === targetDirPath ||
 			targetDirPath.startsWith(`${node.path}/`)
