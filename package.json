@@ -1,6 +1,6 @@
 {
   "name": "wiki-viewer",
-  "version": "1.14.0",
+  "version": "1.14.1",
   "description": "Local file viewer and wiki — view markdown, HTML, PDFs, notebooks, office docs, and more from any directory",
   "license": "MIT",
   "type": "module",
@@ -19,6 +19,7 @@
     "wiki": "node bin/wiki-viewer.js",
     "postbuild": "node bin/postbuild.js",
     "prepublishOnly": "npm run build",
+    "prepack": "node -e \"require('fs').existsSync('.next/standalone/server.js')||(console.error('ERROR: .next/standalone/server.js missing, run pnpm build before publishing'),process.exit(1))\"",
     "test": "tsx --import ./src/tests/proof/preload.ts --test src/tests/proof/*.test.ts"
   },
   "engines": {
