@@ -59,7 +59,8 @@ async function uploadFile(
 			return null;
 		}
 		const data = await res.json();
-		return data.url;
+		// withWs so the live <img>/<a> request resolves to the active workspace.
+		return data.url ? withWs(data.url) : data.url;
 	} catch {
 		showError(`Upload failed: ${file.name}`);
 		return null;
@@ -479,7 +480,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 			for (let i = 0; i < count; i++) {
 				const el = children[i];
 				const snap = snapBlocks[i];
-				const curMd = el ? htmlToMarkdown(el.outerHTML).trim() : null;
+				const curMd = el ? htmlToMarkdown(el.outerHTML, path).trim() : null;
 
 				if (snap && curMd !== null) {
 					if (normalizeMd(curMd) !== normalizeMd(snap.markdown)) {
@@ -589,7 +590,10 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 				suggestDirtyRef.current = true;
 			}
 			const html = editor.getHTML();
-			const md = htmlToMarkdown(html);
+			const md = htmlToMarkdown(
+				html,
+				useEditorStore.getState().currentPath ?? undefined,
+			);
 			useEditorStore.getState().updateContent(md);
 		},
 		[],

@@ -8,6 +8,7 @@ import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 import { detectEmbed } from "@/lib/embeds/detect";
 import { previewSanitizeSchema } from "@/lib/markdown/sanitize-schema";
+import { withWs } from "@/lib/workspace-client";
 
 // Canonical wiki-link regex (llm-wiki-pm ground truth).
 // Groups: 1=slug  2=alias  3=anchor
@@ -103,26 +104,40 @@ function upgradeProviderVideos(html: string): string {
 }
 
 /**
- * Rewrite relative URLs (./file.pdf, ./image.png) to /api/assets/{pagePath}/file
- * and convert PDF links to inline embedded viewers.
+ * Rewrite relative URLs (./file.pdf, ../image.png) to /api/assets/{dir}/file
+ * where {dir} is the page's directory (dirname of pagePath), and convert PDF
+ * links to inline embedded viewers.
  * Applies to href, src, and data-src attributes (the last is used by embed blocks).
  */
 function resolveRelativeUrls(html: string, pagePath: string): string {
-	const dirPath = pagePath;
+	// Base directory is the page's parent dir, not the page file itself.
+	const slash = pagePath.lastIndexOf("/");
+	const dirPath = slash === -1 ? "" : pagePath.slice(0, slash);
+
+	const toAbs = (file: string): string => {
+		const parts = (dirPath ? dirPath.split("/") : []).concat(file.split("/"));
+		const out: string[] = [];
+		for (const seg of parts) {
+			if (seg === "" || seg === ".") continue;
+			if (seg === "..") out.pop();
+			else out.push(seg);
+		}
+		return `/api/assets/${out.join("/")}`;
+	};
 
 	html = html.replace(
-		/href="\.\/([^"]+)"/g,
-		(_match, file: string) => `href="/api/assets/${dirPath}/${file}"`,
+		/href="(\.\.?\/[^"]+)"/g,
+		(_match, file: string) => `href="${toAbs(file)}"`,
 	);
 
 	html = html.replace(
-		/src="\.\/([^"]+)"/g,
-		(_match, file: string) => `src="/api/assets/${dirPath}/${file}"`,
+		/src="(\.\.?\/[^"]+)"/g,
+		(_match, file: string) => `src="${toAbs(file)}"`,
 	);
 
 	html = html.replace(
-		/data-src="\.\/([^"]+)"/g,
-		(_match, file: string) => `data-src="/api/assets/${dirPath}/${file}"`,
+		/data-src="(\.\.?\/[^"]+)"/g,
+		(_match, file: string) => `data-src="${toAbs(file)}"`,
 	);
 
 	// Mark PDF links with a data attribute so the editor can handle them
@@ -255,6 +270,14 @@ export async function renderMarkdownUncached(
 	if (opts.pagePath) {
 		html = resolveRelativeUrls(html, opts.pagePath);
 	}
+
+	// Workspace-scope every /api/assets URL so the browser <img>/<a> request
+	// (which carries no X-Workspace header) resolves to the right workspace.
+	// No-op on the server/worker (no window) and for URLs already carrying ?ws=.
+	html = html.replace(
+		/(src|href|data-src)="(\/api\/assets\/[^"]*)"/g,
+		(_m, attr: string, url: string) => `${attr}="${withWs(url)}"`,
+	);
 
 	// Sanitize last, after all string post-processing, so no injected
 	// content escapes the sanitizer.

@@ -3,7 +3,7 @@
 import { Clipboard, Link as LinkIcon, Upload } from "lucide-react";
 import { useRef, useState } from "react";
 import { cn } from "@/lib/utils";
-import { wsFetch } from "@/lib/workspace-client";
+import { withWs, wsFetch } from "@/lib/workspace-client";
 
 export type MediaKind = "image" | "video" | "file";
 
@@ -28,7 +28,7 @@ async function uploadFile(
 		});
 		if (!res.ok) return null;
 		const data = await res.json();
-		return { url: data.url, filename: data.filename };
+		return { url: withWs(data.url), filename: data.filename };
 	} catch {
 		return null;
 	}

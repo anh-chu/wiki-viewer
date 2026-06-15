@@ -247,6 +247,51 @@ turndown.addRule("alignedBlock", {
 	},
 });
 
-export function htmlToMarkdown(html: string): string {
-	return turndown.turndown(html);
+/**
+ * Convert an absolute asset URL (/api/assets/<workspace-path>) into a path
+ * relative to the page's directory, so saved markdown stays portable.
+ */
+function relativizeAsset(url: string, pagePath: string): string {
+	const m = url.match(/^\/api\/assets\/(.+)$/);
+	if (!m) return url;
+	// Drop any query/hash (e.g. ?ws=<id> injected for display) before relativizing.
+	const clean = m[1].replace(/[?#].*$/, "");
+	const to = clean.split("/").map((s) => {
+		try {
+			return decodeURIComponent(s);
+		} catch {
+			return s;
+		}
+	});
+	const slash = pagePath.lastIndexOf("/");
+	const from = slash === -1 ? [] : pagePath.slice(0, slash).split("/");
+	let i = 0;
+	while (i < from.length && i < to.length && from[i] === to[i]) i++;
+	const rel = from
+		.slice(i)
+		.map(() => "..")
+		.concat(to.slice(i))
+		.join("/");
+	if (!rel) return "./";
+	return rel.startsWith(".") ? rel : `./${rel}`;
+}
+
+function relativizeAssetsInMarkdown(md: string, pagePath: string): string {
+	if (!pagePath) return md;
+	// Markdown links/images: ](/api/assets/...)
+	md = md.replace(
+		/\]\((\/api\/assets\/[^)\s]+)\)/g,
+		(_m, url: string) => `](${relativizeAsset(url, pagePath)})`,
+	);
+	// Raw HTML src/href attributes (sized images, embeds, links).
+	md = md.replace(
+		/(src|href)="(\/api\/assets\/[^"]+)"/g,
+		(_m, attr: string, url: string) => `${attr}="${relativizeAsset(url, pagePath)}"`,
+	);
+	return md;
+}
+
+export function htmlToMarkdown(html: string, pagePath?: string): string {
+	const md = turndown.turndown(html);
+	return pagePath ? relativizeAssetsInMarkdown(md, pagePath) : md;
 }

@@ -40,9 +40,12 @@ export async function POST(
 	const { path: segments } = await params;
 	const subPath = (segments ?? []).join("/");
 
-	// Save images in _uploads/ within rootDir, mirroring the page path
-	const uploadsDir = path.join(rootDir, "_uploads", subPath);
-	const resolved = safeWorkspacePath(rootDir, path.join("_uploads", subPath));
+	// Co-locate uploads in an `assets/` subfolder next to the page so the stored
+	// markdown path is portable: docs/notes.md -> docs/assets/<file> -> ./assets/<file>
+	const pageDir = path.posix.dirname(subPath);
+	const baseRel = pageDir && pageDir !== "." ? `${pageDir}/assets` : "assets";
+	const uploadsDir = path.join(rootDir, baseRel);
+	const resolved = safeWorkspacePath(rootDir, baseRel);
 	if (!resolved)
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
 
@@ -68,7 +71,7 @@ export async function POST(
 		const bytes = Buffer.from(await file.arrayBuffer());
 		await writeFile(targetPath, bytes);
 
-		const relParts = ["_uploads", subPath, finalName].filter(Boolean);
+		const relParts = baseRel.split("/").concat(finalName).filter(Boolean);
 		const relUrl = relParts.map(encodeURIComponent).join("/");
 		const relPath = relParts.join("/");
 		return NextResponse.json({
