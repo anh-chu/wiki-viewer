@@ -120,16 +120,24 @@ export function getScripts(absPath: string): { scripts: string[]; defaultScript:
 	};
 }
 
-function detectCmd(dir: string, pm: PM, script?: string): Cmd | null {
+function detectCmd(dir: string, pm: PM, port: number, script?: string): Cmd | null {
 	const pkg = readPkg(dir);
 	if (!pkg) return null;
 
 	const scripts = pkg.scripts ?? {};
 	const hasVite = hasViteDep(pkg);
 
-	const run = (s: string, extraArgs: string[] = []): Cmd => ({
+	// `--port <n>` is the dominant convention for local dev/preview servers
+	// (vite, next, and most ad-hoc `node server.mjs --port` scripts). We inject
+	// it for every app — combined with the PORT/VITE_PORT env vars set at spawn,
+	// this covers both arg-driven and env-driven servers. Apps that don't accept
+	// the flag almost always ignore unknown argv harmlessly.
+	const portArgs = ["--port", String(port)];
+
+	// For a package-manager `run`, args after `--` are forwarded to the script.
+	const run = (s: string): Cmd => ({
 		bin: pm,
-		args: ["run", s, ...(extraArgs.length ? ["--", ...extraArgs] : [])],
+		args: ["run", s, "--", ...portArgs],
 		isVite: hasVite,
 	});
 
@@ -138,7 +146,7 @@ function detectCmd(dir: string, pm: PM, script?: string): Cmd | null {
 
 	const def = defaultScript(dir, scripts);
 	if (def) return run(def);
-	if (pkg.main) return { bin: "node", args: [pkg.main], isVite: false };
+	if (pkg.main) return { bin: "node", args: [pkg.main, ...portArgs], isVite: false };
 	return null;
 }
 
@@ -184,7 +192,7 @@ export async function startApp(relPath: string, absPath: string, script?: string
 
 	const port = await findFreePort();
 	const pm = detectPM(absPath);
-	const cmd = detectCmd(absPath, pm, script);
+	const cmd = detectCmd(absPath, pm, port, script);
 	if (!cmd) throw new Error("No runnable script found in package.json (need start, preview, or dev)");
 
 	const entry: RunningApp = { port, process: null, status: "installing", logs: [] };
@@ -210,8 +218,8 @@ export async function startApp(relPath: string, absPath: string, script?: string
 	entry.status = "starting";
 	pushLog(`[wiki-viewer] Starting on port ${port}: ${cmd.bin} ${cmd.args.join(" ")}`);
 
-	const portArgs = cmd.isVite ? ["--port", String(port)] : [];
-	const child = spawn(cmd.bin, [...cmd.args, ...portArgs], {
+	// Port is already baked into cmd.args by detectCmd.
+	const child = spawn(cmd.bin, cmd.args, {
 		cwd: absPath,
 		stdio: "pipe",
 		env: {
