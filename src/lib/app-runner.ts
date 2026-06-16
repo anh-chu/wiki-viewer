@@ -146,9 +146,23 @@ function needsInstall(dir: string): boolean {
 	return !existsSync(path.join(dir, "node_modules"));
 }
 
+/**
+ * PATH guaranteed to contain the package-manager shims (npm/pnpm/yarn/npx),
+ * which live in the same bin dir as the running node executable. Makes
+ * `spawn("npm")` work regardless of how the server was launched (systemd unit,
+ * detached daemon, fnm/nvm shell) — fixes "spawn npm ENOENT".
+ */
+function spawnPath(): string {
+	const nodeBin = path.dirname(process.execPath);
+	const existing = process.env.PATH ?? "";
+	return existing.split(path.delimiter).includes(nodeBin)
+		? existing
+		: `${nodeBin}${path.delimiter}${existing}`;
+}
+
 function runInstall(dir: string, pm: PM): Promise<void> {
 	return new Promise((resolve, reject) => {
-		const child = spawn(pm, ["install"], { cwd: dir, stdio: "pipe" });
+		const child = spawn(pm, ["install"], { cwd: dir, stdio: "pipe", env: { ...process.env, PATH: spawnPath() } });
 		child.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`${pm} install failed (exit ${code})`))));
 		child.on("error", reject);
 	});
@@ -202,6 +216,7 @@ export async function startApp(relPath: string, absPath: string, script?: string
 		stdio: "pipe",
 		env: {
 			...process.env,
+			PATH: spawnPath(),
 			PORT: String(port),
 			VITE_PORT: String(port),
 		},
