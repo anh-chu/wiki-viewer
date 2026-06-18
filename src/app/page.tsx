@@ -396,6 +396,100 @@ interface FileTreeProps {
 // memo (below), large trees stay cheap on both the React and browser sides.
 const ROW_CV: React.CSSProperties = { contentVisibility: "auto", containIntrinsicSize: "auto 32px" };
 
+// Shared right-click menu body for any file/dir row (tree, pinned, recent).
+function FileContextMenuItems({
+	node,
+	ctx,
+	isPinned,
+	activeWorkspaceId,
+}: {
+	node: TreeNode;
+	ctx: TreeCtx;
+	isPinned: boolean;
+	activeWorkspaceId: string | null;
+}) {
+	return (
+		<ContextMenuContent className="w-48">
+			<ContextMenuItem onSelect={() => ctx.copyPath(node.path)}>
+				<Copy className="mr-2 h-3.5 w-3.5" />
+				Copy path
+			</ContextMenuItem>
+			{isMarkdown(node.name) && (
+				<ContextMenuItem onSelect={() => ctx.copyWikiLink(node.name)}>
+					<FileText className="mr-2 h-3.5 w-3.5" />
+					Copy wiki link
+				</ContextMenuItem>
+			)}
+			<ContextMenuItem onSelect={() => ctx.copyUrl(node.path)}>
+				<Link className="mr-2 h-3.5 w-3.5" />
+				Copy URL
+			</ContextMenuItem>
+			{node.type === "file" && isText(node.name) && (
+				<>
+					<ContextMenuItem onSelect={() => ctx.copyRawContent(node.path)}>
+						<FileText className="mr-2 h-3.5 w-3.5" />
+						Copy raw content
+					</ContextMenuItem>
+					<ContextMenuItem onSelect={() => ctx.copyFormattedContent(node.path, node.name)}>
+						<FileText className="mr-2 h-3.5 w-3.5" />
+						Copy formatted content
+					</ContextMenuItem>
+				</>
+			)}
+			<ContextMenuSeparator />
+			{node.type === "dir" && (
+				<>
+					<ContextMenuItem
+						onSelect={() => {
+							if (!node.expanded) ctx.toggleFolder(node);
+							ctx.setNewFileParent(node.path);
+							ctx.setNewFileName("");
+							ctx.setFileCreateError(null);
+						}}
+					>
+						<FilePlus className="mr-2 h-3.5 w-3.5" />
+						New file here
+					</ContextMenuItem>
+					<ContextMenuItem onSelect={() => ctx.triggerUpload(node.path)}>
+						<Upload className="mr-2 h-3.5 w-3.5" />
+						Upload here
+					</ContextMenuItem>
+					<ContextMenuItem
+						onSelect={() => {
+							ctx.setNewFolderParent(node.path);
+							ctx.setNewFolderName("");
+							ctx.setFolderError(null);
+						}}
+					>
+						<FolderPlus className="mr-2 h-3.5 w-3.5" />
+						New subfolder
+					</ContextMenuItem>
+					<ContextMenuSeparator />
+				</>
+			)}
+			<ContextMenuItem onSelect={() => ctx.handleDownload(node)}>
+				<Download className="mr-2 h-3.5 w-3.5" />
+				{node.type === "file" ? "Download" : "Download as zip"}
+			</ContextMenuItem>
+			<ContextMenuItem onSelect={() => ctx.togglePin(node, activeWorkspaceId)}>
+				<Star className={cn("mr-2 h-3.5 w-3.5", isPinned && "fill-current text-amber-400")} />
+				{isPinned ? "Unpin" : "Pin to top"}
+			</ContextMenuItem>
+			<ContextMenuSeparator />
+			<ContextMenuItem
+				className="text-destructive focus:text-destructive"
+				onSelect={() => {
+					ctx.setDeletingPath(node.path);
+					ctx.setDeletingIsDir(node.type !== "file");
+				}}
+			>
+				<Trash2 className="mr-2 h-3.5 w-3.5" />
+				Delete
+			</ContextMenuItem>
+		</ContextMenuContent>
+	);
+}
+
 interface TreeRowViewProps {
 	node: TreeNode;
 	depth: number;
@@ -713,84 +807,12 @@ const TreeRowView = memo(function TreeRowView({
 					</div>
 				</div>
 			</ContextMenuTrigger>
-			<ContextMenuContent className="w-48">
-				<ContextMenuItem onSelect={() => ctx.copyPath(node.path)}>
-					<Copy className="mr-2 h-3.5 w-3.5" />
-					Copy path
-				</ContextMenuItem>
-				{isMarkdown(node.name) && (
-					<ContextMenuItem onSelect={() => ctx.copyWikiLink(node.name)}>
-						<FileText className="mr-2 h-3.5 w-3.5" />
-						Copy wiki link
-					</ContextMenuItem>
-				)}
-				<ContextMenuItem onSelect={() => ctx.copyUrl(node.path)}>
-					<Link className="mr-2 h-3.5 w-3.5" />
-					Copy URL
-				</ContextMenuItem>
-				{node.type === "file" && isText(node.name) && (
-					<>
-						<ContextMenuItem onSelect={() => ctx.copyRawContent(node.path)}>
-							<FileText className="mr-2 h-3.5 w-3.5" />
-							Copy raw content
-						</ContextMenuItem>
-						<ContextMenuItem onSelect={() => ctx.copyFormattedContent(node.path, node.name)}>
-							<FileText className="mr-2 h-3.5 w-3.5" />
-							Copy formatted content
-						</ContextMenuItem>
-					</>
-				)}
-				<ContextMenuSeparator />
-				{node.type === "dir" && (
-					<>
-						<ContextMenuItem
-							onSelect={() => {
-								if (!node.expanded) ctx.toggleFolder(node);
-								ctx.setNewFileParent(node.path);
-								ctx.setNewFileName("");
-								ctx.setFileCreateError(null);
-							}}
-						>
-							<FilePlus className="mr-2 h-3.5 w-3.5" />
-							New file here
-						</ContextMenuItem>
-						<ContextMenuItem onSelect={() => ctx.triggerUpload(node.path)}>
-							<Upload className="mr-2 h-3.5 w-3.5" />
-							Upload here
-						</ContextMenuItem>
-						<ContextMenuItem
-							onSelect={() => {
-								ctx.setNewFolderParent(node.path);
-								ctx.setNewFolderName("");
-								ctx.setFolderError(null);
-							}}
-						>
-							<FolderPlus className="mr-2 h-3.5 w-3.5" />
-							New subfolder
-						</ContextMenuItem>
-						<ContextMenuSeparator />
-					</>
-				)}
-				<ContextMenuItem onSelect={() => ctx.handleDownload(node)}>
-					<Download className="mr-2 h-3.5 w-3.5" />
-					{node.type === "file" ? "Download" : "Download as zip"}
-				</ContextMenuItem>
-				<ContextMenuItem onSelect={() => ctx.togglePin(node, activeWorkspaceId)}>
-					<Star className={cn("mr-2 h-3.5 w-3.5", isPinned && "fill-current text-amber-400")} />
-					{isPinned ? "Unpin" : "Pin to top"}
-				</ContextMenuItem>
-				<ContextMenuSeparator />
-				<ContextMenuItem
-					className="text-destructive focus:text-destructive"
-					onSelect={() => {
-						ctx.setDeletingPath(node.path);
-						ctx.setDeletingIsDir(node.type !== "file");
-					}}
-				>
-					<Trash2 className="mr-2 h-3.5 w-3.5" />
-					Delete
-				</ContextMenuItem>
-			</ContextMenuContent>
+			<FileContextMenuItems
+				node={node}
+				ctx={ctx}
+				isPinned={isPinned}
+				activeWorkspaceId={activeWorkspaceId}
+			/>
 		</ContextMenu>
 	);
 });
@@ -2581,8 +2603,9 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 									<span className="ml-auto text-[9px] tabular-nums opacity-60">{pins.length}</span>
 								</button>
 								{!pinnedCollapsed && pins.map((p) => (
+									<ContextMenu key={p.path}>
+										<ContextMenuTrigger asChild>
 									<div
-										key={p.path}
 										role="button"
 										tabIndex={0}
 										className={cn(
@@ -2609,6 +2632,14 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 											<X className="h-3 w-3" />
 										</button>
 									</div>
+										</ContextMenuTrigger>
+										<FileContextMenuItems
+											node={{ path: p.path, name: p.name, type: (p.type ?? "file") as TreeNode["type"] } as TreeNode}
+											ctx={treeCtx}
+											isPinned={true}
+											activeWorkspaceId={activeWorkspaceId}
+										/>
+									</ContextMenu>
 								))}
 							</div>
 						)}
@@ -2625,8 +2656,9 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 									<span className="ml-auto text-[9px] tabular-nums opacity-60">{recents.length}</span>
 								</button>
 								{!recentCollapsed && recents.slice(0, 8).map((r) => (
+									<ContextMenu key={r.path}>
+										<ContextMenuTrigger asChild>
 									<div
-										key={r.path}
 										role="button"
 										tabIndex={0}
 										className={cn(
@@ -2640,6 +2672,14 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 										<span className="flex-1 truncate text-xs">{r.name}</span>
 										<span className="text-[10px] text-muted-foreground/60 truncate max-w-[80px]">{r.path.split("/").slice(0, -1).join("/")}</span>
 									</div>
+										</ContextMenuTrigger>
+										<FileContextMenuItems
+											node={{ path: r.path, name: r.name, type: (r.type ?? "file") as TreeNode["type"] } as TreeNode}
+											ctx={treeCtx}
+											isPinned={pins.some((pin) => pin.path === r.path)}
+											activeWorkspaceId={activeWorkspaceId}
+										/>
+									</ContextMenu>
 								))}
 							</div>
 						)}
