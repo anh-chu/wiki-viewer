@@ -74,6 +74,7 @@ import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
+	DropdownMenuLabel,
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -106,13 +107,16 @@ import {
 	useViewWidthStore,
 	VIEW_WIDTH_CLASS,
 	VIEW_ALIGN_CLASS,
+	VIEW_WIDTH_LABEL,
+	VIEW_WIDTH_ORDER,
+	VIEW_ALIGN_LABEL,
+	VIEW_ALIGN_ORDER,
 } from "@/stores/view-width-store";
 import {
 	useSidebarWidthStore,
 	SIDEBAR_MIN_WIDTH,
 	SIDEBAR_MAX_WIDTH,
 } from "@/stores/sidebar-width-store";
-import { ViewWidthToggle } from "@/components/view-width-toggle";
 import { useWikiSlugsStore } from "@/stores/wiki-slugs-store";
 import { useShowHiddenStore } from "@/stores/show-hidden-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
@@ -2063,7 +2067,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 		}
 	}
 
-	function renderCopyMenu(node: { path: string; name: string }) {
+	function renderCopyMenu(node: { path: string; name: string }, extraItems?: React.ReactNode) {
 		return (
 			<DropdownMenu>
 				<DropdownMenuTrigger asChild>
@@ -2071,14 +2075,13 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 						size="sm"
 						variant="ghost"
 						className="h-7 gap-1.5 px-2 text-xs"
-						title="Copy path, wiki link, or URL"
+						title="File actions"
 					>
-						<Copy className="h-3.5 w-3.5" />
-						Copy
-						<ChevronDown className="h-3 w-3 opacity-60" />
+						<MoreHorizontal className="h-3.5 w-3.5" />
+						More
 					</Button>
 				</DropdownMenuTrigger>
-				<DropdownMenuContent align="end" className="w-44">
+				<DropdownMenuContent align="end" className="w-52">
 					<DropdownMenuItem onClick={() => copyPath(node.path)}>
 						<Copy className="mr-2 h-3.5 w-3.5" />
 						Copy path
@@ -2105,6 +2108,12 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 								<FileText className="mr-2 h-3.5 w-3.5" />
 								Copy formatted content
 							</DropdownMenuItem>
+						</>
+					)}
+					{extraItems && (
+						<>
+							<DropdownMenuSeparator />
+							{extraItems}
 						</>
 					)}
 				</DropdownMenuContent>
@@ -2218,6 +2227,8 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 
 	const viewWidth = useViewWidthStore((s) => s.width);
 	const viewAlign = useViewWidthStore((s) => s.align);
+	const setViewWidth = useViewWidthStore((s) => s.setWidth);
+	const setViewAlign = useViewWidthStore((s) => s.setAlign);
 	// Width toggle only meaningful for text-flow viewers (long prose lines).
 	const widthAwareViewer =
 		openFileViewerKind === null ||
@@ -3051,7 +3062,24 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 											</span>
 										</div>
 										<div className="flex items-center gap-1 shrink-0">
-											{renderCopyMenu(openFile)}
+											{renderCopyMenu(openFile, (
+												<>
+													{openFileViewerKind === "html" && !editing && (
+														<DropdownMenuItem onClick={() => setHtmlSourceMode((v) => !v)}>
+															{htmlSourceMode ? <Globe className="mr-2 h-3.5 w-3.5" /> : <Code2 className="mr-2 h-3.5 w-3.5" />}
+															{htmlSourceMode ? "Show preview" : "Show source"}
+														</DropdownMenuItem>
+													)}
+													<DropdownMenuItem onClick={() => setAppKey((k) => k + 1)}>
+														<RefreshCw className="mr-2 h-3.5 w-3.5" />
+														Refresh
+													</DropdownMenuItem>
+													<DropdownMenuItem onClick={() => setAppFullscreen(true)}>
+														<Maximize2 className="mr-2 h-3.5 w-3.5" />
+														Open fullscreen
+													</DropdownMenuItem>
+												</>
+											))}
 											{openFileViewerKind === "html" &&
 												!editing &&
 												fileContent !== null && (
@@ -3069,36 +3097,6 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 														<Pencil className="h-3.5 w-3.5" />
 													</Button>
 											)}
-											{openFileViewerKind === "html" && !editing && (
-												<Button
-													size="sm"
-													variant="ghost"
-													className="h-7 gap-1.5 text-xs"
-													title={htmlSourceMode ? "Show rendered page" : "Show source (with comments)"}
-													onClick={() => setHtmlSourceMode((v) => !v)}
-												>
-													{htmlSourceMode ? <Globe className="h-3.5 w-3.5" /> : <Code2 className="h-3.5 w-3.5" />}
-													{htmlSourceMode ? "Preview" : "Source"}
-												</Button>
-											)}
-											<Button
-												size="sm"
-												variant="ghost"
-												className="h-7 w-7 p-0"
-												title="Refresh"
-												onClick={() => setAppKey((k) => k + 1)}
-											>
-												<RefreshCw className="h-3.5 w-3.5" />
-											</Button>
-											<Button
-												size="sm"
-												variant="ghost"
-												className="h-7 gap-1.5 text-xs"
-												onClick={() => setAppFullscreen(true)}
-											>
-												<Maximize2 className="h-3.5 w-3.5" />
-												Open fullscreen
-											</Button>
 											<Button
 												size="sm"
 												variant="ghost"
@@ -3190,25 +3188,44 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 									)}
 								</div>
 								<div className="flex items-center gap-1 shrink-0">
-									{renderCopyMenu(openFile)}
-									<Button
-										size="sm"
-										variant="ghost"
-										className="h-7 w-7 p-0"
-										title="File history"
-										onClick={() => { if (showHistory) setShowHistory(false); else void loadHistory(); }}
-									>
-										<History className="h-3.5 w-3.5" />
-									</Button>
-									<Button
-										size="sm"
-										variant="ghost"
-										className="h-7 w-7 p-0"
-										title="Share"
-										onClick={() => setShareDialogOpen(true)}
-									>
-										<Share className="h-3.5 w-3.5" />
-									</Button>
+									{renderCopyMenu(openFile, (
+										<>
+											<DropdownMenuItem onClick={() => { if (showHistory) setShowHistory(false); else void loadHistory(); }}>
+												<History className="mr-2 h-3.5 w-3.5" />
+												{showHistory ? "Hide history" : "File history"}
+											</DropdownMenuItem>
+											<DropdownMenuItem onClick={() => setShareDialogOpen(true)}>
+												<Share className="mr-2 h-3.5 w-3.5" />
+												Share
+											</DropdownMenuItem>
+											{!editing && (
+												<DropdownMenuItem onClick={handleRefresh} disabled={fileLoading}>
+													{fileLoading ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-2 h-3.5 w-3.5" />}
+													Refresh
+												</DropdownMenuItem>
+											)}
+											{widthAwareViewer && (
+												<>
+													<DropdownMenuSeparator />
+													<DropdownMenuLabel className="text-[11px] text-muted-foreground">Width</DropdownMenuLabel>
+													{VIEW_WIDTH_ORDER.map((w) => (
+														<DropdownMenuItem key={w} onClick={() => setViewWidth(w)} className="flex items-center justify-between text-xs">
+															{VIEW_WIDTH_LABEL[w]}
+															{w === viewWidth && <Check className="h-3.5 w-3.5" />}
+														</DropdownMenuItem>
+													))}
+													<DropdownMenuSeparator />
+													<DropdownMenuLabel className="text-[11px] text-muted-foreground">Alignment</DropdownMenuLabel>
+													{VIEW_ALIGN_ORDER.map((a) => (
+														<DropdownMenuItem key={a} onClick={() => setViewAlign(a)} className="flex items-center justify-between text-xs">
+															{VIEW_ALIGN_LABEL[a]}
+															{a === viewAlign && <Check className="h-3.5 w-3.5" />}
+														</DropdownMenuItem>
+													))}
+												</>
+											)}
+										</>
+									))}
 									{isText(openFile.name) &&
 										!editing &&
 										(fileContent !== null || isMarkdown(openFile.name)) && (
@@ -3246,23 +3263,6 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 												<Eye className="h-3.5 w-3.5" />
 											</Button>
 										)}
-									{!editing && (
-											<Button
-												size="sm"
-												variant="ghost"
-												className="h-7 w-7 p-0"
-												title="Refresh"
-												onClick={handleRefresh}
-												disabled={fileLoading}
-											>
-												{fileLoading ? (
-													<Loader2 className="h-3.5 w-3.5 animate-spin" />
-												) : (
-													<RefreshCw className="h-3.5 w-3.5" />
-												)}
-											</Button>
-										)}
-									{widthAwareViewer && <ViewWidthToggle />}
 									<Button
 										size="sm"
 										variant="ghost"
