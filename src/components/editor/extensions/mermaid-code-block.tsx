@@ -93,7 +93,7 @@ function MermaidCodeBlockView(props: NodeViewProps) {
 					className="mermaid-preview rounded-md border border-border bg-card"
 					contentEditable={false}
 				>
-					<MermaidCanvas svg={svg} className="h-[400px] w-full" />
+					<MermaidCanvas svg={svg} className="w-full" maxHeight={600} />
 				</div>
 			)}
 			{editing && error && (

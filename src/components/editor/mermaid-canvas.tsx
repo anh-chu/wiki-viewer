@@ -19,45 +19,42 @@ interface StageProps {
 	svg: string;
 	className?: string;
 	allowPlainWheel?: boolean;
+	// When set, the viewport height tracks the diagram's natural height,
+	// capped at this many px. Past the cap, pan/zoom takes over.
+	maxHeight?: number;
 	onExpand?: () => void;
 	onClose?: () => void;
 }
 
-function Stage({ svg, className, allowPlainWheel, onExpand, onClose }: StageProps) {
+function Stage({
+	svg,
+	className,
+	allowPlainWheel,
+	maxHeight,
+	onExpand,
+	onClose,
+}: StageProps) {
 	const [zoom, setZoom] = useState(1);
 	const [pan, setPan] = useState({ x: 0, y: 0 });
 	const [isPanning, setIsPanning] = useState(false);
+	const [height, setHeight] = useState<number | undefined>(maxHeight);
 	const panStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
-	const viewportRef = useRef<HTMLDivElement>(null);
 	const contentRef = useRef<HTMLDivElement>(null);
-	const fitRef = useRef(1);
 
-	// Scale the diagram to fully fit the viewport on render (never upscale past 1x),
-	// so nothing is clipped in the default view. Reset returns to this fit.
+	// Size the block to the diagram's rendered height (width-fit), capped at maxHeight.
 	useLayoutEffect(() => {
-		const vp = viewportRef.current;
+		if (maxHeight == null) return;
 		const svgEl = contentRef.current?.querySelector("svg");
-		if (!vp || !svgEl) return;
-		const vb = svgEl.viewBox?.baseVal;
-		const rect = svgEl.getBoundingClientRect();
-		const natW = vb?.width || rect.width;
-		const natH = vb?.height || rect.height;
-		if (!natW || !natH) return;
-		const pad = 32; // p-4 on the content wrapper
-		const fit = Math.min(
-			1,
-			(vp.clientWidth - pad) / natW,
-			(vp.clientHeight - pad) / natH,
-		);
-		fitRef.current = fit > 0 ? fit : 1;
-		setZoom(fitRef.current);
-		setPan({ x: 0, y: 0 });
-	}, [svg]);
+		if (!svgEl) return;
+		const h = svgEl.getBoundingClientRect().height;
+		if (!h) return;
+		setHeight(Math.min(Math.round(h) + 32, maxHeight)); // +32 for p-4
+	}, [svg, maxHeight]);
 
 	const zoomIn = () => setZoom((z) => Math.min(z + ZOOM_STEP, ZOOM_MAX));
 	const zoomOut = () => setZoom((z) => Math.max(z - ZOOM_STEP, ZOOM_MIN));
 	const reset = () => {
-		setZoom(fitRef.current);
+		setZoom(1);
 		setPan({ x: 0, y: 0 });
 	};
 
@@ -101,9 +98,11 @@ function Stage({ svg, className, allowPlainWheel, onExpand, onClose }: StageProp
 
 	return (
 		<div
-			ref={viewportRef}
 			className={`relative overflow-hidden ${className ?? ""}`}
-			style={{ cursor: isPanning ? "grabbing" : "grab" }}
+			style={{
+				cursor: isPanning ? "grabbing" : "grab",
+				height: maxHeight != null ? height : undefined,
+			}}
 			onWheel={handleWheel}
 			onPointerDown={handlePointerDown}
 			onPointerMove={handlePointerMove}
@@ -111,7 +110,7 @@ function Stage({ svg, className, allowPlainWheel, onExpand, onClose }: StageProp
 		>
 			<div
 				ref={contentRef}
-				className="flex items-center justify-center w-full h-full min-h-full p-4 [&_svg]:!max-w-none origin-center select-none"
+				className="flex items-center justify-center w-full h-full min-h-full p-4 [&_svg]:max-w-full origin-center select-none"
 				style={{
 					transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
 				}}
@@ -151,7 +150,15 @@ function Stage({ svg, className, allowPlainWheel, onExpand, onClose }: StageProp
 	);
 }
 
-export function MermaidCanvas({ svg, className }: { svg: string; className?: string }) {
+export function MermaidCanvas({
+	svg,
+	className,
+	maxHeight,
+}: {
+	svg: string;
+	className?: string;
+	maxHeight?: number;
+}) {
 	const [fullscreen, setFullscreen] = useState(false);
 	useEffect(() => {
 		if (!fullscreen) return;
@@ -161,7 +168,12 @@ export function MermaidCanvas({ svg, className }: { svg: string; className?: str
 	}, [fullscreen]);
 	return (
 		<>
-			<Stage svg={svg} className={className} onExpand={() => setFullscreen(true)} />
+			<Stage
+				svg={svg}
+				className={className}
+				maxHeight={maxHeight}
+				onExpand={() => setFullscreen(true)}
+			/>
 			{fullscreen &&
 				typeof document !== "undefined" &&
 				createPortal(
