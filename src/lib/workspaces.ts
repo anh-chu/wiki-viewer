@@ -18,6 +18,8 @@ import {
 	pullRepo,
 	headSha,
 	currentBranch,
+	gitRemoteBranches,
+	gitSwitchBranch,
 } from "./git";
 import { genTokenRef, setToken, getToken, deleteToken } from "./git-secrets";
 import {
@@ -415,6 +417,48 @@ export async function refreshGitWorkspace(
 	}));
 
 	return { lastSha: sha, lastPulledAt: now };
+}
+
+/** List remote branch names for a git-backed workspace. */
+export async function listGitWorkspaceBranches(id: string): Promise<string[]> {
+	const ws = await getWorkspace(id);
+	if (!ws?.git) throw new Error(`Workspace ${id} is not a git-backed workspace`);
+	const token = ws.git.tokenRef ? await getToken(ws.git.tokenRef) ?? undefined : undefined;
+	const repoDir = ws.git.cloneRoot ?? ws.rootDir;
+	return gitRemoteBranches(repoDir, { token, username: ws.git.username });
+}
+
+/** Switch a git-backed workspace to `branch` (fetches it if not local). */
+export async function switchGitWorkspaceBranch(
+	id: string,
+	branch: string,
+): Promise<{ branch: string; lastSha: string }> {
+	const ws = await getWorkspace(id);
+	if (!ws?.git) throw new Error(`Workspace ${id} is not a git-backed workspace`);
+	const token = ws.git.tokenRef ? await getToken(ws.git.tokenRef) ?? undefined : undefined;
+	const repoDir = ws.git.cloneRoot ?? ws.rootDir;
+
+	let result: { branch: string; sha: string };
+	try {
+		result = await gitSwitchBranch(repoDir, branch, { token, username: ws.git.username });
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
+		await mutateWorkspace(id, (w) => ({
+			...w,
+			git: w.git ? { ...w.git, lastError: msg } : w.git,
+		}));
+		throw err;
+	}
+
+	const now = new Date().toISOString();
+	await mutateWorkspace(id, (w) => ({
+		...w,
+		git: w.git
+			? { ...w.git, branch: result.branch, lastSha: result.sha, lastPulledAt: now, lastError: undefined }
+			: w.git,
+	}));
+
+	return { branch: result.branch, lastSha: result.sha };
 }
 
 function mutateWorkspace(

@@ -46,7 +46,6 @@ import {
 	X,
 } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { CsvViewer } from "@/components/editor/csv-viewer";
@@ -77,6 +76,7 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { BranchDropdown } from "@/components/wiki/branch-dropdown";
 import { getActiveWorkspaceId, withWs, wsFetch } from "@/lib/workspace-client";
 import { markdownToHtml } from "@/lib/markdown/to-html";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -550,6 +550,7 @@ const TreeRowView = memo(function TreeRowView({
 					{node.git && (
 						<span className="relative flex shrink-0 items-center gap-0.5 rounded-sm bg-muted px-1 py-0.5 text-[10px] text-muted-foreground">
 							<button
+								data-branch-trigger
 								type="button"
 								className="flex items-center gap-0.5 hover:text-foreground"
 								title="Switch branch"
@@ -584,48 +585,21 @@ const TreeRowView = memo(function TreeRowView({
 									<RefreshCw className="h-2.5 w-2.5" />
 								</button>
 							)}
-							{/* Branch dropdown rendered as portal to escape overflow-hidden */}
-							{branchOpen && branchPos && typeof document !== "undefined" && createPortal(
-								<div
-									style={{ position: "fixed", top: branchPos.top, left: branchPos.left }}
-									className="z-[9999] min-w-[120px] rounded-md border bg-popover p-1 shadow-md"
-									onKeyDown={(e) => { if (e.key === "Escape") { ctx.setBranchDropdownNode(null); ctx.setBranchDropdownPos(null); } }}
-									onClick={(e) => e.stopPropagation()}
-								>
-									{branchLoading ? (
-										<div className="flex justify-center py-2">
-											<Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-										</div>
-									) : branches.length === 0 ? (
-										<p className="px-2 py-1 text-[10px] text-muted-foreground">No branches</p>
-									) : (
-										branches.map((b) => {
-											const parentDir = node.path.includes("/")
-												? node.path.substring(0, node.path.lastIndexOf("/"))
-												: "";
-											return (
-												<button
-													key={b.name}
-													type="button"
-													disabled={checkingOut !== null || b.current}
-													className={cn(
-														"flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[11px] hover:bg-muted",
-														b.current && "font-semibold text-foreground",
-														!b.current && "text-muted-foreground",
-													)}
-													onClick={(e) => {
-														e.stopPropagation();
-														if (!b.current) ctx.handleCheckout(node.path, b.name, parentDir);
-													}}
-												>
-													{b.current ? <Check className="h-3 w-3 shrink-0" /> : <span className="w-3 shrink-0" />}
-													{checkingOut === b.name ? <Loader2 className="h-3 w-3 animate-spin" /> : b.name}
-												</button>
-											);
-										})
-									)}
-								</div>,
-								document.body,
+							{branchOpen && branchPos && (
+								<BranchDropdown
+									pos={branchPos}
+									branches={branches}
+									loading={branchLoading}
+									busyName={checkingOut}
+									disabled={checkingOut !== null}
+									onPick={(name) => {
+										const parentDir = node.path.includes("/")
+											? node.path.substring(0, node.path.lastIndexOf("/"))
+											: "";
+										ctx.handleCheckout(node.path, name, parentDir);
+									}}
+									onClose={() => { ctx.setBranchDropdownNode(null); ctx.setBranchDropdownPos(null); }}
+								/>
 							)}
 						</span>
 					)}
@@ -956,6 +930,11 @@ export default function Page() {
 	const [addingWorkspace, setAddingWorkspace] = useState(false);
 	const [deletingWorkspaceId, setDeletingWorkspaceId] = useState<string | null>(null);
 	const [refreshingWsId, setRefreshingWsId] = useState<string | null>(null);
+	const [wsBranches, setWsBranches] = useState<Record<string, string[]>>({});
+	const [switchingBranch, setSwitchingBranch] = useState<string | null>(null);
+	const [switchingBranchName, setSwitchingBranchName] = useState<string | null>(null);
+	const [branchPickerWsId, setBranchPickerWsId] = useState<string | null>(null);
+	const [wsBranchPos, setWsBranchPos] = useState<{ top: number; left: number } | null>(null);
 
 	const loadWorkspaces = useCallback(async () => {
 		try {
@@ -1349,19 +1328,6 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 		} catch { showError("Checkout failed"); }
 		finally { setCheckingOutBranch(null); }
 	}, [checkingOutBranch, reloadDir]);
-
-	// Close branch dropdown on outside click or Escape
-	useEffect(() => {
-		if (!branchDropdownNode) return;
-		const handleClick = () => { setBranchDropdownNode(null); setBranchDropdownPos(null); };
-		const handleKey = (e: KeyboardEvent) => { if (e.key === "Escape") { setBranchDropdownNode(null); setBranchDropdownPos(null); } };
-		document.addEventListener("click", handleClick);
-		document.addEventListener("keydown", handleKey);
-		return () => {
-			document.removeEventListener("click", handleClick);
-			document.removeEventListener("keydown", handleKey);
-		};
-	}, [branchDropdownNode]);
 
 	const collectExpandedPaths = useCallback((nodes: TreeNode[]): string[] => {
 		const paths: string[] = [];
@@ -1769,6 +1735,43 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 			setRefreshingWsId(null);
 		}
 	}, [refreshingWsId, loadWorkspaces]);
+
+	const loadWsBranches = useCallback(async (id: string) => {
+		if (wsBranches[id]) return;
+		try {
+			const res = await fetch(`/api/system/workspaces/${id}/branch`);
+			if (!res.ok) return;
+			const d: { branches?: string[] } = await res.json();
+			setWsBranches((prev) => ({ ...prev, [id]: d.branches ?? [] }));
+		} catch { /* ignore */ }
+	}, [wsBranches]);
+
+	const handleSwitchBranch = useCallback(async (id: string, branch: string) => {
+		if (switchingBranch) return;
+		setSwitchingBranch(id);
+		setSwitchingBranchName(branch);
+		try {
+			const res = await fetch(`/api/system/workspaces/${id}/branch`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ branch }),
+			});
+			if (!res.ok) {
+				const e: { error?: string } = await res.json();
+				showError(e.error ?? "Branch switch failed");
+				return;
+			}
+			showSuccess(`Switched to ${branch}`);
+			setBranchPickerWsId(null);
+			setWsBranchPos(null);
+			await loadWorkspaces();
+		} catch {
+			showError("Branch switch failed");
+		} finally {
+			setSwitchingBranch(null);
+			setSwitchingBranchName(null);
+		}
+	}, [switchingBranch, loadWorkspaces]);
 
 	async function handleSave() {
 		if (!openFile) return;
@@ -2636,7 +2639,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 						)}
 					</div>
 					<div className="border-t px-2 py-2 bg-muted shrink-0">
-						<DropdownMenu>
+						<DropdownMenu modal={false} onOpenChange={(o) => { if (!o) { setBranchPickerWsId(null); setWsBranchPos(null); } }}>
 							<DropdownMenuTrigger asChild>
 								<Button
 									size="sm"
@@ -2655,11 +2658,13 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 									<ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-60" />
 								</Button>
 							</DropdownMenuTrigger>
-							<DropdownMenuContent align="start" className="w-60">
+							<DropdownMenuContent align="start" className="w-[var(--radix-dropdown-menu-trigger-width)]" onInteractOutside={(e) => { if ((e.target as HTMLElement | null)?.closest?.("[data-branch-portal]")) e.preventDefault(); }}>
 								{workspaces.map((w) => (
 									<DropdownMenuItem
 										key={w.id}
 										onClick={() => void switchWorkspace(w.id)}
+										onPointerMove={(e) => e.preventDefault()}
+										onPointerLeave={(e) => e.preventDefault()}
 										className={cn("gap-2", w.id === activeWorkspaceId && "font-medium")}
 									>
 										{w.id === activeWorkspaceId ? (
@@ -2670,16 +2675,42 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 										<span className="flex flex-col min-w-0 flex-1">
 											<span className="flex items-center gap-1.5 truncate">
 												<span className="truncate">{w.name}</span>
-												{w.readOnly && (
+												{w.git ? (
+													isWsAdmin ? (
+								<button
+									data-branch-trigger
+									type="button"
+															className="inline-flex items-center gap-0.5 rounded bg-muted px-1.5 text-[10px] text-muted-foreground font-normal shrink-0 hover:bg-accent"
+															title="Switch branch"
+															disabled={switchingBranch === w.id}
+																					onClick={(e) => {
+																						e.stopPropagation();
+																						e.preventDefault();
+																						if (branchPickerWsId === w.id) { setBranchPickerWsId(null); setWsBranchPos(null); return; }
+																					const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+																					setWsBranchPos({ top: rect.bottom + 4, left: rect.left });
+																					setBranchPickerWsId(w.id);
+																					void loadWsBranches(w.id);
+																				}}
+														>
+															<GitBranch className="h-2.5 w-2.5" /> {w.git.branch ?? "branch"}
+														</button>
+													) : (
+														<span className="inline-flex items-center gap-0.5 rounded bg-muted px-1.5 text-[10px] text-muted-foreground font-normal shrink-0">
+															<GitBranch className="h-2.5 w-2.5" /> {w.git.branch ?? "read-only"}
+														</span>
+													)
+												) : w.readOnly ? (
 													<span className="inline-flex items-center gap-0.5 rounded bg-muted px-1.5 text-[10px] text-muted-foreground font-normal shrink-0">
 														<GitBranch className="h-2.5 w-2.5" /> read-only
 													</span>
-												)}
+												) : null}
 											</span>
 											<span className="truncate text-[10px] text-muted-foreground font-mono">{w.rootDir}</span>
 											{w.git?.lastPulledAt && timeAgo(w.git.lastPulledAt) && (
 												<span className="text-[10px] text-muted-foreground/70">synced {timeAgo(w.git.lastPulledAt)}</span>
 											)}
+											{/* branch picker rendered standalone below, outside the menu's focus scope */}
 										</span>
 										{isWsAdmin && w.git && (
 											<button
@@ -2723,6 +2754,22 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 								)}
 							</DropdownMenuContent>
 						</DropdownMenu>
+						{(() => {
+							if (!branchPickerWsId || !wsBranchPos) return null;
+							const w = workspaces.find((x) => x.id === branchPickerWsId);
+							if (!w) return null;
+							return (
+								<BranchDropdown
+									pos={wsBranchPos}
+									branches={(wsBranches[w.id] ?? []).map((b) => ({ name: b, current: b === w.git?.branch }))}
+									loading={!wsBranches[w.id]}
+									busyName={switchingBranch === w.id ? switchingBranchName : null}
+									disabled={switchingBranch === w.id}
+									onPick={(name) => { void handleSwitchBranch(w.id, name); }}
+									onClose={() => { setBranchPickerWsId(null); setWsBranchPos(null); }}
+								/>
+							);
+						})()}
 					</div>
 					{/* Resize handle */}
 					<div

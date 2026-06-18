@@ -442,6 +442,70 @@ export async function gitCheckout(
 }
 
 /**
+ * List branch names on the remote (`git ls-remote --heads`). Works on shallow
+ * single-branch clones where local refs only cover the checked-out branch.
+ */
+export async function gitRemoteBranches(
+	repoDir: string,
+	auth: { token?: string; username?: string } = {},
+): Promise<string[]> {
+	const args = ["-C", repoDir, "ls-remote", "--heads", "origin"];
+	let askpassPath: string | undefined;
+	try {
+		let stdout: string;
+		if (auth.token) {
+			const a = await buildAuthEnv(auth.token);
+			askpassPath = a.askpassPath;
+			({ stdout } = await execFile("git", args, { env: a.env }));
+		} else {
+			({ stdout } = await execFile("git", args, {
+				env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+			}));
+		}
+		return stdout
+			.split("\n")
+			.map((l) => l.replace(/^.*\trefs\/heads\//, "").trim())
+			.filter(Boolean);
+	} finally {
+		if (askpassPath) removeAskpassScript(askpassPath);
+	}
+}
+
+/**
+ * Switch a (possibly shallow single-branch) clone to `branch`: fetch it, hard
+ * checkout, and wire up tracking so later `git pull --ff-only` works.
+ * Throws with `.invalidBranch = true` for bad names.
+ */
+export async function gitSwitchBranch(
+	repoDir: string,
+	branch: string,
+	auth: { token?: string; username?: string } = {},
+): Promise<{ branch: string; sha: string }> {
+	if (!isValidBranchName(branch)) {
+		const err = new Error("Invalid branch name") as Error & { invalidBranch?: boolean };
+		err.invalidBranch = true;
+		throw err;
+	}
+	let askpassPath: string | undefined;
+	try {
+		let env: NodeJS.ProcessEnv = { ...process.env, GIT_TERMINAL_PROMPT: "0" };
+		if (auth.token) {
+			const a = await buildAuthEnv(auth.token);
+			askpassPath = a.askpassPath;
+			env = a.env;
+		}
+		await execFile("git", ["-C", repoDir, "fetch", "--depth", "1", "origin", branch], { env });
+		await execFile("git", ["-C", repoDir, "checkout", "-B", branch, "FETCH_HEAD"]);
+		await execFile("git", ["-C", repoDir, "config", `branch.${branch}.remote`, "origin"]);
+		await execFile("git", ["-C", repoDir, "config", `branch.${branch}.merge`, `refs/heads/${branch}`]);
+	} finally {
+		if (askpassPath) removeAskpassScript(askpassPath);
+	}
+	const [sha, br] = await Promise.all([headSha(repoDir), currentBranch(repoDir)]);
+	return { sha, branch: br };
+}
+
+/**
  * Walk up from `relFilePath` inside `rootDir`, looking for a git repo root.
  * Returns `{ repoDir, relFromRepo }` for the nearest enclosing repo, or null.
  */

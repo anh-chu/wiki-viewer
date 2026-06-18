@@ -13,6 +13,8 @@ import {
 	assertGitAvailable,
 	gitBranches,
 	gitCheckout,
+	gitRemoteBranches,
+	gitSwitchBranch,
 } from "../../lib/git.js";
 
 const gitEnv = {
@@ -132,5 +134,43 @@ describe("gitCheckout", () => {
 			const { rm: rmFile } = await import("node:fs/promises");
 			await rmFile(path.join(repoDir, "untracked.txt"));
 		}
+	});
+});
+
+// ---------------------------------------------------------------------------
+// gitSwitchBranch / gitRemoteBranches (shallow single-branch clone)
+// ---------------------------------------------------------------------------
+
+describe("gitSwitchBranch", () => {
+	test("lists remote branches and switches to a non-local branch", async () => {
+		if (!gitOk) return;
+		const origin = path.join(tempRoot, "origin");
+		const clone = path.join(tempRoot, "clone");
+		await mkdir(origin, { recursive: true });
+		execFileSync("git", ["init"], { cwd: origin, env: gitEnv });
+		execFileSync("git", ["config", "user.email", "t@e"], { cwd: origin, env: gitEnv });
+		execFileSync("git", ["config", "user.name", "T"], { cwd: origin, env: gitEnv });
+		await writeFile(path.join(origin, "f"), "main\n");
+		execFileSync("git", ["add", "."], { cwd: origin, env: gitEnv });
+		execFileSync("git", ["commit", "-m", "main"], { cwd: origin, env: gitEnv });
+		execFileSync("git", ["branch", "-M", "main"], { cwd: origin, env: gitEnv });
+		execFileSync("git", ["checkout", "-b", "feat"], { cwd: origin, env: gitEnv });
+		await writeFile(path.join(origin, "f"), "feat\n");
+		execFileSync("git", ["commit", "-am", "feat"], { cwd: origin, env: gitEnv });
+		execFileSync("git", ["checkout", "main"], { cwd: origin, env: gitEnv });
+
+		execFileSync("git", ["clone", "--depth", "1", "--single-branch", "--no-tags",
+			`file://${origin}`, clone], { env: gitEnv });
+
+		const remote = await gitRemoteBranches(clone);
+		assert.ok(remote.includes("feat") && remote.includes("main"),
+			`expected feat+main, got ${JSON.stringify(remote)}`);
+
+		// feat is not present locally in a single-branch clone; switch must fetch it.
+		const res = await gitSwitchBranch(clone, "feat");
+		assert.equal(res.branch, "feat");
+		assert.match(res.sha, /^[0-9a-f]{40}$/);
+		const { readFile } = await import("node:fs/promises");
+		assert.equal((await readFile(path.join(clone, "f"), "utf8")).trim(), "feat");
 	});
 });
