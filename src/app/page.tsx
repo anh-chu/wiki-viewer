@@ -15,6 +15,7 @@ import {
 	FolderOpen,
 	FolderPlus,
 	GitBranch,
+	Server,
 	GitMerge,
 	Code2,
 	Globe,
@@ -2760,6 +2761,10 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 															<GitBranch className="h-2.5 w-2.5" /> {w.git.branch ?? "read-only"}
 														</span>
 													)
+												) : w.ssh ? (
+													<span className="inline-flex items-center gap-0.5 rounded bg-muted px-1.5 text-[10px] text-muted-foreground font-normal shrink-0">
+														<Server className="h-2.5 w-2.5" /> {w.ssh.host}
+													</span>
 												) : w.readOnly ? (
 													<span className="inline-flex items-center gap-0.5 rounded bg-muted px-1.5 text-[10px] text-muted-foreground font-normal shrink-0">
 														<GitBranch className="h-2.5 w-2.5" /> read-only
