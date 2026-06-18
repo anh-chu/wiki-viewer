@@ -712,30 +712,83 @@ const TreeRowView = memo(function TreeRowView({
 					</div>
 				</div>
 			</ContextMenuTrigger>
-			<ContextMenuContent>
+			<ContextMenuContent className="w-48">
 				<ContextMenuItem onSelect={() => ctx.copyPath(node.path)}>
+					<Copy className="mr-2 h-3.5 w-3.5" />
 					Copy path
 				</ContextMenuItem>
 				{isMarkdown(node.name) && (
 					<ContextMenuItem onSelect={() => ctx.copyWikiLink(node.name)}>
+						<FileText className="mr-2 h-3.5 w-3.5" />
 						Copy wiki link
 					</ContextMenuItem>
 				)}
-				<ContextMenuSeparator />
 				<ContextMenuItem onSelect={() => ctx.copyUrl(node.path)}>
+					<Link className="mr-2 h-3.5 w-3.5" />
 					Copy URL
 				</ContextMenuItem>
 				{node.type === "file" && isText(node.name) && (
 					<>
-						<ContextMenuSeparator />
 						<ContextMenuItem onSelect={() => ctx.copyRawContent(node.path)}>
+							<FileText className="mr-2 h-3.5 w-3.5" />
 							Copy raw content
 						</ContextMenuItem>
 						<ContextMenuItem onSelect={() => ctx.copyFormattedContent(node.path, node.name)}>
+							<FileText className="mr-2 h-3.5 w-3.5" />
 							Copy formatted content
 						</ContextMenuItem>
 					</>
 				)}
+				<ContextMenuSeparator />
+				{node.type === "dir" && (
+					<>
+						<ContextMenuItem
+							onSelect={() => {
+								if (!node.expanded) ctx.toggleFolder(node);
+								ctx.setNewFileParent(node.path);
+								ctx.setNewFileName("");
+								ctx.setFileCreateError(null);
+							}}
+						>
+							<FilePlus className="mr-2 h-3.5 w-3.5" />
+							New file here
+						</ContextMenuItem>
+						<ContextMenuItem onSelect={() => ctx.triggerUpload(node.path)}>
+							<Upload className="mr-2 h-3.5 w-3.5" />
+							Upload here
+						</ContextMenuItem>
+						<ContextMenuItem
+							onSelect={() => {
+								ctx.setNewFolderParent(node.path);
+								ctx.setNewFolderName("");
+								ctx.setFolderError(null);
+							}}
+						>
+							<FolderPlus className="mr-2 h-3.5 w-3.5" />
+							New subfolder
+						</ContextMenuItem>
+						<ContextMenuSeparator />
+					</>
+				)}
+				<ContextMenuItem onSelect={() => ctx.handleDownload(node)}>
+					<Download className="mr-2 h-3.5 w-3.5" />
+					{node.type === "file" ? "Download" : "Download as zip"}
+				</ContextMenuItem>
+				<ContextMenuItem onSelect={() => ctx.togglePin(node, activeWorkspaceId)}>
+					<Star className={cn("mr-2 h-3.5 w-3.5", isPinned && "fill-current text-amber-400")} />
+					{isPinned ? "Unpin" : "Pin to top"}
+				</ContextMenuItem>
+				<ContextMenuSeparator />
+				<ContextMenuItem
+					className="text-destructive focus:text-destructive"
+					onSelect={() => {
+						ctx.setDeletingPath(node.path);
+						ctx.setDeletingIsDir(node.type !== "file");
+					}}
+				>
+					<Trash2 className="mr-2 h-3.5 w-3.5" />
+					Delete
+				</ContextMenuItem>
 			</ContextMenuContent>
 		</ContextMenu>
 	);
