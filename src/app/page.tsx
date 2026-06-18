@@ -40,7 +40,6 @@ import {
 	Slash,
 	SortAsc,
 	Sparkles,
-	Star,
 	Terminal,
 	Trash2,
 	Upload,
@@ -472,7 +471,7 @@ function FileContextMenuItems({
 				{node.type === "file" ? "Download" : "Download as zip"}
 			</ContextMenuItem>
 			<ContextMenuItem onSelect={() => ctx.togglePin(node, activeWorkspaceId)}>
-				<Star className={cn("mr-2 h-3.5 w-3.5", isPinned && "fill-current text-amber-400")} />
+				<Pin className={cn("mr-2 h-3.5 w-3.5", isPinned && "fill-current text-amber-400")} />
 				{isPinned ? "Unpin" : "Pin to top"}
 			</ContextMenuItem>
 			<ContextMenuSeparator />
@@ -799,7 +798,7 @@ const TreeRowView = memo(function TreeRowView({
 								<DropdownMenuItem
 									onClick={() => ctx.togglePin(node, activeWorkspaceId)}
 								>
-									<Star className={cn("mr-2 h-3.5 w-3.5", isPinned && "fill-current text-amber-400")} />
+									<Pin className={cn("mr-2 h-3.5 w-3.5", isPinned && "fill-current text-amber-400")} />
 									{isPinned ? "Unpin" : "Pin to top"}
 								</DropdownMenuItem>
 								<DropdownMenuSeparator />
