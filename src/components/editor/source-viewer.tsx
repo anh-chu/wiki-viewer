@@ -144,7 +144,6 @@ export function SourceViewer({ path }: SourceViewerProps) {
 	const [linePositions, setLinePositions] = useState<
 		Map<number, { top: number; left: number; width: number; bottom: number }>
 	>(new Map());
-	const [selectionAnchor, setSelectionAnchor] = useState<ThreadTarget | null>(null);
 	const [threadTarget, setThreadTarget] = useState<ThreadTarget | null>(null);
 	const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -183,7 +182,6 @@ export function SourceViewer({ path }: SourceViewerProps) {
 		void useProofStore.getState().loadSidecar(path);
 		setVisibleCount(RENDER_CHUNK);
 		setThreadTarget(null);
-		setSelectionAnchor(null);
 	}, [fetchContent, path]);
 
 	const lineCount = useMemo(() => lines.length, [lines]);
@@ -223,7 +221,7 @@ export function SourceViewer({ path }: SourceViewerProps) {
 		}
 		const container = containerRef.current;
 		const containerRect = container.getBoundingClientRect();
-		const rows = Array.from(container.querySelectorAll("tr[data-line]")) as HTMLElement[];
+		const rows = Array.from(container.querySelectorAll("[data-line]")) as HTMLElement[];
 		const next = new Map<number, { top: number; left: number; width: number; bottom: number }>();
 		for (const row of rows) {
 			const line = Number(row.dataset.line);
@@ -238,66 +236,43 @@ export function SourceViewer({ path }: SourceViewerProps) {
 		}
 		setLinePositions(next);
 	}, [content, binary, loading, visibleCount, wrap, highlightedLines]);
-	useEffect(() => {
-		function updateSelection() {
-			const container = containerRef.current;
-			const sel = window.getSelection();
-			if (!container || !sel || sel.isCollapsed || sel.rangeCount === 0) {
-				setSelectionAnchor(null);
-				return;
-			}
-			const range = sel.getRangeAt(0);
-			if (!container.contains(range.commonAncestorContainer)) {
-				setSelectionAnchor(null);
-				return;
-			}
-			const rowFor = (node: Node | null) => {
-				const el = node
-					? node.nodeType === Node.ELEMENT_NODE
-						? (node as HTMLElement)
-						: node.parentElement
-					: null;
-				return el?.closest<HTMLElement>("tr[data-line]") ?? null;
-			};
-			const startRow = rowFor(range.startContainer);
-			const endRow = rowFor(range.endContainer);
-			if (!startRow || !endRow) {
-				setSelectionAnchor(null);
-				return;
-			}
-			const startLine = Number(startRow.dataset.line);
-			const endLine = Number(endRow.dataset.line);
-			if (!Number.isFinite(startLine) || !Number.isFinite(endLine)) {
-				setSelectionAnchor(null);
-				return;
-			}
-			const lineStart = Math.min(startLine, endLine);
-			const lineEnd = Math.max(startLine, endLine);
-			const selectedText = lines.slice(lineStart - 1, lineEnd).join("\n");
-			void (async () => {
-				const anchor: LineAnchor = {
-					lineStart,
-					lineEnd,
-					textHash: await hashSelectionText(selectedText),
-				};
-				setSelectionAnchor({
-					anchorKey: lineAnchorKey(anchor),
-					anchorLabel: lineAnchorLabel(anchor),
-					lineAnchor: anchor,
-					anchorEl: startRow,
-				});
-			})();
-			return;
-			}
-
-		document.addEventListener("selectionchange", updateSelection);
-		return () => document.removeEventListener("selectionchange", updateSelection);
-	}, [lines]);
-
 	const openSelectionThread = useCallback(() => {
-		if (!selectionAnchor) return;
-		setThreadTarget(selectionAnchor);
-	}, [selectionAnchor]);
+		const container = containerRef.current;
+		const sel = window.getSelection();
+		if (!container || !sel || sel.isCollapsed || sel.rangeCount === 0) return;
+		const range = sel.getRangeAt(0);
+		if (!container.contains(range.commonAncestorContainer)) return;
+		const rowFor = (node: Node | null) => {
+			const el = node
+				? node.nodeType === Node.ELEMENT_NODE
+					? (node as HTMLElement)
+					: node.parentElement
+				: null;
+			return el?.closest<HTMLElement>("[data-line]") ?? null;
+		};
+		const startRow = rowFor(range.startContainer);
+		const endRow = rowFor(range.endContainer);
+		if (!startRow || !endRow) return;
+		const startLine = Number(startRow.dataset.line);
+		const endLine = Number(endRow.dataset.line);
+		if (!Number.isFinite(startLine) || !Number.isFinite(endLine)) return;
+		const lineStart = Math.min(startLine, endLine);
+		const lineEnd = Math.max(startLine, endLine);
+		const selectedText = lines.slice(lineStart - 1, lineEnd).join("\n");
+		void (async () => {
+			const anchor: LineAnchor = {
+				lineStart,
+				lineEnd,
+				textHash: await hashSelectionText(selectedText),
+			};
+			setThreadTarget({
+				anchorKey: lineAnchorKey(anchor),
+				anchorLabel: lineAnchorLabel(anchor),
+				lineAnchor: anchor,
+				anchorEl: startRow,
+			});
+		})();
+	}, [lines]);
 
 	const openAnchorThread = useCallback((anchor: LineAnchor, anchorEl: HTMLElement) => {
 		setThreadTarget({
@@ -385,7 +360,7 @@ export function SourceViewer({ path }: SourceViewerProps) {
 									left={Math.max(0, pos.left - 20)}
 									onClick={() => {
 										const row = containerRef.current?.querySelector(
-											`tr[data-line="${anchor.lineStart}"]`,
+											`[data-line="${anchor.lineStart}"]`,
 										) as HTMLElement | null;
 										if (row) openAnchorThread(anchor, row);
 									}}
@@ -403,19 +378,17 @@ export function SourceViewer({ path }: SourceViewerProps) {
 								Large file ({(byteSize / (1024 * 1024)).toFixed(1)} MB, {highlightedLines.length.toLocaleString()} lines). Syntax highlighting disabled for performance. Use Raw or Download for the full file.
 							</div>
 						)}
-						<table className="w-full border-collapse text-[13px] leading-relaxed font-mono">
-							<tbody>
-								{shownLines.map((lineHtml, i) => (
-									<tr key={i} data-line={i + 1} className="hover:bg-foreground/5">
-										<td className="w-12 pr-4 text-right text-muted-foreground select-none align-top sticky left-0 bg-muted">{i + 1}</td>
-										<td
-											className={`text-foreground pl-2 ${wrap ? "whitespace-pre-wrap break-all" : "whitespace-pre"}`}
-											dangerouslySetInnerHTML={{ __html: lineHtml || " " }}
-										/>
-									</tr>
-								))}
-							</tbody>
-						</table>
+						<div className="text-[13px] leading-relaxed font-mono min-w-max">
+							{shownLines.map((lineHtml, i) => (
+								<div key={i} data-line={i + 1} className="flex hover:bg-foreground/5">
+									<span className="w-12 shrink-0 pr-4 text-right text-muted-foreground select-none sticky left-0 bg-muted">{i + 1}</span>
+									<span
+										className={`text-foreground pl-2 ${wrap ? "whitespace-pre-wrap break-all" : "whitespace-pre"}`}
+										dangerouslySetInnerHTML={{ __html: lineHtml || " " }}
+									/>
+								</div>
+							))}
+						</div>
 						{hasMore && (
 							<div className="flex items-center gap-3 px-4 py-3 border-t border-border font-sans">
 								<button
