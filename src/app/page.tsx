@@ -1076,6 +1076,7 @@ export default function Page() {
 	const [gateBypassPath, setGateBypassPath] = useState<string | null>(null);
 	const [appFullscreen, setAppFullscreen] = useState(false);
 	const [appKey, setAppKey] = useState(0);
+	const [viewerKey, setViewerKey] = useState(0);
 	const isMobile = useIsMobile();
 	const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 	const sidebarWidth = useSidebarWidthStore((s) => s.width);
@@ -1389,6 +1390,12 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 		}
 		setFileLoading(false);
 	}, [openFile]);
+
+	// Unified refresh: reload text/markdown content and remount binary viewers.
+	const handleRefresh = useCallback(() => {
+		setViewerKey((k) => k + 1);
+		void refreshViewer();
+	}, [refreshViewer]);
 
 	useEffect(() => {
 		if (!openFile || !isMarkdown(openFile.name)) return;
@@ -3113,15 +3120,13 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 												<Eye className="h-3.5 w-3.5" />
 											</Button>
 										)}
-									{isText(openFile.name) &&
-										!editing &&
-										(fileContent !== null || isMarkdown(openFile.name)) && (
+									{!editing && (
 											<Button
 												size="sm"
 												variant="ghost"
 												className="h-7 w-7 p-0"
 												title="Refresh"
-												onClick={refreshViewer}
+												onClick={handleRefresh}
 												disabled={fileLoading}
 											>
 												{fileLoading ? (
@@ -3239,7 +3244,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 								openFileViewerKind === "pptx" ||
 								openFileViewerKind === "source" ||
 								openFileViewerKind === "fallback" ? (
-								<div className="flex-1 flex flex-col overflow-hidden min-h-0">
+								<div key={viewerKey} className="flex-1 flex flex-col overflow-hidden min-h-0">
 									{fileLoading ? (
 										<div className="flex justify-center py-8">
 											<Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />

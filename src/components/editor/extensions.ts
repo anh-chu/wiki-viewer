@@ -1,4 +1,3 @@
-import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
 import Subscript from "@tiptap/extension-subscript";
@@ -28,6 +27,7 @@ import { createLowlight } from "lowlight";
 import { CalloutExtension } from "./callout-extension";
 import { DragHandle } from "./extensions/drag-handle";
 import { HeadingAnchors } from "./extensions/heading-anchors";
+import { MermaidCodeBlock } from "./extensions/mermaid-code-block";
 import { ProofSpan } from "./extensions/proof-span";
 import { ResizableImage } from "./extensions/resizable-image";
 import { WikiLink } from "./wiki-link-extension";
@@ -61,12 +61,7 @@ export const editorExtensions = [
 		link: false,
 		underline: false,
 	}),
-	CodeBlockLowlight.configure({
-		lowlight,
-		HTMLAttributes: {
-			class: "rounded-md bg-muted p-4 font-mono text-sm",
-		},
-	}),
+	MermaidCodeBlock(lowlight),
 	Placeholder.configure({
 		placeholder: "Start writing, or press '/' for commands...",
 	}),
