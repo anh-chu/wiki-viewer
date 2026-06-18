@@ -16,6 +16,7 @@ import {
 	FolderPlus,
 	GitBranch,
 	GitMerge,
+	Code2,
 	Globe,
 	History,
 	User,
@@ -1114,6 +1115,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 	const [fileLoading, setFileLoading] = useState(false);
 	const [editing, setEditing] = useState(false);
 	const [editContent, setEditContent] = useState("");
+	const [htmlSourceMode, setHtmlSourceMode] = useState(false);
 	const [saving, setSaving] = useState(false);
 	const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -1564,6 +1566,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 					: "file",
 		});
 		setEditing(false);
+		setHtmlSourceMode(false);
 		setSaveError(null);
 		setFileContent(null);
 		setFileRevision(0);
@@ -2885,7 +2888,19 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 													>
 														<Pencil className="h-3.5 w-3.5" />
 													</Button>
-												)}
+											)}
+											{openFileViewerKind === "html" && !editing && (
+												<Button
+													size="sm"
+													variant="ghost"
+													className="h-7 gap-1.5 text-xs"
+													title={htmlSourceMode ? "Show rendered page" : "Show source (with comments)"}
+													onClick={() => setHtmlSourceMode((v) => !v)}
+												>
+													{htmlSourceMode ? <Globe className="h-3.5 w-3.5" /> : <Code2 className="h-3.5 w-3.5" />}
+													{htmlSourceMode ? "Preview" : "Source"}
+												</Button>
+											)}
 											<Button
 												size="sm"
 												variant="ghost"
@@ -2954,6 +2969,8 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 												</Button>
 											</div>
 										</div>
+									) : htmlSourceMode && openFileViewerKind === "html" ? (
+										<SourceViewer path={openFile.path} title={openFile.name} />
 									) : (
 										<WebsiteViewer
 											key={appKey}

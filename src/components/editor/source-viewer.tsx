@@ -144,9 +144,8 @@ export function SourceViewer({ path }: SourceViewerProps) {
 	const [linePositions, setLinePositions] = useState<
 		Map<number, { top: number; left: number; width: number; bottom: number }>
 	>(new Map());
-	// Right-rail x for comment pips: pinned ~32px from the viewport's right edge,
-	// synced to horizontal scroll so it stays visible (code rows start at x=0, so
-	// the markdown left-margin placement would land on the line-number gutter).
+	// Left-gutter x for comment pips: pinned to the viewport's left edge, synced to
+	// horizontal scroll so it stays on the line-number gutter and visible.
 	const [railX, setRailX] = useState(0);
 	const [selectionAnchor, setSelectionAnchor] = useState<ThreadTarget | null>(null);
 	const [threadTarget, setThreadTarget] = useState<ThreadTarget | null>(null);
@@ -247,7 +246,7 @@ export function SourceViewer({ path }: SourceViewerProps) {
 		const container = containerRef.current;
 		if (!container || loading || binary) return;
 		const update = () =>
-			setRailX(Math.max(0, container.scrollLeft + container.clientWidth - 32));
+			setRailX(container.scrollLeft + 2);
 		update();
 		container.addEventListener("scroll", update, { passive: true });
 		const ro = new ResizeObserver(update);
@@ -389,7 +388,7 @@ export function SourceViewer({ path }: SourceViewerProps) {
 			</ViewerToolbar>
 			<div ref={containerRef} className="relative flex-1 overflow-auto source-viewer-code bg-muted">
 				{!loading && content && !binary && <ViewModeCommentButton containerRef={containerRef} onComment={openSelectionThread} />}
-				<div className="relative pointer-events-none" style={{ height: 0 }}>
+				<div className="relative z-20 pointer-events-none" style={{ height: 0 }}>
 					{Object.entries(commentsByAnchor).map(([anchorKey, anchorComments]) => {
 						const anchor = anchorComments[0]?.lineAnchor;
 						if (!anchor) return null;
