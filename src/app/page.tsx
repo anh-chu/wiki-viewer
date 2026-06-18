@@ -8,6 +8,7 @@ import {
 	ChevronRight,
 	Copy,
 	Download,
+	DownloadCloud,
 	File,
 	FilePlus,
 	FileText,
@@ -2439,6 +2440,22 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 						</DropdownMenu>
 
 						<div className="flex items-center gap-0.5">
+							{isWsAdmin && workspaces.find((w) => w.id === activeWorkspaceId)?.git && (
+								<Button
+									size="sm"
+									variant="ghost"
+									className="h-7 w-7 p-0"
+									title="Pull latest (git pull --ff-only)"
+									onClick={() => { if (activeWorkspaceId) void handleRefreshWorkspace(activeWorkspaceId); }}
+									disabled={refreshingWsId === activeWorkspaceId}
+								>
+									{refreshingWsId === activeWorkspaceId ? (
+										<Loader2 className="h-3.5 w-3.5 animate-spin" />
+									) : (
+										<DownloadCloud className="h-3.5 w-3.5" />
+									)}
+								</Button>
+							)}
 							<Button
 								size="sm"
 								variant="ghost"
