@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { authHeaders } from "@/lib/proof/client-auth";
 import { useProofStore } from "@/stores/proof-store";
 import { wsFetch } from "@/lib/workspace-client";
-import type { Comment } from "@/lib/proof/types";
+import type { Comment, LineAnchor } from "@/lib/proof/types";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -53,15 +53,18 @@ async function postOp(
 
 interface Props {
 	path: string;
-	blockRef: string;
-	/** Existing comments on this block (may be empty = new-comment mode). */
+	anchorKey: string;
+	anchorLabel?: string;
+	anchorRef?: string;
+	lineAnchor?: LineAnchor;
+	/** Existing comments on this anchor (may be empty = new-comment mode). */
 	comments: Comment[];
 	anchorEl: HTMLElement | null;
 	onClose: () => void;
 	readOnly?: boolean;
 }
 
-export function CommentThread({ path, blockRef, comments, anchorEl, onClose, readOnly }: Props) {
+export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnchor, comments, anchorEl, onClose, readOnly }: Props) {
 	const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
 	const [text, setText] = useState("");
 	const [busy, setBusy] = useState(false);
@@ -109,7 +112,9 @@ export function CommentThread({ path, blockRef, comments, anchorEl, onClose, rea
 		try {
 			const sendOp = activeComment
 				? { type: "comment.reply", commentId: activeComment.id, text: text.trim() }
-				: { type: "comment.add", ref: blockRef, text: text.trim() };
+				: lineAnchor
+					? { type: "comment.add", lineAnchor, text: text.trim() }
+					: { type: "comment.add", ref: anchorRef ?? anchorKey, text: text.trim() };
 
 			let rev = getRevision();
 			let result = await postOp(path, rev, "human", [sendOp]);
@@ -186,7 +191,7 @@ export function CommentThread({ path, blockRef, comments, anchorEl, onClose, rea
 					{/* Header */}
 					<div className="flex items-center justify-between">
 						<span className="text-[11px] font-mono text-muted-foreground/60 truncate">
-							{blockRef}
+							{anchorLabel ?? anchorKey}
 						</span>
 						{activeComment && !readOnly && (
 							<button

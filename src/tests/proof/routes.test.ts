@@ -1,9 +1,9 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { setRootDir } from "../../lib/root-dir.js";
 
 // Import route handlers (disk reads are lazy — happen at request time)
@@ -153,6 +153,10 @@ function makePostReq(url: string, body: unknown, extra?: Record<string, string>,
 	return new Request(url, { method: "POST", headers: h, body: JSON.stringify(body) });
 }
 
+	function hashText(s: string): string {
+	return createHash("sha256").update(s, "utf8").digest("hex").slice(0, 12);
+}
+
 // ── GET /api/agent/files/[...path] ──────────────────────────────────────────
 
 test("GET snapshot - missing file returns 404", async () => {
@@ -200,18 +204,47 @@ test("GET snapshot - X-Agent-Id mismatch returns 401", async () => {
 	assert.equal(body.error, "UNAUTHORIZED");
 });
 
-test("GET snapshot - non-markdown path returns 400", async () => {
+test("GET snapshot - non-markdown path returns snapshot", async () => {
+	await writeFile(path.join(tmpRoot, "notes.txt"), "Alpha\nBeta\n", "utf-8");
 	const req = makeGetReq("http://localhost:3000/api/agent/files/notes.txt");
 	const res = await filesGET(req, makeParams(["notes.txt"]));
-	assert.equal(res.status, 400);
-	const body = (await res.json()) as { error: string };
-	assert.equal(body.error, "INVALID_PATH");
+	assert.equal(res.status, 200);
+	const snap = (await res.json()) as { path: string; revision: number; blocks: unknown[] };
+	assert.equal(snap.path, "notes.txt");
+	assert.equal(typeof snap.revision, "number");
+	assert.ok(Array.isArray(snap.blocks));
 });
 
 test("GET snapshot - .proof prefix returns 400", async () => {
 	const req = makeGetReq("http://localhost:3000/api/agent/files/.proof/foo.md");
 	const res = await filesGET(req, makeParams([".proof", "foo.md"]));
 	assert.equal(res.status, 400);
+});
+
+
+test("GET/POST/sidecar - normalized .proof traversal returns 400", async () => {
+	const segs = ["foo", "..", ".proof", "traverse.txt"];
+	const getRes = await filesGET(
+		makeGetReq("http://localhost:3000/api/agent/files/foo/../.proof/traverse.txt"),
+		makeParams(segs),
+	);
+	assert.equal(getRes.status, 400);
+
+	const postRes = await filesPOST(
+		makePostReq(
+			"http://localhost:3000/api/agent/files/foo/../.proof/traverse.txt",
+			{ baseRevision: 0, by: "ai:test", ops: [] },
+			{ "Idempotency-Key": "key-traverse-" + Date.now() },
+		),
+		makeParams(segs),
+	);
+	assert.equal(postRes.status, 400);
+
+	const sidecarRes = await sidecarGET(
+		makeGetReq("http://localhost:3000/api/agent/sidecar/foo/../.proof/traverse.txt"),
+		makeParams(segs),
+	);
+	assert.equal(sidecarRes.status, 400);
 });
 
 // ── POST /api/agent/files/[...path] ────────────────────────────────────────
@@ -294,6 +327,154 @@ test("POST - idempotent replay returns same response", async () => {
 	const b1 = await r1.text();
 	const b2 = await r2.text();
 	assert.equal(b1, b2, "Idempotent replay must return identical body");
+});
+
+
+test("POST text comment ops - comment.add/reply/resolve work on text files", async () => {
+	await writeFile(path.join(tmpRoot, "notes.txt"), "Line one\nLine two\n", "utf-8");
+	const lineHash = hashText("Line two");
+	const addReq = makePostReq(
+		"http://localhost:3000/api/agent/files/notes.txt",
+		{
+			baseRevision: 0,
+			by: "ai:test",
+			ops: [{ type: "comment.add", lineAnchor: { lineStart: 2, lineEnd: 2, textHash: lineHash }, text: "Note" }],
+		},
+		{ "Idempotency-Key": "key-text-add-" + Date.now() },
+	);
+	const addRes = await filesPOST(addReq, makeParams(["notes.txt"]));
+	assert.equal(addRes.status, 200);
+	const addBody = (await addRes.json()) as { revision: number; comments: Array<{ id: string; lineAnchor?: { lineStart: number; lineEnd: number; textHash: string } }> };
+	assert.equal(addBody.comments.length, 1);
+	assert.equal(addBody.comments[0].lineAnchor?.lineStart, 2);
+	assert.equal(await readFile(path.join(tmpRoot, "notes.txt"), "utf-8"), "Line one\nLine two\n");
+
+	const replyReq = makePostReq(
+		"http://localhost:3000/api/agent/files/notes.txt",
+		{ baseRevision: addBody.revision, by: "ai:test", ops: [{ type: "comment.reply", commentId: addBody.comments[0].id, text: "Reply" }] },
+		{ "Idempotency-Key": "key-text-reply-" + Date.now() },
+	);
+	const replyRes = await filesPOST(replyReq, makeParams(["notes.txt"]));
+	assert.equal(replyRes.status, 200);
+	const replyBody = (await replyRes.json()) as { revision: number; comments: Array<{ turns: Array<{ text: string }> }> };
+	assert.equal(replyBody.comments[0].turns.length, 2);
+	assert.equal(replyBody.comments[0].turns[1].text, "Reply");
+
+	const resolveReq = makePostReq(
+		"http://localhost:3000/api/agent/files/notes.txt",
+		{ baseRevision: replyBody.revision, by: "ai:test", ops: [{ type: "comment.resolve", commentId: addBody.comments[0].id }] },
+		{ "Idempotency-Key": "key-text-resolve-" + Date.now() },
+	);
+	const resolveRes = await filesPOST(resolveReq, makeParams(["notes.txt"]));
+	assert.equal(resolveRes.status, 200);
+	const resolveBody = (await resolveRes.json()) as { revision: number; comments: Array<{ resolved: boolean }> };
+	assert.equal(resolveBody.comments[0].resolved, true);
+
+	const reopenReq = makePostReq(
+		"http://localhost:3000/api/agent/files/notes.txt",
+		{ baseRevision: resolveBody.revision, by: "ai:test", ops: [{ type: "comment.reopen", commentId: addBody.comments[0].id }] },
+		{ "Idempotency-Key": "key-text-reopen-" + Date.now() },
+	);
+	const reopenRes = await filesPOST(reopenReq, makeParams(["notes.txt"]));
+	assert.equal(reopenRes.status, 200);
+	const reopenBody = (await reopenRes.json()) as { comments: Array<{ resolved: boolean }> };
+	assert.equal(reopenBody.comments[0].resolved, false);
+	assert.equal(await readFile(path.join(tmpRoot, "notes.txt"), "utf-8"), "Line one\nLine two\n");
+});
+
+
+test("POST text comment ops - rejects mismatched or out-of-range lineAnchor", async () => {
+	await writeFile(path.join(tmpRoot, "bad-anchor.txt"), "Line one\nLine two\n", "utf-8");
+
+	const badHashReq = makePostReq(
+		"http://localhost:3000/api/agent/files/bad-anchor.txt",
+		{
+			baseRevision: 0,
+			by: "ai:test",
+			ops: [{ type: "comment.add", lineAnchor: { lineStart: 2, lineEnd: 2, textHash: "deadbeef" }, text: "Note" }],
+		},
+		{ "Idempotency-Key": "key-bad-anchor-" + Date.now() },
+	);
+	const badHashRes = await filesPOST(badHashReq, makeParams(["bad-anchor.txt"]));
+	assert.equal(badHashRes.status, 400);
+
+	const oobReq = makePostReq(
+		"http://localhost:3000/api/agent/files/bad-anchor.txt",
+		{
+			baseRevision: 0,
+			by: "ai:test",
+			ops: [{ type: "comment.add", lineAnchor: { lineStart: 3, lineEnd: 3, textHash: hashText("Line three") }, text: "Note" }],
+		},
+		{ "Idempotency-Key": "key-bad-anchor-oob-" + Date.now() },
+	);
+	const oobRes = await filesPOST(oobReq, makeParams(["bad-anchor.txt"]));
+	assert.equal(oobRes.status, 400);
+});
+
+test("POST text comment ops - suggestions still rejected on text files", async () => {
+	await writeFile(path.join(tmpRoot, "suggest.txt"), "Text only\n", "utf-8");
+	const req = makePostReq(
+		"http://localhost:3000/api/agent/files/suggest.txt",
+		{ baseRevision: 0, by: "human", ops: [{ type: "suggestion.add", ref: "b000001", kind: "replace", markdown: "Nope" }] },
+		{ "Idempotency-Key": "key-text-suggest-" + Date.now() },
+	);
+	const res = await filesPOST(req, makeParams(["suggest.txt"]));
+	assert.equal(res.status, 400);
+	const body = (await res.json()) as { error: string };
+	assert.equal(body.error, "INVALID_PATH");
+});
+
+
+test("GET sidecar - text anchors re-anchor on nearby edit and go stale otherwise", async () => {
+	await mkdir(path.join(tmpRoot, ".proof"), { recursive: true });
+	const now = new Date().toISOString();
+	const sidecar = {
+		schemaVersion: 1,
+		path: "notes.txt",
+		revision: 0,
+		createdAt: now,
+		updatedAt: now,
+		refMap: {},
+		refAliases: {},
+		comments: [
+			{
+				id: "c0001",
+				lineAnchor: { lineStart: 2, lineEnd: 2, textHash: hashText("beta") },
+				resolved: false,
+				createdAt: now,
+				turns: [{ by: "human", text: "Note", at: now }],
+			},
+		],
+		suggestions: [],
+		archivedSuggestions: [],
+		events: [],
+		nextEventId: 1,
+		lastAck: {},
+		fingerprint: "",
+		blockProvenance: {},
+	};
+
+	await writeFile(path.join(tmpRoot, "notes.txt"), "alpha\nbeta\ngamma\n", "utf-8");
+	await writeFile(path.join(tmpRoot, ".proof", "notes.txt.json"), JSON.stringify(sidecar, null, 2), "utf-8");
+
+	const first = await sidecarGET(makeGetReq("http://localhost:3000/api/agent/sidecar/notes.txt"), makeParams(["notes.txt"]));
+	assert.equal(first.status, 200);
+	const firstBody = (await first.json()) as { comments: Array<{ lineAnchor?: { lineStart: number; lineEnd: number }; stale?: boolean }> };
+	assert.equal(firstBody.comments[0].lineAnchor?.lineStart, 2);
+	assert.equal(firstBody.comments[0].stale ?? false, false);
+
+	await writeFile(path.join(tmpRoot, "notes.txt"), "alpha\nx\nbeta\ngamma\n", "utf-8");
+	const second = await sidecarGET(makeGetReq("http://localhost:3000/api/agent/sidecar/notes.txt"), makeParams(["notes.txt"]));
+	assert.equal(second.status, 200);
+	const secondBody = (await second.json()) as { comments: Array<{ lineAnchor?: { lineStart: number; lineEnd: number }; stale?: boolean }> };
+	assert.equal(secondBody.comments[0].lineAnchor?.lineStart, 3);
+	assert.equal(secondBody.comments[0].stale ?? false, false);
+
+	await writeFile(path.join(tmpRoot, "notes.txt"), "alpha\nx\ny\ngamma\n", "utf-8");
+	const third = await sidecarGET(makeGetReq("http://localhost:3000/api/agent/sidecar/notes.txt"), makeParams(["notes.txt"]));
+	assert.equal(third.status, 200);
+	const thirdBody = (await third.json()) as { comments: Array<{ stale?: boolean }> };
+	assert.equal(thirdBody.comments[0].stale, true);
 });
 
 // ── GET /api/agent/events/[...path] ──────────────────────────────────────

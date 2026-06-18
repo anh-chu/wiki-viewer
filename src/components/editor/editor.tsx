@@ -350,6 +350,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	const commentsByRef = useMemo(() => {
 		const map: Record<string, typeof comments> = {};
 		for (const c of comments) {
+			if (!c.ref) continue;
 			(map[c.ref] ??= []).push(c);
 		}
 		return map;
@@ -1084,18 +1085,19 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 											if (!pos) return null;
 											return (
 												<div key={`pip-${blockRef}`} style={{ pointerEvents: "auto" }}>
-													<CommentPip
-														blockRef={blockRef}
-														comments={blockComments}
-														top={pos.top + 4}
-														left={Math.max(0, pos.left - 20)}
-														onClick={() => {
-															const el = scrollContainerRef.current?.querySelector(
-																`[data-block-ref="${blockRef}"]`,
-															) as HTMLElement | null;
-															if (el) setThreadTarget({ blockRef, el });
-														}}
-													/>
+							<CommentPip
+								anchorKey={blockRef}
+								anchorLabel={blockRef}
+								comments={blockComments}
+								top={pos.top + 4}
+								left={Math.max(0, pos.left - 20)}
+								onClick={() => {
+									const el = scrollContainerRef.current?.querySelector(
+										`[data-block-ref="${blockRef}"]`,
+									) as HTMLElement | null;
+									if (el) setThreadTarget({ blockRef, el });
+								}}
+							/>
 												</div>
 											);
 										})}
@@ -1135,14 +1137,16 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 
 									{/* Comment thread — Portal-rendered, driven by threadTarget */}
 									{threadTarget && currentPath && (
-										<CommentThread
-											path={currentPath}
-											blockRef={threadTarget.blockRef}
-											comments={commentsByRef[threadTarget.blockRef] ?? []}
-											anchorEl={threadTarget.el}
-											onClose={() => setThreadTarget(null)}
-											readOnly={isViewing}
-										/>
+						<CommentThread
+							path={currentPath}
+							anchorKey={threadTarget.blockRef}
+							anchorRef={threadTarget.blockRef}
+							anchorLabel={threadTarget.blockRef}
+							comments={commentsByRef[threadTarget.blockRef] ?? []}
+							anchorEl={threadTarget.el}
+							onClose={() => setThreadTarget(null)}
+							readOnly={isViewing}
+						/>
 									)}
 
 									{/* Human suggest-edit popover — driven by suggestTarget */}

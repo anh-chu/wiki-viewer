@@ -34,6 +34,10 @@ function mdPath(segments: string[]): string {
 	return segments.join("/");
 }
 
+function hasProofSegment(segments: string[]): boolean {
+	return segments.some((segment) => segment === ".proof");
+}
+
 export async function GET(
 	req: Request,
 	{ params }: { params: Promise<{ path: string[] }> },
@@ -46,11 +50,8 @@ export async function GET(
 	const { path: segments } = await params;
 	const rel = mdPath(segments);
 
-	if (rel.startsWith(".proof")) {
+	if (hasProofSegment(segments)) {
 		return NextResponse.json({ error: "INVALID_PATH", message: "Path must not be under .proof" }, { status: 400 });
-	}
-	if (!isMarkdown(rel)) {
-		return NextResponse.json({ error: "INVALID_PATH", message: "Path must be .md or .markdown" }, { status: 400 });
 	}
 
 	const wsx = await resolveWorkspaceForAgent(req);
@@ -104,13 +105,9 @@ export async function POST(
 	const { path: segments } = await params;
 	const rel = mdPath(segments);
 
-	if (rel.startsWith(".proof")) {
+	if (hasProofSegment(segments)) {
 		return NextResponse.json({ error: "INVALID_PATH", message: "Path must not be under .proof" }, { status: 400 });
 	}
-	if (!isMarkdown(rel)) {
-		return NextResponse.json({ error: "INVALID_PATH", message: "Path must be .md or .markdown" }, { status: 400 });
-	}
-
 	const wsx = await resolveWorkspaceForAgent(req, "write");
 	if (!wsx.ok) return NextResponse.json({ error: wsx.code }, { status: wsx.status });
 	const { ws, rootDir } = wsx;
@@ -162,6 +159,11 @@ export async function POST(
 		return NextResponse.json({ error: "INVALID_PAYLOAD", message: "ops (array) required" }, { status: 400 });
 	}
 
+	const opList = body.ops as Op[];
+	if (!isMarkdown(rel) && opList.some((op) => !op.type.startsWith("comment."))) {
+		return NextResponse.json({ error: "INVALID_PATH", message: "Only comment ops are allowed on text files" }, { status: 400 });
+	}
+
 	const scopeCheck = enforceScope(auth.agent, { filePath: rel, op: "mutate", workspaceId: ws.id });
 	if (!scopeCheck.ok) {
 		return NextResponse.json({ error: scopeCheck.code, message: scopeCheck.message }, { status: 403 });
@@ -173,7 +175,7 @@ export async function POST(
 	}
 
 	// Rate-limit mutations: count ops (all ops are mutations in this route)
-	const opCount = (body.ops as Op[]).length || 1;
+	const opCount = opList.length || 1;
 	const rl = checkAndConsume(body.by as string, opCount);
 	if (!rl.ok) {
 		const retryAfterSec = Math.ceil(rl.retryAfterMs / 1000);
@@ -194,7 +196,7 @@ export async function POST(
 		mdPath: rel,
 		baseRevision: body.baseRevision as number,
 		by: body.by as string,
-		ops: body.ops as Op[],
+		ops: opList,
 	});
 
 	let responseBody: string;

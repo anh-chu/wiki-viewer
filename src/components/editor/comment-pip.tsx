@@ -4,7 +4,8 @@ import { CheckCircle2, MessageCircle } from "lucide-react";
 import type { Comment } from "@/lib/proof/types";
 
 interface Props {
-	blockRef: string;
+	anchorKey: string;
+	anchorLabel?: string;
 	comments: Comment[];
 	top: number;
 	left: number;
@@ -15,7 +16,7 @@ interface Props {
  * Gutter pip rendered absolutely inside the editor scroll container.
  * Positioned via `top`/`left` props (pixels relative to scroll container).
  */
-export function CommentPip({ blockRef, comments, top, left, onClick }: Props) {
+export function CommentPip({ anchorKey, anchorLabel, comments, top, left, onClick }: Props) {
 	if (comments.length === 0) return null;
 
 	const open = comments.filter((c) => !c.resolved);
@@ -40,7 +41,7 @@ export function CommentPip({ blockRef, comments, top, left, onClick }: Props) {
 				transform: "translateY(2px)",
 			}}
 			className="z-10 p-2 sm:p-0.5 -m-1.5 sm:m-0 rounded transition-colors hover:bg-accent focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-			aria-label={`Comment thread for block ${blockRef}`}
+			aria-label={`Comment thread for ${anchorLabel ?? anchorKey}`}
 		>
 			{variant === "check" && (
 				<CheckCircle2 className="h-3.5 w-3.5 text-muted-foreground/30" />

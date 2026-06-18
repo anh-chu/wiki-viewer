@@ -2,6 +2,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { applyOps, readSnapshot } from "../../lib/proof/ops-applier.js";
 import { setRootDir } from "../../lib/root-dir.js";
@@ -24,6 +25,10 @@ async function writeDoc(name: string, content: string): Promise<void> {
 
 async function readDoc(name: string): Promise<string> {
 	return readFile(path.join(tmpRoot, name), "utf-8");
+}
+
+function hashText(s: string): string {
+	return createHash("sha256").update(s, "utf8").digest("hex").slice(0, 12);
 }
 
 test("readSnapshot returns null for missing file", async () => {
@@ -252,6 +257,25 @@ test("comment.add and comment.reply ops", async () => {
 	assert.ok(comment, "comment should be in snapshot");
 	assert.equal(comment!.turns.length, 2, "should have 2 turns");
 	assert.equal(comment!.turns[1].text, "Because of X.");
+});
+
+
+test("comment.add with lineAnchor stores line anchor on text files", async () => {
+	await writeDoc("notes.txt", "Alpha\nBeta\nGamma\n");
+	const result = await applyOps({
+		rootDir: tmpRoot,
+		mdPath: "notes.txt",
+		baseRevision: 0,
+		by: "human",
+		ops: [{ type: "comment.add", lineAnchor: { lineStart: 2, lineEnd: 2, textHash: hashText("Beta") }, text: "Text comment." }],
+	});
+	assert.ok(result.ok, `expected ok: ${JSON.stringify(result)}`);
+	const comment = result.ok ? result.snapshot.comments[0] : null;
+	assert.ok(comment);
+	assert.equal(comment!.ref, undefined);
+	assert.equal(comment!.lineAnchor?.lineStart, 2);
+	assert.equal(comment!.lineAnchor?.textHash, hashText("Beta"));
+	assert.equal(await readDoc("notes.txt"), "Alpha\nBeta\nGamma\n");
 });
 
 test("suggestion.add and suggestion.accept", async () => {

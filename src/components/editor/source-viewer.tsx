@@ -3,22 +3,27 @@
 import { toHtml } from "hast-util-to-html";
 import { common, createLowlight } from "lowlight";
 import { Check, Copy, Download, ExternalLink, WrapText } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CommentPip } from "@/components/editor/comment-pip";
+import { CommentThread } from "@/components/editor/comment-thread";
+import { ViewModeCommentButton } from "@/components/editor/view-mode-comment-button";
 import { ViewerToolbar } from "@/components/layout/viewer-toolbar";
 import { Button } from "@/components/ui/button";
-import { withWs, wsFetch } from "@/lib/workspace-client";
 import { FileFallbackViewer } from "@/components/editor/file-fallback-viewer";
+import { useProofStore } from "@/stores/proof-store";
+import type { Comment, LineAnchor } from "@/lib/proof/types";
+import { withWs, wsFetch } from "@/lib/workspace-client";
 
 // Heuristic binary sniff: a NUL byte never appears in UTF-8/UTF-16LE text we
 // care about, and a high ratio of control chars (excluding tab/newline/CR)
-// signals binary. Only inspect a prefix \u2014 enough to classify cheaply.
+// signals binary. Only inspect a prefix — enough to classify cheaply.
 function looksBinary(bytes: Uint8Array): boolean {
 	const n = Math.min(bytes.length, 8192);
 	if (n === 0) return false;
 	let suspicious = 0;
 	for (let i = 0; i < n; i++) {
 		const b = bytes[i];
-		if (b === 0) return true; // NUL \u2192 definitely binary
+		if (b === 0) return true; // NUL → definitely binary
 		// Allow tab(9), LF(10), CR(13); flag other C0 control chars.
 		if (b < 9 || (b > 13 && b < 32)) suspicious++;
 	}
@@ -43,6 +48,26 @@ function escapeHtml(s: string): string {
 		.replace(/&/g, "&amp;")
 		.replace(/</g, "&lt;")
 		.replace(/>/g, "&gt;");
+}
+
+function splitLines(content: string): string[] {
+	return content.replace(/\r\n/g, "\n").split("\n");
+}
+
+function lineAnchorKey(anchor: LineAnchor): string {
+	return `${anchor.lineStart}:${anchor.lineEnd}:${anchor.textHash}`;
+}
+
+function lineAnchorLabel(anchor: LineAnchor): string {
+	return `L${anchor.lineStart}-${anchor.lineEnd}`;
+}
+
+	async function hashSelectionText(text: string): Promise<string> {
+	const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+	return Array.from(new Uint8Array(digest))
+		.map((b) => b.toString(16).padStart(2, "0"))
+		.join("")
+		.slice(0, 12);
 }
 
 const EXT_TO_LANG: Record<string, string> = {
@@ -101,6 +126,13 @@ function formatBadge(filename: string): string {
 	return filename.split(".").pop()?.toUpperCase() ?? "TEXT";
 }
 
+type ThreadTarget = {
+	anchorKey: string;
+	anchorLabel: string;
+	lineAnchor: LineAnchor;
+	anchorEl: HTMLElement;
+};
+
 export function SourceViewer({ path }: SourceViewerProps) {
 	const [content, setContent] = useState<string | null>(null);
 	const [byteSize, setByteSize] = useState(0);
@@ -109,13 +141,25 @@ export function SourceViewer({ path }: SourceViewerProps) {
 	const [wrap, setWrap] = useState(false);
 	const [copied, setCopied] = useState(false);
 	const [visibleCount, setVisibleCount] = useState(RENDER_CHUNK);
+	const [linePositions, setLinePositions] = useState<
+		Map<number, { top: number; left: number; width: number; bottom: number }>
+	>(new Map());
+	const [selectionAnchor, setSelectionAnchor] = useState<ThreadTarget | null>(null);
+	const [threadTarget, setThreadTarget] = useState<ThreadTarget | null>(null);
+	const containerRef = useRef<HTMLDivElement | null>(null);
 
 	const assetUrl = withWs(`/api/assets/${path}`);
 	const filename = path.split("/").pop() || path;
 	const language = detectLanguage(filename);
+	const sidecar = useProofStore((s) => s.byPath[path]?.sidecar ?? null);
+	const comments = sidecar?.comments ?? [];
+	const lines = useMemo(() => (content ? splitLines(content) : []), [content]);
 
 	const fetchContent = useCallback(async () => {
 		setLoading(true);
+		setBinary(false);
+		setContent(null);
+		setByteSize(0);
 		try {
 			const res = await wsFetch(assetUrl);
 			if (res.ok) {
@@ -136,18 +180,18 @@ export function SourceViewer({ path }: SourceViewerProps) {
 
 	useEffect(() => {
 		void fetchContent();
-	}, [fetchContent]);
+		void useProofStore.getState().loadSidecar(path);
+		setVisibleCount(RENDER_CHUNK);
+		setThreadTarget(null);
+		setSelectionAnchor(null);
+	}, [fetchContent, path]);
 
-	const lineCount = useMemo(
-		() => (content ? content.split("\n").length : 0),
-		[content],
-	);
-
+	const lineCount = useMemo(() => lines.length, [lines]);
 	const isLarge = byteSize > LARGE_BYTES || lineCount > LARGE_LINES;
 
 	const highlightedLines = useMemo(() => {
 		if (!content) return [];
-		if (isLarge) return content.split("\n").map(escapeHtml);
+		if (isLarge) return lines.map(escapeHtml);
 		try {
 			const tree = language
 				? lowlight.highlight(language, content)
@@ -155,14 +199,115 @@ export function SourceViewer({ path }: SourceViewerProps) {
 			// Split on newlines, preserving tags that span lines.
 			return toHtml(tree).split("\n");
 		} catch {
-			return content.split("\n").map(escapeHtml);
+			return lines.map(escapeHtml);
 		}
-	}, [content, language, isLarge]);
+	}, [content, language, isLarge, lines]);
 
-	const shownLines = isLarge
-		? highlightedLines.slice(0, visibleCount)
-		: highlightedLines;
+	const shownLines = isLarge ? highlightedLines.slice(0, visibleCount) : highlightedLines;
 	const hasMore = isLarge && visibleCount < highlightedLines.length;
+
+	const commentsByAnchor = useMemo(() => {
+		const map: Record<string, Comment[]> = {};
+		for (const c of comments) {
+			if (!c.lineAnchor) continue;
+			const key = lineAnchorKey(c.lineAnchor);
+			(map[key] ??= []).push(c);
+		}
+		return map;
+	}, [comments]);
+
+	useEffect(() => {
+		if (!content || binary || loading || !containerRef.current) {
+			setLinePositions(new Map());
+			return;
+		}
+		const container = containerRef.current;
+		const containerRect = container.getBoundingClientRect();
+		const rows = Array.from(container.querySelectorAll("tr[data-line]")) as HTMLElement[];
+		const next = new Map<number, { top: number; left: number; width: number; bottom: number }>();
+		for (const row of rows) {
+			const line = Number(row.dataset.line);
+			if (!Number.isFinite(line)) continue;
+			const rect = row.getBoundingClientRect();
+			next.set(line, {
+				top: rect.top - containerRect.top + container.scrollTop,
+				left: rect.left - containerRect.left,
+				width: rect.width,
+				bottom: rect.bottom - containerRect.top + container.scrollTop,
+			});
+		}
+		setLinePositions(next);
+	}, [content, binary, loading, visibleCount, wrap, highlightedLines]);
+
+	useEffect(() => {
+		function updateSelection() {
+			const container = containerRef.current;
+			const sel = window.getSelection();
+			if (!container || !sel || sel.isCollapsed || sel.rangeCount === 0) {
+				setSelectionAnchor(null);
+				return;
+			}
+			const range = sel.getRangeAt(0);
+			if (!container.contains(range.commonAncestorContainer)) {
+				setSelectionAnchor(null);
+				return;
+			}
+			const rowFor = (node: Node | null) => {
+				const el = node
+					? node.nodeType === Node.ELEMENT_NODE
+						? (node as HTMLElement)
+						: node.parentElement
+					: null;
+				return el?.closest<HTMLElement>("tr[data-line]") ?? null;
+			};
+			const startRow = rowFor(range.startContainer);
+			const endRow = rowFor(range.endContainer);
+			if (!startRow || !endRow) {
+				setSelectionAnchor(null);
+				return;
+			}
+			const startLine = Number(startRow.dataset.line);
+			const endLine = Number(endRow.dataset.line);
+			if (!Number.isFinite(startLine) || !Number.isFinite(endLine)) {
+				setSelectionAnchor(null);
+				return;
+			}
+			const lineStart = Math.min(startLine, endLine);
+			const lineEnd = Math.max(startLine, endLine);
+			const selectedText = lines.slice(lineStart - 1, lineEnd).join("\n");
+			void (async () => {
+				const anchor: LineAnchor = {
+					lineStart,
+					lineEnd,
+					textHash: await hashSelectionText(selectedText),
+				};
+				setSelectionAnchor({
+					anchorKey: lineAnchorKey(anchor),
+					anchorLabel: lineAnchorLabel(anchor),
+					lineAnchor: anchor,
+					anchorEl: startRow,
+				});
+			})();
+			return;
+			}
+
+		document.addEventListener("selectionchange", updateSelection);
+		return () => document.removeEventListener("selectionchange", updateSelection);
+	}, [lines]);
+
+	const openSelectionThread = useCallback(() => {
+		if (!selectionAnchor) return;
+		setThreadTarget(selectionAnchor);
+	}, [selectionAnchor]);
+
+	const openAnchorThread = useCallback((anchor: LineAnchor, anchorEl: HTMLElement) => {
+		setThreadTarget({
+			anchorKey: lineAnchorKey(anchor),
+			anchorLabel: lineAnchorLabel(anchor),
+			lineAnchor: anchor,
+			anchorEl,
+		});
+	}, []);
 
 	const copyToClipboard = () => {
 		if (!content) return;
@@ -171,18 +316,13 @@ export function SourceViewer({ path }: SourceViewerProps) {
 		setTimeout(() => setCopied(false), 2000);
 	};
 
-	// Detected binary at runtime \u2192 reuse the download/reveal fallback UI.
 	if (binary) {
 		return <FileFallbackViewer path={path} title={filename} />;
 	}
 
 	return (
 		<div className="flex-1 flex flex-col overflow-hidden">
-			<ViewerToolbar
-				path={path}
-				badge={formatBadge(filename)}
-				sublabel={language || undefined}
-			>
+			<ViewerToolbar path={path} badge={formatBadge(filename)} sublabel={language || undefined}>
 				<Button
 					variant="ghost"
 					size="sm"
@@ -200,11 +340,7 @@ export function SourceViewer({ path }: SourceViewerProps) {
 					onClick={copyToClipboard}
 					title="Copy file contents"
 				>
-					{copied ? (
-						<Check className="h-3.5 w-3.5 text-green-500" />
-					) : (
-						<Copy className="h-3.5 w-3.5" />
-					)}
+					{copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
 					{copied ? "Copied" : "Copy"}
 				</Button>
 				<Button
@@ -232,56 +368,80 @@ export function SourceViewer({ path }: SourceViewerProps) {
 					Raw
 				</Button>
 			</ViewerToolbar>
-			<div className="flex-1 overflow-auto source-viewer-code bg-muted">
+			<div ref={containerRef} className="relative flex-1 overflow-auto source-viewer-code bg-muted">
+				{!loading && content && !binary && <ViewModeCommentButton containerRef={containerRef} onComment={openSelectionThread} />}
+				<div className="relative pointer-events-none" style={{ height: 0 }}>
+					{Object.entries(commentsByAnchor).map(([anchorKey, anchorComments]) => {
+						const anchor = anchorComments[0]?.lineAnchor;
+						if (!anchor) return null;
+						const pos = linePositions.get(anchor.lineStart);
+						if (!pos) return null;
+						return (
+							<div key={`pip-${anchorKey}`} style={{ pointerEvents: "auto" }}>
+								<CommentPip
+									anchorKey={anchorKey}
+									anchorLabel={lineAnchorLabel(anchor)}
+									comments={anchorComments}
+									top={pos.top + 4}
+									left={Math.max(0, pos.left - 20)}
+									onClick={() => {
+										const row = containerRef.current?.querySelector(
+											`tr[data-line="${anchor.lineStart}"]`,
+										) as HTMLElement | null;
+										if (row) openAnchorThread(anchor, row);
+									}}
+								/>
+							</div>
+						);
+					})}
+				</div>
 				{loading ? (
-					<div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-						Loading...
-					</div>
+					<div className="flex items-center justify-center h-full text-muted-foreground text-sm">Loading...</div>
 				) : (
 					<>
-					{isLarge && (
-						<div className="px-4 py-2 text-[11px] text-amber-700 dark:text-amber-300 bg-amber-500/15 border-b border-amber-500/30 font-sans">
-							Large file ({(byteSize / (1024 * 1024)).toFixed(1)} MB,{" "}
-							{highlightedLines.length.toLocaleString()} lines). Syntax
-							highlighting disabled for performance. Use Raw or Download for
-							the full file.
-						</div>
-					)}
-					<table className="w-full border-collapse text-[13px] leading-relaxed font-mono">
-						<tbody>
-							{shownLines.map((lineHtml, i) => (
-								<tr key={i} className="hover:bg-foreground/5">
-									<td className="w-12 pr-4 text-right text-muted-foreground select-none align-top sticky left-0 bg-muted">
-										{i + 1}
-									</td>
-									<td
-										className={`text-foreground pl-2 ${wrap ? "whitespace-pre-wrap break-all" : "whitespace-pre"}`}
-										dangerouslySetInnerHTML={{ __html: lineHtml || " " }}
-									/>
-								</tr>
-							))}
-						</tbody>
-					</table>
-					{hasMore && (
-						<div className="flex items-center gap-3 px-4 py-3 border-t border-border font-sans">
-							<button
-								onClick={() => setVisibleCount((v) => v + RENDER_CHUNK)}
-								className="text-[11px] text-foreground hover:text-foreground px-2.5 py-1 rounded bg-foreground/10 hover:bg-foreground/20 transition-colors"
-							>
-								Show{" "}
-								{Math.min(
-									RENDER_CHUNK,
-								highlightedLines.length - visibleCount,
-							).toLocaleString()}{" "}
-								more
-							</button>
-							<span className="text-[11px] text-muted-foreground">
-								{visibleCount.toLocaleString()} /{" "}
-								{highlightedLines.length.toLocaleString()} lines
-							</span>
-						</div>
-					)}
+						{isLarge && (
+							<div className="px-4 py-2 text-[11px] text-amber-700 dark:text-amber-300 bg-amber-500/15 border-b border-amber-500/30 font-sans">
+								Large file ({(byteSize / (1024 * 1024)).toFixed(1)} MB, {highlightedLines.length.toLocaleString()} lines). Syntax highlighting disabled for performance. Use Raw or Download for the full file.
+							</div>
+						)}
+						<table className="w-full border-collapse text-[13px] leading-relaxed font-mono">
+							<tbody>
+								{shownLines.map((lineHtml, i) => (
+									<tr key={i} data-line={i + 1} className="hover:bg-foreground/5">
+										<td className="w-12 pr-4 text-right text-muted-foreground select-none align-top sticky left-0 bg-muted">{i + 1}</td>
+										<td
+											className={`text-foreground pl-2 ${wrap ? "whitespace-pre-wrap break-all" : "whitespace-pre"}`}
+											dangerouslySetInnerHTML={{ __html: lineHtml || " " }}
+										/>
+									</tr>
+								))}
+							</tbody>
+						</table>
+						{hasMore && (
+							<div className="flex items-center gap-3 px-4 py-3 border-t border-border font-sans">
+								<button
+									onClick={() => setVisibleCount((v) => v + RENDER_CHUNK)}
+									className="text-[11px] text-foreground hover:text-foreground px-2.5 py-1 rounded bg-foreground/10 hover:bg-foreground/20 transition-colors"
+								>
+									Show {Math.min(RENDER_CHUNK, highlightedLines.length - visibleCount).toLocaleString()} more
+								</button>
+								<span className="text-[11px] text-muted-foreground">
+									{visibleCount.toLocaleString()} / {highlightedLines.length.toLocaleString()} lines
+								</span>
+							</div>
+						)}
 					</>
+				)}
+				{threadTarget && (
+					<CommentThread
+						path={path}
+						anchorKey={threadTarget.anchorKey}
+						anchorLabel={threadTarget.anchorLabel}
+						lineAnchor={threadTarget.lineAnchor}
+						comments={commentsByAnchor[threadTarget.anchorKey] ?? []}
+						anchorEl={threadTarget.anchorEl}
+						onClose={() => setThreadTarget(null)}
+					/>
 				)}
 			</div>
 		</div>

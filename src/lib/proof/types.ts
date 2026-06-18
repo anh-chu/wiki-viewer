@@ -34,9 +34,16 @@ export interface CommentTurn {
 	at: string;
 }
 
+export interface LineAnchor {
+	lineStart: number; // 1-based
+	lineEnd: number;
+	textHash: string; // sha256 first 12 hex of anchored lines
+}
+
 export interface Comment {
 	id: string; // "c" + 4-hex
-	ref: string; // block ref it's attached to
+	ref?: string; // block ref it's attached to (markdown only)
+	lineAnchor?: LineAnchor;
 	resolved: boolean;
 	createdAt: string;
 	turns: CommentTurn[];
@@ -153,7 +160,7 @@ export type Op =
 			basisDetail?: string;
 			inResponseTo?: string;
 	  }
-	| { type: "comment.add"; ref: string; text: string }
+	| { type: "comment.add"; ref?: string; lineAnchor?: LineAnchor; text: string }
 	| { type: "comment.reply"; commentId: string; text: string }
 	| { type: "comment.resolve"; commentId: string }
 	| { type: "comment.reopen"; commentId: string }

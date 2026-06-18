@@ -27,6 +27,67 @@ function cloneSidecar(sc: Sidecar): Sidecar {
 	return JSON.parse(JSON.stringify(sc)) as Sidecar;
 }
 
+function isMarkdownPath(p: string): boolean {
+	return p.endsWith(".md") || p.endsWith(".markdown");
+}
+
+function splitLines(content: string): string[] {
+	return content.replace(/\r\n/g, "\n").split("\n");
+}
+
+function hashLineRange(lines: string[], lineStart: number, lineEnd: number): string | null {
+	if (lineStart < 1 || lineEnd < lineStart) return null;
+	if (lineEnd > lines.length) return null;
+	return textHash(lines.slice(lineStart - 1, lineEnd).join("\n"));
+}
+
+export async function reconcileTextCommentAnchors(rootDir: string, mdPath: string, content: string, sidecar: Sidecar): Promise<boolean> {
+	const lines = splitLines(content);
+	let changed = false;
+
+	for (const comment of sidecar.comments) {
+		const anchor = comment.lineAnchor;
+		if (!anchor) continue;
+
+		const currentHash = hashLineRange(lines, anchor.lineStart, anchor.lineEnd);
+		if (currentHash === anchor.textHash) {
+			if (comment.stale) {
+				comment.stale = false;
+				changed = true;
+			}
+			continue;
+		}
+
+		let reanchored: { lineStart: number; lineEnd: number } | null = null;
+		for (let delta = -3; delta <= 3; delta++) {
+			if (delta === 0) continue;
+			const start = anchor.lineStart + delta;
+			const end = anchor.lineEnd + delta;
+			if (hashLineRange(lines, start, end) === anchor.textHash) {
+				reanchored = { lineStart: start, lineEnd: end };
+				break;
+			}
+		}
+
+		if (reanchored) {
+			anchor.lineStart = reanchored.lineStart;
+			anchor.lineEnd = reanchored.lineEnd;
+			if (comment.stale) comment.stale = false;
+			changed = true;
+		} else if (!comment.stale) {
+			comment.stale = true;
+			changed = true;
+		}
+	}
+
+	if (changed) {
+		sidecar.updatedAt = nowIso();
+		await writeSidecar(rootDir, mdPath, sidecar);
+	}
+
+	return changed;
+}
+
 /**
  * Wrap op markdown for AI agents: inserts proof-span marks on text-bearing blocks.
  * Returns { wrappedMarkdown, blockProvenance }.
@@ -111,7 +172,7 @@ function markOrphanedRefsStale(sidecar: Sidecar, newRefMap: Record<string, unkno
 		}
 	}
 	for (const c of sidecar.comments) {
-		if (!c.resolved && !validRefs.has(c.ref)) {
+		if (!c.resolved && c.ref && !validRefs.has(c.ref)) {
 			c.stale = true;
 		}
 	}
@@ -256,6 +317,169 @@ type ApplyResult =
 			snapshot?: Snapshot;
 	  };
 
+async function applyTextCommentOps(args: {
+	rootDir: string;
+	mdPath: string;
+	baseRevision: number;
+	by: string;
+	ops: Op[];
+}): Promise<ApplyResult> {
+	const { rootDir, mdPath, baseRevision, by, ops } = args;
+
+	return withFileMutex(mdPath, async (): Promise<ApplyResult> => {
+		const absPath = path.join(rootDir, mdPath);
+
+		let content: string;
+		try {
+			content = await readFile(absPath, "utf-8");
+		} catch (err) {
+			if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+				return { ok: false, status: 404, code: "FILE_NOT_FOUND", message: "File not found" };
+			}
+			throw err;
+		}
+
+		const fingerprint = sha256file(content);
+		const lines = splitLines(content);
+		let sidecar = (await readSidecar(rootDir, mdPath)) ?? emptySidecar(mdPath);
+		sidecar.fingerprint = fingerprint;
+		await reconcileTextCommentAnchors(rootDir, mdPath, content, sidecar);
+
+		if (baseRevision !== sidecar.revision) {
+			return {
+				ok: false,
+				status: 409,
+				code: "STALE_REVISION",
+				message: `Base revision ${baseRevision} does not match current revision ${sidecar.revision}.`,
+				snapshot: buildSnapshot(mdPath, [], sidecar),
+			};
+		}
+
+		const workingSidecar = cloneSidecar(sidecar);
+		const workingEvents: Array<Omit<ProofEvent, "id">> = [];
+
+		for (const op of ops) {
+			const at = nowIso();
+			switch (op.type) {
+				case "comment.add": {
+					const anchor = op.lineAnchor;
+					if (
+						!anchor ||
+						!Number.isInteger(anchor.lineStart) ||
+						!Number.isInteger(anchor.lineEnd) ||
+						anchor.lineStart < 1 ||
+						anchor.lineEnd < anchor.lineStart ||
+						typeof anchor.textHash !== "string" ||
+						!anchor.textHash
+					) {
+						return {
+							ok: false,
+							status: 400,
+							code: "INVALID_PAYLOAD",
+							message: "Text comments require a valid lineAnchor",
+						};
+					}
+					const currentHash = hashLineRange(lines, anchor.lineStart, anchor.lineEnd);
+					if (currentHash !== anchor.textHash) {
+						return {
+							ok: false,
+							status: 400,
+							code: "INVALID_PAYLOAD",
+							message: "Text comment anchor does not match current file content",
+						};
+					}
+					const comment: Comment = {
+						id: shortId("c"),
+						lineAnchor: { ...anchor },
+						resolved: false,
+						createdAt: at,
+						turns: [{ by, text: op.text, at }],
+					};
+					workingSidecar.comments.push(comment);
+					workingEvents.push({
+						type: "comment.added",
+						at,
+						by,
+						commentId: comment.id,
+						text: op.text,
+						lineAnchor: comment.lineAnchor,
+					});
+					break;
+				}
+				case "comment.reply": {
+					const comment = workingSidecar.comments.find((c) => c.id === op.commentId);
+					if (!comment) {
+						return {
+							ok: false,
+							status: 409,
+							code: "COMMENT_NOT_FOUND",
+							message: `Comment "${op.commentId}" not found.`,
+							snapshot: buildSnapshot(mdPath, [], workingSidecar),
+						};
+					}
+					comment.turns.push({ by, text: op.text, at });
+					workingEvents.push({ type: "comment.replied", at, by, commentId: op.commentId, text: op.text });
+					break;
+				}
+				case "comment.resolve": {
+					const comment = workingSidecar.comments.find((c) => c.id === op.commentId);
+					if (!comment) {
+						return {
+							ok: false,
+							status: 409,
+							code: "COMMENT_NOT_FOUND",
+							message: `Comment "${op.commentId}" not found.`,
+							snapshot: buildSnapshot(mdPath, [], workingSidecar),
+						};
+					}
+					comment.resolved = true;
+					workingEvents.push({ type: "comment.resolved", at, by, commentId: op.commentId });
+					break;
+				}
+				case "comment.reopen": {
+					const comment = workingSidecar.comments.find((c) => c.id === op.commentId);
+					if (!comment) {
+						return {
+							ok: false,
+							status: 409,
+							code: "COMMENT_NOT_FOUND",
+							message: `Comment "${op.commentId}" not found.`,
+							snapshot: buildSnapshot(mdPath, [], workingSidecar),
+						};
+					}
+					comment.resolved = false;
+					workingEvents.push({ type: "comment.reopened", at, by, commentId: op.commentId });
+					break;
+				}
+				default:
+					return {
+						ok: false,
+						status: 400,
+						code: "INVALID_PATH",
+						message: "Only comment ops are allowed on text files",
+					};
+			}
+		}
+
+		workingSidecar.revision += 1;
+		workingSidecar.updatedAt = nowIso();
+		workingSidecar.fingerprint = fingerprint;
+
+		const emitted = emitEvents(workingSidecar, workingEvents);
+		if (workingSidecar.revision % SIDECAR_TRIM_EVERY_N_MUTATIONS === 0) {
+			trimEvents(workingSidecar, SIDECAR_EVENT_TRIM_SIZE);
+		}
+
+		await writeSidecar(rootDir, mdPath, workingSidecar);
+
+		return {
+			ok: true,
+			snapshot: buildSnapshot(mdPath, [], workingSidecar),
+			emittedEvents: emitted,
+		};
+	});
+}
+
 /**
  * Apply a batch of ops to a file, with revision check, mutex, and atomic write.
  */
@@ -266,6 +490,8 @@ export async function applyOps(args: {
 	by: string;
 	ops: Op[];
 }): Promise<ApplyResult> {
+	if (!isMarkdownPath(args.mdPath)) return applyTextCommentOps(args);
+
 	const { rootDir, mdPath, baseRevision, by, ops } = args;
 
 	return withFileMutex(mdPath, async (): Promise<ApplyResult> => {
@@ -487,6 +713,15 @@ export async function applyOps(args: {
 				}
 
 				case "comment.add": {
+					if (!op.ref) {
+						return {
+							ok: false,
+							status: 400,
+							code: "INVALID_PAYLOAD",
+							message: "Markdown comments require ref",
+							snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar),
+						};
+					}
 					const refs = currentRefs();
 					const resolved = resolveRef(workingSidecar, op.ref, refs);
 					if (!resolved) {
