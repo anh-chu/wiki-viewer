@@ -27,6 +27,7 @@ import {
 	Loader2,
 	Maximize2,
 	MoreHorizontal,
+	Moon,
 	PanelLeftClose,
 	PanelLeftOpen,
 	Pencil,
@@ -41,6 +42,7 @@ import {
 	Slash,
 	SortAsc,
 	Sparkles,
+	Sun,
 	Terminal,
 	Trash2,
 	Upload,
@@ -81,7 +83,7 @@ import {
 import { BranchDropdown } from "@/components/wiki/branch-dropdown";
 import { getActiveWorkspaceId, withWs, wsFetch } from "@/lib/workspace-client";
 import { markdownToHtml } from "@/lib/markdown/to-html";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { useTheme } from "next-themes";
 import { AuthSettingsSheet } from "@/components/auth-settings-sheet";
 import { ShareDialog } from "@/components/share-dialog";
 import { Button } from "@/components/ui/button";
@@ -1172,6 +1174,7 @@ export default function Page() {
 	const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 	const sidebarWidth = useSidebarWidthStore((s) => s.width);
 	const showHidden = useShowHiddenStore((s) => s.showHidden);
+	const { resolvedTheme, setTheme } = useTheme();
 	const setSidebarWidth = useSidebarWidthStore((s) => s.setWidth);
 	// Mobile: when the viewport is mobile, the sidebar defaults to closed.
 	// Re-runs when isMobile flips (orientation change, devtools resize).
@@ -2074,11 +2077,10 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 					<Button
 						size="sm"
 						variant="ghost"
-						className="h-7 gap-1.5 px-2 text-xs"
+						className="h-7 w-7 p-0"
 						title="File actions"
 					>
 						<MoreHorizontal className="h-3.5 w-3.5" />
-						More
 					</Button>
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align="end" className="w-52">
@@ -2451,22 +2453,6 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 						</DropdownMenu>
 
 						<div className="flex items-center gap-0.5">
-							{isWsAdmin && workspaces.find((w) => w.id === activeWorkspaceId)?.git && (
-								<Button
-									size="sm"
-									variant="ghost"
-									className="h-7 w-7 p-0"
-									title="Pull latest (git pull --ff-only)"
-									onClick={() => { if (activeWorkspaceId) void handleRefreshWorkspace(activeWorkspaceId); }}
-									disabled={refreshingWsId === activeWorkspaceId}
-								>
-									{refreshingWsId === activeWorkspaceId ? (
-										<Loader2 className="h-3.5 w-3.5 animate-spin" />
-									) : (
-										<DownloadCloud className="h-3.5 w-3.5" />
-									)}
-								</Button>
-							)}
 							<Button
 								size="sm"
 								variant="ghost"
@@ -2485,20 +2471,6 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 								size="sm"
 								variant="ghost"
 								className="h-7 w-7 p-0"
-								title={showHidden ? "Hide hidden files" : "Show hidden files"}
-								onClick={() => useShowHiddenStore.getState().toggle()}
-							>
-								{showHidden ? (
-									<Eye className="h-3.5 w-3.5" />
-								) : (
-									<EyeOff className="h-3.5 w-3.5" />
-								)}
-							</Button>
-							<ThemeToggle />
-							<Button
-								size="sm"
-								variant="ghost"
-								className="h-7 w-7 p-0"
 								title="AI Agent panel"
 								onClick={() => {
 									useAIPanelStore.getState().toggle();
@@ -2507,15 +2479,54 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 							>
 								<Bot className="h-3.5 w-3.5" />
 							</Button>
-							<Button
-								size="sm"
-								variant="ghost"
-								className="h-7 w-7 p-0"
-								title="Settings"
-								onClick={() => setSettingsOpen(true)}
-							>
-								<Settings className="h-3.5 w-3.5" />
-							</Button>
+							<DropdownMenu>
+								<DropdownMenuTrigger asChild>
+									<Button
+										size="sm"
+										variant="ghost"
+										className="h-7 w-7 p-0"
+										title="More actions"
+									>
+										<MoreHorizontal className="h-3.5 w-3.5" />
+									</Button>
+								</DropdownMenuTrigger>
+								<DropdownMenuContent align="end" className="w-48">
+									{isWsAdmin && workspaces.find((w) => w.id === activeWorkspaceId)?.git && (
+										<DropdownMenuItem
+											onClick={() => { if (activeWorkspaceId) void handleRefreshWorkspace(activeWorkspaceId); }}
+											disabled={refreshingWsId === activeWorkspaceId}
+										>
+											{refreshingWsId === activeWorkspaceId ? (
+												<Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+											) : (
+												<DownloadCloud className="mr-2 h-3.5 w-3.5" />
+											)}
+											Pull latest
+										</DropdownMenuItem>
+									)}
+									<DropdownMenuItem onClick={() => useShowHiddenStore.getState().toggle()}>
+										{showHidden ? (
+											<EyeOff className="mr-2 h-3.5 w-3.5" />
+										) : (
+											<Eye className="mr-2 h-3.5 w-3.5" />
+										)}
+										{showHidden ? "Hide hidden files" : "Show hidden files"}
+									</DropdownMenuItem>
+									<DropdownMenuItem onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}>
+										{resolvedTheme === "dark" ? (
+											<Sun className="mr-2 h-3.5 w-3.5" />
+										) : (
+											<Moon className="mr-2 h-3.5 w-3.5" />
+										)}
+										{resolvedTheme === "dark" ? "Light mode" : "Dark mode"}
+									</DropdownMenuItem>
+									<DropdownMenuSeparator />
+									<DropdownMenuItem onClick={() => setSettingsOpen(true)}>
+										<Settings className="mr-2 h-3.5 w-3.5" />
+										Settings
+									</DropdownMenuItem>
+								</DropdownMenuContent>
+							</DropdownMenu>
 						</div>
 					</div>
 
