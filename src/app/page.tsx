@@ -490,6 +490,17 @@ function FileContextMenuItems({
 	);
 }
 
+// File-type icon for compact rows (recent/pinned), mirroring the tree row.
+function FileTypeIcon({ name, type }: { name: string; type: TreeNode["type"] }) {
+	const cls = "h-3.5 w-3.5 shrink-0";
+	if (type === "dir") return <Folder className={cn(cls, "text-warning")} />;
+	if (type === "app") return <Globe className={cn(cls, "text-foreground/70")} />;
+	if (type === "node-app") return <Terminal className={cn(cls, "text-emerald-500")} />;
+	if (isHtmlFile(name)) return <Globe className={cn(cls, "text-foreground/60")} />;
+	if (isImage(name)) return <ImageIcon className={cn(cls, "text-sunshine-700")} />;
+	if (isText(name)) return <FileText className={cn(cls, "text-foreground/70")} />;
+	return <File className={cn(cls, "text-foreground/60")} />;
+}
 interface TreeRowViewProps {
 	node: TreeNode;
 	depth: number;
@@ -2615,7 +2626,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 										onClick={() => { void openPinnedEntry(p); }}
 										onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); void openPinnedEntry(p); } }}
 									>
-										<Star className="h-3 w-3 shrink-0 fill-current text-amber-400" />
+										<FileTypeIcon name={p.name} type={(p.type ?? "file") as TreeNode["type"]} />
 										<span className="min-w-0 flex-1 truncate text-xs">{p.name}</span>
 										<span className="max-w-[80px] truncate text-[10px] text-muted-foreground/60">{p.path.split("/").slice(0, -1).join("/")}</span>
 										<button
@@ -2669,7 +2680,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 										onClick={() => { void openViewer({ path: r.path, name: r.name, type: (r.type ?? "file") as TreeNode["type"], modifiedAt: "" } as TreeNode); if (isMobile) setSidebarCollapsed(true); }}
 										onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); void openViewer({ path: r.path, name: r.name, type: (r.type ?? "file") as TreeNode["type"], modifiedAt: "" } as TreeNode); } }}
 									>
-										<FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+										<FileTypeIcon name={r.name} type={(r.type ?? "file") as TreeNode["type"]} />
 										<span className="flex-1 truncate text-xs">{r.name}</span>
 										<span className="text-[10px] text-muted-foreground/60 truncate max-w-[80px]">{r.path.split("/").slice(0, -1).join("/")}</span>
 									</div>
