@@ -144,9 +144,6 @@ export function SourceViewer({ path }: SourceViewerProps) {
 	const [linePositions, setLinePositions] = useState<
 		Map<number, { top: number; left: number; width: number; bottom: number }>
 	>(new Map());
-	// Left-gutter x for comment pips: pinned to the viewport's left edge, synced to
-	// horizontal scroll so it stays on the line-number gutter and visible.
-	const [railX, setRailX] = useState(0);
 	const [selectionAnchor, setSelectionAnchor] = useState<ThreadTarget | null>(null);
 	const [threadTarget, setThreadTarget] = useState<ThreadTarget | null>(null);
 	const containerRef = useRef<HTMLDivElement | null>(null);
@@ -241,22 +238,6 @@ export function SourceViewer({ path }: SourceViewerProps) {
 		}
 		setLinePositions(next);
 	}, [content, binary, loading, visibleCount, wrap, highlightedLines]);
-
-	useEffect(() => {
-		const container = containerRef.current;
-		if (!container || loading || binary) return;
-		const update = () =>
-			setRailX(container.scrollLeft + 2);
-		update();
-		container.addEventListener("scroll", update, { passive: true });
-		const ro = new ResizeObserver(update);
-		ro.observe(container);
-		return () => {
-			container.removeEventListener("scroll", update);
-			ro.disconnect();
-		};
-	}, [loading, binary, content]);
-
 	useEffect(() => {
 		function updateSelection() {
 			const container = containerRef.current;
@@ -388,7 +369,7 @@ export function SourceViewer({ path }: SourceViewerProps) {
 			</ViewerToolbar>
 			<div ref={containerRef} className="relative flex-1 overflow-auto source-viewer-code bg-muted">
 				{!loading && content && !binary && <ViewModeCommentButton containerRef={containerRef} onComment={openSelectionThread} align="left" />}
-				<div className="relative z-20 pointer-events-none" style={{ height: 0 }}>
+				<div className="relative pointer-events-none" style={{ height: 0 }}>
 					{Object.entries(commentsByAnchor).map(([anchorKey, anchorComments]) => {
 						const anchor = anchorComments[0]?.lineAnchor;
 						if (!anchor) return null;
@@ -401,7 +382,7 @@ export function SourceViewer({ path }: SourceViewerProps) {
 									anchorLabel={lineAnchorLabel(anchor)}
 									comments={anchorComments}
 									top={pos.top + 4}
-									left={railX}
+									left={Math.max(0, pos.left - 20)}
 									onClick={() => {
 										const row = containerRef.current?.querySelector(
 											`tr[data-line="${anchor.lineStart}"]`,
