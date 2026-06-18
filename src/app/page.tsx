@@ -2652,6 +2652,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 									onClick={() => setRecentCollapsed((c) => !c)}
 								>
 									{recentCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+									<History className="h-3 w-3" />
 									Recent
 									<span className="ml-auto text-[9px] tabular-nums opacity-60">{recents.length}</span>
 								</button>
