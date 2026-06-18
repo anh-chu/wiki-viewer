@@ -144,6 +144,10 @@ export function SourceViewer({ path }: SourceViewerProps) {
 	const [linePositions, setLinePositions] = useState<
 		Map<number, { top: number; left: number; width: number; bottom: number }>
 	>(new Map());
+	// Right-rail x for comment pips: pinned ~32px from the viewport's right edge,
+	// synced to horizontal scroll so it stays visible (code rows start at x=0, so
+	// the markdown left-margin placement would land on the line-number gutter).
+	const [railX, setRailX] = useState(0);
 	const [selectionAnchor, setSelectionAnchor] = useState<ThreadTarget | null>(null);
 	const [threadTarget, setThreadTarget] = useState<ThreadTarget | null>(null);
 	const containerRef = useRef<HTMLDivElement | null>(null);
@@ -238,6 +242,21 @@ export function SourceViewer({ path }: SourceViewerProps) {
 		}
 		setLinePositions(next);
 	}, [content, binary, loading, visibleCount, wrap, highlightedLines]);
+
+	useEffect(() => {
+		const container = containerRef.current;
+		if (!container || loading || binary) return;
+		const update = () =>
+			setRailX(Math.max(0, container.scrollLeft + container.clientWidth - 32));
+		update();
+		container.addEventListener("scroll", update, { passive: true });
+		const ro = new ResizeObserver(update);
+		ro.observe(container);
+		return () => {
+			container.removeEventListener("scroll", update);
+			ro.disconnect();
+		};
+	}, [loading, binary, content]);
 
 	useEffect(() => {
 		function updateSelection() {
@@ -383,7 +402,7 @@ export function SourceViewer({ path }: SourceViewerProps) {
 									anchorLabel={lineAnchorLabel(anchor)}
 									comments={anchorComments}
 									top={pos.top + 4}
-									left={Math.max(0, pos.left - 20)}
+									left={railX}
 									onClick={() => {
 										const row = containerRef.current?.querySelector(
 											`tr[data-line="${anchor.lineStart}"]`,
