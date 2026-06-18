@@ -387,7 +387,7 @@ export function SourceViewer({ path }: SourceViewerProps) {
 				</Button>
 			</ViewerToolbar>
 			<div ref={containerRef} className="relative flex-1 overflow-auto source-viewer-code bg-muted">
-				{!loading && content && !binary && <ViewModeCommentButton containerRef={containerRef} onComment={openSelectionThread} />}
+				{!loading && content && !binary && <ViewModeCommentButton containerRef={containerRef} onComment={openSelectionThread} align="left" />}
 				<div className="relative z-20 pointer-events-none" style={{ height: 0 }}>
 					{Object.entries(commentsByAnchor).map(([anchorKey, anchorComments]) => {
 						const anchor = anchorComments[0]?.lineAnchor;
