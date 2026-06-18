@@ -978,7 +978,7 @@ export default function Page() {
 	const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(() =>
 		typeof window !== "undefined" ? getActiveWorkspaceId() : null
 	);
-	const [workspaces, setWorkspaces] = useState<Array<{id:string;name:string;rootDir:string;lastOpenedAt?:string;createdAt:string;readOnly?:boolean;git?:{remoteUrl:string;branch?:string;username?:string;lastPulledAt?:string;lastSha?:string;lastError?:string}}>>([]);
+	const [workspaces, setWorkspaces] = useState<Array<{id:string;name:string;rootDir:string;lastOpenedAt?:string;createdAt:string;readOnly?:boolean;git?:{remoteUrl:string;branch?:string;username?:string;lastPulledAt?:string;lastSha?:string;lastError?:string};ssh?:{host:string}}>>([]);
 	const [isWsAdmin, setIsWsAdmin] = useState(false);
 	const [addingWorkspace, setAddingWorkspace] = useState(false);
 	const [deletingWorkspaceId, setDeletingWorkspaceId] = useState<string | null>(null);
@@ -993,7 +993,7 @@ export default function Page() {
 		try {
 			const res = await fetch("/api/system/workspaces");
 			if (!res.ok) throw new Error("Failed");
-			const d: { workspaces: Array<{id:string;name:string;rootDir:string;lastOpenedAt?:string;createdAt:string;readOnly?:boolean;git?:{remoteUrl:string;branch?:string;username?:string;lastPulledAt?:string;lastSha?:string;lastError?:string}}>; isAdmin: boolean } = await res.json();
+			const d: { workspaces: Array<{id:string;name:string;rootDir:string;lastOpenedAt?:string;createdAt:string;readOnly?:boolean;git?:{remoteUrl:string;branch?:string;username?:string;lastPulledAt?:string;lastSha?:string;lastError?:string};ssh?:{host:string}}>; isAdmin: boolean } = await res.json();
 			setWorkspaces(d.workspaces);
 			setIsWsAdmin(d.isAdmin);
 			if (d.workspaces.length > 0) {
