@@ -379,15 +379,19 @@ export function SourceViewer({ path }: SourceViewerProps) {
 							</div>
 						)}
 						<div className="text-[13px] leading-relaxed font-mono min-w-max">
-							{shownLines.map((lineHtml, i) => (
-								<div key={i} data-line={i + 1} className="flex hover:bg-foreground/5">
+							{shownLines.map((lineHtml, i) => {
+								const hl = threadTarget?.lineAnchor;
+								const active = hl && i + 1 >= hl.lineStart && i + 1 <= hl.lineEnd;
+								return (
+								<div key={i} data-line={i + 1} className={`flex ${active ? "bg-amber-400/25" : "hover:bg-foreground/5"}`}>
 									<span className="w-12 shrink-0 pr-4 text-right text-muted-foreground select-none sticky left-0 bg-muted">{i + 1}</span>
 									<span
 										className={`text-foreground pl-2 ${wrap ? "whitespace-pre-wrap break-all" : "whitespace-pre"}`}
 										dangerouslySetInnerHTML={{ __html: lineHtml || " " }}
 									/>
 								</div>
-							))}
+								);
+							})}
 						</div>
 						{hasMore && (
 							<div className="flex items-center gap-3 px-4 py-3 border-t border-border font-sans">
