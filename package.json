@@ -44,6 +44,7 @@
     "jszip": "^3.10.1",
     "kysely": "0.28.5",
     "next": "16.2.4",
+    "pdfjs-dist": "5.4.296",
     "proper-lockfile": "^4.1.2",
     "react": "19.2.5",
     "react-dom": "19.2.5",

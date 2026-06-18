@@ -4,7 +4,7 @@ import { create } from "zustand";
 export interface PinnedEntry {
 	path: string;
 	name: string;
-	type?: "file" | "app" | "node-app";
+	type?: "file" | "dir" | "app" | "node-app";
 }
 
 interface PinState {

@@ -59,7 +59,12 @@ import { NotebookViewer } from "@/components/editor/notebook-viewer";
 import { DocxViewer } from "@/components/editor/office/docx-viewer";
 import { PptxViewer } from "@/components/editor/office/pptx-viewer";
 import { XlsxViewer } from "@/components/editor/office/xlsx-viewer";
-import { PdfViewer } from "@/components/editor/pdf-viewer";
+import dynamic from "next/dynamic";
+// pdf.js touches DOM globals at module load — client-only, no SSR.
+const PdfViewer = dynamic(
+	() => import("@/components/editor/pdf-viewer").then((m) => m.PdfViewer),
+	{ ssr: false },
+);
 import { SourceViewer } from "@/components/editor/source-viewer";
 import { WebsiteViewer } from "@/components/editor/website-viewer";
 import { NodeAppViewer } from "@/components/editor/node-app-viewer";
@@ -88,7 +93,7 @@ import {
 	ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { useRecentStore } from "@/stores/recent-store";
-import { usePinStore } from "@/stores/pin-store";
+import { usePinStore, type PinnedEntry } from "@/stores/pin-store";
 import { cn } from "@/lib/utils";
 import { AIPanel } from "@/components/ai-panel/ai-panel";
 import { SearchCommandDialog } from "@/components/search/search-command-dialog";
@@ -1599,6 +1604,30 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 		[revealPath],
 	);
 
+	const openPinnedEntry = useCallback(
+		async (p: PinnedEntry) => {
+			const parentDir = p.path.split("/").slice(0, -1).join("/");
+			const siblings = await fetchDir(parentDir);
+			const match = siblings.find((s) => s.path === p.path);
+			if (!match) return;
+			if (match.type === "dir") {
+				await revealPath(p.path);
+				await toggleFolder(match);
+				return;
+			}
+			if (match.type === "app" || match.type === "node-app") {
+				await revealPath(match.path);
+				void openViewer({ path: match.path, name: match.name, type: match.type, modifiedAt: match.modifiedAt } as TreeNode);
+				await toggleFolder(match);
+				if (isMobile) setSidebarCollapsed(true);
+				return;
+			}
+			void openViewer({ path: match.path, name: match.name, type: match.type, modifiedAt: match.modifiedAt } as TreeNode);
+			if (isMobile) setSidebarCollapsed(true);
+		},
+		[isMobile, openViewer, revealPath, toggleFolder],
+	);
+
 	// biome-ignore lint/correctness/useExhaustiveDependencies: only react to editor path changes
 	useEffect(() => {
 		if (!editorCurrentPath) return;
@@ -2126,10 +2155,10 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 			else prefetchDir(node.path);
 		},
 		togglePin: (node, wsId) =>
-			usePinStore.getState().toggle(
-				{ path: node.path, name: node.name, type: (node.type === "dir" ? "file" : node.type) as "file" | "app" | "node-app" },
-				wsId,
-			),
+					usePinStore.getState().toggle(
+						{ path: node.path, name: node.name, type: node.type },
+						wsId,
+					),
 		setDragOverPath,
 		setSidebarCollapsed,
 		setBranchDropdownNode,
@@ -2493,8 +2522,8 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 											"group flex items-center gap-1.5 rounded-sm px-2 py-1 text-sm cursor-pointer transition-colors select-none",
 											openFile?.path === p.path ? "bg-accent-soft text-foreground font-medium" : "hover:bg-muted",
 										)}
-										onClick={() => { void openViewer({ path: p.path, name: p.name, type: (p.type ?? "file") as TreeNode["type"], modifiedAt: "" } as TreeNode); if (isMobile) setSidebarCollapsed(true); }}
-										onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); void openViewer({ path: p.path, name: p.name, type: (p.type ?? "file") as TreeNode["type"], modifiedAt: "" } as TreeNode); } }}
+										onClick={() => { void openPinnedEntry(p); }}
+										onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); void openPinnedEntry(p); } }}
 									>
 										<Star className="h-3 w-3 shrink-0 fill-current text-amber-400" />
 										<span className="min-w-0 flex-1 truncate text-xs">{p.name}</span>

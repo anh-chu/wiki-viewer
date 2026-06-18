@@ -15,6 +15,7 @@ const WS_SCOPED_PREFIXES = [
 	"/api/wiki",
 	"/api/assets/",
 	"/api/upload/",
+	"/api/pdf/",
 	"/api/system/reveal",
 ];
 
