@@ -44,6 +44,7 @@ import {
 	Sparkles,
 	Sun,
 	Terminal,
+	Type,
 	Trash2,
 	Upload,
 	X,
@@ -121,6 +122,8 @@ import {
 } from "@/stores/sidebar-width-store";
 import { useWikiSlugsStore } from "@/stores/wiki-slugs-store";
 import { useShowHiddenStore } from "@/stores/show-hidden-store";
+import { useHumanizeStore } from "@/stores/humanize-store";
+import { humanizeName } from "@/lib/humanize-name";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 
 function timeAgo(iso: string): string {
@@ -536,6 +539,7 @@ const TreeRowView = memo(function TreeRowView({
 	branchOpen, branchPos, branches, branchLoading, checkingOut,
 	onHoverEnter, onHoverLeave,
 }: TreeRowViewProps) {
+	const humanize = useHumanizeStore((s) => s.humanize);
 	return (
 		<ContextMenu>
 			<ContextMenuTrigger asChild>
@@ -656,7 +660,7 @@ const TreeRowView = memo(function TreeRowView({
 						<File className={cn("h-4 w-4 shrink-0", !isActive && "text-foreground/60")} />
 					)}</span>
 
-					<span className="min-w-0 flex-1 truncate">{node.name}</span>
+					<span className="min-w-0 flex-1 truncate" title={humanize ? node.name : undefined}>{humanize ? humanizeName(node.name) : node.name}</span>
 
 					{/* Git repo badge */}
 					{node.git && (
@@ -1174,6 +1178,7 @@ export default function Page() {
 	const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 	const sidebarWidth = useSidebarWidthStore((s) => s.width);
 	const showHidden = useShowHiddenStore((s) => s.showHidden);
+	const humanize = useHumanizeStore((s) => s.humanize);
 	const { resolvedTheme, setTheme } = useTheme();
 	const setSidebarWidth = useSidebarWidthStore((s) => s.setWidth);
 	// Mobile: when the viewport is mobile, the sidebar defaults to closed.
@@ -2512,6 +2517,10 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 										)}
 										{showHidden ? "Hide hidden files" : "Show hidden files"}
 									</DropdownMenuItem>
+									<DropdownMenuItem onClick={() => useHumanizeStore.getState().toggle()}>
+										<Type className="mr-2 h-3.5 w-3.5" />
+										{humanize ? "Raw file names" : "Humanize names"}
+									</DropdownMenuItem>
 									<DropdownMenuItem onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}>
 										{resolvedTheme === "dark" ? (
 											<Sun className="mr-2 h-3.5 w-3.5" />
@@ -2665,7 +2674,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 										onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); void openPinnedEntry(p); } }}
 									>
 										<FileTypeIcon name={p.name} type={(p.type ?? "file") as TreeNode["type"]} />
-										<span className="min-w-0 flex-1 truncate text-xs">{p.name}</span>
+										<span className="min-w-0 flex-1 truncate text-xs" title={humanize ? p.name : undefined}>{humanize ? humanizeName(p.name) : p.name}</span>
 										<span className="max-w-[80px] truncate text-[10px] text-muted-foreground/60">{p.path.split("/").slice(0, -1).join("/")}</span>
 										<button
 											type="button"
@@ -2719,7 +2728,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 										onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); void openViewer({ path: r.path, name: r.name, type: (r.type ?? "file") as TreeNode["type"], modifiedAt: "" } as TreeNode); } }}
 									>
 										<FileTypeIcon name={r.name} type={(r.type ?? "file") as TreeNode["type"]} />
-										<span className="flex-1 truncate text-xs">{r.name}</span>
+										<span className="flex-1 truncate text-xs" title={humanize ? r.name : undefined}>{humanize ? humanizeName(r.name) : r.name}</span>
 										<span className="text-[10px] text-muted-foreground/60 truncate max-w-[80px]">{r.path.split("/").slice(0, -1).join("/")}</span>
 									</div>
 										</ContextMenuTrigger>
