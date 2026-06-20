@@ -180,11 +180,12 @@ export function CollapsibleExperiment({ editor, scrollContainerRef }: Experiment
 		compute();
 		rafId = requestAnimationFrame(compute);
 		editor.on("update", update);
-		window.addEventListener("resize", compute, { passive: true });
 
 		if (typeof ResizeObserver !== "undefined") {
 			resizeObserver = new ResizeObserver(compute);
 			resizeObserver.observe(host);
+		} else {
+			window.addEventListener("resize", compute, { passive: true });
 		}
 
 		return () => {

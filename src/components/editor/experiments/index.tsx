@@ -13,9 +13,9 @@ export interface ExperimentProps {
 }
 
 /**
- * Mounts every reading-UX experiment. Each child gates itself on its own
- * flag from useExperiment(...) and renders null when off, so this can be
- * mounted unconditionally with no cost when all experiments are disabled.
+ * Mounts every reading-UX feature. Some are always-on (read-time, anchor
+ * flash, collapsible); focus mode and breadcrumb still gate on their own
+ * lab flag and render null when off.
  */
 export function ReadingExperiments(props: ExperimentProps) {
 	return (

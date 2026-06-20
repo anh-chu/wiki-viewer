@@ -1,9 +1,8 @@
 "use client";
 import { create } from "zustand";
 
-// Lab / experiment flags for reading-UX features. Each experiment is a
-// self-contained component gated on its flag; nothing here knows how a
-// feature is implemented, only whether it is on. Persisted to localStorage.
+// Lab toggles for reading-UX features still behind a flag. Each is a
+// self-contained component gated on its flag. Persisted to localStorage.
 
 export type ExperimentId = "focusMode" | "breadcrumb";
 
@@ -29,7 +28,10 @@ function loadInitial(): Flags {
 	if (typeof window === "undefined") return base;
 	try {
 		const raw = localStorage.getItem(STORAGE_KEY);
-		if (raw) Object.assign(base, JSON.parse(raw));
+		const saved = raw ? (JSON.parse(raw) as Partial<Record<string, boolean>>) : {};
+		for (const e of EXPERIMENTS) {
+			if (typeof saved[e.id] === "boolean") base[e.id] = saved[e.id] as boolean;
+		}
 	} catch {
 		// ignore malformed storage
 	}
@@ -37,15 +39,17 @@ function loadInitial(): Flags {
 }
 
 function persist(flags: Flags) {
-	if (typeof window !== "undefined") {
+	if (typeof window === "undefined") return;
+	try {
 		localStorage.setItem(STORAGE_KEY, JSON.stringify(flags));
+	} catch {
+		// quota / private mode — non-fatal
 	}
 }
 
 interface ExperimentsState {
 	flags: Flags;
 	toggle: (id: ExperimentId) => void;
-	set: (id: ExperimentId, on: boolean) => void;
 }
 
 export const useExperimentsStore = create<ExperimentsState>((set) => ({
@@ -53,12 +57,6 @@ export const useExperimentsStore = create<ExperimentsState>((set) => ({
 	toggle: (id) =>
 		set((s) => {
 			const flags = { ...s.flags, [id]: !s.flags[id] };
-			persist(flags);
-			return { flags };
-		}),
-	set: (id, on) =>
-		set((s) => {
-			const flags = { ...s.flags, [id]: on };
 			persist(flags);
 			return { flags };
 		}),

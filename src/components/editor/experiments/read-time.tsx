@@ -43,7 +43,7 @@ export function ReadTimeExperiment({ editor, scrollContainerRef }: ExperimentPro
 		onScroll();
 		host.addEventListener("scroll", onScroll, { passive: true });
 		return () => host.removeEventListener("scroll", onScroll);
-	}, [scrollContainerRef, minutes]);
+	}, [scrollContainerRef]);
 
 	useEffect(() => {
 		const el = pillRef.current;
