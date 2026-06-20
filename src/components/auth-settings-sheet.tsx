@@ -8,6 +8,7 @@ import { Sheet, SheetContent, SheetClose } from "@/components/ui/sheet";
 import { showError } from "@/lib/toast";
 import { authClient } from "@/lib/auth/client";
 import { useSkinStore, SKIN_ORDER, SKIN_LABEL } from "@/stores/skin-store";
+import { useExperimentsStore, EXPERIMENTS } from "@/stores/experiments-store";
 
 interface AuthSettings {
 	allowedEmails: string[];
@@ -26,6 +27,48 @@ function textToList(text: string): string[] {
 		.split(/[\n,]/)
 		.map((s) => s.trim())
 		.filter(Boolean);
+}
+
+function LabSection() {
+	const flags = useExperimentsStore((s) => s.flags);
+	const toggle = useExperimentsStore((s) => s.toggle);
+	return (
+		<div className="space-y-1.5">
+			{EXPERIMENTS.map((exp) => {
+				const on = flags[exp.id];
+				return (
+					<button
+						key={exp.id}
+						type="button"
+						onClick={() => toggle(exp.id)}
+						aria-pressed={on}
+						className={`flex w-full items-start justify-between gap-3 rounded-md border px-3 py-2 text-left transition-colors ${
+							on
+								? "border-ring bg-accent"
+								: "border-border hover:bg-accent/50"
+						}`}
+					>
+						<span className="min-w-0">
+							<span className="block text-sm font-medium">{exp.label}</span>
+							<span className="block text-xs text-muted-foreground">{exp.description}</span>
+						</span>
+						<span
+							aria-hidden
+							className={`mt-0.5 flex h-5 w-9 shrink-0 items-center rounded-full px-0.5 transition-colors ${
+								on ? "bg-primary" : "bg-muted-foreground/30"
+						}`}
+						>
+							<span
+								className={`h-4 w-4 rounded-full bg-background transition-transform ${
+									on ? "translate-x-4" : "translate-x-0"
+							}`}
+						/>
+						</span>
+					</button>
+				);
+			})}
+		</div>
+	);
 }
 
 function SkinSelector() {
@@ -207,6 +250,17 @@ export function AuthSettingsSheet({
 								aesthetic with serif type and warm paper tones.
 							</p>
 							<SkinSelector />
+						</section>
+
+						{/* Lab — experimental reading features */}
+						<section className="space-y-2">
+							<h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+								Lab
+							</h3>
+							<p className="text-xs text-muted-foreground">
+								Experimental reading features. Toggle each on or off. Saved on this device.
+							</p>
+							<LabSection />
 						</section>
 
 					{/* Signup allowlist */}

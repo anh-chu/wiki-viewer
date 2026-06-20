@@ -33,6 +33,7 @@ import { SuggestionCard } from "./suggestion-card";
 import { SuggestEditPopover } from "./suggest-edit-popover";
 import { SlashCommands } from "./slash-commands";
 import { DocumentOutline } from "./document-outline";
+import { ReadingExperiments } from "./experiments";
 import { BacklinksPanel } from "./backlinks-panel";
 import { TableMenu } from "./table-menu";
 import {
@@ -1060,6 +1061,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 									</div>
 								)}
 								<DocumentOutline editor={editor} scrollContainerRef={scrollContainerRef} />
+								<ReadingExperiments editor={editor} scrollContainerRef={scrollContainerRef} />
 								<div
 									ref={scrollContainerRef}
 									className={`absolute inset-0 overflow-y-auto ${

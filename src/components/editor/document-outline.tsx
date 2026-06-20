@@ -29,6 +29,17 @@ function extractHeadings(editor: Editor): Heading[] {
 	return headings;
 }
 
+function getHeadingElement(editor: Editor, h: Heading): HTMLElement | null {
+	try {
+		const { node } = editor.view.domAtPos(h.pos + 1);
+		return node.nodeType === Node.ELEMENT_NODE
+			? (node as HTMLElement).closest("h1,h2,h3,h4,h5,h6") ?? (node as HTMLElement)
+			: (node as Node).parentElement?.closest("h1,h2,h3,h4,h5,h6") ?? null;
+	} catch {
+		return null;
+	}
+}
+
 interface DocumentOutlineProps {
 	editor: Editor | null;
 	scrollContainerRef: React.RefObject<HTMLDivElement | null>;
@@ -39,7 +50,18 @@ export function DocumentOutline({ editor, scrollContainerRef }: DocumentOutlineP
 	const [activeUid, setActiveUid] = useState<string | null>(null);
 	const [collapsed, setCollapsed] = useState(false);
 	const [scrollProgress, setScrollProgress] = useState(0);
+	const [sectionFill, setSectionFill] = useState(0);
+	const headingsRef = useRef<Heading[]>([]);
+	const activeUidRef = useRef<string | null>(null);
 	const observerRef = useRef<IntersectionObserver | null>(null);
+
+	useEffect(() => {
+		headingsRef.current = headings;
+	}, [headings]);
+
+	useEffect(() => {
+		activeUidRef.current = activeUid;
+	}, [activeUid]);
 
 	// Extract headings on doc update, debounced. Walking the whole doc + rebuilding
 	// the IntersectionObserver on every keystroke is wasteful; headings change
@@ -69,6 +91,33 @@ export function DocumentOutline({ editor, scrollContainerRef }: DocumentOutlineP
 			rafId = requestAnimationFrame(() => {
 				const total = el.scrollHeight - el.clientHeight;
 				setScrollProgress(total > 0 ? Math.min(1, el.scrollTop / total) : 0);
+
+				const currentHeadings = headingsRef.current;
+				const activeId = activeUidRef.current;
+				if (!editor || !activeId || currentHeadings.length === 0) {
+					setSectionFill(0);
+					return;
+				}
+
+				const activeIndex = currentHeadings.findIndex((h) => h.uid === activeId);
+				if (activeIndex < 0) {
+					setSectionFill(0);
+					return;
+				}
+
+				const activeHeading = currentHeadings[activeIndex];
+				const nextHeading = currentHeadings[activeIndex + 1];
+				const activeEl = getHeadingElement(editor, activeHeading);
+				if (!activeEl) {
+					setSectionFill(0);
+					return;
+				}
+
+				const activeTop = activeEl.offsetTop;
+				const nextTop = nextHeading ? getHeadingElement(editor, nextHeading)?.offsetTop ?? el.scrollHeight : el.scrollHeight;
+				const span = Math.max(1, nextTop - activeTop);
+				const marker = el.scrollTop + Math.min(96, el.clientHeight * 0.25);
+				setSectionFill(Math.max(0, Math.min(1, (marker - activeTop) / span)));
 			});
 		};
 		el.addEventListener("scroll", onScroll, { passive: true });
@@ -76,7 +125,7 @@ export function DocumentOutline({ editor, scrollContainerRef }: DocumentOutlineP
 			el.removeEventListener("scroll", onScroll);
 			cancelAnimationFrame(rafId);
 		};
-	}, [scrollContainerRef]);
+	}, [editor, scrollContainerRef]);
 
 	// Scroll-spy: observe heading DOM nodes
 	useEffect(() => {
@@ -99,11 +148,7 @@ export function DocumentOutline({ editor, scrollContainerRef }: DocumentOutlineP
 		// Tag and observe each heading node via ProseMirror pos→DOM
 		for (const h of headings) {
 			try {
-				const { node } = editor.view.domAtPos(h.pos + 1);
-				const el: HTMLElement | null =
-					node.nodeType === Node.ELEMENT_NODE
-						? (node as HTMLElement).closest("h1,h2,h3,h4,h5,h6") ?? (node as HTMLElement)
-						: (node as Node).parentElement?.closest("h1,h2,h3,h4,h5,h6") ?? null;
+				const el = getHeadingElement(editor, h);
 				if (el) {
 					el.dataset.outlineId = h.uid;
 					observer.observe(el);
@@ -114,22 +159,16 @@ export function DocumentOutline({ editor, scrollContainerRef }: DocumentOutlineP
 		}
 
 		observerRef.current = observer;
-		return () => { observer.disconnect(); };
+		return () => {
+			observer.disconnect();
+		};
 	}, [headings, editor, scrollContainerRef]);
 
 	const scrollToHeading = useCallback(
 		(h: Heading) => {
 			if (!editor) return;
-			try {
-				const { node } = editor.view.domAtPos(h.pos + 1);
-				const el: HTMLElement | null =
-					node.nodeType === Node.ELEMENT_NODE
-						? (node as HTMLElement).closest("h1,h2,h3,h4,h5,h6") ?? (node as HTMLElement)
-						: (node as Node).parentElement?.closest("h1,h2,h3,h4,h5,h6") ?? null;
-				el?.scrollIntoView({ behavior: "smooth", block: "start" });
-			} catch {
-				// ignore
-			}
+			const el = getHeadingElement(editor, h);
+			el?.scrollIntoView({ behavior: "smooth", block: "start" });
 		},
 		[editor],
 	);
@@ -152,10 +191,19 @@ export function DocumentOutline({ editor, scrollContainerRef }: DocumentOutlineP
 						activeUid === h.uid
 							? "text-primary bg-primary/10 font-medium"
 							: "text-muted-foreground/60 hover:text-foreground hover:bg-accent",
+						activeUid === h.uid && "relative overflow-hidden",
 					)}
 					style={{ paddingLeft: `${(h.level - 1) * 8 + 4}px` }}
 				>
-					{h.text}
+					{activeUid === h.uid && (
+						<span aria-hidden className="absolute left-0 top-0 bottom-0 w-0.5 bg-primary/15">
+							<span
+								className="absolute bottom-0 left-0 w-full bg-primary transition-[height] duration-100 ease-out"
+								style={{ height: `${sectionFill * 100}%` }}
+							/>
+						</span>
+					)}
+					{activeUid === h.uid ? <span className="relative z-10">{h.text}</span> : h.text}
 				</button>
 			))}
 		</>
