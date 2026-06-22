@@ -57,7 +57,7 @@ export default function RootLayout({
 				{/* No-flash skin script: sets data-skin before paint so editorial tokens apply immediately */}
 				<script
 					dangerouslySetInnerHTML={{
-						__html: `(function(){try{var s=localStorage.getItem('wiki-skin');if(s==='editorial'){document.documentElement.setAttribute('data-skin','editorial');}}catch(e){}})();`,
+						__html: `(function(){try{var s=localStorage.getItem('wiki-skin');if(s!=='default'){document.documentElement.setAttribute('data-skin','editorial');}}catch(e){}})();`,
 					}}
 				/>
 			</head>

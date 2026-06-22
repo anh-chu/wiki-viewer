@@ -224,7 +224,13 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tree-row-reveal {
+  .tree-row-reveal,
+  [data-skin="editorial"] main,
+  [data-skin="editorial"] .editorial-content-pane,
+  [data-skin="editorial"] .tiptap h1,
+  [data-skin="editorial"] .tiptap h2,
+  [data-skin="editorial"] .tiptap h3,
+  [data-skin="editorial"] .tiptap hr {
     animation: none;
   }
 }
@@ -1189,18 +1195,58 @@ proof-span.proof-span:hover,
   letter-spacing: 0.1em;
 }
 
-/* === Load fade-in === */
+/* === Load reveal — staged choreography ===
+   Body rises and fades, then headings settle (fade + tighten tracking),
+   then the asterism rule draws in. Replays on every doc open. */
 [data-skin="editorial"] main,
 [data-skin="editorial"] .editorial-content-pane {
-  animation: editorial-fade-in 400ms ease-out;
+  animation: editorial-rise 480ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-@keyframes editorial-fade-in {
+[data-skin="editorial"] .tiptap h1 {
+  animation: editorial-bloom 620ms cubic-bezier(0.16, 1, 0.3, 1) 90ms both;
+}
+
+[data-skin="editorial"] .tiptap h2,
+[data-skin="editorial"] .tiptap h3 {
+  animation: editorial-bloom 560ms cubic-bezier(0.16, 1, 0.3, 1) 140ms both;
+}
+
+[data-skin="editorial"] .tiptap hr {
+  transform-origin: center;
+  animation: editorial-draw 700ms ease-out 200ms both;
+}
+
+@keyframes editorial-rise {
   from {
     opacity: 0;
+    transform: translateY(8px);
   }
   to {
     opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes editorial-bloom {
+  from {
+    opacity: 0;
+    letter-spacing: 0.02em;
+  }
+  to {
+    opacity: 1;
+    letter-spacing: -0.01em;
+  }
+}
+
+@keyframes editorial-draw {
+  from {
+    opacity: 0;
+    transform: scaleX(0.5);
+  }
+  to {
+    opacity: 1;
+    transform: scaleX(1);
   }
 }
 

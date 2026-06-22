@@ -2364,6 +2364,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 			{rootConfigured === true && !addingWorkspace && <>
 			<SearchCommandDialog
 				onOpenFile={openFromSearch}
+				recents={recents}
 				onToggleSidebar={() =>
 				setSidebarCollapsed((v) => {
 					const next = !v;

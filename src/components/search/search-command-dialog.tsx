@@ -12,6 +12,7 @@ import { useEffect } from "react";
 import {
 	AlignCenter,
 	Bot,
+	Clock,
 	Copy,
 	FilePlus,
 	Moon,
@@ -30,6 +31,7 @@ import {
 } from "@/components/ui/command";
 import { useSearchStore } from "@/stores/search-store";
 import { useAIPanelStore } from "@/stores/ai-panel-store";
+import { type RecentEntry } from "@/stores/recent-store";
 import {
 	useViewWidthStore,
 	VIEW_WIDTH_LABEL,
@@ -39,6 +41,7 @@ import { SnippetText } from "./snippet-text";
 
 export interface SearchCommandDialogProps {
 	onOpenFile: (relPath: string) => void;
+	recents?: RecentEntry[];
 	/** Wire to page-level sidebar toggle. Defaults to no-op. */
 	onToggleSidebar?: () => void;
 	/** Wire to page-level new-file action. Defaults to no-op. */
@@ -49,6 +52,7 @@ export interface SearchCommandDialogProps {
 
 export function SearchCommandDialog({
 	onOpenFile,
+	recents = [],
 	onToggleSidebar = () => undefined,
 	onNewFile = () => undefined,
 	onCopyPath = () => undefined,
@@ -70,6 +74,7 @@ export function SearchCommandDialog({
 	// Action mode: empty query or ">" prefix (VS Code convention).
 	const trimmed = query.trimStart();
 	const isActionMode = trimmed === "" || trimmed.startsWith(">");
+	const showRecents = trimmed === "" && recents.length > 0;
 
 	// The bare text to actually search files (strip leading ">").
 	const fileQuery = isActionMode ? "" : query;
@@ -124,6 +129,33 @@ export function SearchCommandDialog({
 				onValueChange={setQuery}
 			/>
 			<CommandList>
+				{/* ── Recent files ────────────────────────────────────── */}
+				{showRecents && (
+					<>
+						<CommandGroup heading="Recent">
+							{recents.map((entry) => (
+								<CommandItem
+									key={entry.path}
+									value={`recent:${entry.path}`}
+									onSelect={() => {
+										onOpenFile(entry.path);
+										setOpen(false);
+										setQuery("");
+									}}
+								>
+									<Clock className="mr-2 h-4 w-4" />
+									<div className="flex min-w-0 flex-col gap-0.5">
+										<span className="truncate font-medium">{entry.name}</span>
+										<span className="truncate text-xs text-muted-foreground">
+											{entry.path}
+										</span>
+									</div>
+								</CommandItem>
+							))}
+						</CommandGroup>
+						<CommandSeparator />
+					</>
+				)}
 				{/* ── Action mode ─────────────────────────────────────── */}
 				{isActionMode && (
 					<CommandGroup heading="Actions">

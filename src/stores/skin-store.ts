@@ -14,10 +14,10 @@ export const SKIN_ORDER: Skin[] = ["default", "editorial"];
 
 function loadInitial(): Skin {
 	// Read from the attribute already set by the no-flash script (avoids hydration mismatch).
-	if (typeof window === "undefined") return "default";
+	// Editorial is the default; only an explicit "default" opt-out turns it off.
+	if (typeof window === "undefined") return "editorial";
 	const attr = document.documentElement.dataset.skin;
-	if (attr === "editorial") return "editorial";
-	return "default";
+	return attr === "editorial" ? "editorial" : "default";
 }
 
 interface SkinState {
@@ -29,11 +29,11 @@ export const useSkinStore = create<SkinState>((set) => ({
 	skin: loadInitial(),
 	setSkin: (skin) => {
 		if (typeof window !== "undefined") {
-			if (skin === "editorial") {
-				document.documentElement.setAttribute("data-skin", "editorial");
-				localStorage.setItem(STORAGE_KEY, "editorial");
-			} else {
+			if (skin === "default") {
 				document.documentElement.removeAttribute("data-skin");
+				localStorage.setItem(STORAGE_KEY, "default");
+			} else {
+				document.documentElement.setAttribute("data-skin", "editorial");
 				localStorage.removeItem(STORAGE_KEY);
 			}
 		}

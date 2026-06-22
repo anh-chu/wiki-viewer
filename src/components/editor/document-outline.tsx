@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { List } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useExperiment } from "@/stores/experiments-store";
 
 interface Heading {
 	level: number;
@@ -46,6 +47,7 @@ interface DocumentOutlineProps {
 }
 
 export function DocumentOutline({ editor, scrollContainerRef }: DocumentOutlineProps) {
+	const spine = useExperiment("outlineSpine");
 	const [headings, setHeadings] = useState<Heading[]>([]);
 	const [activeUid, setActiveUid] = useState<string | null>(null);
 	const [collapsed, setCollapsed] = useState(false);
@@ -195,14 +197,23 @@ export function DocumentOutline({ editor, scrollContainerRef }: DocumentOutlineP
 					)}
 					style={{ paddingLeft: `${(h.level - 1) * 8 + 4}px` }}
 				>
-					{activeUid === h.uid && (
-						<span aria-hidden className="absolute left-0 top-0 bottom-0 w-0.5 bg-primary/15">
+						{activeUid === h.uid && (
 							<span
-								className="absolute bottom-0 left-0 w-full bg-primary transition-[height] duration-100 ease-out"
-								style={{ height: `${sectionFill * 100}%` }}
-							/>
-						</span>
-					)}
+								aria-hidden
+								className={cn(
+									"absolute left-0 top-0 bottom-0 w-0.5 bg-primary/15",
+									spine && "w-1 bg-primary/20",
+								)}
+							>
+								<span
+									className="absolute bottom-0 left-0 w-full bg-primary transition-[height] duration-100 ease-out"
+									style={{
+										height: `${sectionFill * 100}%`,
+										boxShadow: spine ? "0 0 8px 1px var(--primary)" : undefined,
+									}}
+								/>
+							</span>
+						)}
 					{activeUid === h.uid ? <span className="relative z-10">{h.text}</span> : h.text}
 				</button>
 			))}
