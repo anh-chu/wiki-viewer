@@ -4,7 +4,7 @@ import { create } from "zustand";
 // Lab toggles for reading-UX features still behind a flag. Each is a
 // self-contained component gated on its flag. Persisted to localStorage.
 
-export type ExperimentId = "focusMode" | "breadcrumb" | "outlineSpine";
+export type ExperimentId = "focusMode" | "breadcrumb";
 
 export const EXPERIMENTS: { id: ExperimentId; label: string; description: string }[] = [
 	{
@@ -16,11 +16,6 @@ export const EXPERIMENTS: { id: ExperimentId; label: string; description: string
 		id: "breadcrumb",
 		label: "Sticky breadcrumb",
 		description: "Current heading trail pinned to the top while you scroll.",
-	},
-	{
-		id: "outlineSpine",
-		label: "Outline spine",
-		description: "Glowing progress spine on the active outline section.",
 	},
 ];
 
