@@ -241,7 +241,8 @@ export async function startApp(relPath: string, absPath: string, script?: string
 
 	child.on("exit", (code) => {
 		const a = apps.get(relPath);
-		if (a?.process === child) {
+		// Don't clobber an explicit error (e.g. port-timeout kill below).
+		if (a?.process === child && a.status !== "error") {
 			a.status = code === 0 || code === null ? "stopped" : "error";
 			a.error = code ? `Process exited with code ${code}` : undefined;
 		}
@@ -252,7 +253,10 @@ export async function startApp(relPath: string, absPath: string, script?: string
 		const a = apps.get(relPath);
 		if (a?.process === child) {
 			a.status = ok ? "running" : "error";
-			if (!ok) a.error = "Port never became reachable (30 s timeout)";
+			if (!ok) {
+				a.error = "Port never became reachable (30 s timeout)";
+				try { child.kill("SIGTERM"); } catch {}
+			}
 		}
 	});
 

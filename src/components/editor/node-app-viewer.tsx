@@ -292,6 +292,10 @@ export function NodeAppViewer({ path, title }: Props) {
 								port {port}
 							</p>
 						)}
+						<Button onClick={handleStop} variant="outline" size="sm" className="gap-2">
+							<Square className="h-3.5 w-3.5" />
+							Cancel
+						</Button>
 					</div>
 				)}
 
@@ -306,10 +310,15 @@ export function NodeAppViewer({ path, title }: Props) {
 								{error ?? "Unknown error"}
 							</p>
 						</div>
-						<Button onClick={() => handleLaunch()} variant="outline" className="gap-2">
-							<RefreshCw className="h-4 w-4" />
-							Try again
-						</Button>
+						<div className="flex items-center gap-2">
+							<Button onClick={handleStop} variant="ghost" className="gap-2">
+								Back
+							</Button>
+							<Button onClick={handleRestart} variant="outline" className="gap-2">
+								<RefreshCw className="h-4 w-4" />
+								Try again
+							</Button>
+						</div>
 					</div>
 				)}
 
