@@ -868,10 +868,23 @@ function update() {
   const name = pkg.name;
   console.log(`Current ${name}: v${pkg.version}`);
 
+  // Cheap registry metadata check first. The package tarball is ~20 MB, so a
+  // blind reinstall on every `update` re-downloads + re-extracts 2000+ files
+  // even when nothing changed (the common case). `npm view` fetches only JSON.
+  const latest = (runQuiet("npm", ["view", `${name}@latest`, "version"]) || "").trim();
+  if (latest && latest === pkg.version) {
+    console.log(`Already on the latest version (v${latest}). Nothing to do.`);
+    return;
+  }
+  if (latest) console.log(`Latest: v${latest}`);
+
   const pm = detectPackageManager();
-  const cmd = pm === "pnpm" ? ["pnpm", ["add", "-g", `${name}@latest`]]
+  // --prefer-offline: when invoked via `npx`, the latest tarball is often
+  // already in the local cache from the npx fetch, so the global install can
+  // skip a second network download of the ~20 MB package.
+  const cmd = pm === "pnpm" ? ["pnpm", ["add", "-g", `${name}@latest`, "--prefer-offline"]]
             : pm === "yarn" ? ["yarn", ["global", "add", `${name}@latest`]]
-            : ["npm", ["install", "-g", `${name}@latest`]];
+            : ["npm", ["install", "-g", `${name}@latest`, "--prefer-offline"]];
 
   console.log(`Updating via ${pm}…`);
   try {
