@@ -16,6 +16,9 @@ interface RunningApp {
 	status: AppStatus;
 	error?: string;
 	logs: string[];
+	// Port the app actually bound to, parsed from its stdout — used as a fallback
+	// when our --port/PORT override is ignored (unknown PM/flag conventions).
+	detectedPort?: number;
 }
 
 // ── singleton ────────────────────────────────────────────────────────────────
@@ -46,24 +49,33 @@ function canConnect(port: number, host: string): Promise<boolean> {
 }
 
 // Probe both IPv4 (127.0.0.1) and IPv6 (::1) — Vite binds to ::1 by default.
-async function waitForPort(port: number, timeoutMs = 30_000): Promise<boolean> {
-	const deadline = Date.now() + timeoutMs;
-	while (Date.now() < deadline) {
-		const [v4, v6] = await Promise.all([
-			canConnect(port, "127.0.0.1"),
-			canConnect(port, "::1"),
-		]);
-		if (v4 || v6) return true;
-		await new Promise((r) => setTimeout(r, 400));
-	}
-	return false;
+async function probe(port: number): Promise<boolean> {
+	const [v4, v6] = await Promise.all([
+		canConnect(port, "127.0.0.1"),
+		canConnect(port, "::1"),
+	]);
+	return v4 || v6;
 }
 
-type PM = "npm" | "pnpm" | "yarn";
+// Wait until the requested port OR the port the app printed becomes reachable.
+// Returns the reachable port (so the caller can re-point the proxy), or null.
+async function waitForApp(entry: RunningApp, timeoutMs = 30_000): Promise<number | null> {
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline) {
+		for (const p of [entry.port, entry.detectedPort]) {
+			if (p && (await probe(p))) return p;
+		}
+		await new Promise((r) => setTimeout(r, 400));
+	}
+	return null;
+}
+
+type PM = "npm" | "pnpm" | "yarn" | "bun";
 
 function detectPM(dir: string): PM {
 	if (existsSync(path.join(dir, "pnpm-lock.yaml"))) return "pnpm";
 	if (existsSync(path.join(dir, "yarn.lock"))) return "yarn";
+	if (existsSync(path.join(dir, "bun.lockb")) || existsSync(path.join(dir, "bun.lock"))) return "bun";
 	return "npm";
 }
 
@@ -134,10 +146,13 @@ function detectCmd(dir: string, pm: PM, port: number, script?: string): Cmd | nu
 	// the flag almost always ignore unknown argv harmlessly.
 	const portArgs = ["--port", String(port)];
 
-	// For a package-manager `run`, args after `--` are forwarded to the script.
+	// npm strips the first `--` and forwards the rest to the script; pnpm/yarn
+	// forward the literal `--` through, which makes arg parsers (e.g. commander)
+	// treat `--port N` as positional operands and ignore them. So only npm gets
+	// the separator.  ponytail: per-PM branch, the only place PMs diverge here.
 	const run = (s: string): Cmd => ({
 		bin: pm,
-		args: ["run", s, "--", ...portArgs],
+		args: pm === "npm" ? ["run", s, "--", ...portArgs] : ["run", s, ...portArgs],
 		isVite: hasVite,
 	});
 
@@ -233,7 +248,18 @@ export async function startApp(relPath: string, absPath: string, script?: string
 
 	const handleOutput = (data: Buffer) => {
 		for (const line of data.toString().split("\n")) {
-			if (line.trim()) pushLog(line);
+			if (!line.trim()) continue;
+			pushLog(line);
+			// Fallback: capture the port the server actually printed, in case it
+			// ignored our override and bound elsewhere (e.g. vite default 4173).
+			if (!entry.detectedPort) {
+				const m = line.match(/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\]):(\d{2,5})/);
+				const p = m ? Number(m[1]) : 0;
+				if (p && p !== entry.port) {
+					entry.detectedPort = p;
+					pushLog(`[wiki-viewer] App bound to ${p}, not requested ${entry.port}; will attach to ${p}.`);
+				}
+			}
 		}
 	};
 	child.stdout?.on("data", handleOutput);
@@ -248,12 +274,15 @@ export async function startApp(relPath: string, absPath: string, script?: string
 		}
 	});
 
-	// Wait for port in background
-	waitForPort(port).then((ok) => {
+	// Wait for either the requested port or the one the app actually printed.
+	waitForApp(entry).then((reachable) => {
 		const a = apps.get(relPath);
 		if (a?.process === child) {
-			a.status = ok ? "running" : "error";
-			if (!ok) {
+			if (reachable) {
+				a.status = "running";
+				a.port = reachable; // route the proxy to where the app really is
+			} else {
+				a.status = "error";
 				a.error = "Port never became reachable (30 s timeout)";
 				try { child.kill("SIGTERM"); } catch {}
 			}
