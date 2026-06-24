@@ -43,6 +43,59 @@ self.addEventListener("fetch", (event) => {
 
 // ── rewriters ─────────────────────────────────────────────────────────────────
 
+// Vite dev emits root-absolute ES-module imports (/@vite/client, /@react-refresh,
+// /@fs/...) inside <script> bodies and transformed JS. Those bypass <base href>
+// and the HTML/CSS rewriters, so they hit the origin root and 404 → white screen.
+// The injected service worker reroutes them under the proxy prefix, but it can't
+// catch the FIRST load (modules fetch before the SW controls the page). This
+// bootstrap closes that race: serve it as the first document, register the SW,
+// wait until it actually controls, then reload — so the real app HTML (and its
+// whole module graph) only loads once the SW is in charge.
+//
+// ponytail: gated to Vite-dev HTML only (see viteDevMarkers) so preview/static
+// apps load directly with no extra reload. Cookie is session-scoped; if the SW
+// is later unregistered mid-session, clear cookies to re-bootstrap.
+const SW_READY_COOKIE = "wv_sw_ready";
+
+function viteDevMarkers(html: string): boolean {
+	return /\/@vite\/client|\/@react-refresh|\/@fs\//.test(html);
+}
+
+function isDocumentNav(request: Request): boolean {
+	const dest = request.headers.get("sec-fetch-dest");
+	if (dest) return dest === "document";
+	return (request.headers.get("accept") ?? "").includes("text/html");
+}
+
+function bootstrapHtml(proxyBase: string): string {
+	return `<!doctype html><html><head><meta charset="utf-8"><title>Loading…</title></head>
+<body>
+<script>
+(function(){
+  var BASE = ${JSON.stringify(proxyBase)};
+  function go(){ document.cookie = ${JSON.stringify(SW_READY_COOKIE)} + "=1;path=" + BASE + "/"; location.reload(); }
+  if (!('serviceWorker' in navigator)) { go(); return; } // no SW (plain HTTP) → best-effort
+  navigator.serviceWorker.register(BASE + '/sw-proxy.js?v=2', { scope: BASE + '/' }).then(function(){
+    if (navigator.serviceWorker.controller) { go(); return; }
+    navigator.serviceWorker.addEventListener('controllerchange', function(){ go(); }, { once: true });
+    setTimeout(function(){ go(); }, 4000); // safety: never hang on the bootstrap
+  }).catch(go);
+})();
+</script>
+</body></html>`;
+}
+
+// Returns a bootstrap Response when this is the first document load of a Vite-dev
+// app (SW not yet known to control), else null to serve the real HTML.
+function maybeBootstrap(html: string, request: Request, proxyBase: string): Response | null {
+	if (!isDocumentNav(request) || !viteDevMarkers(html)) return null;
+	if ((request.headers.get("cookie") ?? "").includes(`${SW_READY_COOKIE}=1`)) return null;
+	return new Response(bootstrapHtml(proxyBase), {
+		status: 200,
+		headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
+	});
+}
+
 function rewriteHtml(html: string, proxyBase: string): string {
 	let out = html;
 	out = out.replace(/((?:src|href|action|data-src|data-href|content)=")\/(?!\/)/g, `$1${proxyBase}/`);
@@ -192,7 +245,8 @@ async function handleProxy(
 
 			if (contentType.includes("text/html")) {
 				resHeaders.set("content-type", "text/html; charset=utf-8");
-				return new Response(rewriteHtml(text, proxyBase), { status: second.statusCode, headers: resHeaders });
+				return maybeBootstrap(text, request, proxyBase)
+					?? new Response(rewriteHtml(text, proxyBase), { status: second.statusCode, headers: resHeaders });
 			}
 			resHeaders.set("content-type", contentType);
 			return new Response(rewriteCss(text, proxyBase), { status: second.statusCode, headers: resHeaders });
@@ -214,7 +268,7 @@ async function handleProxy(
 			fallbackHeaders.delete("content-encoding");
 			fallbackHeaders.delete("content-length");
 			fallbackHeaders.set("content-type", "text/html; charset=utf-8");
-			return new Response(rewriteHtml(fallbackText, proxyBase), {
+			return maybeBootstrap(fallbackText, request, proxyBase) ?? new Response(rewriteHtml(fallbackText, proxyBase), {
 				status: 200,
 				headers: fallbackHeaders,
 			});
