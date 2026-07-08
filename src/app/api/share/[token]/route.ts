@@ -19,7 +19,7 @@ const MAX_DISPLAY_SIZE = 1 * 1024 * 1024; // 1MB
 async function resolveContent(
 	token: string,
 ): Promise<
-	| { ok: true; content: string; filename: string; viewCount: number }
+	| { ok: true; content: string; filename: string; filePath: string; viewCount: number }
 	| { ok: false; response: NextResponse }
 > {
 	const share = getShareByToken(token);
@@ -116,7 +116,7 @@ async function resolveContent(
 	incrementViewCount(token);
 	const filename = share.filePath.split("/").pop() ?? share.filePath;
 
-	return { ok: true, content, filename, viewCount: share.viewCount + 1 };
+	return { ok: true, content, filename, filePath: share.filePath, viewCount: share.viewCount + 1 };
 }
 
 // ── GET: Resolve a share link (public) ───────────────────────────────────────
@@ -175,6 +175,7 @@ export async function GET(
 		content: result.content,
 		filename: result.filename,
 		viewCount: result.viewCount,
+		filePath: result.filePath,
 	});
 }
 
@@ -231,6 +232,7 @@ export async function POST(
 		content: result.content,
 		filename: result.filename,
 		viewCount: result.viewCount,
+		filePath: result.filePath,
 	});
 }
 

@@ -3099,6 +3099,10 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 														<Maximize2 className="mr-2 h-3.5 w-3.5" />
 														Open fullscreen
 													</DropdownMenuItem>
+													<DropdownMenuItem onClick={() => setShareDialogOpen(true)}>
+														<Share className="mr-2 h-3.5 w-3.5" />
+														Share
+													</DropdownMenuItem>
 												</>
 											))}
 											{openFileViewerKind === "html" &&
