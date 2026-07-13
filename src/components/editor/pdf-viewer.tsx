@@ -209,8 +209,10 @@ export function PdfViewer({ path, title }: PdfViewerProps) {
 					{loadError}
 				</div>
 			) : (
-				<div ref={containerRef} className="absolute-container relative flex-1 overflow-auto bg-muted/30">
-					<div className="pdfViewer" />
+				<div className="relative flex-1 overflow-hidden bg-muted/30">
+					<div ref={containerRef} className="absolute inset-0 overflow-auto">
+						<div className="pdfViewer" />
+					</div>
 				</div>
 			)}
 		</div>
