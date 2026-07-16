@@ -76,6 +76,7 @@ function parseServeArgs(args) {
   let host = process.env.HOSTNAME;
   let useHttps;
   let userSpecifiedPort = false;
+  let userSpecifiedHost = false;
   let rootDir;
   let noAuth;
   let sshKey;
@@ -86,7 +87,7 @@ function parseServeArgs(args) {
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "-p" || a === "--port") { port = args[++i] ?? port; userSpecifiedPort = true; }
-    else if (a === "-H" || a === "--host") host = args[++i] ?? host;
+    else if (a === "-H" || a === "--host") { host = args[++i] ?? host; userSpecifiedHost = true; }
     else if (a === "-e" || a === "--env") { i++; } // consumed by parseEnvFlags
     else if (a === "--https") useHttps = true;
     else if (a === "--no-auth") noAuth = true;
@@ -97,7 +98,7 @@ function parseServeArgs(args) {
     else if (!a.startsWith("-") && rootDir === undefined) rootDir = a;
   }
 
-  return { rootDir, port, host, useHttps, userSpecifiedPort, noAuth: Boolean(noAuth), sshKey, sshPort, sshPassword: Boolean(sshPassword), sshReadOnly: Boolean(sshReadOnly) };
+  return { rootDir, port, host, useHttps, userSpecifiedPort, userSpecifiedHost, noAuth: Boolean(noAuth), sshKey, sshPort, sshPassword: Boolean(sshPassword), sshReadOnly: Boolean(sshReadOnly) };
 }
 
 // ── ssh (sshfs) targets ──────────────────────────────────────────────────────
@@ -587,6 +588,85 @@ function runQuiet(cmd, args) {
 
 // ── service: install ──────────────────────────────────────────────────────────
 
+// A persistent service bakes an absolute path to this script into the unit /
+// plist (ExecStart). If we're running from a package-manager scratch cache
+// (`npx wiki-viewer …`, `pnpm dlx …`, or an OS temp dir), that path is deleted
+// the moment the cache is pruned, leaving a service that silently fails on the
+// next reboot. Detect it and refuse, pointing the user at a global install.
+function ephemeralInstallReason() {
+  const p = selfScript;
+  const sep = path.sep;
+  if (p.includes(`${sep}_npx${sep}`)) return "an npx cache";
+  if (p.includes(`${sep}dlx-`)) return "a pnpm/yarn dlx cache";
+  const tmp = os.tmpdir();
+  if (p === tmp || p.startsWith(tmp + sep)) return "a temporary directory";
+  return null;
+}
+
+function requirePersistentInstall() {
+  const reason = ephemeralInstallReason();
+  if (!reason) return;
+  console.error(`Error: cannot install a service from ${reason}.`);
+  console.error(`  wiki-viewer is running from ${selfScript},`);
+  console.error(`  which your package manager will delete. A service pointed there would`);
+  console.error(`  break after the next cache cleanup or reboot.`);
+  console.error(``);
+  console.error(`  Install it globally first, then install the service:`);
+  console.error(`    npm install -g ${SERVICE_NAME}`);
+  console.error(`    ${SERVICE_NAME} service install ...`);
+  process.exit(1);
+}
+
+// The unit/plist runs node by absolute path. process.execPath is often a
+// version-manager runtime pinned to one Node version (fnm/nvm) — a version bump
+// deletes that path and silently breaks the service. fnm keeps a stable
+// `aliases/default/bin/node` symlink that follows the user's default across
+// upgrades; prefer it. Never use `which node`: under fnm that's an ephemeral
+// per-shell path in /run that vanishes on reboot.
+function fnmRoot() {
+  return process.env.FNM_DIR || path.join(os.homedir(), ".local", "share", "fnm");
+}
+
+function resolveServiceNode() {
+  const exec = process.execPath;
+  const looksFnm = exec.includes("/fnm/") || exec.includes("/.fnm/") || exec.includes("fnm_multishells") || exec.includes("/fnm/node-versions/") || exec.includes("/.local/share/fnm/");
+  if (looksFnm) {
+    const fnmDefault = path.join(fnmRoot(), "aliases", "default", "bin", "node");
+    if (existsSync(fnmDefault)) return fnmDefault;
+  }
+  return exec;
+}
+
+// Symmetric to resolveServiceNode: when this script lives inside an fnm
+// version-pinned global tree (`.../node-versions/<ver>/installation/...`, where
+// `npm install -g` lands under fnm), a Node upgrade or prune deletes that whole
+// tree — including this file. Redirect ExecStart through the stable
+// `aliases/default` symlink, which follows the user's default version.
+function resolveServiceScript() {
+  const script = selfScript;
+  const pinned = path.join(fnmRoot(), "node-versions") + path.sep;
+  if (!script.startsWith(pinned)) return script; // dev checkout / system install: already stable
+  const parts = path.relative(path.join(fnmRoot(), "node-versions"), script).split(path.sep);
+  // parts = [<ver>, "installation", ...rest]; aliases/default -> the installation dir.
+  if (parts[1] !== "installation") return script;
+  const durable = path.join(fnmRoot(), "aliases", "default", ...parts.slice(2));
+  return existsSync(durable) ? durable : script;
+}
+
+// After resolving the most durable node we can, warn if it's *still* pinned to a
+// version-manager runtime version we couldn't redirect to a stable alias.
+function versionManagedNodeWarning(nodePath) {
+  const markers = ["/.nvm/", "/.asdf/", "/.volta/", "/n/versions/", "/fnm_multishells/", "/node-versions/"];
+  if (!markers.some((m) => nodePath.includes(m))) return null;
+  return (
+    `The service will run Node from a version-manager path:\n` +
+    `     ${nodePath}\n` +
+    `   If you upgrade or remove that Node version, the service will stop working.\n` +
+    `   Set a stable default (e.g. \`fnm default <version>\`) or install wiki-viewer\n` +
+    `   under a system Node, then re-run the install.`
+  );
+}
+
 // Pull repeatable `--env KEY=VALUE` (or `-e KEY=VALUE`) pairs out of an argv
 // list. Returns the collected map; the caller has already parsed the rest.
 function parseEnvFlags(args) {
@@ -607,6 +687,8 @@ function parseEnvFlags(args) {
 
 function serviceInstall(args) {
   const p = requireSupportedPlatform();
+  // Refuse before writing anything if we can't produce a durable ExecStart path.
+  requirePersistentInstall();
 
   // Capture the run config from flags (falling back to existing config), persist it.
   const cli = parseServeArgs(args);
@@ -614,21 +696,31 @@ function serviceInstall(args) {
   const existing = loadConfig();
   const mergedEnv = { ...(existing.env ?? {}), ...envFlags };
   const cliIsSsh = cli.rootDir != null && looksLikeSshTarget(cli.rootDir);
+  // Spread the existing config first so keys we don't manage here (and
+  // existing.ssh when this run isn't an SSH target) survive instead of being
+  // clobbered back to defaults.
   const cfg = {
+    ...existing,
     rootDir: cli.rootDir != null
       ? (cliIsSsh ? cli.rootDir : path.resolve(cli.rootDir))
       : existing.rootDir ?? null,
-    host: cli.host ?? existing.host ?? "localhost",
-    port: cli.port ?? existing.port ?? "3000",
+    // Only let the CLI override the persisted host/port when the flag was
+    // explicitly passed. cli.host/cli.port are seeded from HOSTNAME/PORT env, so
+    // gating on `??` would let ambient env silently clobber the saved config on
+    // every reinstall.
+    host: cli.userSpecifiedHost ? cli.host : existing.host ?? "localhost",
+    port: cli.userSpecifiedPort ? cli.port : existing.port ?? "3000",
     https: cli.useHttps ?? existing.https ?? false,
-    // Persist ssh options so `service run` can remount on boot. Password auth is
-    // intentionally NOT persisted — services run non-interactively, so use
-    // ssh-agent or --ssh-key for a reboot-persistent SSH workspace.
-    ...(cliIsSsh
-      ? { ssh: { ...(cli.sshKey ? { key: cli.sshKey } : {}), ...(cli.sshPort ? { port: cli.sshPort } : {}), ...(cli.sshReadOnly ? { readOnly: true } : {}) } }
-      : existing.ssh ? { ssh: existing.ssh } : {}),
-    ...(Object.keys(mergedEnv).length ? { env: mergedEnv } : {}),
   };
+  // Persist ssh options so `service run` can remount on boot. Password auth is
+  // intentionally NOT persisted — services run non-interactively, so use
+  // ssh-agent or --ssh-key for a reboot-persistent SSH workspace. Only overwrite
+  // ssh when this run explicitly targets one; otherwise existing.ssh is kept.
+  if (cliIsSsh) {
+    cfg.ssh = { ...(cli.sshKey ? { key: cli.sshKey } : {}), ...(cli.sshPort ? { port: cli.sshPort } : {}), ...(cli.sshReadOnly ? { readOnly: true } : {}) };
+  }
+  if (Object.keys(mergedEnv).length) cfg.env = mergedEnv;
+  else delete cfg.env;
   if (cliIsSsh && cli.sshPassword) {
     console.log("⚠️   --ssh-password is ignored for services (non-interactive). Use ssh-agent or --ssh-key.\n");
   }
@@ -648,6 +740,9 @@ function serviceInstall(args) {
     host: cfg.host, port: String(cfg.port), useHttps: Boolean(cfg.https), configEnv: cfg.env ?? {},
   });
   for (const w of warnings) console.log(`⚠️   ${w}\n`);
+
+  const nodeWarning = versionManagedNodeWarning(resolveServiceNode());
+  if (nodeWarning) console.log(`⚠️   ${nodeWarning}\n`);
 
   if (p === "linux") installSystemd();
   else installLaunchd();
@@ -709,13 +804,15 @@ function installSystemd() {
   mkdirSync(unitDir, { recursive: true });
   const unitPath = path.join(unitDir, `${SERVICE_NAME}.service`);
 
+  const nodeBin = resolveServiceNode();
+  const scriptPath = resolveServiceScript();
   const unit = `[Unit]
 Description=wiki-viewer local file viewer
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=${process.execPath} ${selfScript} service run
+ExecStart=${nodeBin} ${scriptPath} service run
 Restart=on-failure
 RestartSec=3
 Environment=NODE_ENV=production
@@ -751,6 +848,8 @@ function installLaunchd() {
   const outLog = path.join(logDir, "out.log");
   const errLog = path.join(logDir, "err.log");
 
+  const nodeBin = resolveServiceNode();
+  const scriptPath = resolveServiceScript();
   const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -759,8 +858,8 @@ function installLaunchd() {
   <string>${LAUNCHD_LABEL}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>${process.execPath}</string>
-    <string>${selfScript}</string>
+    <string>${nodeBin}</string>
+    <string>${scriptPath}</string>
     <string>service</string>
     <string>run</string>
   </array>
@@ -1013,14 +1112,11 @@ async function runWizard() {
       }
     }
 
-    // Build and preview the config.
-    const cfg = {
-      rootDir,
-      host,
-      port,
-      https: useHttps,
-      ...(Object.keys(env).length ? { env } : {}),
-    };
+    // Build and preview the config. Spread the existing config first so keys the
+    // wizard doesn't touch (e.g. ssh) survive; then explicitly set/clear env.
+    const cfg = { ...existing, rootDir, host, port, https: useHttps };
+    if (Object.keys(env).length) cfg.env = env;
+    else delete cfg.env;
 
     console.log("\nConfiguration:");
     console.log(`  directory : ${rootDir ?? "(choose in browser)"}`);
@@ -1053,6 +1149,9 @@ async function runWizard() {
         console.log("Run it yourself with: wiki-viewer service run");
         return;
       }
+      requirePersistentInstall();
+      const nodeWarning = versionManagedNodeWarning(resolveServiceNode());
+      if (nodeWarning) console.log(`\n⚠️   ${nodeWarning}\n`);
       if (p === "linux") installSystemd();
       else installLaunchd();
     } else if (choice === "2") {
