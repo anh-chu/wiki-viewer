@@ -2405,7 +2405,9 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 					className="fixed inset-y-0 left-0 z-50 w-[85vw] max-w-[20rem] md:relative md:z-auto md:w-auto md:max-w-none flex flex-col shrink-0 overflow-hidden rounded-none border-r border-l-0 border-t-0 border-b-0">
 					{/* Row 1: brand + collapse */}
 					<div className="flex items-center justify-between gap-2 px-3 py-2 border-b bg-muted shrink-0">
-						<div className="flex min-w-0 items-center gap-1.5">
+						<div
+							className="flex min-w-0 items-center gap-1.5"
+							title={`Wiki Viewer v${process.env.NEXT_PUBLIC_APP_VERSION}`}>
 							<img src="/logo.svg" alt="Wiki Viewer" className="h-5 w-5 shrink-0" />
 							<span className="truncate text-xs font-semibold leading-5 tracking-tight translate-y-[0.5px]">
 								Wiki Viewer
