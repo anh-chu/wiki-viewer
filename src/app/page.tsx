@@ -1208,6 +1208,14 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 	const refreshViewerRef = useRef<() => Promise<void>>(async () => {});
 
 	useEffect(() => {
+		// Wait until the active workspace is resolved before fetching the tree.
+		// On a fresh page load (e.g. reopening via a bookmarked URL), loadWorkspaces
+		// runs async to reconcile the ?ws= param with the registry and set the URL.
+		// fetchDir -> withWs reads ?ws= from the URL, so firing before the workspace
+		// is resolved hits the API with the wrong/no ws and returns an empty tree —
+		// the "empty until manual reload" bug. Keying on activeWorkspaceId also makes
+		// the tree reload when the workspace changes.
+		if (!activeWorkspaceId) return;
 		if (rootLoaded || rootLoadingRef.current) return;
 		rootLoadingRef.current = true;
 		setRootLoading(true);
@@ -1222,7 +1230,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 				rootLoadingRef.current = false;
 				setRootLoading(false);
 			});
-	}, [rootLoaded]);
+	}, [rootLoaded, activeWorkspaceId]);
 
 	// Expand every ancestor folder of `p` so the file is visible in the tree.
 	// Best-effort: requires the root nodes to already be loaded.
@@ -1516,6 +1524,12 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 	// File watcher: auto-update tree + open file via SSE
 	useEffect(() => {
 		if (!rootConfigured) return;
+		// Don't connect until the workspace is resolved, and reconnect when it
+		// changes. The stream is workspace-scoped via ?ws= (evaluated once at
+		// connect time by withWs), so without this dep a workspace switch would
+		// leave the EventSource watching the previous workspace — auto-refresh
+		// then silently stops working for the current one.
+		if (!activeWorkspaceId) return;
 
 		const pendingReloads = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -1572,7 +1586,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 			es.close();
 			for (const t of pendingReloads.values()) clearTimeout(t);
 		};
-	}, [rootConfigured, reloadDir]);
+	}, [rootConfigured, reloadDir, activeWorkspaceId]);
 
 	async function toggleFolder(node: TreeNode) {
 		if (node.type !== "dir" && node.type !== "app" && node.type !== "node-app") return;
