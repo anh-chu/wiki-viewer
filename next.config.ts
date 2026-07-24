@@ -15,7 +15,16 @@ const nextConfig: NextConfig = {
   experimental: {
     optimizePackageImports: ["lucide-react"],
   },
-  allowedDevOrigins: ['devvm']
+  allowedDevOrigins: ['devvm'],
+  // Block framing on all routes by default. The embed middleware branch overrides
+  // this per-request with a frame-ancestors CSP allowing localhost, which browsers
+  // give precedence over X-Frame-Options when both are present.
+  headers: async () => [
+    {
+      source: "/(.*)",
+      headers: [{ key: "X-Frame-Options", value: "SAMEORIGIN" }],
+    },
+  ],
 };
 
 export default nextConfig;

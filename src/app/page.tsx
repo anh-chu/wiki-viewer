@@ -1140,6 +1140,13 @@ export default function Page() {
 	);
 	const didRestoreRef = useRef(false);
 
+	// Embed mode: useState(false) matches SSR output; useEffect sets real value
+	// after mount so hydration never mismatches. Used in JSX + postMessage guard.
+	const [isEmbed, setIsEmbed] = useState(false);
+	useEffect(() => {
+		setIsEmbed(new URLSearchParams(window.location.search).get("embed") === "1");
+	}, []);
+
 	const [roots, setRoots] = useState<TreeNode[]>([]);
 	const [rootLoaded, setRootLoaded] = useState(false);
 	const [rootLoading, setRootLoading] = useState(false);
@@ -1780,6 +1787,19 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 		return () => window.removeEventListener("popstate", onPop);
 	}, [navigateToPath]);
 
+	// postMessage listener: accept { type: 'open-file', path } from parent frame.
+	// Only active in ?embed=1 mode; origin-checked to localhost/127.0.0.1 only.
+	useEffect(() => {
+		if (!isEmbed) return;
+		const handler = (e: MessageEvent) => {
+			if (!/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(e.origin)) return;
+			if (!e.data || e.data.type !== "open-file" || typeof e.data.path !== "string") return;
+			void navigateToPath(e.data.path);
+		};
+		window.addEventListener("message", handler);
+		return () => window.removeEventListener("message", handler);
+	}, [navigateToPath, isEmbed]);
+
 	// Restore the open file from the URL once the root tree is loaded.
 	useEffect(() => {
 		if (didRestoreRef.current) return;
@@ -2392,14 +2412,14 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 				}}
 			/>
 			{/* Tree sidebar */}
-			{!sidebarCollapsed && isMobile && (
+			{!isEmbed && !sidebarCollapsed && isMobile && (
 				<div
 					className="fixed inset-0 z-40 bg-overlay backdrop-blur-[1px] md:hidden"
 					onClick={() => setSidebarCollapsed(true)}
 					aria-hidden
 				/>
 			)}
-			{!sidebarCollapsed && (
+			{!isEmbed && !sidebarCollapsed && (
 				<Card
 					style={isMobile ? undefined : { width: sidebarWidth }}
 					className="fixed inset-y-0 left-0 z-50 w-[85vw] max-w-[20rem] md:relative md:z-auto md:w-auto md:max-w-none flex flex-col shrink-0 overflow-hidden rounded-none border-r border-l-0 border-t-0 border-b-0">
@@ -3005,7 +3025,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 			{/* Right panel */}
 			<div className="flex-1 flex flex-col min-w-0 relative">
 				{/* Desktop: floating reopen button when sidebar is collapsed */}
-				{sidebarCollapsed && (
+				{!isEmbed && sidebarCollapsed && (
 					<Button
 						size="sm"
 						variant="ghost"
@@ -3017,7 +3037,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 					</Button>
 				)}
 				{/* Mobile: dedicated top bar hosting the drawer + AI panel toggles */}
-				<div className="md:hidden flex h-11 shrink-0 items-center justify-between gap-2 border-b bg-muted px-1">
+				{!isEmbed && <div className="md:hidden flex h-11 shrink-0 items-center justify-between gap-2 border-b bg-muted px-1">
 					<Button
 						size="sm"
 						variant="ghost"
@@ -3063,7 +3083,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 					>
 						<Bot className="h-4 w-4" />
 					</Button>
-				</div>
+				</div>}
 				{openFile ? (
 					openFileViewerKind === "node-app" ? (
 						<NodeAppViewer path={openFile.path} title={openFile.name} />
