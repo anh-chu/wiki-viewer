@@ -14,6 +14,9 @@ const nextConfig: NextConfig = {
   outputFileTracingRoot: path.resolve(__dirname),
   experimental: {
     optimizePackageImports: ["lucide-react"],
+    // Opt middleware into Node.js runtime so it can read the api-key file (node:fs).
+    // Edge runtime (the default) can't access the filesystem.
+    nodeMiddleware: true,
   },
   allowedDevOrigins: ['devvm'],
   // Block framing on all routes by default. The embed middleware branch overrides

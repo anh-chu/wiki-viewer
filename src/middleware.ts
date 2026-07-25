@@ -1,4 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { validateApiKey } from "./lib/auth/api-key";
+
+// Node.js runtime required: middleware reads node:fs to validate the embed API key.
+// Edge runtime (the default) can't access the filesystem.
+export const runtime = "nodejs";
 
 // Prefixes the middleware never intercepts. Either they're public, or the route
 // handler itself runs Better Auth / agent bearer auth and returns a proper
@@ -12,6 +17,9 @@ const PASSTHROUGH_PREFIXES = [
 	"/favicon.ico",
 ];
 
+const CSP_FRAME_ANCESTORS =
+	"frame-ancestors http://localhost:* https://localhost:* http://127.0.0.1:* https://127.0.0.1:*";
+
 export function middleware(req: NextRequest): NextResponse {
 	const { pathname } = req.nextUrl;
 
@@ -19,35 +27,47 @@ export function middleware(req: NextRequest): NextResponse {
 		return NextResponse.next();
 	}
 
-	// --no-auth skip
+	// --no-auth: dev/CI only. Skips all auth. API routes still gate themselves
+	// via requireUser() which also respects WIKI_NO_AUTH, so this makes the full
+	// app work without any credentials.
 	if (process.env.WIKI_NO_AUTH === "1") {
 		return NextResponse.next();
 	}
 
-	// Embed mode: allow iframe framing from localhost; set frame-ancestors CSP and
-	// skip the cookie redirect so the page HTML loads. WIKI_NO_AUTH=1 is still
-	// required — API routes gate themselves with getSession() and the iframe
-	// context has no cross-origin session cookie regardless of this bypass.
+	// Embed mode: allow iframe framing from localhost when a valid API key is
+	// presented. The key is auto-generated at ~/.wiki-viewer/api-key on first
+	// startup and read by termyard's Go backend.
 	//
-	// Browsers do NOT send Origin on iframe GET navigations (only on fetch/XHR),
-	// so we check both: Origin (for subsequent in-iframe fetches, though those hit
-	// /api/ which is a passthrough) and Sec-Fetch-Dest (for the initial navigation).
-	// Sec-Fetch-Site same-site/same-origin excludes cross-site frames (evil.com→localhost).
+	// On initial iframe load (?embed=1&api_key=<key>): validate key, set an
+	// HttpOnly session cookie so the iframe's same-origin API calls are
+	// authenticated automatically (browsers don't send custom headers on
+	// same-origin fetch from an iframe, but they do send cookies).
+	//
+	// On subsequent navigations (?embed=1 without api_key): cookie already set,
+	// validate via cookie.
 	const isEmbed = req.nextUrl.searchParams.get("embed") === "1";
-	const origin    = req.headers.get("origin") ?? "";
-	const fetchDest = req.headers.get("sec-fetch-dest");
-	const fetchSite = req.headers.get("sec-fetch-site");
-	const originOk  = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
-	const iframeFromLocalhost =
-		fetchDest === "iframe" &&
-		(fetchSite === "same-site" || fetchSite === "same-origin");
-	if (isEmbed && (originOk || iframeFromLocalhost)) {
-		const res = NextResponse.next();
-		res.headers.set(
-			"Content-Security-Policy",
-			"frame-ancestors http://localhost:* https://localhost:* http://127.0.0.1:* https://127.0.0.1:*",
-		);
-		return res;
+	if (isEmbed) {
+		const apiKeyParam = req.nextUrl.searchParams.get("api_key") ?? "";
+		const embedCookieValue =
+			req.cookies.get("__wiki_embed_auth")?.value ?? "";
+
+		const keyToCheck = apiKeyParam || embedCookieValue;
+		if (keyToCheck && validateApiKey(keyToCheck)) {
+			const res = NextResponse.next();
+			res.headers.set("Content-Security-Policy", CSP_FRAME_ANCESTORS);
+			// Set / refresh the embed auth cookie whenever the api_key param is
+			// present (initial load or explicit re-auth).
+			if (apiKeyParam) {
+				res.cookies.set("__wiki_embed_auth", apiKeyParam, {
+					httpOnly: true,
+					sameSite: "strict",
+					path: "/",
+					// No maxAge → session cookie (cleared when browser/tab closes)
+				});
+			}
+			return res;
+		}
+		// Key absent or invalid → fall through to cookie / signin check below.
 	}
 
 	// Cheap presence check; real session validation happens in individual routes.

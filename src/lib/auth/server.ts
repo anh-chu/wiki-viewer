@@ -199,9 +199,39 @@ export async function getSessionFromRequest(req: Request) {
 	return auth.api.getSession({ headers: req.headers });
 }
 
+// Synthetic user returned for API-key–authenticated requests (embed / health checks).
+const API_KEY_USER: SessionUser = { id: "api-key", email: "", name: "termyard" };
+
 export async function requireUser(
 	req: Request,
 ): Promise<{ ok: true; user: SessionUser } | { ok: false }> {
+	// Dev/CI bypass: WIKI_NO_AUTH=1 skips all auth on every route.
+	if (process.env.WIKI_NO_AUTH === "1") {
+		return { ok: true, user: { id: "no-auth", email: "", name: "local" } };
+	}
+
+	// API key via Authorization: Bearer header (used by termyard health checks
+	// and other server-to-server calls that can't inject cookies).
+	const authHeader = req.headers.get("authorization") ?? "";
+	if (authHeader.startsWith("Bearer ")) {
+		const { validateApiKey } = await import("./api-key");
+		if (validateApiKey(authHeader.slice(7))) {
+			return { ok: true, user: API_KEY_USER };
+		}
+	}
+
+	// API key via __wiki_embed_auth cookie (set by middleware on initial iframe
+	// load; auto-included in same-origin fetches from the iframe JS).
+	const cookieHeader = req.headers.get("cookie") ?? "";
+	const embedMatch = /(?:^|;s*)__wiki_embed_auth=([^;]+)/.exec(cookieHeader);
+	if (embedMatch) {
+		const { validateApiKey } = await import("./api-key");
+		if (validateApiKey(decodeURIComponent(embedMatch[1]))) {
+			return { ok: true, user: API_KEY_USER };
+		}
+	}
+
+	// Standard better-auth session cookie.
 	const session = await getSessionFromRequest(req);
 	if (!session?.user) return { ok: false };
 	return {
