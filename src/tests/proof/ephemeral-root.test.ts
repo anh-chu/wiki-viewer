@@ -17,11 +17,10 @@ import path from "node:path";
 
 import { resolveWorkspaceForAgent } from "../../lib/workspace-context.js";
 import { ensureApiKey, EMBED_COOKIE_NAME } from "../../lib/auth/api-key.js";
-import { createWorkspace, listWorkspaces } from "../../lib/workspaces.js";
+import { listWorkspaces } from "../../lib/workspaces.js";
 
 let rootA: string;
 let rootB: string;
-let registered: string;
 let aFile: string;
 let API_KEY: string;
 const savedNoAuth = process.env.WIKI_NO_AUTH;
@@ -32,15 +31,15 @@ before(async () => {
 
 	rootA = await mkdtemp(path.join(tmpdir(), "eph-A-"));
 	rootB = await mkdtemp(path.join(tmpdir(), "eph-B-"));
-	registered = await mkdtemp(path.join(tmpdir(), "eph-reg-"));
 	aFile = path.join(rootA, "a-file.md");
 	await writeFile(aFile, "# hi\n");
 
 	API_KEY = ensureApiKey();
 
-	// A real registry workspace so we can prove the ephemeral root never joins it
-	// and that non-root resolution still works.
-	await createWorkspace({ rootDir: registered, createdBy: "test" });
+	// NOTE: deliberately does NOT create a workspace. preload.ts sets HOME once
+	// and child test processes inherit it, so every test file shares one
+	// config.json — registering a workspace here pollutes the registry that
+	// other files (e.g. agent-workspace-scope) depend on.
 });
 
 after(async () => {
@@ -48,7 +47,6 @@ after(async () => {
 	else process.env.WIKI_NO_AUTH = savedNoAuth;
 	await rm(rootA, { recursive: true, force: true });
 	await rm(rootB, { recursive: true, force: true });
-	await rm(registered, { recursive: true, force: true });
 });
 
 function reqWith(
@@ -178,10 +176,18 @@ test("concurrent requests with different roots do not interfere", async () => {
 	assert.notEqual(a.ws.id, b.ws.id);
 });
 
-test("no root param -> unchanged registry resolution, not ephemeral", async () => {
+test("no root param -> registry resolution, never ephemeral", async () => {
+	// Whatever this instance resolves to (registry entry, global-root fallback,
+	// or WORKSPACE_REQUIRED when neither exists), the ephemeral branch must not
+	// leak into it.
 	const res = await resolveWorkspaceForAgent(reqWith(BASE));
-	assert.equal(res.ok, true);
-	if (!res.ok) return;
-	assert.notEqual(res.ws.ephemeral, true);
-	assert.equal(res.rootDir, path.resolve(registered));
+	if (res.ok) {
+		assert.notEqual(res.ws.ephemeral, true);
+	} else {
+		assert.equal(
+			["WORKSPACE_REQUIRED", "WORKSPACE_NOT_FOUND"].includes(res.code),
+			true,
+			`unexpected code: ${res.code}`,
+		);
+	}
 });
