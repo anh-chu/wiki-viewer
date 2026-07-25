@@ -223,7 +223,7 @@ export async function requireUser(
 	// API key via __wiki_embed_auth cookie (set by middleware on initial iframe
 	// load; auto-included in same-origin fetches from the iframe JS).
 	const cookieHeader = req.headers.get("cookie") ?? "";
-	const embedMatch = /(?:^|;s*)__wiki_embed_auth=([^;]+)/.exec(cookieHeader);
+	const embedMatch = /(?:^|;\s*)__wiki_embed_auth=([^;]+)/.exec(cookieHeader);
 	if (embedMatch) {
 		const { validateApiKey } = await import("./api-key");
 		if (validateApiKey(decodeURIComponent(embedMatch[1]))) {
