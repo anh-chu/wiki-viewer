@@ -210,25 +210,14 @@ export async function requireUser(
 		return { ok: true, user: { id: "no-auth", email: "", name: "local" } };
 	}
 
-	// API key via Authorization: Bearer header (used by termyard health checks
-	// and other server-to-server calls that can't inject cookies).
-	const authHeader = req.headers.get("authorization") ?? "";
-	if (authHeader.startsWith("Bearer ")) {
-		const { validateApiKey } = await import("./api-key");
-		if (validateApiKey(authHeader.slice(7))) {
-			return { ok: true, user: API_KEY_USER };
-		}
-	}
-
-	// API key via __wiki_embed_auth cookie (set by middleware on initial iframe
-	// load; auto-included in same-origin fetches from the iframe JS).
-	const cookieHeader = req.headers.get("cookie") ?? "";
-	const embedMatch = /(?:^|;\s*)__wiki_embed_auth=([^;]+)/.exec(cookieHeader);
-	if (embedMatch) {
-		const { validateApiKey } = await import("./api-key");
-		if (validateApiKey(decodeURIComponent(embedMatch[1]))) {
-			return { ok: true, user: API_KEY_USER };
-		}
+	// API key via Authorization: Bearer header (termyard health checks and other
+	// server-to-server callers) or the __wiki_embed_auth cookie (set by middleware
+	// on the initial iframe load; browsers auto-include it on same-origin fetches
+	// from the iframe). Extraction lives in api-key.ts so the ephemeral-root gate
+	// in workspace-context.ts applies exactly the same rule.
+	const { isApiKeyRequest } = await import("./api-key");
+	if (isApiKeyRequest(req)) {
+		return { ok: true, user: API_KEY_USER };
 	}
 
 	// Standard better-auth session cookie.

@@ -6,7 +6,10 @@
  */
 
 import path from "node:path";
+import { stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { requireUser } from "@/lib/auth/server";
+import { isApiKeyRequest } from "@/lib/auth/api-key";
 import { isAdmin } from "@/lib/auth/admin";
 import { getRootDir } from "@/lib/root-dir";
 import {
@@ -36,13 +39,82 @@ function fallbackWorkspace(): Workspace | null {
 }
 
 /**
- * Resolve the target workspace from the request alone (no auth/access check).
- * Selection: ?ws= query → x-workspace header → most-recent lastOpenedAt →
- * synthetic fallback from the global rootDir. Returns null if nothing resolves.
+ * Synthetic, request-scoped workspace for a host-supplied `?root=` (termyard
+ * embed). Same in-memory-only shape as fallbackWorkspace(): never written to
+ * the registry, never the active workspace, never in the switcher. The id is
+ * derived from the path so it's stable across requests for the same root
+ * without ever being allocated or stored.
  */
-async function pickWorkspace(req: Request): Promise<Workspace | null> {
+function ephemeralWorkspace(rootDir: string): Workspace {
+	const digest = createHash("sha256").update(rootDir).digest("hex").slice(0, 12);
+	return {
+		id: `ws_eph_${digest}`,
+		name: path.basename(rootDir) || "workspace",
+		rootDir,
+		createdAt: new Date(0).toISOString(),
+		ephemeral: true,
+	};
+}
+
+/**
+ * Resolve a host-supplied `?root=<abs path>` into an ephemeral workspace.
+ *
+ * GATE: API-key auth only — NOT `?embed=1`. `embed=1` is not a security
+ * boundary: middleware falls through to the ordinary session-cookie check when
+ * the key is missing/invalid, so any signed-in user can append it. And a
+ * synthetic workspace has no `allowedUserIds`, which userCanAccess() treats as
+ * "any signed-in user may access" — so gating on embed=1 would let any
+ * non-admin escape their workspace ACL and read anything this process can.
+ *
+ * The API key (mode 0600 at ~/.wiki-viewer/api-key) is the right boundary:
+ * whoever can read it already has this process's filesystem access, so an
+ * arbitrary root grants no new privilege.
+ *
+ * Failures are LOUD (400 + machine-readable code) rather than falling back to
+ * the default workspace — a silent fallback would render the wrong file or an
+ * empty tree, which is the exact bug this feature exists to fix.
+ */
+async function resolveEphemeralRoot(
+	req: Request,
+	rootParam: string,
+): Promise<PickResult> {
+	// WIKI_NO_AUTH=1 is a total dev/CI bypass, so honor root there too.
+	const authorized = process.env.WIKI_NO_AUTH === "1" || isApiKeyRequest(req);
+	if (!authorized) {
+		return { ok: false, status: 400, code: "root_requires_api_key" };
+	}
+
+	const resolved = path.resolve(rootParam);
+	let info: Awaited<ReturnType<typeof stat>>;
+	try {
+		info = await stat(resolved);
+	} catch {
+		return { ok: false, status: 400, code: "root_not_found" };
+	}
+	if (!info.isDirectory()) {
+		return { ok: false, status: 400, code: "root_not_a_directory" };
+	}
+
+	return { ok: true, ws: ephemeralWorkspace(resolved) };
+}
+
+type PickResult = { ok: true; ws: Workspace } | WorkspaceError;
+
+/**
+ * Resolve the target workspace from the request alone (no auth/access check,
+ * except the API-key gate on `?root=`).
+ * Selection: ?root= (ephemeral, api-key gated) → ?ws= query → x-workspace
+ * header → most-recent lastOpenedAt → synthetic fallback from the global
+ * rootDir.
+ */
+async function pickWorkspace(req: Request): Promise<PickResult> {
 	await migrateConfigToWorkspaces();
 	const url = new URL(req.url);
+
+	// Host-supplied ephemeral root takes precedence over all registry lookup.
+	const rootParam = url.searchParams.get("root");
+	if (rootParam) return resolveEphemeralRoot(req, rootParam);
+
 	const wsId = url.searchParams.get("ws") ?? req.headers.get("x-workspace") ?? null;
 	let ws: Workspace | null;
 	if (wsId) {
@@ -62,10 +134,19 @@ async function pickWorkspace(req: Request): Promise<Workspace | null> {
 				})[0];
 		}
 	}
+
+	if (!ws) {
+		return {
+			ok: false,
+			status: wsId ? 404 : 400,
+			code: wsId ? "WORKSPACE_NOT_FOUND" : "WORKSPACE_REQUIRED",
+		};
+	}
+
 	// Lazy remount for sshfs-backed workspaces: handles server restart and
 	// stale-mount recovery uniformly, right before the request touches the fs.
-	if (ws?.ssh) await ensureWorkspaceMounted(ws);
-	return ws;
+	if (ws.ssh) await ensureWorkspaceMounted(ws);
+	return { ok: true, ws };
 }
 
 export interface WorkspaceContext {
@@ -101,14 +182,9 @@ export async function resolveWorkspaceForUser(
 ): Promise<WorkspaceContext | WorkspaceError> {
 	// --no-auth bypass
 	if (process.env.WIKI_NO_AUTH === "1") {
-		const ws = await pickWorkspace(req);
-		if (!ws) {
-			return {
-				ok: false,
-				status: 400,
-				code: "WORKSPACE_REQUIRED",
-			};
-		}
+		const picked = await pickWorkspace(req);
+		if (!picked.ok) return picked;
+		const { ws } = picked;
 		if (intent === "write" && ws.readOnly) {
 			return { ok: false, status: 403, code: "WORKSPACE_READ_ONLY" };
 		}
@@ -120,21 +196,16 @@ export async function resolveWorkspaceForUser(
 	if (!auth.ok) return { ok: false, status: 401, code: "UNAUTHORIZED" };
 
 	const admin = await isAdmin(auth.user.id, auth.user.email);
-	const url = new URL(req.url);
-	const explicitWsId =
-		url.searchParams.get("ws") ?? req.headers.get("x-workspace") ?? null;
 
-	const ws = await pickWorkspace(req);
-	if (!ws) {
-		// No workspace and no global root configured yet.
-		return {
-			ok: false,
-			status: explicitWsId ? 404 : 400,
-			code: explicitWsId ? "WORKSPACE_NOT_FOUND" : "WORKSPACE_REQUIRED",
-		};
-	}
+	const picked = await pickWorkspace(req);
+	if (!picked.ok) return picked;
+	const { ws } = picked;
 
-	if (!userCanAccess(ws, auth.user.id, admin)) {
+	// Ephemeral roots are already gated on API-key auth in resolveEphemeralRoot,
+	// which is a strictly stronger check than the workspace ACL. Skipping it
+	// explicitly rather than relying on userCanAccess()'s "empty allowedUserIds
+	// = everyone passes" default, which would be an accidental pass here.
+	if (!ws.ephemeral && !userCanAccess(ws, auth.user.id, admin)) {
 		return { ok: false, status: 403, code: "WORKSPACE_FORBIDDEN" };
 	}
 
@@ -165,17 +236,9 @@ export async function resolveWorkspaceForAgent(
 	req: Request,
 	intent: "read" | "write" = "read",
 ): Promise<AgentWorkspaceContext | WorkspaceError> {
-	const ws = await pickWorkspace(req);
-	if (!ws) {
-		const url = new URL(req.url);
-		const explicit =
-			url.searchParams.get("ws") ?? req.headers.get("x-workspace") ?? null;
-		return {
-			ok: false,
-			status: explicit ? 404 : 400,
-			code: explicit ? "WORKSPACE_NOT_FOUND" : "WORKSPACE_REQUIRED",
-		};
-	}
+	const picked = await pickWorkspace(req);
+	if (!picked.ok) return picked;
+	const { ws } = picked;
 	if (intent === "write" && ws.readOnly) {
 		return { ok: false, status: 403, code: "WORKSPACE_READ_ONLY" };
 	}

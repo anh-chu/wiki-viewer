@@ -89,6 +89,13 @@ export interface Workspace {
 	git?: WorkspaceGit;
 	/** SSH/sshfs mount metadata. Present only on sshfs-backed workspaces. */
 	ssh?: WorkspaceSsh;
+	/**
+	 * True for a request-scoped root supplied by an embedding host (?root=).
+	 * NEVER persisted, never in the registry, never the active workspace, never
+	 * shown in the switcher. Minted per request in workspace-context.ts and
+	 * gated on API-key auth. Clients use this to suppress workspace UI.
+	 */
+	ephemeral?: boolean;
 }
 
 /**
