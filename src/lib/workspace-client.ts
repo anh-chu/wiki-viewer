@@ -69,6 +69,40 @@ export function toRootRelative(target: string, root: string | null): string | nu
 	return null; // outside the root
 }
 
+const LOOPBACK_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
+
+/**
+ * May this parent window send us `open-file` postMessages?
+ *
+ * Previously this was a hardcoded loopback regex, which broke every non-local
+ * deployment: embedding hosts are commonly reached over a Tailscale hostname or
+ * behind a reverse proxy, and the failure was invisible — the initial `?file=`
+ * load is a NAVIGATION so it kept working, then every subsequent click was
+ * silently dropped. Feature appears healthy, then appears to randomly stop.
+ *
+ * Trust rules:
+ *   1. Loopback — the local/dev case.
+ *   2. Our own origin — a same-origin embed.
+ *   3. A host-supplied `?root=` is present — key-derived trust. The page only
+ *      renders with a root once the API key has validated (middleware 307s on a
+ *      bad key and 400s on a bad root), so the parent demonstrably holds a key
+ *      that already grants filesystem access to this process. Restricting which
+ *      hostname it may frame from adds nothing it couldn't already do.
+ *
+ * Accepting an arbitrary parent origin is bounded: this app never postMessages
+ * OUT, and cross-origin framing means the parent cannot read what we render, so
+ * the worst a hostile framer achieves is navigating the panel — no disclosure.
+ */
+export function isTrustedEmbedParent(
+	origin: string,
+	opts: { selfOrigin: string | null; hasHostRoot: boolean },
+): boolean {
+	if (LOOPBACK_ORIGIN.test(origin)) return true;
+	if (opts.selfOrigin && origin === opts.selfOrigin) return true;
+	if (opts.hasHostRoot) return true;
+	return false;
+}
+
 /** Returns true if this URL is workspace-scoped and needs ?ws= appended. */
 function needsWs(pathname: string): boolean {
 	// Excluded patterns first (match on prefix + segment boundary so

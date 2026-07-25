@@ -85,6 +85,7 @@ import { BranchDropdown } from "@/components/wiki/branch-dropdown";
 import {
 	getActiveWorkspaceId,
 	getEphemeralRoot,
+	isTrustedEmbedParent,
 	toRootRelative,
 	withWs,
 	wsFetch,
@@ -1825,11 +1826,27 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 	}, [navigateToPath]);
 
 	// postMessage listener: accept { type: 'open-file', path } from parent frame.
-	// Only active in ?embed=1 mode; origin-checked to localhost/127.0.0.1 only.
+	// Only active in ?embed=1 mode. Parent origin is checked by
+	// isTrustedEmbedParent: loopback, our own origin, or key-derived trust when
+	// the host supplied a ?root= (see that function for why that's sufficient).
 	useEffect(() => {
 		if (!isEmbed) return;
 		const handler = (e: MessageEvent) => {
-			if (!/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(e.origin)) return;
+			if (
+				!isTrustedEmbedParent(e.origin, {
+					selfOrigin: typeof window !== "undefined" ? window.location.origin : null,
+					hasHostRoot: getEphemeralRoot() !== null,
+				})
+			) {
+				// NEVER drop silently. A dropped open-file is indistinguishable from
+				// a host-side bug, and the initial ?file= load keeps working, so the
+				// panel looks healthy while every later click dies.
+				console.warn(
+					`[wiki-viewer] ignored postMessage from untrusted parent origin ${e.origin}. ` +
+						"Embedding hosts should pass ?root= (requires API-key auth), which marks the parent as trusted.",
+				);
+				return;
+			}
 			if (!e.data || e.data.type !== "open-file" || typeof e.data.path !== "string") return;
 			void navigateToPath(e.data.path);
 		};

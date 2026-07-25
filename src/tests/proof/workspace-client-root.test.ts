@@ -14,6 +14,7 @@ import {
 	withWs,
 	getEphemeralRoot,
 	getActiveWorkspaceId,
+	isTrustedEmbedParent,
 } from "../../lib/workspace-client.js";
 
 /** These helpers read window.location.search; fake just enough of it. */
@@ -119,5 +120,82 @@ describe("withWs scope propagation", () => {
 		for (const u of ["/api/wiki", "/api/assets/x.png", "/api/upload/f", "/api/system/reveal"]) {
 			assert.match(withWs(u), /root=%2Ftmp%2Fr/, `${u} must be root-scoped`);
 		}
+	});
+});
+
+describe("isTrustedEmbedParent", () => {
+	const SELF = "https://wiki.anhdchu.com";
+
+	test("loopback parents trusted (dev case), any port", () => {
+		for (const o of [
+			"http://localhost:7654",
+			"http://127.0.0.1:3000",
+			"https://localhost",
+			"http://[::1]:8080",
+		]) {
+			assert.equal(
+				isTrustedEmbedParent(o, { selfOrigin: SELF, hasHostRoot: false }),
+				true,
+				o,
+			);
+		}
+	});
+
+	test("same-origin parent trusted", () => {
+		assert.equal(
+			isTrustedEmbedParent(SELF, { selfOrigin: SELF, hasHostRoot: false }),
+			true,
+		);
+	});
+
+	test("Tailscale / reverse-proxied host trusted when it supplied a root", () => {
+		// The deployment shape termyard's README recommends. Previously dropped.
+		for (const o of [
+			"https://hub.example.ts.net:7654",
+			"https://termyard.mydomain.com",
+			"http://box.local:7654",
+		]) {
+			assert.equal(
+				isTrustedEmbedParent(o, { selfOrigin: SELF, hasHostRoot: true }),
+				true,
+				o,
+			);
+		}
+	});
+
+	test("non-loopback WITHOUT a host root is not trusted", () => {
+		assert.equal(
+			isTrustedEmbedParent("https://evil.example.com", {
+				selfOrigin: SELF,
+				hasHostRoot: false,
+			}),
+			false,
+		);
+	});
+
+	test("lookalike loopback hostnames are NOT trusted", () => {
+		// Anchored regex: these must not slip through as loopback.
+		for (const o of [
+			"https://localhost.evil.com",
+			"https://notlocalhost",
+			"https://127.0.0.1.evil.com",
+			"https://evil.com/?x=http://localhost",
+		]) {
+			assert.equal(
+				isTrustedEmbedParent(o, { selfOrigin: SELF, hasHostRoot: false }),
+				false,
+				o,
+			);
+		}
+	});
+
+	test("null selfOrigin does not crash or auto-trust", () => {
+		assert.equal(
+			isTrustedEmbedParent("https://x.example.com", {
+				selfOrigin: null,
+				hasHostRoot: false,
+			}),
+			false,
+		);
 	});
 });
