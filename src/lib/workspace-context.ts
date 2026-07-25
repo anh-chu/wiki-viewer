@@ -6,8 +6,8 @@
  */
 
 import path from "node:path";
-import { stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
+import { validateRootParam } from "@/lib/embed-root";
 import { requireUser } from "@/lib/auth/server";
 import { isApiKeyRequest } from "@/lib/auth/api-key";
 import { isAdmin } from "@/lib/auth/admin";
@@ -84,18 +84,12 @@ async function resolveEphemeralRoot(
 		return { ok: false, status: 400, code: "root_requires_api_key" };
 	}
 
-	const resolved = path.resolve(rootParam);
-	let info: Awaited<ReturnType<typeof stat>>;
-	try {
-		info = await stat(resolved);
-	} catch {
-		return { ok: false, status: 400, code: "root_not_found" };
-	}
-	if (!info.isDirectory()) {
-		return { ok: false, status: 400, code: "root_not_a_directory" };
-	}
+	// Shared with middleware.ts so a page navigation and an API call can never
+	// disagree about whether a root is valid.
+	const valid = validateRootParam(rootParam);
+	if (!valid.ok) return { ok: false, status: 400, code: valid.code };
 
-	return { ok: true, ws: ephemeralWorkspace(resolved) };
+	return { ok: true, ws: ephemeralWorkspace(valid.rootDir) };
 }
 
 type PickResult = { ok: true; ws: Workspace } | WorkspaceError;

@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { validateApiKey } from "./lib/auth/api-key";
+import { validateRootParam } from "./lib/embed-root";
 
 // Node.js runtime required: middleware reads node:fs to validate the embed API key.
 // Edge runtime (the default) can't access the filesystem.
@@ -55,6 +56,36 @@ export function middleware(req: NextRequest): NextResponse {
 
 		const keyToCheck = apiKeyParam || embedCookieValue;
 		if (keyToCheck && validateApiKey(keyToCheck)) {
+			// Validate ?root= HERE, not just in the API routes.
+			//
+			// The iframe's initial load is a page navigation, so without this a bad
+			// root renders the normal shell with HTTP 200 and the embedding host
+			// concludes all is well — the 400 only materializes later from an
+			// in-iframe fetch the host cannot observe cross-origin. That is the
+			// exact silent failure this feature exists to remove, one layer down.
+			//
+			// Ordering matters: this runs only AFTER the key has validated, so it
+			// can't be used as a filesystem-existence oracle by an unauthenticated
+			// caller. Same codes as the API routes (shared validateRootParam).
+			const rootParam = req.nextUrl.searchParams.get("root");
+			if (rootParam) {
+				const valid = validateRootParam(rootParam);
+				if (!valid.ok) {
+					return NextResponse.json(
+						{ error: valid.code },
+						{
+							status: 400,
+							headers: {
+								// Readable without parsing the body, for hosts that only
+								// inspect headers on a navigation probe.
+								"X-Wiki-Error": valid.code,
+								"Cache-Control": "no-store",
+							},
+						},
+					);
+				}
+			}
+
 			const res = NextResponse.next();
 			res.headers.set("Content-Security-Policy", CSP_FRAME_ANCESTORS);
 			// Set / refresh the embed auth cookie whenever the api_key param is
