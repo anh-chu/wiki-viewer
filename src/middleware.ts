@@ -17,8 +17,10 @@ const PASSTHROUGH_PREFIXES = [
 	"/favicon.ico",
 ];
 
-const CSP_FRAME_ANCESTORS =
-	"frame-ancestors http://localhost:* https://localhost:* http://127.0.0.1:* https://127.0.0.1:*";
+// When a valid api_key is present the key itself is the authorization boundary.
+// frame-ancestors * just tells browsers the embedding is server-approved.
+// Without a valid key the embed bypass doesn't fire and X-Frame-Options: SAMEORIGIN applies.
+const CSP_FRAME_ANCESTORS = "frame-ancestors *";
 
 export function middleware(req: NextRequest): NextResponse {
 	const { pathname } = req.nextUrl;
