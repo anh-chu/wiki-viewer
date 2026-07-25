@@ -82,7 +82,13 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { BranchDropdown } from "@/components/wiki/branch-dropdown";
-import { getActiveWorkspaceId, withWs, wsFetch } from "@/lib/workspace-client";
+import {
+	getActiveWorkspaceId,
+	getEphemeralRoot,
+	toRootRelative,
+	withWs,
+	wsFetch,
+} from "@/lib/workspace-client";
 import { markdownToHtml } from "@/lib/markdown/to-html";
 import { useTheme } from "next-themes";
 import { AuthSettingsSheet } from "@/components/auth-settings-sheet";
@@ -1034,6 +1040,23 @@ export default function Page() {
 	const [wsBranchPos, setWsBranchPos] = useState<{ top: number; left: number } | null>(null);
 
 	const loadWorkspaces = useCallback(async () => {
+		// Embed root mode: the host supplied the root, so workspace state comes
+		// from the URL and the registry is irrelevant. Skipping reconciliation
+		// avoids (a) resolving a ?ws= that doesn't exist, (b) rewriting the URL
+		// with a ws= that would be ignored server-side, and (c) leaving
+		// activeWorkspaceId null on an instance with no registered workspaces,
+		// which would gate the tree fetch forever and blank the panel.
+		const ephRoot = getEphemeralRoot();
+		if (ephRoot) {
+			setWorkspaces([]);
+			setIsWsAdmin(false);
+			setRootConfigured(true);
+			setRootPath(ephRoot);
+			// Non-null so the tree-fetch effect proceeds. Never sent on the wire:
+			// withWs() injects root= from the URL, not this value.
+			setActiveWorkspaceId(`root:${ephRoot}`);
+			return;
+		}
 		try {
 			const res = await fetch("/api/system/workspaces");
 			if (!res.ok) throw new Error("Failed");
@@ -1133,9 +1156,14 @@ export default function Page() {
 
 	// Path captured from the URL at first render, before any effect can clear it.
 	// Restore reads from this ref (never the live URL) so URL sync can't break it.
+	// `file=` is an alias for `path=` accepted from embedding hosts, which
+	// naturally speak in absolute host paths. Both are relativized against the
+	// active root by navigateToPath, so either form resolves on the initial
+	// navigation — no postMessage round-trip needed for the first file.
 	const initialUrlPathRef = useRef<string | null>(
 		typeof window !== "undefined"
-			? new URLSearchParams(window.location.search).get("path")
+			? (new URLSearchParams(window.location.search).get("path") ??
+				new URLSearchParams(window.location.search).get("file"))
 			: null,
 	);
 	const didRestoreRef = useRef(false);
@@ -1745,6 +1773,15 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 				setOpenFile(null);
 				return;
 			}
+			// Embedding hosts (and ?file=/?path= on the initial navigation) speak
+			// in ABSOLUTE host paths; everything downstream expects root-relative.
+			// Returns null when the path lies outside the active root, which is
+			// the out-of-root rejection (the server enforces it again via
+			// safeWorkspacePath; this just avoids a pointless fetch).
+			const rel = toRootRelative(target, getEphemeralRoot() ?? rootPath);
+			if (rel === null) return;
+			target = rel;
+			if (!target) return; // the root itself is not a file
 			const parts = target.split("/");
 			const name = parts[parts.length - 1];
 			const parentDir = parts.slice(0, -1).join("/");
@@ -1759,7 +1796,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 				modifiedAt: match.modifiedAt,
 			} as TreeNode);
 		},
-		[revealPath],
+		[revealPath, rootPath],
 	);
 
 	// Persist the open file to the URL (?path=) so reloads restore it and the

@@ -32,6 +32,43 @@ export function getActiveWorkspaceId(): string | null {
 	return new URLSearchParams(window.location.search).get("ws");
 }
 
+/**
+ * The request-scoped root supplied by an embedding host (?root=), or null.
+ *
+ * Present only in embed mode; honored server-side ONLY for API-key-authenticated
+ * requests (see workspace-context.ts). When set it takes precedence over ?ws=,
+ * so every workspace-scoped fetch must carry it instead.
+ */
+export function getEphemeralRoot(): string | null {
+	if (typeof window === "undefined") return null;
+	return new URLSearchParams(window.location.search).get("root");
+}
+
+/**
+ * Convert a host-supplied ABSOLUTE path into the root-relative form the rest of
+ * the app (and every API route) uses.
+ *
+ * Internal paths never carry a leading slash — the tree API builds them as
+ * `dir ? \`${dir}/${name}\` : name` — so a leading "/" reliably marks a path
+ * from the embedding host's filesystem.
+ *
+ * Returns:
+ *   - the input unchanged when it's already relative
+ *   - "" when target IS the root
+ *   - the root-relative remainder when target is inside root
+ *   - null when target is absolute and outside root (caller should reject), or
+ *     absolute with no known root
+ */
+export function toRootRelative(target: string, root: string | null): string | null {
+	if (!target.startsWith("/")) return target; // already root-relative
+	if (!root) return null;
+
+	const normRoot = root.endsWith("/") ? root.slice(0, -1) : root;
+	if (target === normRoot) return "";
+	if (target.startsWith(normRoot + "/")) return target.slice(normRoot.length + 1);
+	return null; // outside the root
+}
+
 /** Returns true if this URL is workspace-scoped and needs ?ws= appended. */
 function needsWs(pathname: string): boolean {
 	// Excluded patterns first (match on prefix + segment boundary so
@@ -47,17 +84,21 @@ function needsWs(pathname: string): boolean {
 }
 
 /**
- * Append ?ws=<activeId> to a workspace-scoped URL if:
- *   - the URL needs ws injection (needsWs)
- *   - an active workspace id exists in the current URL
- *   - the URL doesn't already carry a ws= param
+ * Append the workspace scope to a workspace-scoped URL.
+ *
+ * Injects `root=` when an embedding host supplied one (it takes precedence
+ * server-side), otherwise `ws=<activeId>`. Skips URLs that aren't
+ * workspace-scoped and never double-injects.
  *
  * Handles both plain paths (/api/wiki) and paths with existing query strings
  * (/api/wiki/content?path=foo → /api/wiki/content?path=foo&ws=<id>).
  */
 export function withWs(url: string): string {
-	const wsId = getActiveWorkspaceId();
-	if (!wsId) return url;
+	const root = getEphemeralRoot();
+	// root wins over ws: sending both would be harmless (the server prefers
+	// root) but it's clearer to send exactly the one that decides resolution.
+	const wsId = root ? null : getActiveWorkspaceId();
+	if (!root && !wsId) return url;
 
 	// Split on first '?' to isolate the pathname
 	const qIdx = url.indexOf("?");
@@ -68,9 +109,10 @@ export function withWs(url: string): string {
 
 	// Don't double-inject
 	const params = new URLSearchParams(search);
-	if (params.has("ws")) return url;
+	if (params.has("root") || params.has("ws")) return url;
 
-	params.set("ws", wsId);
+	if (root) params.set("root", root);
+	else if (wsId) params.set("ws", wsId);
 	return `${pathname}?${params.toString()}`;
 }
 
