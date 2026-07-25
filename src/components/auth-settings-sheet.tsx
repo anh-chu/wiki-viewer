@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, Loader2, X } from "lucide-react";
+import { AlertCircle, Check, Key, Loader2, RotateCcw, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetClose } from "@/components/ui/sheet";
@@ -123,6 +123,11 @@ export function AuthSettingsSheet({
 	const [creatingUser, setCreatingUser] = useState(false);
 	const [createdUser, setCreatedUser] = useState<{ email: string; tempPassword: string } | null>(null);
 
+	// API Access key
+	const [apiKey, setApiKey] = useState<string | null>(null);
+	const [apiKeyCopied, setApiKeyCopied] = useState(false);
+	const [apiKeyRotating, setApiKeyRotating] = useState(false);
+
 	const loadAdmins = useCallback(async () => {
 		try {
 			const res = await fetch("/api/system/admins");
@@ -155,12 +160,24 @@ export function AuthSettingsSheet({
 		}
 	}, []);
 
+	const loadApiKey = useCallback(async () => {
+		try {
+			const res = await fetch("/api/system/api-key");
+			if (!res.ok) return;
+			const d: { key?: string } = await res.json();
+			setApiKey(d.key ?? null);
+		} catch {
+			/* ignore */
+		}
+	}, []);
+
 	useEffect(() => {
 		if (open) {
 			void load();
 			void loadAdmins();
+			void loadApiKey();
 		}
-	}, [open, load, loadAdmins]);
+	}, [open, load, loadAdmins, loadApiKey]);
 
 	async function handleSave() {
 		setSaving(true);
@@ -487,6 +504,71 @@ export function AuthSettingsSheet({
 								{/* TODO: per-workspace access editor (PATCH /api/system/workspaces/[id] allowedUserIds) */}
 							</section>
 						)}
+
+						{/* API Access */}
+						<section className="space-y-2">
+							<h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+								API Access
+							</h3>
+							<p className="text-xs leading-relaxed text-muted-foreground">
+								Copy this key into external tools (e.g. termyard Settings → Integrations → Wiki-viewer API Key). The key never leaves this machine automatically.
+							</p>
+							<div className="rounded-md border border-border bg-muted/40 p-3 space-y-2">
+								<div className="flex items-center gap-2">
+									<Key className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+									<code className="flex-1 truncate rounded bg-muted px-2 py-1 font-mono text-xs select-all">
+										{apiKey ?? "—"}
+									</code>
+									<button
+										type="button"
+										title="Copy API key"
+										className="shrink-0 rounded border border-border px-2 py-1 text-xs hover:bg-accent disabled:opacity-50 flex items-center gap-1"
+										disabled={!apiKey}
+										onClick={() => {
+											if (!apiKey) return;
+											void navigator.clipboard?.writeText(apiKey).then(() => {
+												setApiKeyCopied(true);
+												setTimeout(() => setApiKeyCopied(false), 2000);
+											});
+										}}
+									>
+										{apiKeyCopied ? (
+											<><Check className="h-3 w-3" /> Copied</>
+										) : (
+											"Copy"
+										)}
+									</button>
+									<button
+										type="button"
+										title="Rotate API key — external tools will need the new key"
+										className="shrink-0 rounded border border-border px-2 py-1 text-xs hover:bg-accent disabled:opacity-50 flex items-center gap-1"
+										disabled={apiKeyRotating}
+										onClick={async () => {
+											if (!confirm("Rotate the API key? Any tool using the current key will need to be updated.")) return;
+											setApiKeyRotating(true);
+											try {
+												const res = await fetch("/api/system/api-key", { method: "POST" });
+												const d: { key?: string } = await res.json();
+												if (d.key) setApiKey(d.key);
+											} catch {
+												/* ignore */
+											} finally {
+												setApiKeyRotating(false);
+											}
+										}}
+									>
+										{apiKeyRotating ? (
+											<Loader2 className="h-3 w-3 animate-spin" />
+										) : (
+											<><RotateCcw className="h-3 w-3" /> Rotate</>
+										)}
+									</button>
+								</div>
+								<p className="text-[10px] text-muted-foreground/60">
+									Stored at <code className="bg-muted px-0.5 rounded">~/.wiki-viewer/api-key</code>. Rotating immediately invalidates the old key.
+								</p>
+							</div>
+						</section>
 
 						{/* Agent rate limit */}
 						<section className="space-y-2">

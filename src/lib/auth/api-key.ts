@@ -47,6 +47,21 @@ export function getApiKey(): string {
 }
 
 /**
+ * Rotate: generate a new key, overwrite the file, return it.
+ */
+export function rotateApiKey(): string {
+	mkdirSync(DATA_DIR, { recursive: true });
+	const key = randomBytes(32).toString("hex");
+	writeFileSync(KEY_PATH, key, { mode: 0o600 });
+	try {
+		chmodSync(KEY_PATH, 0o600);
+	} catch {
+		// best-effort
+	}
+	return key;
+}
+
+/**
  * Constant-time key comparison. Returns false for empty or length-mismatched keys.
  */
 export function validateApiKey(key: string): boolean {
