@@ -1,3 +1,16 @@
+/**
+ * LEGACY process-global root directory.
+ *
+ * Superseded by per-request resolution in workspace-context.ts. This global is
+ * now only a last-resort fallback (fallbackWorkspace()) for the
+ * single-directory flow (ROOT_DIR env / `wiki-viewer <dir>`) when the workspace
+ * registry is empty, plus the /api/system/root-status readout.
+ *
+ * Do not add callers. It is process-wide, so it cannot represent the effective
+ * root of a request on a multi-workspace instance or under ?root= / ?ws=.
+ * Use resolveWorkspaceForUser() / resolveWorkspaceForAgent() and the
+ * `rootDir` they return, with safeWorkspacePath(rootDir, rel) for containment.
+ */
 import path from "node:path";
 
 // Use globalThis so the value persists across Next.js hot-reloads in dev.
