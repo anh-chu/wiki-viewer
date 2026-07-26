@@ -38,6 +38,8 @@ interface Listener {
 interface PoolEntry {
 	watcher: FSWatcher;
 	watchRoot: string;
+	key: string;
+	depth?: number;
 	listeners: Set<Listener>;
 	pruner: MountPruner;
 	degraded: boolean;
@@ -84,6 +86,11 @@ function resolveWatchRoot(rootDir: string): string {
 	}
 }
 
+function poolKey(watchRoot: string, depth?: number): string {
+	if (depth === undefined) return watchRoot;
+	return `${watchRoot}\u0000d${depth}`;
+}
+
 /** Is ancestor an ancestor of descendant? Equal counts. */
 function isAncestor(ancestor: string, descendant: string): boolean {
 	if (ancestor === descendant) return true;
@@ -104,12 +111,12 @@ function isStrictAncestor(ancestor: string, descendant: string): boolean {
  * promotion (the listener may have been copied to a new entry).
  */
 function detachListener(listener: Listener): void {
-	for (const [wr, e] of pool) {
+	for (const [, e] of pool) {
 		if (e.listeners.has(listener)) {
 			e.listeners.delete(listener);
 			if (e.listeners.size === 0) {
-				closeEntry(wr, e);
-				pool.delete(wr);
+				closeEntry(e.watchRoot, e);
+				pool.delete(e.key);
 			}
 			return;
 		}
@@ -127,39 +134,57 @@ export function subscribe(
 	wsId: string,
 	rootDir: string,
 	fn: WatchListener,
+	options?: { depth?: number },
 ): () => void {
 	const base = resolveWatchRoot(rootDir);
 	const watchRoot = base;
+	const depth = options?.depth;
 	const listener: Listener = { fn, base };
+	const key = poolKey(watchRoot, depth);
 
-	// Check for ancestor merge: linear scan over existing entries.
-	// VS Code uses a TernarySearchTree at parcelWatcher.ts:692-743 for a scale
-	// we do not have — single-digit entries make a linear scan the right cost.
-	for (const [existingRoot, entry] of pool) {
-		if (isAncestor(existingRoot, watchRoot)) {
-			// Existing watcher already covers this tree.
+	// Depth-scoped: skip ancestor merge entirely. Exact key match only.
+	if (depth !== undefined) {
+		const existing = pool.get(key);
+		if (existing) {
+			existing.listeners.add(listener);
+			return () => detachListener(listener);
+		}
+		const entry = createEntry(watchRoot, depth);
+		entry.listeners.add(listener);
+		pool.set(key, entry);
+		return () => detachListener(listener);
+	}
+
+	// Recursive: ancestor merge, but only with other recursive entries.
+	// "existing ancestor covers new root" and "new root is ancestor, promote"
+	// must NOT merge a depth-scoped entry into a recursive one, or vice versa.
+	for (const [, entry] of pool) {
+		if (entry.depth !== undefined) continue;
+
+		if (isAncestor(entry.watchRoot, watchRoot)) {
+			// Existing recursive watcher already covers this tree.
 			entry.listeners.add(listener);
 			return () => detachListener(listener);
 		}
-		if (isStrictAncestor(watchRoot, existingRoot)) {
-			// New root is an ancestor of existing watchers — promote.
-			// Collect all entries that are descendants of watchRoot.
+		if (isStrictAncestor(watchRoot, entry.watchRoot)) {
+			// New root is an ancestor of existing recursive watchers — promote.
 			const promoted: Array<[string, PoolEntry]> = [];
-			for (const [er, e] of pool) {
-				if (isStrictAncestor(watchRoot, er)) {
-					promoted.push([er, e]);
+			for (const [, e] of pool) {
+				if (e.depth !== undefined) continue;
+				if (isStrictAncestor(watchRoot, e.watchRoot)) {
+					promoted.push([e.key, e]);
 				}
 			}
 			// Create one watcher at the new root and move all listeners.
-			const newEntry = createEntry(watchRoot);
+			const newEntry = createEntry(watchRoot, undefined);
 			newEntry.listeners.add(listener);
 			for (const [, oldEntry] of promoted) {
 				for (const l of oldEntry.listeners) {
 					newEntry.listeners.add(l);
 				}
 				// Transfer pending events before closing the old watcher.
-				for (const [key, item] of oldEntry.pending) {
-					newEntry.pending.set(key, item);
+				for (const [pkey, item] of oldEntry.pending) {
+					newEntry.pending.set(pkey, item);
 				}
 				if (oldEntry.flushTimer) {
 					clearTimeout(oldEntry.flushTimer);
@@ -173,9 +198,9 @@ export function subscribe(
 					}
 				}
 			}
-			pool.set(watchRoot, newEntry);
+			pool.set(key, newEntry);
 			// Close old watchers and remove from pool.
-			for (const [er, oldEntry] of promoted) {
+			for (const [oldKey, oldEntry] of promoted) {
 				// Clear pending/timer first (already transferred above, but
 				// closeEntry is defensive about this).
 				oldEntry.pending.clear();
@@ -183,28 +208,29 @@ export function subscribe(
 					clearTimeout(oldEntry.flushTimer);
 					oldEntry.flushTimer = null;
 				}
-				closeEntry(er, oldEntry);
-				pool.delete(er);
+				closeEntry(oldEntry.watchRoot, oldEntry);
+				pool.delete(oldKey);
 			}
 			return () => detachListener(listener);
 		}
 	}
 
 	// No ancestor relationship — create a new entry.
-	const entry = createEntry(watchRoot);
+	const entry = createEntry(watchRoot, undefined);
 	entry.listeners.add(listener);
-	pool.set(watchRoot, entry);
+	pool.set(key, entry);
 
 	return () => detachListener(listener);
 }
 
 // ── Entry lifecycle ──────────────────────────────────────────────────────────
 
-function createEntry(watchRoot: string): PoolEntry {
+function createEntry(watchRoot: string, depth?: number): PoolEntry {
 	const polling = rootIsHazardMount(watchRoot);
 	const pruner = makeMountPruner(watchRoot);
 
 	const watcher = watch(watchRoot, {
+		...(depth !== undefined ? { depth } : {}),
 		ignoreInitial: true,
 		ignored: (absPath: string) => {
 			// Skip name-based patterns matched as path segments.
@@ -224,6 +250,8 @@ function createEntry(watchRoot: string): PoolEntry {
 	const entry: PoolEntry = {
 		watcher,
 		watchRoot,
+		key: poolKey(watchRoot, depth),
+		depth,
 		listeners: new Set(),
 		pruner,
 		degraded: false,

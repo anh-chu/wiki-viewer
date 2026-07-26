@@ -82,7 +82,7 @@ export type RgOutcome<T> =
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const ALWAYS_EXCLUDED = [".git", ".proof", "node_modules", ".next"];
+const ALWAYS_EXCLUDED = [".git", ".pi", ".proof", "node_modules", ".next"];
 
 async function exclusionGlobs(rootDir: string): Promise<string[]> {
 	const globs: string[] = [];
