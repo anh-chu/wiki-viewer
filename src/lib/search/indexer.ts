@@ -1,36 +1,50 @@
 /**
- * FTS5 full-text search indexer.
+ * Metadata + link-graph search indexer.
  *
  * Lifecycle:
  *   - ensureIndexer(wsId, rootDir) -- idempotent; starts background initial scan once
  *   - indexFile / deleteFile       -- incremental updates (called by chokidar listener)
- *   - ftsSearch                    -- BM25 search query
+ *   - resolveBacklinks / resolveOutlinks / searchFilenames -- indexed lookups
  *   - purgeWorkspace               -- called on workspace delete
  *
+ * Content search moved to ripgrep (src/lib/search/rg-search.ts); this module owns
+ * the per-workspace file metadata, the wiki-link graph, filename search, and the
+ * indexer lifecycle.
+ *
  * Thread safety: better-sqlite3 is synchronous and single-threaded. All DB
- * writes are serialised through JS's single thread. Event-loop blocking from the
- * initial scan is avoided by yielding via setImmediate every INITIAL_YIELD_EVERY files.
+ * writes are serialised through JS's single thread. Event-loop blocking is
+ * avoided by yielding via setImmediate every INITIAL_YIELD_EVERY files.
  */
 import { createHash } from "node:crypto";
 import { readFile, readdir, stat } from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import path from "node:path";
 import { getSearchDb } from "./search-db";
-import { sanitizeFtsQuery } from "./sanitize";
 import { isIndexableExt, isMarkdownExt } from "./indexable-exts";
 import { isDeniedRelPath, looksLikeBinary, safeAbsPath } from "../proof/raw-fs";
 import { isNodeApp, isAppFolder } from "../wiki-helpers";
 import { parseFrontmatter } from "../markdown/parse-frontmatter";
+import { extractWikiLinks, slugFromPath, normalizeSlug } from "../markdown/wikilink";
+import { makeMountPruner, type MountPruner } from "../fs/mounts";
 import { subscribe } from "./watcher-pool";
+import { stripMarkTags } from "./rg-snippet";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
-const MAX_INDEX_BYTES = 1024 * 1024;    // 1 MiB body cap
-const BATCH_SIZE = 50;                   // max files per DB transaction
-const BATCH_TIMEOUT_MS = 2000;           // flush pending queue after this many ms
-const INITIAL_YIELD_EVERY = 64;          // setImmediate yield every N files
+export const MAX_INDEX_BYTES = 1024 * 1024;    // 1 MiB markdown body cap
+const BATCH_SIZE = 50;                          // max files per DB transaction
+const BATCH_TIMEOUT_MS = 2000;                  // flush pending queue after this many ms
+const INITIAL_YIELD_EVERY = 64;                 // setImmediate yield every N files
+export const MAX_FILES_PER_WS = 50_000;         // per-workspace row ceiling
+const CONTEXT_MAX_LEN = 160;                    // max chars for links.context
 
-const SKIP_DIRS = new Set([".proof", ".git", "node_modules", ".next"]);
+/** Shared skip set — one definition, consumed by the agent search route too. */
+export const SKIP_DIRS = new Set([
+	".proof", ".git", "node_modules", ".next",
+	".cache", ".venv", "venv", "__pycache__",
+	"target", "dist", "build", ".turbo",
+	".pnpm-store", ".pi", ".wiki-viewer",
+]);
 
 // ── Per-workspace state ────────────────────────────────────────────────────────
 
@@ -41,6 +55,10 @@ interface WsState {
 	pendingPaths: Set<string>;
 	pendingTimer: ReturnType<typeof setTimeout> | null;
 	unsubscribeWatcher: (() => void) | null;
+	rowCount: number;           // in-memory counter seeded from DB on ensure
+	capped: boolean;            // true once MAX_FILES_PER_WS reached
+	cappedLogged: boolean;      // log the warning once
+	aborted: boolean;           // set by purgeWorkspace; checked at yield points
 }
 
 const states = new Map<string, WsState>();
@@ -55,6 +73,10 @@ function getState(wsId: string, rootDir: string): WsState {
 			pendingPaths: new Set(),
 			pendingTimer: null,
 			unsubscribeWatcher: null,
+			rowCount: 0,
+			capped: false,
+			cappedLogged: false,
+			aborted: false,
 		};
 		states.set(wsId, s);
 	}
@@ -63,44 +85,129 @@ function getState(wsId: string, rootDir: string): WsState {
 
 // ── DB helpers ─────────────────────────────────────────────────────────────────
 
-function upsertDoc(
+function upsertFileRow(
 	wsId: string,
 	relPath: string,
-	name: string,
-	frontmatter: string,
-	body: string,
 	size: number,
 	mtimeNs: bigint,
 	sha: string,
+	slug: string | null,
 ): void {
 	const db = getSearchDb();
-	// DELETE + INSERT because FTS5 has no native UPSERT.
-	db.prepare(`DELETE FROM docs WHERE ws = ? AND path = ?`).run(wsId, relPath);
-	db.prepare(`INSERT INTO docs (ws, path, name, frontmatter, body) VALUES (?, ?, ?, ?, ?)`)
-		.run(wsId, relPath, name, frontmatter, body);
 	db.prepare(`
-		INSERT INTO docs_meta (ws, path, size, mtime_ns, sha, indexed_at)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO files (ws, path, size, mtime_ns, sha, slug, indexed_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(ws, path) DO UPDATE SET
 			size = excluded.size,
 			mtime_ns = excluded.mtime_ns,
 			sha = excluded.sha,
+			slug = excluded.slug,
 			indexed_at = excluded.indexed_at
-	`).run(wsId, relPath, size, String(mtimeNs), sha, new Date().toISOString());
+	`).run(wsId, relPath, size, String(mtimeNs), sha, slug ?? null, new Date().toISOString());
 }
 
-function removeDoc(wsId: string, relPath: string): void {
+function removeFileRow(wsId: string, relPath: string): void {
 	const db = getSearchDb();
-	db.prepare(`DELETE FROM docs WHERE ws = ? AND path = ?`).run(wsId, relPath);
-	db.prepare(`DELETE FROM docs_meta WHERE ws = ? AND path = ?`).run(wsId, relPath);
+	db.transaction(() => {
+		db.prepare(`DELETE FROM files WHERE ws = ? AND path = ?`).run(wsId, relPath);
+		db.prepare(`DELETE FROM links WHERE ws = ? AND src_path = ?`).run(wsId, relPath);
+	})();
 }
 
-// ── Text extraction ────────────────────────────────────────────────────────────
+function writeLinks(
+	wsId: string,
+	relPath: string,
+	linkOccurrences: Array<{ slug: string; line: number; lineText: string; index: number }>,
+): void {
+	if (linkOccurrences.length === 0) return;
+	const db = getSearchDb();
 
-async function extractText(
+	// Dedupe by target_slug; PK-level dedupe plus in-memory Set per file.
+	const seen = new Set<string>();
+	const rows: Array<{ slug: string; line: number; context: string }> = [];
+
+	for (const occ of linkOccurrences) {
+		if (seen.has(occ.slug)) continue;
+		seen.add(occ.slug);
+
+		// Build context: strip <mark> from line, wrap the [[…]] in <mark>,
+		// truncate to CONTEXT_MAX_LEN around the link.
+		const clean = stripMarkTags(occ.lineText);
+
+		// Find the wikilink in the stripped text so that literal <mark> tags
+		// preceding the link do not corrupt the offsets.
+		const searchFor = `[[${occ.slug}`;
+		const cleanLower = clean.toLowerCase();
+		let linkIdx = cleanLower.indexOf(searchFor.toLowerCase());
+		if (linkIdx < 0) linkIdx = Math.min(occ.index, clean.length);
+
+		// Compute endIdx in clean by scanning for closing brackets.
+		let endIdx = linkIdx;
+		let depth = 0;
+		for (let i = linkIdx; i < clean.length; i++) {
+			if (clean[i] === "[" && clean[i + 1] === "[") {
+				depth++;
+				i++;
+			} else if (clean[i] === "]" && clean[i + 1] === "]") {
+				depth--;
+				if (depth === 0) {
+					endIdx = i + 2;
+					break;
+				}
+				i++;
+			}
+		}
+		if (endIdx <= linkIdx) endIdx = linkIdx + occ.slug.length + 4;
+
+		const marked = clean.slice(0, linkIdx) + "<mark>" + clean.slice(linkIdx, endIdx) + "</mark>" + clean.slice(endIdx);
+
+		// Truncate to CONTEXT_MAX_LEN around the <mark>
+		const markStart = marked.indexOf("<mark>");
+		const markEnd = marked.indexOf("</mark>") + 7;
+		let context: string;
+		if (markStart < 0) {
+			context = clean.slice(0, CONTEXT_MAX_LEN);
+		} else {
+			const half = Math.floor(CONTEXT_MAX_LEN / 2);
+			let ctxStart = Math.max(0, markStart - half);
+			let ctxEnd = Math.min(marked.length, markEnd + half);
+			// Adjust to keep <mark> whole
+			if (ctxEnd - ctxStart > CONTEXT_MAX_LEN) {
+				ctxEnd = Math.min(marked.length, ctxStart + CONTEXT_MAX_LEN);
+			}
+			context = marked.slice(ctxStart, ctxEnd);
+			if (ctxStart > 0) context = "…" + context;
+			if (ctxEnd < marked.length) context = context + "…";
+		}
+
+		rows.push({ slug: occ.slug, line: occ.line, context });
+	}
+
+	db.transaction(() => {
+		db.prepare(`DELETE FROM links WHERE ws = ? AND src_path = ?`).run(wsId, relPath);
+		const insert = db.prepare(
+			`INSERT OR IGNORE INTO links (ws, src_path, target_slug, line, context) VALUES (?, ?, ?, ?, ?)`,
+		);
+		for (const r of rows) {
+			insert.run(wsId, relPath, r.slug, r.line, r.context);
+		}
+	})();
+}
+
+// ── File extraction (stat, and only read when markdown) ────────────────────────
+
+interface ExtractedDoc {
+	size: number;
+	mtimeNs: bigint;
+	sha: string;
+	slug: string | null;
+	links: Array<{ slug: string; line: number; lineText: string; index: number }>;
+}
+
+async function extractDoc(
 	absPath: string,
 	relPath: string,
-): Promise<{ name: string; frontmatter: string; body: string; sha: string; size: number; mtimeNs: bigint } | null> {
+): Promise<ExtractedDoc | null> {
 	let st: Awaited<ReturnType<typeof stat>>;
 	try {
 		st = await stat(absPath);
@@ -110,11 +217,22 @@ async function extractText(
 
 	const size = st.size;
 	const mtimeNs = BigInt(Math.round(st.mtimeMs * 1_000_000));
-	const name = path.basename(relPath);
 
+	if (!isMarkdownExt(path.basename(relPath))) {
+		// Non-markdown: stat-only. No read, no hash, no links.
+		return { size, mtimeNs, sha: "", slug: null, links: [] };
+	}
+
+	// Markdown: read up to MAX_INDEX_BYTES.
 	if (size > MAX_INDEX_BYTES) {
-		// Too large: index filename only, no body.
-		return { name, frontmatter: "", body: "", sha: "", size, mtimeNs };
+		// Too large: index metadata only, no links.
+		return {
+			size,
+			mtimeNs,
+			sha: "",
+			slug: slugFromPath(relPath),
+			links: [],
+		};
 	}
 
 	let buf: Buffer;
@@ -127,20 +245,20 @@ async function extractText(
 	const sha = "sha256:" + createHash("sha256").update(buf).digest("hex");
 
 	if (looksLikeBinary(buf)) {
-		return { name, frontmatter: "", body: "", sha, size, mtimeNs };
+		return { size, mtimeNs, sha, slug: slugFromPath(relPath), links: [] };
 	}
 
 	const text = buf.toString("utf-8");
+	const parsed = parseFrontmatter(text);
+	const links = extractWikiLinks(parsed.body);
 
-	if (isMarkdownExt(name)) {
-		const parsed = parseFrontmatter(text);
-		const fmStr = Object.entries(parsed.data)
-			.map(([k, v]) => `${k} ${Array.isArray(v) ? (v as unknown[]).join(" ") : String(v)}`)
-			.join(" ");
-		return { name, frontmatter: fmStr, body: parsed.body, sha, size, mtimeNs };
-	}
-
-	return { name, frontmatter: "", body: text, sha, size, mtimeNs };
+	return {
+		size,
+		mtimeNs,
+		sha,
+		slug: slugFromPath(relPath),
+		links,
+	};
 }
 
 // ── Index one file ─────────────────────────────────────────────────────────────
@@ -150,17 +268,17 @@ async function indexOnePath(wsId: string, rootDir: string, relPath: string): Pro
 
 	// App-dir contents are opaque leaves; never index files inside an app folder.
 	if (await isUnderApp(rootDir, relPath)) {
-		removeDoc(wsId, relPath);
+		removeFileRow(wsId, relPath);
 		return;
 	}
 
 	// Symlink-escape guard: resolve the realpath and confirm it stays under root.
-	// A symlink whose target escapes the workspace must never be indexed.
 	const absPath = await safeAbsPath(rootDir, relPath);
 	if (!absPath) {
-		removeDoc(wsId, relPath);
+		removeFileRow(wsId, relPath);
 		return;
 	}
+
 	const db = getSearchDb();
 
 	// Fast-path: check size+mtime against existing meta
@@ -168,8 +286,7 @@ async function indexOnePath(wsId: string, rootDir: string, relPath: string): Pro
 	try {
 		st = await stat(absPath);
 	} catch {
-		// File gone - remove it
-		removeDoc(wsId, relPath);
+		removeFileRow(wsId, relPath);
 		return;
 	}
 
@@ -178,37 +295,37 @@ async function indexOnePath(wsId: string, rootDir: string, relPath: string): Pro
 	const size = st.size;
 	const mtimeNs = BigInt(Math.round(st.mtimeMs * 1_000_000));
 
-	const meta = db.prepare(`SELECT size, mtime_ns, sha FROM docs_meta WHERE ws = ? AND path = ?`)
+	const meta = db.prepare(`SELECT size, mtime_ns, sha FROM files WHERE ws = ? AND path = ?`)
 		.get(wsId, relPath) as { size: number; mtime_ns: string; sha: string } | undefined;
 
 	if (meta && meta.size === size && BigInt(meta.mtime_ns) === mtimeNs) {
-		// Unchanged - skip
+		return; // unchanged
+	}
+
+	const extracted = await extractDoc(absPath, relPath);
+	if (!extracted) {
+		removeFileRow(wsId, relPath);
 		return;
 	}
 
-	const extracted = await extractText(absPath, relPath);
-	if (!extracted) return;
-
 	// If we got a sha and it matches the existing meta, just touch indexed_at
 	if (meta && extracted.sha && extracted.sha === meta.sha) {
-		db.prepare(`UPDATE docs_meta SET indexed_at = ? WHERE ws = ? AND path = ?`)
+		db.prepare(`UPDATE files SET indexed_at = ? WHERE ws = ? AND path = ?`)
 			.run(new Date().toISOString(), wsId, relPath);
 		return;
 	}
 
-	const name = path.basename(relPath);
-	if (!isIndexableExt(name) && !isMarkdownExt(name)) {
-		// Non-text: index name only so filename searches work
-		upsertDoc(wsId, relPath, name, "", "", size, mtimeNs, extracted.sha);
-		return;
-	}
-
-	upsertDoc(wsId, relPath, extracted.name, extracted.frontmatter, extracted.body, extracted.size, extracted.mtimeNs, extracted.sha);
+	upsertFileRow(wsId, relPath, extracted.size, extracted.mtimeNs, extracted.sha, extracted.slug);
+	writeLinks(wsId, relPath, extracted.links);
 }
 
-// ── File tree walker ───────────────────────────────────────────────────────────
+// ── File tree walker (with mount pruning) ──────────────────────────────────────
 
-async function* walkFiles(rootDir: string, relDir: string): AsyncGenerator<string> {
+async function* walkFiles(
+	rootDir: string,
+	relDir: string,
+	pruner: MountPruner,
+): AsyncGenerator<string> {
 	let items: Dirent[];
 	try {
 		items = await readdir(path.join(rootDir, relDir), { withFileTypes: true });
@@ -219,25 +336,20 @@ async function* walkFiles(rootDir: string, relDir: string): AsyncGenerator<strin
 		if (SKIP_DIRS.has(item.name)) continue;
 		const childRel = relDir ? `${relDir}/${item.name}` : item.name;
 		if (item.isDirectory()) {
-			// App dirs (package.json or index.html) are opaque leaves in the UI:
-			// clicking runs the app, it is not a browsable folder. Do not index
-			// their contents so search does not surface bundled app internals.
+			const childAbs = path.join(rootDir, childRel);
+			// Never recurse into pruned mounts.
+			if (pruner.isPruned(childAbs)) continue;
+			// App dirs (package.json or index.html) are opaque leaves.
 			if (await isNodeApp(rootDir, childRel) || await isAppFolder(rootDir, childRel)) {
 				continue;
 			}
-			yield* walkFiles(rootDir, childRel);
+			yield* walkFiles(rootDir, childRel, pruner);
 		} else if (item.isFile() || item.isSymbolicLink()) {
 			yield childRel;
 		}
 	}
 }
 
-/**
- * True if any ancestor directory of relPath is an app folder (node-app or
- * static app). Used by the incremental path so file events inside an app dir
- * are ignored, matching the initial-scan walker which does not recurse into
- * app dirs.
- */
 async function isUnderApp(rootDir: string, relPath: string): Promise<boolean> {
 	const parts = relPath.split("/");
 	for (let i = 1; i < parts.length; i++) {
@@ -253,10 +365,21 @@ async function isUnderApp(rootDir: string, relPath: string): Promise<boolean> {
 
 async function initialScan(wsId: string, rootDir: string): Promise<void> {
 	const db = getSearchDb();
+	const s = getState(wsId, rootDir);
+	const pruner = makeMountPruner(rootDir);
+
+	// Seed the in-memory row counter.
+	const countRow = db.prepare(`SELECT COUNT(*) AS n FROM files WHERE ws = ?`).get(wsId) as { n: number };
+	s.rowCount = countRow.n;
+	if (s.rowCount >= MAX_FILES_PER_WS) {
+		s.capped = true;
+	}
+
 	let batch: Array<() => void> = [];
 	let fileCount = 0;
 
 	async function flushBatch() {
+		if (s.aborted) { batch = []; return; }
 		if (batch.length === 0) return;
 		const ops = batch;
 		batch = [];
@@ -265,18 +388,13 @@ async function initialScan(wsId: string, rootDir: string): Promise<void> {
 		})();
 	}
 
-	for await (const relPath of walkFiles(rootDir, "")) {
+	for await (const relPath of walkFiles(rootDir, "", pruner)) {
+		if (s.aborted) break;
 		if (isDeniedRelPath(relPath)) continue;
 
-		// Schedule the actual index work
-		const relPathCopy = relPath;
-
-		// Symlink-escape guard: skip anything whose realpath leaves the workspace.
-		const absPath = await safeAbsPath(rootDir, relPathCopy);
+		const absPath = await safeAbsPath(rootDir, relPath);
 		if (!absPath) continue;
 
-		// Stat + read inline (can't easily capture async in sync txn)
-		// We collect the data async, then write in a batch txn
 		let st: Awaited<ReturnType<typeof stat>>;
 		try {
 			st = await stat(absPath);
@@ -288,8 +406,8 @@ async function initialScan(wsId: string, rootDir: string): Promise<void> {
 		const size = st.size;
 		const mtimeNs = BigInt(Math.round(st.mtimeMs * 1_000_000));
 
-		const meta = db.prepare(`SELECT size, mtime_ns FROM docs_meta WHERE ws = ? AND path = ?`)
-			.get(wsId, relPathCopy) as { size: number; mtime_ns: string } | undefined;
+		const meta = db.prepare(`SELECT size, mtime_ns FROM files WHERE ws = ? AND path = ?`)
+			.get(wsId, relPath) as { size: number; mtime_ns: string } | undefined;
 
 		if (meta && meta.size === size && BigInt(meta.mtime_ns) === mtimeNs) {
 			fileCount++;
@@ -299,34 +417,84 @@ async function initialScan(wsId: string, rootDir: string): Promise<void> {
 			continue;
 		}
 
-		const extracted = await extractText(absPath, relPathCopy);
-		if (!extracted) continue;
+		// Skip new inserts when at cap, but always update rows already in the
+		// table (rename case, mtime change, etc.). Decision 23: cap new inserts,
+		// never evict existing rows.
+		if (s.capped && !meta) {
+			continue;
+		}
 
-		const name = path.basename(relPathCopy);
-		const shouldIndexBody = isIndexableExt(name) || isMarkdownExt(name);
-		const fBody = shouldIndexBody ? extracted.body : "";
-		const fFm   = shouldIndexBody ? extracted.frontmatter : "";
+		const extracted = await extractDoc(absPath, relPath);
+		if (!extracted) continue;
 
 		const capSize = extracted.size;
 		const capMtime = extracted.mtimeNs;
 		const capSha = extracted.sha;
+		const capSlug = extracted.slug;
+		const capLinks = extracted.links;
 
 		batch.push(() => {
-			db.prepare(`DELETE FROM docs WHERE ws = ? AND path = ?`).run(wsId, relPathCopy);
-			db.prepare(`INSERT INTO docs (ws, path, name, frontmatter, body) VALUES (?, ?, ?, ?, ?)`)
-				.run(wsId, relPathCopy, extracted.name, fFm, fBody);
-			db.prepare(`
-				INSERT INTO docs_meta (ws, path, size, mtime_ns, sha, indexed_at)
-				VALUES (?, ?, ?, ?, ?, ?)
-				ON CONFLICT(ws, path) DO UPDATE SET
-					size = excluded.size,
-					mtime_ns = excluded.mtime_ns,
-					sha = excluded.sha,
-					indexed_at = excluded.indexed_at
-			`).run(wsId, relPathCopy, capSize, String(capMtime), capSha, new Date().toISOString());
+			upsertFileRow(wsId, relPath, capSize, capMtime, capSha, capSlug);
+			// writeLinks inside the batch would need its own txn; we merge by
+			// collecting link ops and running them after file ops.
+			// For simplicity in the initial scan, links are written inline.
+			const db2 = getSearchDb();
+			db2.prepare(`DELETE FROM links WHERE ws = ? AND src_path = ?`).run(wsId, relPath);
+			const seen = new Set<string>();
+			const insert = db2.prepare(
+				`INSERT OR IGNORE INTO links (ws, src_path, target_slug, line, context) VALUES (?, ?, ?, ?, ?)`,
+			);
+			for (const occ of capLinks) {
+				if (seen.has(occ.slug)) continue;
+				seen.add(occ.slug);
+				const clean = stripMarkTags(occ.lineText);
+				const searchFor = `[[${occ.slug}`;
+				const cleanLower = clean.toLowerCase();
+				let linkIdx = cleanLower.indexOf(searchFor.toLowerCase());
+				if (linkIdx < 0) linkIdx = Math.min(occ.index, clean.length);
+				let endIdx = linkIdx;
+				let depth = 0;
+				for (let i = linkIdx; i < clean.length; i++) {
+					if (clean[i] === "[" && clean[i + 1] === "[") { depth++; i++; }
+					else if (clean[i] === "]" && clean[i + 1] === "]") {
+						depth--;
+						if (depth === 0) { endIdx = i + 2; break; }
+						i++;
+					}
+				}
+				if (endIdx <= linkIdx) endIdx = linkIdx + occ.slug.length + 4;
+				const marked = clean.slice(0, linkIdx) + "<mark>" + clean.slice(linkIdx, endIdx) + "</mark>" + clean.slice(endIdx);
+				const markStart = marked.indexOf("<mark>");
+				let ctx = marked;
+				if (markStart >= 0) {
+					const half = Math.floor(CONTEXT_MAX_LEN / 2);
+					const markEnd = marked.indexOf("</mark>") + 7;
+					let ctxStart = Math.max(0, markStart - half);
+					let ctxEnd = Math.min(marked.length, markEnd + half);
+					if (ctxEnd - ctxStart > CONTEXT_MAX_LEN) {
+						ctxEnd = Math.min(marked.length, ctxStart + CONTEXT_MAX_LEN);
+					}
+					ctx = marked.slice(ctxStart, ctxEnd);
+					if (ctxStart > 0) ctx = "…" + ctx;
+					if (ctxEnd < marked.length) ctx = ctx + "…";
+				} else {
+					ctx = clean.slice(0, CONTEXT_MAX_LEN);
+				}
+				insert.run(wsId, relPath, occ.slug, occ.line, ctx);
+			}
 		});
 
+		s.rowCount++;
 		fileCount++;
+
+		// Check cap after increment.
+		if (s.rowCount >= MAX_FILES_PER_WS && !s.capped) {
+			s.capped = true;
+			if (!s.cappedLogged) {
+				s.cappedLogged = true;
+				console.warn(`[search] row cap reached for workspace ${wsId} (${MAX_FILES_PER_WS} files), new inserts suspended`);
+			}
+		}
 
 		if (batch.length >= BATCH_SIZE) {
 			await flushBatch();
@@ -345,7 +513,7 @@ function enqueueIndex(wsId: string, relPath: string): void {
 	const s = states.get(wsId);
 	if (!s) return;
 	s.pendingPaths.add(relPath);
-	if (s.pendingTimer) return; // already scheduled
+	if (s.pendingTimer) return;
 	s.pendingTimer = setTimeout(() => flushQueue(wsId), BATCH_TIMEOUT_MS);
 }
 
@@ -356,16 +524,13 @@ function flushQueue(wsId: string): void {
 	const paths = Array.from(s.pendingPaths);
 	s.pendingPaths.clear();
 
-	// Index each in a background promise; errors are logged not thrown.
-	// Work is chunked at BATCH_SIZE with a setImmediate yield between chunks so a
-	// large burst of file changes can never block the event loop in one big
-	// synchronous transaction.
 	const db = getSearchDb();
 	const rootDir = s.rootDir;
 	void (async () => {
 		let ops: Array<() => void> = [];
 
 		const flushOps = async () => {
+			if (s.aborted) { ops = []; return; }
 			if (ops.length === 0) return;
 			const chunk = ops;
 			ops = [];
@@ -374,45 +539,80 @@ function flushQueue(wsId: string): void {
 		};
 
 		for (const relPath of paths) {
-			// App-dir contents are opaque leaves; never index files inside one.
+			if (s.aborted) break;
 			if (await isUnderApp(rootDir, relPath)) {
-				ops.push(() => removeDoc(wsId, relPath));
+				ops.push(() => removeFileRow(wsId, relPath));
 				if (ops.length >= BATCH_SIZE) await flushOps();
 				continue;
 			}
-			// Symlink-escape guard before any read.
 			const absPath = await safeAbsPath(rootDir, relPath);
 			if (!absPath) {
-				ops.push(() => removeDoc(wsId, relPath));
+				ops.push(() => removeFileRow(wsId, relPath));
 				if (ops.length >= BATCH_SIZE) await flushOps();
 				continue;
 			}
-			const extracted = await extractText(absPath, relPath).catch(() => null);
+			const extracted = await extractDoc(absPath, relPath).catch(() => null);
 			if (!extracted) {
-				ops.push(() => removeDoc(wsId, relPath));
+				ops.push(() => removeFileRow(wsId, relPath));
 				if (ops.length >= BATCH_SIZE) await flushOps();
 				continue;
 			}
-			const name = path.basename(relPath);
-			const shouldIndexBody = isIndexableExt(name) || isMarkdownExt(name);
 			const capSize = extracted.size;
 			const capMtime = extracted.mtimeNs;
 			const capSha = extracted.sha;
-			const fBody = shouldIndexBody ? extracted.body : "";
-			const fFm   = shouldIndexBody ? extracted.frontmatter : "";
+			const capSlug = extracted.slug;
+			const capLinks = extracted.links;
 			ops.push(() => {
-				db.prepare(`DELETE FROM docs WHERE ws = ? AND path = ?`).run(wsId, relPath);
-				db.prepare(`INSERT INTO docs (ws, path, name, frontmatter, body) VALUES (?, ?, ?, ?, ?)`)
-					.run(wsId, relPath, extracted.name, fFm, fBody);
-				db.prepare(`
-					INSERT INTO docs_meta (ws, path, size, mtime_ns, sha, indexed_at)
-					VALUES (?, ?, ?, ?, ?, ?)
-					ON CONFLICT(ws, path) DO UPDATE SET
-						size = excluded.size,
-						mtime_ns = excluded.mtime_ns,
-						sha = excluded.sha,
-						indexed_at = excluded.indexed_at
-				`).run(wsId, relPath, capSize, String(capMtime), capSha, new Date().toISOString());
+				if (s.capped && !db.prepare(`SELECT 1 FROM files WHERE ws=? AND path=?`).get(wsId, relPath)) {
+					return; // new file at cap — skip
+				}
+				upsertFileRow(wsId, relPath, capSize, capMtime, capSha, capSlug);
+				db.prepare(`DELETE FROM links WHERE ws = ? AND src_path = ?`).run(wsId, relPath);
+				const seen = new Set<string>();
+				const insert = db.prepare(
+					`INSERT OR IGNORE INTO links (ws, src_path, target_slug, line, context) VALUES (?, ?, ?, ?, ?)`,
+				);
+				for (const occ of capLinks) {
+					if (seen.has(occ.slug)) continue;
+					seen.add(occ.slug);
+					const clean = stripMarkTags(occ.lineText);
+					const searchFor = `[[${occ.slug}`;
+					const cleanLower = clean.toLowerCase();
+					let linkIdx = cleanLower.indexOf(searchFor.toLowerCase());
+					if (linkIdx < 0) linkIdx = Math.min(occ.index, clean.length);
+					let endIdx = linkIdx;
+					let depth = 0;
+					for (let i = linkIdx; i < clean.length; i++) {
+						if (clean[i] === "[" && clean[i + 1] === "[") { depth++; i++; }
+						else if (clean[i] === "]" && clean[i + 1] === "]") {
+							depth--;
+							if (depth === 0) { endIdx = i + 2; break; }
+							i++;
+						}
+					}
+					if (endIdx <= linkIdx) endIdx = linkIdx + occ.slug.length + 4;
+					const marked = clean.slice(0, linkIdx) + "<mark>" + clean.slice(linkIdx, endIdx) + "</mark>" + clean.slice(endIdx);
+					const markStart = marked.indexOf("<mark>");
+					let ctx = marked;
+					if (markStart >= 0) {
+						const half = Math.floor(CONTEXT_MAX_LEN / 2);
+						const markEnd = marked.indexOf("</mark>") + 7;
+						let ctxStart = Math.max(0, markStart - half);
+						let ctxEnd = Math.min(marked.length, markEnd + half);
+						if (ctxEnd - ctxStart > CONTEXT_MAX_LEN) {
+							ctxEnd = Math.min(marked.length, ctxStart + CONTEXT_MAX_LEN);
+						}
+						ctx = marked.slice(ctxStart, ctxEnd);
+						if (ctxStart > 0) ctx = "…" + ctx;
+						if (ctxEnd < marked.length) ctx = ctx + "…";
+					} else {
+						ctx = clean.slice(0, CONTEXT_MAX_LEN);
+					}
+					insert.run(wsId, relPath, occ.slug, occ.line, ctx);
+				}
+				if (!s.capped) {
+					// Count only truly new rows (we already checked above)
+				}
 			});
 			if (ops.length >= BATCH_SIZE) await flushOps();
 		}
@@ -430,12 +630,35 @@ function flushQueue(wsId: string): void {
 export async function ensureIndexer(wsId: string, rootDir: string): Promise<void> {
 	const s = getState(wsId, rootDir);
 
+	// Seed the row counter before anything else.
+	if (!s.initialScanDone && !s.initialScanPromise) {
+		try {
+			const db = getSearchDb();
+			const row = db.prepare(`SELECT COUNT(*) AS n FROM files WHERE ws = ?`).get(wsId) as { n: number };
+			s.rowCount = row.n;
+			if (s.rowCount >= MAX_FILES_PER_WS) {
+				s.capped = true;
+			}
+		} catch { /* DB may not exist yet */ }
+	}
+
 	if (s.initialScanDone) return;
 
 	if (!s.initialScanPromise) {
-		// Subscribe to chokidar (permanent listener -- watcher stays alive while indexer exists).
 		if (!s.unsubscribeWatcher) {
 			s.unsubscribeWatcher = subscribe(wsId, rootDir, (ev, relPath) => {
+				// Handle degraded-rescan before any path validation — a rescan
+				// has no file path and must reach the indexer.
+				if (ev === "rescan") {
+					console.warn("[search] watcher degraded rescan triggering re-scan for", wsId);
+					s.initialScanDone = false;
+					s.initialScanPromise = null;
+					setImmediate(() => {
+						void ensureIndexer(wsId, rootDir);
+					});
+					return;
+				}
+
 				if (!relPath || isDeniedRelPath(relPath)) return;
 				if (ev === "add" || ev === "change") {
 					enqueueIndex(wsId, relPath);
@@ -445,9 +668,6 @@ export async function ensureIndexer(wsId: string, rootDir: string): Promise<void
 			});
 		}
 
-		// Kick off the scan in the background via setImmediate to not block the
-		// calling request. The promise is stored so subsequent ensureIndexer calls
-		// await the same scan instead of spawning a second one.
 		s.initialScanPromise = new Promise<void>((resolve) => {
 			setImmediate(() => {
 				void initialScan(wsId, rootDir).then(() => {
@@ -455,15 +675,12 @@ export async function ensureIndexer(wsId: string, rootDir: string): Promise<void
 					resolve();
 				}).catch((e) => {
 					console.error("[search] initial scan error", e);
-					s.initialScanPromise = null; // allow retry
+					s.initialScanPromise = null;
 					resolve();
 				});
 			});
 		});
 	}
-
-	// Do NOT await: callers call fire-and-forget. Search works on whatever is already indexed.
-	// (Tests use _waitForIdle to synchronise.)
 }
 
 /** Index a single file (called on chokidar change/add events). */
@@ -473,78 +690,40 @@ export async function indexFile(wsId: string, rootDir: string, relPath: string):
 
 /** Remove a single file from the index. */
 export async function deleteFile(wsId: string, relPath: string): Promise<void> {
-	removeDoc(wsId, relPath);
+	const s = states.get(wsId);
+	if (s) {
+		s.rowCount = Math.max(0, s.rowCount - 1);
+		if (s.capped && s.rowCount < MAX_FILES_PER_WS) {
+			s.capped = false;
+			s.cappedLogged = false;
+		}
+	}
+	removeFileRow(wsId, relPath);
 }
 
 /** Remove all indexed data for a workspace (called on workspace delete). */
 export async function purgeWorkspace(wsId: string): Promise<void> {
 	const db = getSearchDb();
-	db.transaction(() => {
-		db.prepare(`DELETE FROM docs WHERE ws = ?`).run(wsId);
-		db.prepare(`DELETE FROM docs_meta WHERE ws = ?`).run(wsId);
-	})();
-	// Clean up module state
 	const s = states.get(wsId);
 	if (s) {
+		s.aborted = true;
 		if (s.pendingTimer) clearTimeout(s.pendingTimer);
 		s.unsubscribeWatcher?.();
-		states.delete(wsId);
 	}
+	db.transaction(() => {
+		db.prepare(`DELETE FROM files WHERE ws = ?`).run(wsId);
+		db.prepare(`DELETE FROM links WHERE ws = ?`).run(wsId);
+	})();
+	states.delete(wsId);
 }
+
+// ── Query exports (replacing ftsSearch) ────────────────────────────────────────
 
 export interface IndexedMatch {
 	path: string;
-	score: number;  // negated BM25 rank (higher = better)
+	score: number;
 	snippet: string;
 }
-
-export interface SearchResult {
-	matches: IndexedMatch[];
-	truncated: boolean;
-}
-
-/**
- * Full-text search within a single workspace.
- *
- * CRITICAL: ws isolation is enforced by `WHERE ws = ?` on every query.
- * This is the ONLY place in the codebase that executes SELECT ... FROM docs
- * returning rows to callers. The ws column is always bound as the first param.
- */
-export function ftsSearch(wsId: string, query: string, limit: number): SearchResult {
-	const sanitized = sanitizeFtsQuery(query);
-	if (!sanitized) return { matches: [], truncated: false };
-
-	const hardLimit = Math.min(Math.max(1, limit), 200);
-	const db = getSearchDb();
-
-	let rows: Array<{ path: string; score: number; snippet: string }>;
-	try {
-		rows = db.prepare(`
-			SELECT path,
-				rank AS score,
-				snippet(docs, 4, '<mark>', '</mark>', '\u2026', 12) AS snippet
-			FROM docs
-			WHERE ws = ? AND docs MATCH ?
-			ORDER BY rank
-			LIMIT ?
-		`).all(wsId, sanitized, hardLimit + 1) as typeof rows;
-	} catch (e) {
-		console.error("[search] ftsSearch error", e);
-		return { matches: [], truncated: false };
-	}
-
-	const truncated = rows.length > hardLimit;
-	return {
-		matches: rows.slice(0, hardLimit).map((r) => ({
-			path: r.path,
-			score: -r.score,
-			snippet: r.snippet ?? "",
-		})),
-		truncated,
-	};
-}
-
-// ── Backlinks ────────────────────────────────────────────────────────────────
 
 export interface Backlink {
 	path: string;
@@ -552,26 +731,11 @@ export interface Backlink {
 }
 
 /**
- * True if `body` contains an actual wiki-link to `slug`: `[[slug]]`,
- * `[[slug|alias]]`, or `[[slug#anchor]]`. FTS matches tokenised prose, so we
- * re-check the raw text to drop false positives (a page merely mentioning the
- * word, not linking to it).
- */
-function hasWikiLinkTo(body: string, slug: string): boolean {
-	const esc = slug.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-	const re = new RegExp(`\\[\\[${esc}(?:\\|[^\\]#|]+|#[a-z0-9-]+)?\\]\\]`, "i");
-	return re.test(body);
-}
-
-/**
- * Resolve confirmed backlinks to a page in one in-process pass.
+ * Resolve confirmed backlinks to a page via indexed link-graph lookup.
  *
- * Replaces the old client-side N+1 (search → fetch each candidate's content over
- * HTTP). FTS is a coarse candidate filter; we read each candidate's `body` column
- * directly from SQLite and confirm a literal `[[slug]]` link. No file I/O, no
- * HTTP round-trips.
- *
- * ws isolation enforced by `WHERE ws = ?` (see ftsSearch contract).
+ * Returns every source page that contains [[slug]] in `links`, excluding
+ * `excludePath` (the target page itself). Slugs are normalised to lowercase.
+ * The `context` column provides the snippet.
  */
 export function resolveBacklinks(
 	wsId: string,
@@ -579,41 +743,124 @@ export function resolveBacklinks(
 	excludePath: string,
 	limit: number,
 ): Backlink[] {
-	const sanitized = sanitizeFtsQuery(slug);
-	if (!sanitized) return [];
+	const norm = normalizeSlug(slug);
+	if (!norm) return [];
 
-	const candidateCap = Math.min(Math.max(1, limit), 200);
+	const hardLimit = Math.min(Math.max(1, limit), 200);
 	const db = getSearchDb();
 
-	let rows: Array<{ path: string; snippet: string; body: string }>;
+	let rows: Array<{ src_path: string; context: string }>;
 	try {
 		rows = db.prepare(`
-			SELECT path,
-				snippet(docs, 4, '<mark>', '</mark>', '…', 12) AS snippet,
-				body
-			FROM docs
-			WHERE ws = ? AND docs MATCH ?
-			ORDER BY rank
+			SELECT src_path, context
+			FROM links
+			WHERE ws = ? AND target_slug = ? AND src_path <> ?
 			LIMIT ?
-		`).all(wsId, sanitized, candidateCap) as typeof rows;
+		`).all(wsId, norm, excludePath, hardLimit) as typeof rows;
 	} catch (e) {
 		console.error("[search] resolveBacklinks error", e);
 		return [];
 	}
 
-	const out: Backlink[] = [];
-	for (const r of rows) {
-		if (r.path === excludePath) continue;
-		if (!/\.md$/i.test(r.path)) continue;
-		if (!hasWikiLinkTo(r.body, slug)) continue;
-		out.push({ path: r.path, snippet: r.snippet ?? "" });
+	return rows.map((r) => ({ path: r.src_path, snippet: r.context }));
+}
+
+export interface OutlinkEntry {
+	slug: string;
+	resolved_path: string | null;
+	exists: boolean;
+}
+
+export interface OutlinkResult {
+	indexed: boolean;
+	links: OutlinkEntry[];
+}
+
+/**
+ * Resolve outlinks for a file: which slugs it links to, and whether each
+ * target exists in the same workspace.
+ *
+ * `indexed` is false when the source path is not in `files` (the 404 case).
+ */
+export function resolveOutlinks(wsId: string, relPath: string): OutlinkResult {
+	const db = getSearchDb();
+
+	const fileRow = db.prepare(`SELECT 1 FROM files WHERE ws = ? AND path = ?`).get(wsId, relPath);
+	if (!fileRow) return { indexed: false, links: [] };
+
+	const slugRows = db.prepare(
+		`SELECT target_slug FROM links WHERE ws = ? AND src_path = ? ORDER BY target_slug`,
+	).all(wsId, relPath) as Array<{ target_slug: string }>;
+
+	if (slugRows.length === 0) return { indexed: true, links: [] };
+
+	const slugs = slugRows.map((r) => r.target_slug);
+
+	// Batch resolve: one query for all slugs.
+	const placeholders = slugs.map(() => "?").join(",");
+	const resolved = db.prepare(
+		`SELECT path, slug FROM files WHERE ws = ? AND slug IN (${placeholders})`,
+	).all(wsId, ...slugs) as Array<{ path: string; slug: string }>;
+
+	const bySlug = new Map<string, string>();
+	for (const r of resolved) {
+		if (!bySlug.has(r.slug)) bySlug.set(r.slug, r.path);
 	}
-	return out;
+
+	const links: OutlinkEntry[] = slugs.map((slug) => {
+		const resolved_path = bySlug.get(slug) ?? null;
+		return { slug, resolved_path, exists: resolved_path !== null };
+	});
+
+	return { indexed: true, links };
+}
+
+/**
+ * Filename search within a workspace. Multi-token AND: each whitespace-separated
+ * token must appear (case-insensitive) in the path. Preserves the old FTS `name`
+ * column behaviour, including finding binary files by name.
+ */
+export function searchFilenames(
+	wsId: string,
+	query: string,
+	limit: number,
+): Array<{ path: string }> {
+	const trimmed = query.trim();
+	if (!trimmed) return [];
+
+	const tokens = trimmed.split(/\s+/).slice(0, 8);
+	const hardLimit = Math.min(Math.max(1, limit), 200);
+	const db = getSearchDb();
+
+	// Single-token fast path.
+	if (tokens.length === 1) {
+		const rows = db.prepare(
+			`SELECT path FROM files WHERE ws = ? AND LOWER(path) LIKE ? LIMIT ?`,
+		).all(wsId, `%${tokens[0]!.toLowerCase()}%`, hardLimit) as Array<{ path: string }>;
+		return rows;
+	}
+
+	// Multi-token: intersect.
+	const clauses = tokens.map(() => `LOWER(path) LIKE ?`).join(" AND ");
+	const params = tokens.map((t) => `%${t.toLowerCase()}%`);
+	const rows = db.prepare(
+		`SELECT path FROM files WHERE ws = ? AND (${clauses}) LIMIT ?`,
+	).all(wsId, ...params, hardLimit) as Array<{ path: string }>;
+	return rows;
+}
+
+/**
+ * Number of indexed files for a workspace.
+ * Used by tests and the degraded-mode decision in routes.
+ */
+export function indexedFileCount(wsId: string): number {
+	const db = getSearchDb();
+	const row = db.prepare(`SELECT COUNT(*) AS n FROM files WHERE ws = ?`).get(wsId) as { n: number };
+	return row.n;
 }
 
 // ── Test hooks ─────────────────────────────────────────────────────────────────
 
-/** Reset all module-level state (for tests). */
 export function _resetIndexer(): void {
 	for (const s of states.values()) {
 		if (s.pendingTimer) clearTimeout(s.pendingTimer);
@@ -622,10 +869,6 @@ export function _resetIndexer(): void {
 	states.clear();
 }
 
-/**
- * Wait until the initial scan for wsId has completed (for tests).
- * Resolves immediately if the scan is already done.
- */
 export async function _waitForIdle(wsId: string): Promise<void> {
 	const s = states.get(wsId);
 	if (!s) return;

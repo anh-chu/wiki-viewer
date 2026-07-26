@@ -1,5 +1,6 @@
 allowBuilds:
   '@prisma/client': set this to true or false
+  '@vscode/ripgrep': set this to true or false
   better-sqlite3: true
   esbuild: true
   sharp: true

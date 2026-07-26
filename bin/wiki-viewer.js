@@ -806,6 +806,11 @@ function installSystemd() {
 
   const nodeBin = resolveServiceNode();
   const scriptPath = resolveServiceScript();
+  const nodeDir = path.dirname(nodeBin);
+  const sysPath = `${nodeDir}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`;
+  const rgEnv = process.env.WIKI_VIEWER_RG
+    ? `\nEnvironment=WIKI_VIEWER_RG=${process.env.WIKI_VIEWER_RG}`
+    : "";
   const unit = `[Unit]
 Description=wiki-viewer local file viewer
 After=network.target
@@ -816,6 +821,7 @@ ExecStart=${nodeBin} ${scriptPath} service run
 Restart=on-failure
 RestartSec=3
 Environment=NODE_ENV=production
+Environment=PATH=${sysPath}${rgEnv}
 
 [Install]
 WantedBy=default.target

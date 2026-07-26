@@ -17,7 +17,8 @@
 //    at runtime. Rewrite every hashed external require back to its real package
 //    name. See vercel/next.js#88844 and #91654.
 
-import { cpSync, rmSync, existsSync, readdirSync, statSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, rmSync, existsSync, readdirSync, statSync, readFileSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -95,5 +96,58 @@ for (const name of PRUNE) {
   }
 }
 console.log(`postbuild: pruned ${pruned} traced repo path(s) from standalone`);
+
+// 5. Copy the ripgrep binary into standalone so the server can find it at
+//    node_modules/@vscode/ripgrep-<plat>-<arch>/bin/<binName>.
+//    The server probes this exact flat path at runtime (and also tries
+//    createRequire.resolve from the wrapper's directory). This is explicit
+//    rather than relying on Next's output file tracing because:
+//    (a) server code deliberately never requires @vscode/ripgrep, so there
+//        is nothing for the tracer to follow;
+//    (b) step 3 above already works around Turbopack external-require
+//        fragility for native packages.
+//    DO NOT prune node_modules/@vscode/ripgrep-* from standalone — this copy
+//    is the only thing keeping the bundled binary alive.
+const arch = process.env.npm_config_arch || process.arch;
+const binName = process.platform === "win32" ? "rg.exe" : "rg";
+const platformPkg = `@vscode/ripgrep-${process.platform}-${arch}`;
+const rgDstRel = path.join("node_modules", platformPkg, "bin", binName);
+const rgDst = path.join(standalone, rgDstRel);
+
+let rgSrc = null;
+// Resolve via the wrapper's require chain (layout-agnostic, same mechanism
+// the wrapper's index.js uses at runtime).
+try {
+  const wrapperFile = fileURLToPath(import.meta.resolve("@vscode/ripgrep"));
+  const req = createRequire(wrapperFile);
+  rgSrc = req.resolve(`${platformPkg}/bin/${binName}`);
+} catch {
+  // import.meta.resolve / createRequire unavailable — fs fallback below
+}
+
+// Fallback: search under node_modules/.pnpm
+if (!rgSrc || !existsSync(rgSrc)) {
+  const pnpmDir = path.join(root, "node_modules", ".pnpm");
+  if (existsSync(pnpmDir)) {
+    const prefix = `@vscode+ripgrep-${process.platform}-${arch}@`;
+    for (const entry of readdirSync(pnpmDir)) {
+      if (entry.startsWith(prefix)) {
+        const candidate = path.join(pnpmDir, entry, "node_modules", platformPkg, "bin", binName);
+        if (existsSync(candidate)) { rgSrc = candidate; break; }
+      }
+    }
+  }
+}
+
+if (rgSrc && existsSync(rgSrc)) {
+  mkdirSync(path.dirname(rgDst), { recursive: true });
+  // cpSync preserves file mode by default, including executable bit
+  cpSync(rgSrc, rgDst);
+  console.log(`postbuild: copied rg binary to ${path.relative(root, rgDst)}`);
+} else {
+  console.warn("WARNING: @vscode/ripgrep platform binary not found");
+  console.warn("  The published package will rely on the consumer's PATH for ripgrep.");
+  console.warn("  Install @vscode/ripgrep (optional dep) or ensure rg is on PATH.");
+}
 
 console.log("postbuild: done");

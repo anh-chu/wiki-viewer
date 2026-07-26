@@ -2,13 +2,8 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { resolveWorkspaceForUser } from "@/lib/workspace-context";
-import { ensureIndexer, resolveBacklinks } from "@/lib/search/indexer";
-
-/** Last path segment, sans .md, used as the wiki-link slug. */
-function slugFromPath(filePath: string): string {
-	const base = filePath.split("/").pop() ?? filePath;
-	return base.replace(/\.md$/i, "");
-}
+import { ensureIndexer, resolveBacklinks, indexedFileCount } from "@/lib/search/indexer";
+import { slugFromPath } from "@/lib/markdown/wikilink";
 
 export async function GET(request: Request) {
 	const ctx = await resolveWorkspaceForUser(request);
@@ -25,5 +20,13 @@ export async function GET(request: Request) {
 	);
 
 	const backlinks = resolveBacklinks(ctx.ws.id, slug, path, 50);
-	return NextResponse.json({ backlinks });
+
+	const response: Record<string, unknown> = { backlinks };
+
+	// Distinguish "no backlinks" from "not indexed yet".
+	if (indexedFileCount(ctx.ws.id) === 0) {
+		response.degraded = "indexing";
+	}
+
+	return NextResponse.json(response);
 }

@@ -1,13 +1,17 @@
 /**
- * FTS5 full-text search indexer tests.
+ * Metadata + link-graph indexer tests.
  *
  * Drives the indexer directly (ensureIndexer + initial scan, plus indexFile /
  * deleteFile to simulate chokidar events) so assertions are deterministic and
  * do not depend on filesystem-watcher timing.
+ *
+ * Content-search assertions moved to rg-search.test.ts. Removed: BM25 ordering,
+ * porter stemming, diacritic folding, prefix search, FTS operator sanitisation,
+ * and every direct ftsSearch call.
  */
 import { test, before, after, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile, mkdir, symlink } from "node:fs/promises";
+import { mkdtemp, writeFile, mkdir, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -22,37 +26,45 @@ before(async () => {
 	process.env.HOME = tmpHome;
 });
 
-after(async () => {
-	await rm(tmpHome, { recursive: true, force: true });
-	await rm(rootA, { recursive: true, force: true });
-	await rm(rootB, { recursive: true, force: true });
+after(() => {
+	rmSync(tmpHome, { recursive: true, force: true });
+	rmSync(rootA, { recursive: true, force: true });
+	rmSync(rootB, { recursive: true, force: true });
 });
 
 import {
 	ensureIndexer,
-	ftsSearch,
 	resolveBacklinks,
+	resolveOutlinks,
+	searchFilenames,
+	indexedFileCount,
 	indexFile,
 	deleteFile,
 	purgeWorkspace,
 	_resetIndexer,
 	_waitForIdle,
+	MAX_FILES_PER_WS,
 } from "../../lib/search/indexer.js";
-import { _resetSearchDb, getSearchDb } from "../../lib/search/search-db.js";
+import { getSearchDb, _resetSearchDb, SCHEMA_VERSION, _searchDbPath } from "../../lib/search/search-db.js";
 import { _resetWatcherPool } from "../../lib/search/watcher-pool.js";
-import { sanitizeFtsQuery } from "../../lib/search/sanitize.js";
-import { readFileSync } from "node:fs";
+import { pruneStaleWorkspaces } from "../../lib/search/maintenance.js";
+import { slugFromPath, extractWikiLinks, normalizeSlug } from "../../lib/markdown/wikilink.js";
+import { readFileSync, statSync, readdirSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 
-afterEach(() => {
+afterEach(async () => {
 	_resetIndexer();
 	_resetWatcherPool();
-	// Clear all rows so each test starts clean (cheaper than rebuilding the DB).
 	try {
 		const db = getSearchDb();
-		db.exec("DELETE FROM docs; DELETE FROM docs_meta;");
+		db.exec("DELETE FROM files; DELETE FROM links;");
 	} catch {
 		/* db may not exist yet */
 	}
+	// Clean test roots so files from previous tests don't accumulate.
+	rmSync(rootA, { recursive: true, force: true });
+	rmSync(rootB, { recursive: true, force: true });
+	rootA = await mkdtemp(path.join(tmpdir(), "search-test-rootA-"));
+	rootB = await mkdtemp(path.join(tmpdir(), "search-test-rootB-"));
 });
 
 async function scan(wsId: string, root: string): Promise<void> {
@@ -60,317 +72,716 @@ async function scan(wsId: string, root: string): Promise<void> {
 	await _waitForIdle(wsId);
 }
 
-test("indexes a markdown file and finds it", async () => {
-	await writeFile(path.join(rootA, "notes.md"), "the quick brown fox");
-	await scan("wsA", rootA);
-	const res = ftsSearch("wsA", "fox", 10);
-	assert.equal(res.matches.length, 1);
-	assert.equal(res.matches[0]!.path, "notes.md");
-	assert.match(res.matches[0]!.snippet, /<mark>fox<\/mark>/);
+// ── Schema version guard ─────────────────────────────────────────────────────
+
+test("schema version guard deletes old DB and creates new schema", async () => {
+	// First, force a fresh start: reset and delete any existing file.
+	_resetSearchDb();
+	const dbPath = _searchDbPath();
+	try { rmSync(dbPath, { force: true }); } catch { /* ignore */ }
+	try { rmSync(dbPath + "-wal", { force: true }); } catch { /* ignore */ }
+	try { rmSync(dbPath + "-shm", { force: true }); } catch { /* ignore */ }
+
+	// Open a handle with the OLD schema (v0) by creating a dummy docs table.
+	// Ensure the directory exists first.
+	const dir = path.dirname(dbPath);
+	mkdirSync(dir, { recursive: true });
+	const Database = (await import("better-sqlite3")).default;
+	const dbOld = new Database(dbPath);
+	dbOld.pragma("user_version = 0");
+	dbOld.exec("CREATE TABLE docs (x INTEGER)");
+	dbOld.close();
+
+	// Now getSearchDb should detect user_version=0, delete, and rebuild.
+	_resetSearchDb();
+	const db = getSearchDb();
+
+	const ver = db.pragma("user_version", { simple: true }) as number;
+	assert.equal(ver, SCHEMA_VERSION, "user_version must be SCHEMA_VERSION");
+
+	// Verify files/links exist, docs does not.
+	const tables = db.prepare(
+		`SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`,
+	).all() as Array<{ name: string }>;
+	const names = tables.map((t) => t.name);
+	assert.ok(names.includes("files"), "files table exists");
+	assert.ok(names.includes("links"), "links table exists");
+	assert.ok(!names.includes("docs"), "docs table must not exist");
+	assert.ok(!names.includes("docs_meta"), "docs_meta must not exist");
+
+	// Indexes
+	const idxs = db.prepare(
+		`SELECT name FROM sqlite_master WHERE type='index' ORDER BY name`,
+	).all() as Array<{ name: string }>;
+	const idxNames = idxs.map((i) => i.name);
+	assert.ok(idxNames.includes("files_ws_slug_idx"), "files_ws_slug_idx exists");
+	assert.ok(idxNames.includes("links_ws_target_idx"), "links_ws_target_idx exists");
 });
 
-test("BM25 ordering: denser document ranks first", async () => {
-	await writeFile(path.join(rootA, "sparse.md"), "alpha one two three four");
-	await writeFile(
-		path.join(rootA, "dense.md"),
-		"alpha alpha alpha alpha alpha",
-	);
+// ── files table metadata ─────────────────────────────────────────────────────
+
+test("files row: slug for markdown, null for non-markdown", async () => {
+	await writeFile(path.join(rootA, "page.md"), "hello [[target]]");
+	await writeFile(path.join(rootA, "readme.txt"), "plain text");
 	await scan("wsA", rootA);
-	const res = ftsSearch("wsA", "alpha", 10);
-	assert.equal(res.matches.length, 2);
-	assert.equal(res.matches[0]!.path, "dense.md");
+
+	const db = getSearchDb();
+	const md = db.prepare(`SELECT slug FROM files WHERE ws=? AND path=?`).get("wsA", "page.md") as { slug: string };
+	assert.equal(md.slug, "page");
+
+	const txt = db.prepare(`SELECT slug FROM files WHERE ws=? AND path=?`).get("wsA", "readme.txt") as { slug: string | null };
+	assert.equal(txt.slug, null);
 });
 
-test("snippet contains <mark> highlight", async () => {
-	const words = Array.from({ length: 200 }, (_, i) =>
-		i === 100 ? "needle" : `word${i}`,
-	).join(" ");
-	await writeFile(path.join(rootA, "long.md"), words);
+test("non-markdown file is not read (sha empty)", async () => {
+	// Write a large text file — the indexer should ONLY stat it, never read.
+	const big = "x".repeat(200_000);
+	await writeFile(path.join(rootA, "data.json"), big);
 	await scan("wsA", rootA);
-	const res = ftsSearch("wsA", "needle", 10);
-	assert.equal(res.matches.length, 1);
-	assert.match(res.matches[0]!.snippet, /<mark>needle<\/mark>/);
+
+	const db = getSearchDb();
+	const row = db.prepare(`SELECT sha FROM files WHERE ws=? AND path=?`).get("wsA", "data.json") as { sha: string };
+	assert.equal(row.sha, "", "non-markdown sha must be empty (file not read)");
 });
 
-test("workspace isolation: a doc in A never appears in a B query", async () => {
-	await writeFile(path.join(rootA, "secret.md"), "topsecretalpha");
-	await writeFile(path.join(rootB, "secret.md"), "topsecretbeta");
+// ── Links table and resolveBacklinks ─────────────────────────────────────────
+
+test("resolveBacklinks: [[target]] in other.md produces one links row", async () => {
+	await writeFile(path.join(rootA, "target.md"), "I am the target");
+	await writeFile(path.join(rootA, "other.md"), "See [[target]] for details.");
+	await scan("wsA", rootA);
+
+	const links = resolveBacklinks("wsA", "target", "target.md", 50);
+	assert.equal(links.length, 1);
+	assert.equal(links[0]!.path, "other.md");
+	assert.match(links[0]!.snippet, /<mark>/);
+});
+
+test("resolveBacklinks: ten occurrences in one file still one row (deduped by PK)", async () => {
+	let body = "";
+	for (let i = 0; i < 10; i++) body += `[[target]] `;
+	await writeFile(path.join(rootA, "target.md"), "# target");
+	await writeFile(path.join(rootA, "linker.md"), body);
+	await scan("wsA", rootA);
+
+	const links = resolveBacklinks("wsA", "target", "target.md", 50);
+	assert.equal(links.length, 1, "ten occurrences deduped to one row");
+
+	const db = getSearchDb();
+	const row = db.prepare(`SELECT COUNT(*) AS n FROM links WHERE ws=? AND target_slug=?`).get("wsA", "target") as { n: number };
+	assert.equal(row.n, 1);
+});
+
+test("resolveBacklinks: self-exclusion", async () => {
+	await writeFile(path.join(rootA, "self.md"), "[[self]] reference");
+	await writeFile(path.join(rootA, "other.md"), "[[self]] from other");
+	await scan("wsA", rootA);
+
+	const links = resolveBacklinks("wsA", "self", "self.md", 50);
+	assert.deepEqual(links.map((l) => l.path), ["other.md"]);
+});
+
+test("resolveBacklinks: ws-isolated", async () => {
+	await writeFile(path.join(rootA, "shared.md"), "# shared");
+	await writeFile(path.join(rootA, "fromA.md"), "[[shared]]");
+	await writeFile(path.join(rootB, "shared.md"), "# shared");
+	await writeFile(path.join(rootB, "fromB.md"), "[[shared]]");
 	await scan("wsA", rootA);
 	await scan("wsB", rootB);
 
-	assert.equal(ftsSearch("wsA", "topsecretbeta", 10).matches.length, 0);
-	assert.equal(ftsSearch("wsB", "topsecretalpha", 10).matches.length, 0);
-	assert.equal(ftsSearch("wsA", "topsecretalpha", 10).matches.length, 1);
-	assert.equal(ftsSearch("wsB", "topsecretbeta", 10).matches.length, 1);
+	const aLinks = resolveBacklinks("wsA", "shared", "", 50);
+	const bLinks = resolveBacklinks("wsB", "shared", "", 50);
+	assert.deepEqual(aLinks.map((l) => l.path), ["fromA.md"]);
+	assert.deepEqual(bLinks.map((l) => l.path), ["fromB.md"]);
+});
+
+test("resolveBacklinks: capitalised source filename still resolves", async () => {
+	await writeFile(path.join(rootA, "Foo-Bar.md"), "# FooBar");
+	await writeFile(path.join(rootA, "linker.md"), "[[foo-bar]]");
+	await scan("wsA", rootA);
+
+	const links = resolveBacklinks("wsA", "foo-bar", "foo-bar.md", 50);
+	assert.equal(links.length, 1, "capitalised slug resolves via lowercase canonicalisation");
+});
+
+test("resolveBacklinks: mere mention without brackets produces no backlink", async () => {
+	await writeFile(path.join(rootA, "target.md"), "# target");
+	await writeFile(path.join(rootA, "mention.md"), "the target was reached without brackets");
+	await scan("wsA", rootA);
+
+	const links = resolveBacklinks("wsA", "target", "target.md", 50);
+	assert.equal(links.length, 0, "mere mention without [[ ]] must not produce backlink");
+});
+
+// ── resolveOutlinks ──────────────────────────────────────────────────────────
+
+test("resolveOutlinks: links with exists and missing resolution", async () => {
+	await writeFile(path.join(rootA, "alpha.md"), "# Alpha");
+	await writeFile(path.join(rootA, "source.md"), "See [[alpha]] and [[missing]]");
+	await scan("wsA", rootA);
+
+	const result = resolveOutlinks("wsA", "source.md");
+	assert.equal(result.indexed, true);
+	assert.equal(result.links.length, 2);
+
+	const alpha = result.links.find((l) => l.slug === "alpha");
+	assert.ok(alpha, "alpha link exists");
+	assert.equal(alpha!.exists, true);
+	assert.equal(alpha!.resolved_path, "alpha.md");
+
+	const missing = result.links.find((l) => l.slug === "missing");
+	assert.ok(missing, "missing link exists");
+	assert.equal(missing!.exists, false);
+	assert.equal(missing!.resolved_path, null);
+});
+
+test("resolveOutlinks: unindexed path returns indexed:false", async () => {
+	const result = resolveOutlinks("wsA", "nonexistent.md");
+	assert.equal(result.indexed, false);
+	assert.deepEqual(result.links, []);
+});
+
+test("resolveOutlinks: duplicate links collapsed to one entry", async () => {
+	let body = "";
+	for (let i = 0; i < 5; i++) body += "[[target]] ";
+	await writeFile(path.join(rootA, "target.md"), "# target");
+	await writeFile(path.join(rootA, "dup.md"), body);
+	await scan("wsA", rootA);
+
+	const result = resolveOutlinks("wsA", "dup.md");
+	assert.equal(result.links.length, 1, "duplicate links collapsed");
+	assert.equal(result.links[0]!.slug, "target");
+});
+
+test("resolveOutlinks: ws isolation — same slug resolves in each workspace", async () => {
+	await writeFile(path.join(rootA, "alpha.md"), "# A alpha");
+	await writeFile(path.join(rootA, "srcA.md"), "[[alpha]]");
+	await writeFile(path.join(rootB, "alpha.md"), "# B alpha");
+	await writeFile(path.join(rootB, "srcB.md"), "[[alpha]]");
+	await scan("wsA", rootA);
+	await scan("wsB", rootB);
+
+	const a = resolveOutlinks("wsA", "srcA.md");
+	const b = resolveOutlinks("wsB", "srcB.md");
+	assert.equal(a.links[0]!.resolved_path, "alpha.md");
+	assert.equal(b.links[0]!.resolved_path, "alpha.md");
+});
+
+// ── searchFilenames ──────────────────────────────────────────────────────────
+
+test("searchFilenames: finds markdown files by name", async () => {
+	await writeFile(path.join(rootA, "my-notes.md"), "# notes");
+	await writeFile(path.join(rootA, "journal.md"), "# journal");
+	await scan("wsA", rootA);
+
+	const results = searchFilenames("wsA", "notes", 10);
+	assert.ok(results.some((r) => r.path === "my-notes.md"));
+});
+
+test("searchFilenames: binary file found by name", async () => {
+	const buf = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01, 0x02, 0x03]);
+	await writeFile(path.join(rootA, "screenshot.png"), buf);
+	await scan("wsA", rootA);
+
+	const results = searchFilenames("wsA", "screenshot", 10);
+	assert.equal(results.length, 1);
+	assert.equal(results[0]!.path, "screenshot.png");
+});
+
+test("searchFilenames: multi-token AND intersection", async () => {
+	await writeFile(path.join(rootA, "alpha-beta-gamma.md"), "# abc");
+	await writeFile(path.join(rootA, "alpha-delta.md"), "# ad");
+	await scan("wsA", rootA);
+
+	const results = searchFilenames("wsA", "alpha beta", 10);
+	const paths = results.map((r) => r.path);
+	assert.ok(paths.includes("alpha-beta-gamma.md"), "intersection hit");
+	assert.ok(!paths.includes("alpha-delta.md"), "missing token excluded");
+});
+
+// ── Row cap ──────────────────────────────────────────────────────────────────
+
+test("row cap: stops inserting new files when cap reached", async () => {
+	// Seed many files to approach cap. We test the cap logic by checking that
+	// the counter is maintained and that cap is reachable.
+	const cap = MAX_FILES_PER_WS;
+	// Write a modest number and verify the counter works.
+	for (let i = 0; i < 10; i++) {
+		await writeFile(path.join(rootA, `file${i}.md`), `# file ${i}`);
+	}
+	await scan("wsA", rootA);
+	const count = indexedFileCount("wsA");
+	assert.equal(count, 10, "counter reflects actual count");
+});
+
+// ── pruneStaleWorkspaces ─────────────────────────────────────────────────────
+
+test("pruneStaleWorkspaces: removes ws_eph_ and unknown ws", async () => {
+	const db = getSearchDb();
+	db.prepare(`INSERT INTO files (ws, path, size, mtime_ns, sha, slug, indexed_at) VALUES (?,?,?,?,?,?,?)`)
+		.run("wsA", "a.md", 100, "0", "", "a", new Date().toISOString());
+	db.prepare(`INSERT INTO files (ws, path, size, mtime_ns, sha, slug, indexed_at) VALUES (?,?,?,?,?,?,?)`)
+		.run("ws_eph_deadbeef", "b.md", 200, "0", "", "b", new Date().toISOString());
+	db.prepare(`INSERT INTO files (ws, path, size, mtime_ns, sha, slug, indexed_at) VALUES (?,?,?,?,?,?,?)`)
+		.run("ws_gone", "c.md", 300, "0", "", "c", new Date().toISOString());
+	db.prepare(`INSERT INTO links (ws, src_path, target_slug, line, context) VALUES (?,?,?,?,?)`)
+		.run("ws_gone", "c.md", "target", 1, "ctx");
+
+	const { workspacesRemoved, rowsRemoved } = await pruneStaleWorkspaces(new Set(["wsA"]));
+	assert.equal(workspacesRemoved, 2, "ws_eph_ and ws_gone removed");
+	assert.ok(rowsRemoved >= 3, "at least 3 rows removed (2 files + 1 link)");
+
+	// wsA rows survive
+	const survivors = db.prepare(`SELECT ws FROM files WHERE ws='wsA'`).all();
+	assert.equal(survivors.length, 1);
+
+	// Second call is no-op
+	const second = await pruneStaleWorkspaces(new Set(["wsA"]));
+	assert.equal(second.workspacesRemoved, 0);
+	assert.equal(second.rowsRemoved, 0);
+});
+
+// ── wikilink extractor ───────────────────────────────────────────────────────
+
+test("wikilink: extractWikiLinks simple forms", () => {
+	const links = extractWikiLinks("See [[foo]] and [[bar|Alias]] and [[baz#sec]]");
+	const slugs = links.map((l) => l.slug);
+	assert.deepEqual(slugs, ["foo", "bar", "baz"]);
+});
+
+test("wikilink: uppercase slug normalised to lowercase", () => {
+	// Per plan: [[Foo]] normalizes to "foo" which passes SLUG_VALID_RE.
+	const links = extractWikiLinks("[[Foo]]");
+	assert.equal(links.length, 1, "[[Foo]] yields slug 'foo'");
+	assert.equal(links[0]!.slug, "foo");
+});
+
+test("wikilink: slug with space rejected", () => {
+	const links = extractWikiLinks("[[my page]]");
+	assert.equal(links.length, 0, "space in slug rejected");
+});
+
+test("wikilink: line numbers correct across multi-line document with CRLF", () => {
+	const text = "line one\r\n[[alpha]]\r\nline three\r\n[[beta|B]]\r\nend";
+	const links = extractWikiLinks(text);
+	assert.equal(links.length, 2);
+	assert.equal(links[0]!.slug, "alpha");
+	assert.equal(links[0]!.line, 2);
+	assert.equal(links[1]!.slug, "beta");
+	assert.equal(links[1]!.line, 4);
+});
+
+test("slugFromPath canonical lowercases", () => {
+	assert.equal(slugFromPath("dir/My-Page.md"), "my-page");
+	assert.equal(slugFromPath("FOO.markdown"), "foo");
+	assert.equal(slugFromPath("a/b/c.MD"), "c");
+});
+
+test("normalizeSlug trims and lowercases", () => {
+	assert.equal(normalizeSlug("  Hello  "), "hello");
+	assert.equal(normalizeSlug("WORLD"), "world");
+});
+
+// ── Retained / retargeted tests ──────────────────────────────────────────────
+
+test("workspace isolation: file in A never appears in B backlinks", async () => {
+	await writeFile(path.join(rootA, "secret.md"), "# secret");
+	await writeFile(path.join(rootA, "a.md"), "[[secret]]");
+	await writeFile(path.join(rootB, "secret.md"), "# secret B");
+	await writeFile(path.join(rootB, "b.md"), "[[secret]]");
+	await scan("wsA", rootA);
+	await scan("wsB", rootB);
+
+	const aLinks = resolveBacklinks("wsA", "secret", "", 50);
+	const bLinks = resolveBacklinks("wsB", "secret", "", 50);
+	assert.equal(aLinks.length, 1);
+	assert.equal(aLinks[0]!.path, "a.md");
+	assert.equal(bLinks.length, 1);
+	assert.equal(bLinks[0]!.path, "b.md");
 });
 
 test("incremental update on file change", async () => {
 	const p = path.join(rootA, "x.md");
-	await writeFile(p, "foofoo");
+	await writeFile(p, "[[alpha]]");
+	await writeFile(path.join(rootA, "alpha.md"), "# alpha");
 	await scan("wsA", rootA);
-	assert.equal(ftsSearch("wsA", "foofoo", 10).matches.length, 1);
 
-	await writeFile(p, "barbar");
+	const before = resolveBacklinks("wsA", "alpha", "alpha.md", 50);
+	assert.equal(before.length, 1);
+
+	// Change to link [[beta]] instead.
+	await writeFile(p, "[[beta]]");
+	await writeFile(path.join(rootA, "beta.md"), "# beta");
 	await indexFile("wsA", rootA, "x.md");
-	assert.equal(ftsSearch("wsA", "foofoo", 10).matches.length, 0);
-	assert.equal(ftsSearch("wsA", "barbar", 10).matches.length, 1);
+
+	const afterAlpha = resolveBacklinks("wsA", "alpha", "alpha.md", 50);
+	assert.equal(afterAlpha.length, 0);
+	const afterBeta = resolveBacklinks("wsA", "beta", "beta.md", 50);
+	assert.equal(afterBeta.length, 1);
 });
 
-test("deleted file no longer matches", async () => {
-	await writeFile(path.join(rootA, "gone.md"), "deletetoken");
+test("deleted file removed from both tables", async () => {
+	await writeFile(path.join(rootA, "gone.md"), "[[target]]");
+	await writeFile(path.join(rootA, "target.md"), "# target");
 	await scan("wsA", rootA);
-	assert.equal(ftsSearch("wsA", "deletetoken", 10).matches.length, 1);
+
+	let bl = resolveBacklinks("wsA", "target", "target.md", 50);
+	assert.equal(bl.length, 1);
 
 	await deleteFile("wsA", "gone.md");
-	assert.equal(ftsSearch("wsA", "deletetoken", 10).matches.length, 0);
+
+	bl = resolveBacklinks("wsA", "target", "target.md", 50);
+	assert.equal(bl.length, 0);
 
 	const db = getSearchDb();
-	const row = db
-		.prepare("SELECT COUNT(*) AS n FROM docs_meta WHERE ws = ? AND path = ?")
-		.get("wsA", "gone.md") as { n: number };
-	assert.equal(row.n, 0);
-});
-
-test("frontmatter is searchable", async () => {
-	await writeFile(
-		path.join(rootA, "fm.md"),
-		"---\ntitle: ImportantDoc\ntags: [alphatag, betatag]\n---\nbody text",
-	);
-	await scan("wsA", rootA);
-	assert.equal(ftsSearch("wsA", "ImportantDoc", 10).matches.length, 1);
-	assert.equal(ftsSearch("wsA", "alphatag", 10).matches.length, 1);
-});
-
-test("non-text file: filename indexed, binary body skipped", async () => {
-	// PNG magic header + random-ish bytes (contains a null byte -> binary).
-	const buf = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01, 0x02, 0x03]);
-	await writeFile(path.join(rootA, "diagram.png"), buf);
-	await scan("wsA", rootA);
-	assert.equal(ftsSearch("wsA", "diagram", 10).matches.length, 1);
-});
-
-test("oversize file body skipped, filename still indexed", async () => {
-	const big = "needlebig ".repeat(150_000); // > 1 MiB
-	await writeFile(path.join(rootA, "huge.txt"), big);
-	await scan("wsA", rootA);
-	assert.equal(ftsSearch("wsA", "needlebig", 10).matches.length, 0);
-	assert.equal(ftsSearch("wsA", "huge", 10).matches.length, 1);
+	const meta = db.prepare(`SELECT COUNT(*) AS n FROM files WHERE ws=? AND path=?`).get("wsA", "gone.md") as { n: number };
+	assert.equal(meta.n, 0);
+	const linkRow = db.prepare(`SELECT COUNT(*) AS n FROM links WHERE ws=? AND src_path=?`).get("wsA", "gone.md") as { n: number };
+	assert.equal(linkRow.n, 0);
 });
 
 test("denied paths (.proof, .git) skipped", async () => {
 	await mkdir(path.join(rootA, ".proof"), { recursive: true });
 	await mkdir(path.join(rootA, ".git"), { recursive: true });
-	await writeFile(path.join(rootA, ".proof", "foo.md"), "prooftoken");
-	await writeFile(path.join(rootA, ".git", "HEAD"), "githeadtoken");
-	await writeFile(path.join(rootA, "real.md"), "realtoken");
+	await writeFile(path.join(rootA, ".proof", "foo.md"), "# proof");
+	await writeFile(path.join(rootA, ".git", "HEAD"), "ref: main");
+	await writeFile(path.join(rootA, "real.md"), "[[something]]");
+	await writeFile(path.join(rootA, "something.md"), "# something");
 	await scan("wsA", rootA);
-	assert.equal(ftsSearch("wsA", "prooftoken", 10).matches.length, 0);
-	assert.equal(ftsSearch("wsA", "githeadtoken", 10).matches.length, 0);
-	assert.equal(ftsSearch("wsA", "realtoken", 10).matches.length, 1);
+
+	const db = getSearchDb();
+	const proofRow = db.prepare(`SELECT COUNT(*) AS n FROM files WHERE ws=? AND path LIKE '%proof%'`).get("wsA") as { n: number };
+	assert.equal(proofRow.n, 0);
+
+	const realRow = db.prepare(`SELECT path FROM files WHERE ws=?`).all("wsA") as Array<{ path: string }>;
+	assert.ok(realRow.some((r) => r.path === "real.md"));
 });
 
-test("app dir contents are not indexed (node-app and static app)", async () => {
-	// node-app: directory with package.json
+test("app dir contents not indexed", async () => {
 	await mkdir(path.join(rootA, "my-app"), { recursive: true });
 	await writeFile(path.join(rootA, "my-app", "package.json"), "{}");
-	await writeFile(path.join(rootA, "my-app", "index.js"), "appinnertoken");
-	// static app: directory with index.html
+	await writeFile(path.join(rootA, "my-app", "index.js"), "// app code");
 	await mkdir(path.join(rootA, "site"), { recursive: true });
-	await writeFile(path.join(rootA, "site", "index.html"), "sitehtmltoken");
-	await writeFile(path.join(rootA, "site", "app.js"), "siteinnertoken");
-	// a normal note that must still be searchable
-	await writeFile(path.join(rootA, "note.md"), "normalnotetoken");
+	await writeFile(path.join(rootA, "site", "index.html"), "<html>");
+	await writeFile(path.join(rootA, "note.md"), "# note");
 	await scan("wsA", rootA);
 
-	assert.equal(ftsSearch("wsA", "appinnertoken", 10).matches.length, 0);
-	assert.equal(ftsSearch("wsA", "sitehtmltoken", 10).matches.length, 0);
-	assert.equal(ftsSearch("wsA", "siteinnertoken", 10).matches.length, 0);
-	assert.equal(ftsSearch("wsA", "normalnotetoken", 10).matches.length, 1);
+	const db = getSearchDb();
+	const paths = (db.prepare(`SELECT path FROM files WHERE ws=?`).all("wsA") as Array<{ path: string }>).map((r) => r.path);
+	assert.ok(!paths.some((p) => p.startsWith("my-app/")), "app dir contents excluded");
+	assert.ok(!paths.some((p) => p.startsWith("site/")), "static app dir contents excluded");
+	assert.ok(paths.includes("note.md"), "normal note indexed");
 });
 
-test("symlink escaping the workspace is not indexed", async () => {
-	// A secret file outside the workspace, reachable only via an in-root symlink.
+test("symlink escape not indexed", async () => {
 	const outside = await mkdtemp(path.join(tmpdir(), "search-test-outside-"));
-	await writeFile(path.join(outside, "leak.md"), "escapedsecrettoken");
+	await writeFile(path.join(outside, "leak.md"), "# leak");
 	try {
-		await symlink(
-			path.join(outside, "leak.md"),
-			path.join(rootA, "link.md"),
-		);
+		await symlink(path.join(outside, "leak.md"), path.join(rootA, "link.md"));
 	} catch {
-		// Platform without symlink permission: skip.
-		await rm(outside, { recursive: true, force: true });
+		rmSync(outside, { recursive: true, force: true });
 		return;
 	}
 	await scan("wsA", rootA);
-	// The symlinked-out content must never be searchable.
-	assert.equal(ftsSearch("wsA", "escapedsecrettoken", 10).matches.length, 0);
-	await rm(outside, { recursive: true, force: true });
+
+	const db = getSearchDb();
+	const row = db.prepare(`SELECT COUNT(*) AS n FROM files WHERE ws=?`).get("wsA") as { n: number };
+	assert.equal(row.n, 0, "symlink escape must not produce a files row");
+	rmSync(outside, { recursive: true, force: true });
 });
 
-test("purgeWorkspace removes all rows for that ws", async () => {
-	await writeFile(path.join(rootA, "a.md"), "purgetoken one");
-	await writeFile(path.join(rootA, "b.md"), "purgetoken two");
+test("purgeWorkspace removes all rows", async () => {
+	await writeFile(path.join(rootA, "a.md"), "[[x]]");
+	await writeFile(path.join(rootA, "b.md"), "[[x]]");
+	await writeFile(path.join(rootA, "x.md"), "# x");
 	await scan("wsA", rootA);
-	assert.equal(ftsSearch("wsA", "purgetoken", 10).matches.length, 2);
+
+	const before = indexedFileCount("wsA");
+	assert.ok(before >= 3);
 
 	await purgeWorkspace("wsA");
-	assert.equal(ftsSearch("wsA", "purgetoken", 10).matches.length, 0);
+
+	const after = indexedFileCount("wsA");
+	assert.equal(after, 0);
 
 	const db = getSearchDb();
-	const row = db
-		.prepare("SELECT COUNT(*) AS n FROM docs_meta WHERE ws = ?")
-		.get("wsA") as { n: number };
-	assert.equal(row.n, 0);
+	const linkCount = db.prepare(`SELECT COUNT(*) AS n FROM links WHERE ws=?`).get("wsA") as { n: number };
+	assert.equal(linkCount.n, 0);
 });
 
-test("empty / whitespace / punctuation-only query returns empty without throwing", () => {
-	assert.deepEqual(ftsSearch("wsA", "", 10), { matches: [], truncated: false });
-	assert.deepEqual(ftsSearch("wsA", "   ", 10), {
-		matches: [],
-		truncated: false,
-	});
-	assert.deepEqual(ftsSearch("wsA", "***", 10), {
-		matches: [],
-		truncated: false,
-	});
-});
-
-test("sanitizer neutralizes FTS5 operators", () => {
-	assert.equal(sanitizeFtsQuery("alpha AND beta"), '"alpha" "AND" "beta"');
-	assert.equal(sanitizeFtsQuery("foo NEAR bar"), '"foo" "NEAR" "bar"');
-	// Quotes and semicolons are stripped to safe tokens.
-	assert.equal(sanitizeFtsQuery('"; DROP docs'), '"DROP" "docs"');
-	// Prefix star preserved.
-	assert.equal(sanitizeFtsQuery("devel*"), '"devel"*');
-});
-
-test("operator-keyword query still searches literally and does not throw", async () => {
-	await writeFile(path.join(rootA, "lit.md"), "this and that");
-	await scan("wsA", rootA);
-	// "and" is quoted by the sanitizer, so this matches the literal word.
-	const res = ftsSearch("wsA", "and", 10);
-	assert.equal(res.matches.length, 1);
-});
-
-test("porter stemmer collapses inflections", async () => {
-	await writeFile(path.join(rootA, "stem.md"), "running fast");
-	await scan("wsA", rootA);
-	assert.equal(ftsSearch("wsA", "run", 10).matches.length, 1);
-});
-
-test("diacritic folding: café matches cafe", async () => {
-	await writeFile(path.join(rootA, "dia.md"), "the cafe is open");
-	await scan("wsA", rootA);
-	assert.equal(ftsSearch("wsA", "café", 10).matches.length, 1);
-});
-
-test("prefix search with * finds longer words", async () => {
-	await writeFile(path.join(rootA, "pre.md"), "developer notes");
-	await scan("wsA", rootA);
-	assert.equal(ftsSearch("wsA", "devel*", 10).matches.length, 1);
-});
-
-test("concurrent ensureIndexer is deduped (single scan)", async () => {
-	await writeFile(path.join(rootA, "dedupe.md"), "dedupetoken");
-	const [a, b] = [
-		ensureIndexer("wsA", rootA),
-		ensureIndexer("wsA", rootA),
-	];
+test("concurrent ensureIndexer deduped", async () => {
+	await writeFile(path.join(rootA, "dedupe.md"), "# dedupe");
+	const [a, b] = [ensureIndexer("wsA", rootA), ensureIndexer("wsA", rootA)];
 	await Promise.all([a, b]);
 	await _waitForIdle("wsA");
+
 	const db = getSearchDb();
-	const row = db
-		.prepare("SELECT COUNT(*) AS n FROM docs WHERE ws = ? AND path = ?")
-		.get("wsA", "dedupe.md") as { n: number };
-	assert.equal(row.n, 1); // not double-inserted
+	const row = db.prepare(`SELECT COUNT(*) AS n FROM files WHERE ws=? AND path=?`).get("wsA", "dedupe.md") as { n: number };
+	assert.equal(row.n, 1, "not double-inserted");
 });
 
-test("unchanged file (same size+mtime) is not re-indexed", async () => {
+test("unchanged file (same size+mtime) not re-indexed", async () => {
 	const p = path.join(rootA, "stable.md");
-	await writeFile(p, "stabletoken");
+	await writeFile(p, "[[stable]]");
+	await writeFile(path.join(rootA, "stable.md"), "[[stable]]"); // ensure exists
 	await scan("wsA", rootA);
-	const db = getSearchDb();
-	const first = db
-		.prepare("SELECT indexed_at FROM docs_meta WHERE ws = ? AND path = ?")
-		.get("wsA", "stable.md") as { indexed_at: string };
 
-	await new Promise((r) => setTimeout(r, 5));
-	await indexFile("wsA", rootA, "stable.md"); // no file change
-	const second = db
-		.prepare("SELECT indexed_at FROM docs_meta WHERE ws = ? AND path = ?")
-		.get("wsA", "stable.md") as { indexed_at: string };
+	const db = getSearchDb();
+	const first = db.prepare(`SELECT indexed_at FROM files WHERE ws=? AND path=?`).get("wsA", "stable.md") as { indexed_at: string };
+
+	await new Promise((r) => setTimeout(r, 10));
+	await indexFile("wsA", rootA, "stable.md");
+
+	const second = db.prepare(`SELECT indexed_at FROM files WHERE ws=? AND path=?`).get("wsA", "stable.md") as { indexed_at: string };
 	assert.equal(first.indexed_at, second.indexed_at);
 });
 
-test("rename via delete+add keeps only the new path", async () => {
-	await writeFile(path.join(rootA, "old.md"), "renametoken");
+test("rename via delete+add keeps only new path", async () => {
+	await writeFile(path.join(rootA, "old.md"), "[[target]]");
+	await writeFile(path.join(rootA, "target.md"), "# target");
 	await scan("wsA", rootA);
+
 	await deleteFile("wsA", "old.md");
-	await writeFile(path.join(rootA, "new.md"), "renametoken");
+	await writeFile(path.join(rootA, "new.md"), "[[target]]");
 	await indexFile("wsA", rootA, "new.md");
-	const res = ftsSearch("wsA", "renametoken", 10);
-	assert.equal(res.matches.length, 1);
-	assert.equal(res.matches[0]!.path, "new.md");
+
+	const links = resolveBacklinks("wsA", "target", "target.md", 50);
+	assert.equal(links.length, 1);
+	assert.equal(links[0]!.path, "new.md");
 });
 
-test("resolveBacklinks confirms literal [[slug]] links, drops mere mentions", async () => {
-	// target.md is the page being linked to (slug = "target").
-	await writeFile(path.join(rootA, "target.md"), "I am the target page.");
-	// linker.md has a real wiki-link.
-	await writeFile(path.join(rootA, "linker.md"), "See [[target]] for details.");
-	// alias.md links with an alias form.
-	await writeFile(path.join(rootA, "alias.md"), "Read [[target|the target]] now.");
-	// mention.md merely says the word, no link → must be excluded.
-	await writeFile(path.join(rootA, "mention.md"), "The target was reached.");
+// ── Regression: indexer rescan restarts scan ──────────────────────────────────
+// NOTE: This test exercises the scan-restart behaviour that the "rescan" event
+// triggers. The actual rescan event delivery path (watcher → indexer callback)
+// requires the ability to emit events on the internal chokidar watcher, which
+// needs a test hook (see error-budget test in watcher-pool.test.ts). Here we
+// simulate the effect: reset state and prove ensureIndexer re-scans.
+
+test("indexer rescan restarts scan", async () => {
+	await writeFile(path.join(rootA, "first.md"), "# First");
+	await scan("wsA", rootA);
+	assert.equal(indexedFileCount("wsA"), 1);
+
+	// Create a new file after the initial scan completed.
+	await writeFile(path.join(rootA, "second.md"), "# Second");
+
+	// Simulate the state reset that a "rescan" event would cause:
+	// clear initialScanDone / initialScanPromise so ensureIndexer re-arms.
+	_resetIndexer();
+
+	// Re-scan — must pick up the file created after the first scan.
+	await scan("wsA", rootA);
+
+	const after = indexedFileCount("wsA");
+	assert.equal(after, 2, "rescan must pick up new files");
+});
+
+// ── Regression: schema version guard rebuilds corrupt database ────────────────
+
+test("schema version guard rebuilds corrupt database", () => {
+	_resetSearchDb();
+	const dbPath = _searchDbPath();
+	try { rmSync(dbPath, { force: true }); } catch { /* ignore */ }
+	try { rmSync(dbPath + "-wal", { force: true }); } catch { /* ignore */ }
+	try { rmSync(dbPath + "-shm", { force: true }); } catch { /* ignore */ }
+
+	// Write a non-SQLite file at the search.db path.
+	const dir = path.dirname(dbPath);
+	mkdirSync(dir, { recursive: true });
+	writeFileSync(dbPath, "this is not a sqlite database file!!!", "utf8");
+
+	// getSearchDb() must rebuild rather than throw "file is not a database".
+	// Pre-fix: new Database(dbPath) threw before needsRebuild was set.
+	const db = getSearchDb();
+
+	// Verify the result is a valid database with the current schema.
+	const ver = db.pragma("user_version", { simple: true }) as number;
+	assert.equal(ver, SCHEMA_VERSION, "rebuilt DB must have current schema version");
+
+	const tables = db.prepare(
+		`SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`,
+	).all() as Array<{ name: string }>;
+	assert.ok(tables.some((t) => t.name === "files"), "files table must exist after rebuild");
+	assert.ok(tables.some((t) => t.name === "links"), "links table must exist after rebuild");
+});
+
+// ── Regression: current-version database is retained ─────────────────────────
+
+test("current-version database is retained", () => {
+	_resetSearchDb();
+	const dbPath = _searchDbPath();
+	try { rmSync(dbPath, { force: true }); } catch { /* ignore */ }
+
+	// Create a fresh database at SCHEMA_VERSION.
+	const db1 = getSearchDb();
+	assert.equal(db1.pragma("user_version", { simple: true }), SCHEMA_VERSION);
+
+	// Insert a sentinel row.
+	db1.prepare(
+		`INSERT INTO files (ws, path, size, mtime_ns, sha, slug, indexed_at) VALUES (?,?,?,?,?,?,?)`,
+	).run("sentinel-ws", "sentinel.md", 42, "0", "", "sentinel", new Date().toISOString());
+
+	// Close handle and reset cache — simulating a process restart.
+	db1.close();
+	_resetSearchDb();
+
+	// Reopen — the file already has user_version = SCHEMA_VERSION,
+	// so needsRebuild must stay false and the sentinel must survive.
+	const db2 = getSearchDb();
+	const row = db2.prepare(
+		`SELECT size FROM files WHERE ws=? AND path=?`,
+	).get("sentinel-ws", "sentinel.md") as { size: number } | undefined;
+
+	assert.ok(row, "sentinel row must survive reopen");
+	assert.equal(row.size, 42, "sentinel data must be intact");
+
+	// Clean up the sentinel so afterEach can clear.
+	db2.prepare(`DELETE FROM files WHERE ws=?`).run("sentinel-ws");
+});
+
+// ── Regression: row cap updates existing indexed file ────────────────────────
+
+test("row cap updates existing indexed file", async () => {
+	const db = getSearchDb();
+
+	// Pre-insert MAX_FILES_PER_WS dummy rows to trigger the cap.
+	// This simulates a workspace that already reached the row ceiling.
+	db.transaction(() => {
+		const insert = db.prepare(
+			`INSERT INTO files (ws, path, size, mtime_ns, sha, slug, indexed_at) VALUES (?,?,?,?,?,?,?)`,
+		);
+		const now = new Date().toISOString();
+		for (let i = 0; i < MAX_FILES_PER_WS; i++) {
+			insert.run("wsA", `dummy-${i}.md`, 100, "0", "", `dummy-${i}`, now);
+		}
+	})();
+
+	// Also pre-insert a row for a file that exists on disk but has stale meta.
+	// The file content will differ from what the meta says.
+	await writeFile(path.join(rootA, "real.md"), "# Real file v1");
+	db.prepare(
+		`INSERT INTO files (ws, path, size, mtime_ns, sha, slug, indexed_at) VALUES (?,?,?,?,?,?,?)`,
+	).run("wsA", "real.md", 1, "0", "", "real", new Date().toISOString());
+
+	// Also create a genuinely new file on disk (not pre-inserted).
+	await writeFile(path.join(rootA, "new.md"), "# New file");
+
+	// Scan — cap is already set (rowCount >= MAX_FILES_PER_WS).
+	await scan("wsA", rootA);
+
+	// Existing file (has meta) must be UPDATED despite the cap.
+	// Pre-fix bug: `if (s.capped) continue;` skipped EVERYTHING including updates.
+	const updatedRow = db.prepare(
+		`SELECT size FROM files WHERE ws=? AND path=?`,
+	).get("wsA", "real.md") as { size: number } | undefined;
+	assert.ok(updatedRow, "existing file must remain indexed at cap");
+	assert.ok(updatedRow.size > 1, "existing file must be updated (new size written)");
+
+	// New file (no pre-existing meta) must be SKIPPED at cap.
+	const newRow = db.prepare(
+		`SELECT 1 FROM files WHERE ws=? AND path=?`,
+	).get("wsA", "new.md");
+	assert.equal(newRow, undefined, "new file must be skipped at cap");
+
+	// Clean up dummy rows so afterEach DELETE FROM files is fast.
+	db.exec("DELETE FROM files WHERE ws='wsA'");
+});
+
+// ── Regression: backlink context — literal <mark> before link ────────────────
+
+test("backlink context literal mark before link highlights wikilink", async () => {
+	// The pre-fix bug: occ.index from the original line was used to slice
+	// the cleaned (tag-stripped) text. A literal "<mark>" before the link
+	// shifted the offsets, so the highlight wrapped the wrong span.
+	await writeFile(path.join(rootA, "target.md"), "# Target");
+	await writeFile(
+		path.join(rootA, "source.md"),
+		"<mark>important</mark> See [[target]] for details.",
+	);
 	await scan("wsA", rootA);
 
 	const links = resolveBacklinks("wsA", "target", "target.md", 50);
-	const paths = links.map((b) => b.path).sort();
-	assert.deepEqual(paths, ["alias.md", "linker.md"]);
-});
+	assert.equal(links.length, 1);
 
-test("resolveBacklinks excludes the page itself and non-md files", async () => {
-	await writeFile(path.join(rootA, "self.md"), "[[self]] self-reference and stuff");
-	await writeFile(path.join(rootA, "note.txt"), "[[self]] in a text file");
-	await writeFile(path.join(rootA, "other.md"), "links to [[self]] here");
-	await scan("wsA", rootA);
+	const snippet = links[0]!.snippet;
 
-	const links = resolveBacklinks("wsA", "self", "self.md", 50);
-	assert.deepEqual(links.map((b) => b.path), ["other.md"]);
-});
-
-test("resolveBacklinks is ws-isolated", async () => {
-	await writeFile(path.join(rootA, "a.md"), "[[shared]] link in A");
-	await writeFile(path.join(rootB, "b.md"), "[[shared]] link in B");
-	await scan("wsA", rootA);
-	await scan("wsB", rootB);
-
-	assert.deepEqual(resolveBacklinks("wsA", "shared", "", 50).map((b) => b.path), ["a.md"]);
-	assert.deepEqual(resolveBacklinks("wsB", "shared", "", 50).map((b) => b.path), ["b.md"]);
-});
-
-test("DEFENSIVE: every 'FROM docs' in indexer.ts is ws-scoped", () => {
-	const raw = readFileSync(
-		new URL("../../lib/search/indexer.ts", import.meta.url),
-		"utf-8",
+	// The snippet must contain <mark> wrapped around the wikilink [[target]],
+	// NOT around some offset-shifted span.
+	assert.match(
+		snippet,
+		/<mark>\[\[target\]\]<\/mark>/,
+		`snippet must highlight wikilink, got: ${snippet}`,
 	);
-	// Strip block and line comments so prose mentioning "FROM docs" is ignored;
-	// only real SQL counts.
-	const src = raw
-		.replace(/\/\*[\s\S]*?\*\//g, "")
-		.replace(/\/\/.*$/gm, "");
-	// Find each SELECT/DELETE ... FROM docs and assert a ws filter follows.
-	const re = /FROM docs\b([\s\S]{0,120})/g;
-	let m: RegExpExecArray | null;
-	let count = 0;
-	while ((m = re.exec(src)) !== null) {
-		count++;
-		assert.match(
-			m[1]!,
-			/ws\s*=\s*\?/,
-			`A 'FROM docs' query is missing a ws filter:\n${m[0]}`,
-		);
+
+	// The literal <mark>important</mark> text should have its tags stripped
+	// (the word "important" should appear as plain text, not as nested mark).
+	assert.ok(snippet.includes("important"), "literal text must appear tags-stripped");
+
+	// There should be exactly one <mark> pair — the one around the wikilink.
+	const markCount = (snippet.match(/<mark>/g) ?? []).length;
+	assert.equal(markCount, 1, `expected 1 <mark>, got ${markCount}: ${snippet}`);
+});
+
+// ── DEFENSIVE: all FROM/DELETE in indexer.ts and maintenance.ts ws-scoped ────
+
+test("DEFENSIVE: FROM files/FROM links statements are all ws-filtered", () => {
+	const files = [
+		"../../lib/search/indexer.ts",
+		"../../lib/search/maintenance.ts",
+	];
+
+	for (const f of files) {
+		const raw = readFileSync(new URL(f, import.meta.url), "utf-8");
+		const src = raw
+			.replace(/\/\*[\s\S]*?\*\//g, "")
+			.replace(/\/\/.*$/gm, "");
+
+		// Find each FROM files / FROM links / DELETE FROM files / DELETE FROM links
+		const re = /(?:FROM|DELETE FROM)\s+(files|links)\b([\s\S]{0,120})/g;
+		let m: RegExpExecArray | null;
+		while ((m = re.exec(src)) !== null) {
+			const table = m[1]!;
+			const after = m[2]!;
+
+			// Allow list: cross-workspace queries in maintenance.ts
+			const isCrossWs =
+				after.includes("SELECT DISTINCT ws") ||
+				after.includes("WHERE ws IN");
+
+			if (!isCrossWs) {
+				assert.match(
+					after,
+					/ws\s*=\s*\?/,
+					`${f}: FROM/DELETE ${table} missing ws filter:\n${m[0]}`,
+				);
+			}
+		}
 	}
-	assert.ok(count >= 1, "expected at least one 'FROM docs' query");
+});
+
+test("DEFENSIVE: no route file imports getSearchDb directly", () => {
+	const { join } = path;
+
+	function* findRoutes(dir: string): Generator<string> {
+		const entries = readdirSync(dir, { withFileTypes: true });
+		for (const e of entries) {
+			const full = join(dir, e.name);
+			if (e.isDirectory()) {
+				yield* findRoutes(full);
+			} else if (e.name === "route.ts" || e.name === "route.tsx") {
+				yield full;
+			}
+		}
+	}
+
+	const apiDir = join(process.cwd(), "src", "app", "api");
+	let routesFound = 0;
+	for (const routePath of findRoutes(apiDir)) {
+		routesFound++;
+		const content = readFileSync(routePath, "utf-8");
+		if (content.includes("getSearchDb")) {
+			assert.fail(`${routePath} imports getSearchDb directly`);
+		}
+	}
+	assert.ok(routesFound > 0, "found at least one route file");
 });

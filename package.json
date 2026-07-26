@@ -37,6 +37,9 @@
     "type": "git",
     "url": "https://github.com/anh-chu/wiki-viewer.git"
   },
+  "optionalDependencies": {
+    "@vscode/ripgrep": "^1.18.0"
+  },
   "dependencies": {
     "better-auth": "^1.6.12",
     "better-sqlite3": "^12.10.0",

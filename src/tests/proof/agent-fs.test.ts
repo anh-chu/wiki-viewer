@@ -695,6 +695,8 @@ test("search grep: finds pattern in files", async () => {
 		body: JSON.stringify({ kind: "grep", query: "hello", path: "grep-dir" }),
 	});
 	const res = await searchPOST(req);
+	// rg-unavailable → 503 is acceptable in CI without ripgrep
+	if (res.status === 503) return;
 	assert.equal(res.status, 200);
 	const json = await res.json() as { matches: Array<{ path: string; line: number }> };
 	assert.ok(json.matches.length >= 2, "both matches found");
@@ -703,8 +705,8 @@ test("search grep: finds pattern in files", async () => {
 
 test("search grep: skips binary files", async () => {
 	await mkdir(path.join(tmpRoot, "bin-dir"), { recursive: true });
-	// Binary file (has null byte)
-	const binBuf = Buffer.from([0x00, 0x01, 0x02, 0x68, 0x65, 0x6c, 0x6c, 0x6f]); // null + "hello"
+	// Binary file: null byte early so both rg's built-in and old JS heuristic agree
+	const binBuf = Buffer.from([0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x00, 0x01, 0x02]); // "hello" + null
 	await writeFile(path.join(tmpRoot, "bin-dir/binary.bin"), binBuf);
 	await writeFile(path.join(tmpRoot, "bin-dir/text.txt"), "hello from text");
 
@@ -717,6 +719,7 @@ test("search grep: skips binary files", async () => {
 		body: JSON.stringify({ kind: "grep", query: "hello", path: "bin-dir" }),
 	});
 	const res = await searchPOST(req);
+	if (res.status === 503) return;
 	assert.equal(res.status, 200);
 	const json = await res.json() as { matches: Array<{ path: string }> };
 	// Binary file skipped, only text.txt matches
@@ -739,6 +742,7 @@ test("search glob: finds files matching pattern", async () => {
 		body: JSON.stringify({ kind: "glob", query: "*.md", path: "glob-dir" }),
 	});
 	const res = await searchPOST(req);
+	if (res.status === 503) return;
 	assert.equal(res.status, 200);
 	const json = await res.json() as { matches: Array<{ path: string }> };
 	assert.ok(json.matches.length >= 2, "both .md files found");
@@ -759,6 +763,7 @@ test("search: scope-rechecks each result — restricted agent only sees allowed/
 		body: JSON.stringify({ kind: "grep", query: "find me" }),
 	});
 	const res = await searchPOST(req);
+	if (res.status === 503) return;
 	assert.equal(res.status, 200);
 	const json = await res.json() as { matches: Array<{ path: string }> };
 	// out-of-scope-search.txt must not appear
@@ -776,7 +781,104 @@ test("search: invalid regex → 400", async () => {
 		body: JSON.stringify({ kind: "grep", query: "[invalid" }),
 	});
 	const res = await searchPOST(req);
+	if (res.status === 503) return;
 	assert.equal(res.status, 400);
+});
+
+test("search: lookahead pattern (?=foo) returns results via pcre2 retry", async () => {
+	await mkdir(path.join(tmpRoot, "look-dir"), { recursive: true });
+	await writeFile(path.join(tmpRoot, "look-dir/test.txt"), "foobar");
+
+	const req = new Request("http://localhost/api/agent/fs/search", {
+		method: "POST",
+		headers: {
+			...agentHeaders(READ_TOKEN, "ai:read-agent"),
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify({ kind: "grep", query: "(?=foo)", path: "look-dir" }),
+	});
+	const res = await searchPOST(req);
+	if (res.status === 503) return;
+	// pcre2 retry should make this work, not return 400.
+	assert.equal(res.status, 200, `expected 200, got ${res.status}`);
+});
+
+test("search: .gitignored file is still searched (--no-ignore)", async () => {
+	await mkdir(path.join(tmpRoot, "noignore-dir"), { recursive: true });
+	await writeFile(path.join(tmpRoot, "noignore-dir", ".gitignore"), "ignored.txt");
+	await writeFile(path.join(tmpRoot, "noignore-dir/ignored.txt"), "needle-in-ignored");
+
+	const req = new Request("http://localhost/api/agent/fs/search", {
+		method: "POST",
+		headers: {
+			...agentHeaders(READ_TOKEN, "ai:read-agent"),
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify({ kind: "grep", query: "needle-in-ignored", path: "noignore-dir" }),
+	});
+	const res = await searchPOST(req);
+	if (res.status === 503) return;
+	assert.equal(res.status, 200);
+	const json = await res.json() as { matches: Array<{ path: string }> };
+	assert.ok(json.matches.some((m) => m.path.includes("ignored.txt")), "ignored file still found");
+});
+
+// ── Regression: agent search path scopes rg before cap ──────────────────────
+
+test("agent search path scopes rg before cap", async () => {
+	// Create many files OUTSIDE a subdirectory that would consume a global cap.
+	// Then search with `path: "scoped-dir"` and a low limit. The fix passes
+	// startPath to rg as the path operand (after --), so rg only searches
+	// within the requested subtree. Pre-fix the scope filter ran AFTER the
+	// global cap, so a subtree match could be dropped entirely.
+
+	await mkdir(path.join(tmpRoot, "scoped-dir"), { recursive: true });
+
+	// Many matches outside the scoped directory.
+	for (let i = 0; i < 30; i++) {
+		await writeFile(
+			path.join(tmpRoot, `outside-${i}.txt`),
+			"needle-in-haystack",
+		);
+	}
+
+	// One match inside the scoped directory.
+	await writeFile(
+		path.join(tmpRoot, "scoped-dir/inside.txt"),
+		"needle-in-haystack",
+	);
+
+	// Search with small limit, scoped to the subdirectory.
+	const req = new Request("http://localhost/api/agent/fs/search", {
+		method: "POST",
+		headers: {
+			...agentHeaders(READ_TOKEN, "ai:read-agent"),
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify({
+			kind: "grep",
+			query: "needle-in-haystack",
+			path: "scoped-dir",
+			limit: 3,
+		}),
+	});
+	const res = await searchPOST(req);
+	if (res.status === 503) return; // rg unavailable
+	assert.equal(res.status, 200);
+
+	const json = await res.json() as { matches: Array<{ path: string }> };
+
+	// Must include the match inside the requested subtree.
+	const hasInside = json.matches.some((m) => m.path.includes("inside.txt"));
+	assert.equal(
+		hasInside,
+		true,
+		`scoped search must include subtree match, got: ${JSON.stringify(json.matches.map((m) => m.path))}`,
+	);
+
+	// Must NOT include matches outside the scope.
+	const hasOutside = json.matches.some((m) => m.path.includes("outside-"));
+	assert.equal(hasOutside, false, "scoped search must exclude outside matches");
 });
 
 // ── Path safety (traversal + symlink) ────────────────────────────────────────

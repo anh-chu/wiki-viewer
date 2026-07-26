@@ -3,34 +3,30 @@
  *
  * POST /api/agent/fs/search
  * Body: {
- *   kind: "grep" | "glob",
- *   query: string,          // grep: regex string; glob: glob pattern
+ *   kind: "grep" | "glob" | "fts",
+ *   query: string,          // grep: regex pattern; glob: glob pattern; fts: literal
  *   path?: string,          // root-relative start path (default: root)
  *   limit?: number,         // max matches (default 200, hard cap 2000)
  * }
  *
  * Returns { kind, query, matches: [{path, line?, col?, text?}], truncated }.
  *
- * - Pure JS (no shell interpolation, no rg dependency)
- * - Skips binary files (null-byte heuristic) for grep
- * - Skips .proof/ and .git/
- * - Re-checks scope on every matched path
+ * All three kinds are backed by ripgrep — no more JS tree walks.
  */
 export const runtime = "nodejs";
 
-import { readdir, readFile, stat } from "node:fs/promises";
-import { ensureIndexer, ftsSearch } from "@/lib/search/indexer";
+import { stat } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
 import { checkAuth, enforceScope } from "@/lib/proof/auth";
 import { resolveWorkspaceForAgent } from "@/lib/workspace-context";
 import { safeWorkspacePath } from "@/lib/workspaces";
-import { safeAbsPath, looksLikeBinary } from "@/lib/proof/raw-fs";
+import { safeAbsPath } from "@/lib/proof/raw-fs";
 import { matchGlob } from "@/lib/proof/glob";
+import { rgRegexSearch, rgLiteralSearch, rgListFiles } from "@/lib/search/rg-search";
 import type { Agent } from "@/lib/proof/registry";
 
 const HARD_MAX_MATCHES = 2_000;
-const HARD_MAX_SCAN_BYTES = 50 * 1024 * 1024; // 50 MB total
 const SEARCH_TIMEOUT_MS = 10_000;
 
 export interface SearchMatch {
@@ -44,126 +40,6 @@ export interface SearchMatch {
 
 function errJson(code: string, message: string, status: number): NextResponse {
 	return NextResponse.json({ error: code, message }, { status });
-}
-
-const SKIP_DIRS = new Set([".proof", ".git", "node_modules", ".next"]);
-
-// ── Walk helpers ──────────────────────────────────────────────────────────────
-
-async function* walkFiles(rootDir: string, relDir: string): AsyncGenerator<string> {
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	let items: any[];
-	try {
-		items = await readdir(path.join(rootDir, relDir), { withFileTypes: true }) as any[];
-	} catch {
-		return;
-	}
-	for (const item of items) {
-		if (SKIP_DIRS.has(item.name as string)) continue;
-		const childRel = relDir ? `${relDir}/${item.name as string}` : item.name as string;
-		if (item.isDirectory()) {
-			yield* walkFiles(rootDir, childRel);
-		} else if (item.isFile() || item.isSymbolicLink()) {
-			yield childRel;
-		}
-	}
-}
-
-// ── Grep ─────────────────────────────────────────────────────────────────────
-
-async function grepSearch(
-	rootDir: string,
-	startRel: string,
-	pattern: string,
-	limit: number,
-	agent: Agent,
-	deadline: number,
-	workspaceId?: string,
-): Promise<{ matches: SearchMatch[]; truncated: boolean }> {
-	let regex: RegExp;
-	try {
-		regex = new RegExp(pattern, "d");
-	} catch {
-		// fallback without indices flag
-		try {
-			regex = new RegExp(pattern);
-		} catch {
-			throw new Error("Invalid regex pattern");
-		}
-	}
-
-	const matches: SearchMatch[] = [];
-	let scannedBytes = 0;
-
-	for await (const fileRel of walkFiles(rootDir, startRel)) {
-		if (matches.length >= limit) return { matches, truncated: true };
-		if (Date.now() > deadline) return { matches, truncated: true };
-
-		const sc = enforceScope(agent, { filePath: fileRel, op: "read", workspaceId });
-		if (!sc.ok) continue;
-
-		let buf: Buffer;
-		try {
-			buf = await readFile(path.join(rootDir, fileRel));
-		} catch {
-			continue;
-		}
-
-		scannedBytes += buf.length;
-		if (scannedBytes > HARD_MAX_SCAN_BYTES) return { matches, truncated: true };
-
-		if (looksLikeBinary(buf)) continue;
-
-		const text = buf.toString("utf-8");
-		const lines = text.split("\n");
-		for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
-			if (matches.length >= limit) return { matches, truncated: true };
-			const lineText = lines[lineIdx]!;
-			// Reset lastIndex for global regexes
-			regex.lastIndex = 0;
-			const m = regex.exec(lineText);
-			if (m) {
-				matches.push({
-					path: fileRel,
-					line: lineIdx + 1,
-					col: (m.index ?? 0) + 1,
-					text: lineText,
-				});
-			}
-		}
-	}
-
-	return { matches, truncated: false };
-}
-
-// ── Glob ─────────────────────────────────────────────────────────────────────
-
-async function globSearch(
-	rootDir: string,
-	startRel: string,
-	pattern: string,
-	limit: number,
-	agent: Agent,
-	deadline: number,
-	workspaceId?: string,
-): Promise<{ matches: SearchMatch[]; truncated: boolean }> {
-	const matches: SearchMatch[] = [];
-
-	for await (const fileRel of walkFiles(rootDir, startRel)) {
-		if (matches.length >= limit) return { matches, truncated: true };
-		if (Date.now() > deadline) return { matches, truncated: true };
-
-		// Match pattern against relative path OR just the filename
-		const baseName = path.basename(fileRel);
-		if (!matchGlob(pattern, fileRel) && !matchGlob(pattern, baseName)) continue;
-
-		const sc = enforceScope(agent, { filePath: fileRel, op: "read", workspaceId });
-		if (!sc.ok) continue;
-
-		matches.push({ path: fileRel });
-	}
-
-	return { matches, truncated: false };
 }
 
 // ── Route ─────────────────────────────────────────────────────────────────────
@@ -211,6 +87,7 @@ export async function POST(req: Request): Promise<NextResponse> {
 	}
 
 	// Verify start path is a directory
+	let startPath: string | undefined;
 	if (startRelRaw) {
 		try {
 			const st = await stat(path.join(rootDir, startRelRaw));
@@ -223,50 +100,111 @@ export async function POST(req: Request): Promise<NextResponse> {
 			}
 			throw e;
 		}
+		startPath = startRelRaw;
 	}
 
-	// FTS branch -- handled before the grep/glob path validation below.
-	if (kind === "fts") {
+	// ── GREP branch ──────────────────────────────────────────────────────────
+	if (kind === "grep") {
 		const sc = enforceScope(auth.agent, { op: "read", workspaceId: ws.id });
 		if (!sc.ok) return errJson("FORBIDDEN", sc.message ?? "Forbidden", 403);
 
-		ensureIndexer(ws.id, rootDir).catch((e) =>
-			console.error("[search] ensureIndexer failed", e),
-		);
-
-		// Over-fetch so the post-filter (path scope + start-path restriction) can
-		// still return up to `limit` results when some top-ranked hits are denied.
-		const startPrefix = startRelRaw ? `${startRelRaw.replace(/\/+$/, "")}/` : "";
-		const fts = ftsSearch(ws.id, query, Math.min(limit * 4, HARD_MAX_MATCHES));
-		const filtered = fts.matches.filter((m) => {
-			if (startPrefix && !m.path.startsWith(startPrefix)) return false;
-			return enforceScope(auth.agent, { filePath: m.path, op: "read", workspaceId: ws.id }).ok;
+		const result = await rgRegexSearch(rootDir, query, {
+			limit,
+			timeoutMs: SEARCH_TIMEOUT_MS,
+			startPath,
 		});
-		const matches = filtered
-			.slice(0, limit)
-			.map((m) => ({ path: m.path, score: m.score, snippet: m.snippet }));
-		// truncated if the DB itself capped, or the scoped set still exceeds limit.
-		const truncated = fts.truncated || filtered.length > limit;
+
+		if (!result.ok && result.reason === "unavailable") {
+			return errJson("SEARCH_UNAVAILABLE", "ripgrep not available; set WIKI_VIEWER_RG to override", 503);
+		}
+		if (!result.ok && result.reason === "invalid-pattern") {
+			return errJson("SEARCH_ERROR", result.message, 400);
+		}
+
+		const hits = (result.ok ? result.results : result.partialResults) ?? [];
+
+		// Enforce scope per result (rg already scoped to startPath).
+		const matches: SearchMatch[] = [];
+		for (const hit of hits) {
+			const scopeCheck = enforceScope(auth.agent, { filePath: hit.path, op: "read", workspaceId: ws.id });
+			if (!scopeCheck.ok) continue;
+			matches.push({
+				path: hit.path,
+				line: hit.line,
+				col: hit.col,
+				text: hit.text,
+			});
+			if (matches.length >= limit) break;
+		}
+
+		const truncated = result.ok ? result.truncated : true;
 		return NextResponse.json({ kind, query, matches, truncated });
 	}
 
-	const deadline = Date.now() + SEARCH_TIMEOUT_MS;
-	let result: { matches: SearchMatch[]; truncated: boolean };
+	// ── GLOB branch ──────────────────────────────────────────────────────────
+	if (kind === "glob") {
+		const sc = enforceScope(auth.agent, { op: "read", workspaceId: ws.id });
+		if (!sc.ok) return errJson("FORBIDDEN", sc.message ?? "Forbidden", 403);
 
-	try {
-		if (kind === "grep") {
-			result = await grepSearch(rootDir, startRelRaw, query, limit, auth.agent, deadline, ws.id);
-		} else {
-			result = await globSearch(rootDir, startRelRaw, query, limit, auth.agent, deadline, ws.id);
+		const result = await rgListFiles(rootDir, {
+			limit: HARD_MAX_MATCHES,
+			timeoutMs: SEARCH_TIMEOUT_MS,
+			startPath,
+		});
+
+		if (!result.ok && result.reason === "unavailable") {
+			return errJson("SEARCH_UNAVAILABLE", "ripgrep not available; set WIKI_VIEWER_RG to override", 503);
 		}
-	} catch (e) {
-		return errJson("SEARCH_ERROR", (e as Error).message, 400);
+
+		const paths = (result.ok ? result.results : result.partialResults) ?? [];
+
+		// Filter by glob pattern AND scope (rg already scoped to startPath).
+		const matches: SearchMatch[] = [];
+		for (const fileRel of paths) {
+			const scopeCheck = enforceScope(auth.agent, { filePath: fileRel, op: "read", workspaceId: ws.id });
+			if (!scopeCheck.ok) continue;
+
+			// Match pattern against relative path OR just the filename.
+			const baseName = path.basename(fileRel);
+			if (!matchGlob(query, fileRel) && !matchGlob(query, baseName)) continue;
+
+			matches.push({ path: fileRel });
+			if (matches.length >= limit) break;
+		}
+
+		const truncated = result.ok ? result.truncated : true;
+		return NextResponse.json({ kind, query, matches, truncated });
 	}
 
-	return NextResponse.json({
-		kind,
-		query,
-		matches: result.matches,
-		truncated: result.truncated,
+	// ── FTS branch ───────────────────────────────────────────────────────────
+	const sc = enforceScope(auth.agent, { op: "read", workspaceId: ws.id });
+	if (!sc.ok) return errJson("FORBIDDEN", sc.message ?? "Forbidden", 403);
+
+	const result = await rgLiteralSearch(rootDir, query, {
+		limit,
+		timeoutMs: SEARCH_TIMEOUT_MS,
+		startPath,
 	});
+
+	if (!result.ok && result.reason === "unavailable") {
+		return errJson("SEARCH_UNAVAILABLE", "ripgrep not available; set WIKI_VIEWER_RG to override", 503);
+	}
+
+	const ftsHits = (result.ok ? result.results : result.partialResults) ?? [];
+
+	const ftsMatches: SearchMatch[] = [];
+	for (const hit of ftsHits) {
+		const scopeCheck = enforceScope(auth.agent, { filePath: hit.path, op: "read", workspaceId: ws.id });
+		if (!scopeCheck.ok) continue;
+		ftsMatches.push({
+			path: hit.path,
+			score: hit.score,
+			snippet: hit.firstMatch.snippet,
+			line: hit.firstMatch.line,
+		});
+		if (ftsMatches.length >= limit) break;
+	}
+
+	const ftsTruncated = result.ok ? result.truncated : true;
+	return NextResponse.json({ kind, query, matches: ftsMatches, truncated: ftsTruncated });
 }
