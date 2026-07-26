@@ -272,29 +272,62 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		};
 	}, [currentPath, isViewing]);
 
+	// Directory the SSE watcher must cover for the open file. Empty string for a
+	// root-level file — the server always watches the workspace root, so we send
+	// no dir in that case.
+	//
+	// This is deliberately the PARENT directory, not the file: a pool listener
+	// whose base IS the file gets rel === "" for every event on it, and empty rel
+	// is dropped as a root event, so we'd receive nothing. Watching the parent at
+	// depth 0 is also physically identical — chokidar watches a file's parent
+	// directory regardless.
+	const watchDir = useMemo(() => {
+		if (!currentPath) return "";
+		const i = currentPath.lastIndexOf("/");
+		return i === -1 ? "" : currentPath.slice(0, i);
+	}, [currentPath]);
+
 	// Subscribe to chokidar SSE: when current file changes on disk, reload sidecar.
+	// Scoped to the open file's directory so a big workspace isn't walked; the dep
+	// on watchDir moves the subscription when navigation leaves that directory.
 	useEffect(() => {
 		if (typeof window === "undefined") return;
-		const es = new EventSource(withWs("/api/wiki/watch"));
+
+		const refreshOpen = (activePath: string) => {
+			// loadSnapshot first so server-side readSnapshot detects
+			// fingerprint mismatch, emits file.externallyEdited, and persists
+			// the sidecar. Then loadSidecar to refresh comments/suggestions.
+			void useProofStore
+				.getState()
+				.loadSnapshot(activePath)
+				.then(() => useProofStore.getState().loadSidecar(activePath));
+			if (isViewingRef.current) {
+				void useEditorStore.getState().loadPage(activePath);
+			}
+		};
+
+		const url = watchDir
+			? `/api/wiki/watch?dir=${encodeURIComponent(watchDir)}`
+			: "/api/wiki/watch";
+		const es = new EventSource(withWs(url));
 		es.onmessage = (evt: MessageEvent<string>) => {
 			try {
 				const data = JSON.parse(evt.data) as { type: string; path: string };
 				const activePath = useEditorStore.getState().currentPath;
+				if (!activePath) return;
+				if (data.type === "rescan") {
+					// The server's watcher degraded and was torn down; it closes the
+					// stream and the browser reconnects on its own. Anything could have
+					// changed while it was down, so treat the open file as unknown and
+					// re-read it.
+					refreshOpen(activePath);
+					return;
+				}
 				if (
 					(data.type === "change" || data.type === "add") &&
-					activePath &&
 					data.path === activePath
 				) {
-					// loadSnapshot first so server-side readSnapshot detects
-					// fingerprint mismatch, emits file.externallyEdited, and persists
-					// the sidecar. Then loadSidecar to refresh comments/suggestions.
-					void useProofStore
-						.getState()
-						.loadSnapshot(activePath)
-						.then(() => useProofStore.getState().loadSidecar(activePath));
-					if (isViewingRef.current) {
-						void useEditorStore.getState().loadPage(activePath);
-					}
+					refreshOpen(activePath);
 				}
 			} catch {
 				// ignore malformed events
@@ -303,7 +336,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		return () => {
 			es.close();
 		};
-	}, []);
+	}, [watchDir]);
 
 	// Proof-span popover state.
 	const [proofTarget, setProofTarget] = useState<HTMLElement | null>(null);

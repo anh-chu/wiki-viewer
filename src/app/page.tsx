@@ -128,6 +128,7 @@ import {
 	SIDEBAR_MAX_WIDTH,
 } from "@/stores/sidebar-width-store";
 import { useWikiSlugsStore } from "@/stores/wiki-slugs-store";
+import { useBacklinksStore } from "@/stores/backlinks-store";
 import { useShowHiddenStore } from "@/stores/show-hidden-store";
 import { useHumanizeStore } from "@/stores/humanize-store";
 import { humanizeName } from "@/lib/humanize-name";
@@ -191,6 +192,10 @@ const SAFE_VIEWER_KINDS = new Set<ViewerKind>([
 
 // Files above this size open behind a confirmation gate for unsafe viewers.
 const LARGE_FILE_GATE_BYTES = 5 * 1024 * 1024; // 5 MB
+
+// Max directories we ask the SSE watcher to cover. Mirrors the server's own cap;
+// sending more would just be silently dropped there.
+const WATCH_DIR_LIMIT = 24;
 
 function ext(name: string) {
 	return name.split(".").pop()?.toLowerCase() ?? "";
@@ -1484,6 +1489,36 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 		return paths;
 	}, []);
 
+	// Every expanded directory, kept in a ref so the SSE effect can reload them
+	// after a rescan without taking `roots` as a dependency (which would tear the
+	// stream down on every tree update).
+	const expandedDirsRef = useRef<string[]>([]);
+	useEffect(() => {
+		expandedDirsRef.current = collectExpandedPaths(roots);
+	}, [roots, collectExpandedPaths]);
+
+	// The watcher only covers what the UI actually shows: the workspace root
+	// (always watched server-side) plus the currently expanded directories. The
+	// server caps at 24 dirs, so cap here too, keeping depth-first order.
+	const watchDirsKey = useMemo(
+		() =>
+			collectExpandedPaths(roots)
+				.filter((d) => d !== "")
+				.slice(0, WATCH_DIR_LIMIT)
+				.join("\n"),
+		[roots, collectExpandedPaths],
+	);
+
+	// Debounced so expanding a folder (which fires several setRoots passes)
+	// re-arms the stream once instead of five times. The value is a stable
+	// string: reloadDir()-driven setRoots calls produce an identical key, so this
+	// state doesn't change and the SSE effect below does not reconnect.
+	const [watchDirs, setWatchDirs] = useState("");
+	useEffect(() => {
+		const id = setTimeout(() => setWatchDirs(watchDirsKey), 300);
+		return () => clearTimeout(id);
+	}, [watchDirsKey]);
+
 	const refreshTree = useCallback(async () => {
 		setRefreshingTree(true);
 		try {
@@ -1580,7 +1615,14 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 			);
 		}
 
-		const es = new EventSource(withWs("/api/wiki/watch"));
+		// No dir for the root: the server always watches it. Each expanded dir is
+		// sent as a repeated ?dir= param; withWs only appends ws/root when absent,
+		// so these pre-existing params survive.
+		const dirs = watchDirs ? watchDirs.split("\n") : [];
+		const qs = dirs.map((d) => `dir=${encodeURIComponent(d)}`).join("&");
+		const es = new EventSource(
+			withWs(qs ? `/api/wiki/watch?${qs}` : "/api/wiki/watch"),
+		);
 
 		es.onmessage = (event) => {
 			let data: { type: string; path: string };
@@ -1593,6 +1635,26 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 				return;
 			}
 			const { type, path: relPath } = data;
+
+			// The server's watcher degraded and was torn down; it closes the stream
+			// on purpose and the browser's EventSource reconnects by itself (do NOT
+			// reconnect manually here). Events were missed while it was down, so
+			// resync everything we display: the root and every expanded directory.
+			// relPath is "" for a rescan, so without this branch the generic code
+			// below would only ever reload the root.
+			if (type === "rescan") {
+				useBacklinksStore.getState().invalidateAll();
+				scheduleReload("");
+				for (const dir of expandedDirsRef.current) scheduleReload(dir);
+				return;
+			}
+
+			if (type === "add" || type === "change" || type === "unlink") {
+				// Cache is keyed by link target while events name the source file, so
+				// there is nothing cheaper than dropping all of it. See the comment on
+				// invalidateAll().
+				useBacklinksStore.getState().invalidateAll();
+			}
 
 			// Reload the affected parent dir in the tree
 			const parts = relPath.split("/");
@@ -1622,7 +1684,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 			es.close();
 			for (const t of pendingReloads.values()) clearTimeout(t);
 		};
-	}, [rootConfigured, reloadDir, activeWorkspaceId]);
+	}, [rootConfigured, reloadDir, activeWorkspaceId, watchDirs]);
 
 	async function toggleFolder(node: TreeNode) {
 		if (node.type !== "dir" && node.type !== "app" && node.type !== "node-app") return;
@@ -1881,6 +1943,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 		setRootLoaded(false);
 		rootLoadingRef.current = false;
 		useWikiSlugsStore.getState().invalidate();
+		useBacklinksStore.getState().invalidateAll();
 		const ws = workspaces.find((w) => w.id === id);
 		if (ws) setRootPath(ws.rootDir);
 		setActiveWorkspaceId(id);

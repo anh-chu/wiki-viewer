@@ -1,7 +1,7 @@
 /**
  * Next.js instrumentation hook — runs once on server startup, Node.js runtime only.
  * Ensures the embed API key file exists before any request is served.
- * Also runs one-off search index maintenance (prune stale workspaces, reclaim pages).
+ * Also deletes the obsolete SQLite search index left by earlier versions.
  * See: https://nextjs.org/docs/app/building-your-application/optimizing/instrumentation
  */
 export async function register() {
@@ -9,8 +9,8 @@ export async function register() {
 		const { ensureApiKey } = await import("./lib/auth/api-key");
 		ensureApiKey();
 
-		// Run startup maintenance after the API key is ensured (non-fatal).
-		const { runStartupMaintenance } = await import("./lib/search/maintenance");
-		void runStartupMaintenance();
+		// Remove the obsolete SQLite search index (synchronous, never throws).
+		const { deleteLegacySearchDb } = await import("./lib/search/legacy-db-cleanup");
+		deleteLegacySearchDb();
 	}
 }

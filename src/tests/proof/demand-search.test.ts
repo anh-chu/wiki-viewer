@@ -365,7 +365,7 @@ test("legacy-db-cleanup: partially missing files handled gracefully", () => {
 // DEFENSIVE source-text tests
 // ═══════════════════════════════════════════════════════════════════════════════
 
-test("DEFENSIVE: no file under src/lib/search/ contains 'readdir' (excluding indexer.ts)", () => {
+test("DEFENSIVE: no file under src/lib/search/ contains 'readdir'", () => {
 	const searchDir = path.join(process.cwd(), "src", "lib", "search");
 
 	function* walkFiles(dir: string): Generator<string> {
@@ -382,9 +382,6 @@ test("DEFENSIVE: no file under src/lib/search/ contains 'readdir' (excluding ind
 
 	for (const filePath of walkFiles(searchDir)) {
 		const rel = path.relative(searchDir, filePath);
-		// Exclude indexer.ts — it will be deleted later and still uses readdir.
-		// FIXME: remove this exclusion when indexer.ts is deleted.
-		if (rel === "indexer.ts") continue;
 
 		const content = readFileSync(filePath, "utf8");
 		if (content.includes("readdir")) {

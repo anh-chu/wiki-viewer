@@ -528,14 +528,6 @@ export async function removeWorkspace(id: string): Promise<void> {
 			try { await deleteToken(ws.ssh.secretRef); } catch { /* best-effort */ }
 		}
 	}
-	// Purge search index for the removed workspace. Import dynamically to avoid
-	// circular dependency if search modules ever import from workspaces.
-	try {
-		const { purgeWorkspace } = await import("./search/indexer");
-		await purgeWorkspace(id);
-	} catch (e) {
-		console.error("[search] purge failed on workspace remove", e);
-	}
 }
 
 export async function setWorkspaceAccess(id: string, userIds: string[]): Promise<void> {

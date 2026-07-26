@@ -26,7 +26,7 @@ Originally a zero-config single-user tool, it now supports:
 - A **working-vs-collaborating** safety model: when you have a Markdown doc open, agents automatically defer to the reviewable collab path instead of overwriting it.
 - Per-agent registration and scoped tokens. No shared bearer secret.
 - An optional `npx wiki-viewer-mcp` adapter so MCP-capable agents (Claude Code, Cursor, Codex) get native file tools against a remote instance.
-- Full-text search (FTS5), public share links with optional password and expiry, git-backed read-only workspaces with history and diffs, and a Launch button to run any `package.json` app in place.
+- Full-text search (per-query ripgrep, no persistent index), public share links with optional password and expiry, git-backed read-only workspaces with history and diffs, and a Launch button to run any `package.json` app in place.
 
 Single-user, no-auth mode still works. Auth turns on automatically once anyone signs up.
 
@@ -39,7 +39,7 @@ Single-user, no-auth mode still works. Auth turns on automatically once anyone s
 | **File viewers** | Markdown (with frontmatter), PDF, images (PNG / JPG / SVG / WebP), video & audio, CSV (table view), source code (syntax highlighting), DOCX, XLSX, PPTX, Jupyter notebooks, Mermaid diagrams, HTML                                                                                                     |
 | **Editor**       | Rich TipTap editor for Markdown files, with an exit-edit toggle to flip between read and edit modes                                                                                                                                                                                                    |
 | **File ops**     | Upload files, create folders, delete, drag-to-move                                                                                                                                                                                                                                                     |
-| **Search**       | Full-text search across the whole workspace, backed by SQLite FTS5 (BM25 ranking). Incremental indexing via file watcher. App and `.git` contents skipped.                                                                                                                                             |
+| **Search**       | Content and filename search across the active workspace, run per query with a bundled ripgrep. No index, no background scan. `.git`, `node_modules`, `.next`, `.proof` and app contents skipped.                                                                                                                                             |
 | **Sharing**      | Generate public, read-only share links for any file. Optional password protection and expiry date. View counts tracked.                                                                                                                                                                                |
 | **Node apps**    | A directory with a `package.json` becomes runnable: a Launch button starts any npm script (or the default), proxied through the viewer with live status and logs.                                                                                                                                      |
 | **Git repos**    | Add a remote git repo (GitHub, GitLab, Bitbucket, Gitea, GHE) as a read-only workspace. Clones on the server, browse with the full viewer, refresh on demand. Private repos via access token. Per-file commit history, diffs, last-commit metadata, and a branch switcher for git-backed content.      |
@@ -286,8 +286,8 @@ both agent API tiers — with no clone and no copy.
 - **Live, resilient mounts.** Mounted with `reconnect` + keep-alives. The server
   remounts automatically on restart and heals a stale/dropped mount on the next
   request. Removing the workspace unmounts it and deletes any stored password.
-- **Live file watch** still works (the search index and the SSE watcher fall
-  back to polling, since FUSE has no inotify), so remote-side changes show up.
+- **Live file watch** still works (the SSE watcher falls back to polling, since
+  FUSE has no inotify), so remote-side changes show up.
 - **Latency.** Every directory listing and stat is a network round-trip, so a
   remote workspace is slower than local on big trees. The mount enables sshfs
   caching + compression to soften this.
@@ -333,17 +333,28 @@ OS-level permissions):
 
 ## Search
 
-Full-text search runs across the whole active workspace. Press the search box
-in the sidebar, type a query, and results rank by relevance.
+Search runs across the active workspace. Press the search box in the sidebar and
+type a query; content matches and filename matches come back together.
 
-- **FTS5 + BM25.** Backed by a SQLite FTS5 index, separate from `auth.db`, in
-  `~/.wiki-viewer/`. Ranking uses BM25.
-- **Incremental.** A background initial scan builds the index on first use, then
-  a file watcher keeps it current as files change. Search returns results from
-  whatever is already indexed, so it is usable while the first scan runs.
-- **Scoped per workspace.** Each workspace has its own index. Deleting a
-  workspace purges its index. Node-app directories and `.git`, `node_modules`,
-  `.next`, `.proof` are skipped. Body indexing is capped at 1 MiB per file.
+- **No index.** Every query shells out to a bundled `ripgrep` scoped to the
+  active workspace root. Nothing is scanned or stored ahead of time, so opening
+  a workspace never walks the tree — which matters on directories with hundreds
+  of thousands of files.
+- **Two result kinds.** Content matches (ripgrep, with `<mark>`-wrapped
+  snippets) and filename matches (a capped `rg --files` listing).
+- **Bounded and cancellable.** Each search is a child process with a timeout and
+  a result cap, aborted when the request is. `.git`, `node_modules`, `.next`,
+  `.proof` and node-app directories are skipped; file reads are capped at 1 MiB.
+- **Backlinks.** `[[wikilink]]` backlinks use ripgrep only as a prefilter: every
+  candidate file is then parsed with the canonical wiki-link extractor, so alias
+  links, heading anchors and prefix false positives (`[[foo-bar]]` when the
+  target is `foo`) are decided by the parser, not by the grep.
+- **Link resolution.** Link styling and the outlinks endpoint resolve slugs
+  against a bounded listing of the wiki directories (workspace root, `entities`,
+  `concepts`, `comparisons`), one level each.
+- **File watching.** The SSE watcher subscribes only to the directories the UI
+  is showing plus the open file's directory, one level deep each, capped at 24
+  scopes per connection. Nothing recursive is ever armed.
 
 ## Sharing documents
 
@@ -860,7 +871,7 @@ wiki-viewer/
 │   │   └── ai-panel/             Right-side AI panel (agents, activity, install)
 │   ├── lib/
 │   │   ├── auth/                 Better Auth server + client + allowlist + CSRF
-│   │   ├── search/               FTS5 indexer + search DB + file-watcher pool
+│   │   ├── search/               ripgrep search/backlinks + scoped watcher pool
 │   │   ├── shared-docs/          Share-link store (tokens, password hash, expiry)
 │   │   ├── git.ts                Git history / diff / branch / file-info helpers
 │   │   ├── sshfs.ts              SSH (sshfs) mount manager for remote workspaces

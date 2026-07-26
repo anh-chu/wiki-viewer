@@ -3,7 +3,7 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { checkOrigin } from "@/lib/auth/csrf";
 import { resolveWorkspaceForUser } from "@/lib/workspace-context";
-import { ensureIndexer, searchFilenames } from "@/lib/search/indexer";
+import { searchFilenames } from "@/lib/search/filename-search";
 import { rgLiteralSearch } from "@/lib/search/rg-search";
 
 
@@ -39,25 +39,20 @@ export async function POST(request: Request) {
 		});
 	}
 
-	// Lazy init: fire-and-forget. Content search uses rg; the indexer
-	// still builds the link graph and the filename table.
-	ensureIndexer(ctx.ws.id, ctx.rootDir).catch((e) =>
-		console.error("[search] ensureIndexer failed", e),
-	);
-
-	// Run content and filename searches concurrently.
+	// Run content and filename searches concurrently. Both are demand-driven
+	// rg invocations; nothing is indexed or warmed up.
 	// rootIsHazardMount is handled inside rgLiteralSearch (buildPrefixArgs).
-	const [rgResult, fnMatches] = await Promise.all([
+	const [rgResult, fnResult] = await Promise.all([
 		rgLiteralSearch(ctx.rootDir, query, {
 			limit,
 			timeoutMs: 10_000,
 			signal: request.signal,
 		}),
-		Promise.resolve().then(() => searchFilenames(ctx.ws.id, query, limit)),
+		searchFilenames(ctx.rootDir, query, limit, { signal: request.signal }),
 	]);
 
 	// Build filename hit set for dedup.
-	const fnPathSet = new Set(fnMatches.map((m) => m.path));
+	const fnPathSet = new Set(fnResult.paths);
 
 	const matches: Array<{
 		path: string;
@@ -67,9 +62,9 @@ export async function POST(request: Request) {
 	}> = [];
 
 	// Filename matches first (strongest signal — matches old FTS name column).
-	for (const m of fnMatches) {
+	for (const fnPath of fnResult.paths) {
 		matches.push({
-			path: m.path,
+			path: fnPath,
 			score: 2000, // filename hit gets top score
 			snippet: "",
 		});
@@ -101,7 +96,8 @@ export async function POST(request: Request) {
 		}
 	}
 
-	const truncated = rgResult.ok ? rgResult.truncated : true;
+	// Truncated if EITHER leg truncated.
+	const truncated = (rgResult.ok ? rgResult.truncated : true) || fnResult.truncated;
 
 	const finalMatches = matches.slice(0, limit);
 

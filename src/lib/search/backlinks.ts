@@ -11,8 +11,13 @@
  *      match), so the highlight covers the entire [[target|alias]] span.
  *
  * One entry per source file regardless of occurrence count, in rg's ranking
- * order. Bounded concurrency (8). Stops as soon as `limit` verified results
- * exist. Bail out promptly on AbortSignal.
+ * order. Bounded concurrency (8). Stops scheduling new reads as soon as `limit`
+ * verified results exist. Bail out promptly on AbortSignal.
+ *
+ * rg is a PREFILTER ONLY: every candidate it returns is verified by parsing,
+ * with no cap below the rg prefilter limit — a run of prefix false positives
+ * ([[foo-bar]] when the target is "foo") must never hide a genuine [[foo]]
+ * that rg ranked further down the list.
  */
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -46,6 +51,28 @@ const RG_PREFILTER_LIMIT = 400;
 const RG_TIMEOUT_MS = 5000;
 const READ_CONCURRENCY = 8;
 const MAX_READ_BYTES = 1_048_576; // 1 MiB
+
+// ── Test seam ────────────────────────────────────────────────────────────────
+
+/** File reader used by verification. Production always uses fs/promises. */
+export type BacklinkReader = (absPath: string) => Promise<Buffer>;
+
+let readFileImpl: BacklinkReader = (absPath) => readFile(absPath);
+
+/**
+ * Minimal seam for tests only.
+ *
+ * Verification runs 8 reads concurrently, so "never exceed limit" and "emit in
+ * candidate order" only mean something when read completion is OUT OF candidate
+ * order. Real filesystem reads usually finish in near-candidate order, so a
+ * test using real files would pass without proving anything. Tests install a
+ * reader with controlled delays instead.
+ *
+ * Pass null to restore the production reader.
+ */
+export function _setBacklinkReaderForTest(fn: BacklinkReader | null): void {
+	readFileImpl = fn ?? ((absPath) => readFile(absPath));
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -127,40 +154,66 @@ async function verifyCandidates(
 	signal?: AbortSignal,
 ): Promise<Backlink[]> {
 	// Filter: drop self-link, drop non-markdown, preserve rg order.
+	//
+	// NO pre-cap here. The candidate list is already bounded by the rg prefilter
+	// limit (400) and concurrency is bounded at 8, so verifying all of them is
+	// bounded work. Capping at a multiple of `limit` would let a run of prefix
+	// false positives ([[foo-bar]] for target "foo") crowd out a genuine [[foo]]
+	// that rg ranked later — exactly the case verification exists for.
 	const filtered: string[] = [];
 	for (const c of candidates) {
 		if (c.path === targetPath) continue;
 		if (!isMarkdownExt(c.path)) continue;
 		filtered.push(c.path);
-		if (filtered.length >= limit * 3) break; // enough candidates, avoid excess reads
 	}
 
-	const results: Backlink[] = [];
+	// Verified results keyed by CANDIDATE INDEX, so emission order is candidate
+	// (rg ranking) order rather than read-completion order. Reads run 8-wide and
+	// finish out of order, so an insertion-ordered array would scramble ranking.
+	const found = new Map<number, Backlink>();
 	let nextIndex = 0;
 	let active = 0;
 	let aborted = false;
+	// Single settle flag: done() must be idempotent and no worker may mutate
+	// `found` after the promise resolved.
+	let settled = false;
 
 	const onAbort = () => { aborted = true; };
 	signal?.addEventListener("abort", onAbort, { once: true });
 
 	return new Promise((resolve) => {
 		const done = () => {
+			if (settled) return;
+			settled = true;
 			signal?.removeEventListener("abort", onAbort);
-			// Preserve insertion order (which is rg ranking order).
-			resolve(results);
+			const ordered = [...found.entries()]
+				.sort((a, b) => a[0] - b[0])
+				.map(([, backlink]) => backlink);
+			// slice() is belt-and-braces: pushes are already limit-gated.
+			resolve(ordered.slice(0, limit));
 		};
 
 		const processNext = async () => {
-			while (nextIndex < filtered.length && results.length < limit && !aborted) {
+			while (
+				nextIndex < filtered.length &&
+				found.size < limit &&
+				!aborted &&
+				!settled
+			) {
 				const idx = nextIndex++;
 				const candidate = filtered[idx]!;
 				active++;
 
 				try {
 					const backlink = await verifyOne(rootDir, candidate, targetSlug);
-					if (backlink) {
-						results.push(backlink);
-						if (results.length >= limit) {
+					// Re-check AFTER the await: while this read was in flight another
+					// worker may have settled the promise or reached the limit. Without
+					// this, up to READ_CONCURRENCY workers each pass the pre-await check
+					// and then all push, overshooting `limit`.
+					if (settled) return;
+					if (backlink && found.size < limit) {
+						found.set(idx, backlink);
+						if (found.size >= limit) {
 							done();
 							return;
 						}
@@ -188,6 +241,9 @@ async function verifyCandidates(
 	});
 }
 
+/** Exported for tests only — see _setBacklinkReaderForTest. */
+export const _verifyCandidatesForTest = verifyCandidates;
+
 async function verifyOne(
 	rootDir: string,
 	candidate: string,
@@ -197,7 +253,7 @@ async function verifyOne(
 
 	let text: string;
 	try {
-		const buf = await readFile(absPath);
+		const buf = await readFileImpl(absPath);
 		text = buf.subarray(0, Math.min(buf.length, MAX_READ_BYTES)).toString("utf8");
 	} catch {
 		return null;

@@ -2,14 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { ChevronDown, ChevronRight, Link2, Unlink } from "lucide-react";
-import { wsFetch } from "@/lib/workspace-client";
 import { useEditorStore } from "@/stores/editor-store";
 import { useWikiSlugsStore } from "@/stores/wiki-slugs-store";
-
-interface BacklinkEntry {
-	path: string;
-	snippet: string;
-}
+import { useBacklinksStore } from "@/stores/backlinks-store";
 
 /** Display the last two path segments, e.g. "notes/my-page.md" → "notes / my-page" */
 function displayPath(filePath: string): string {
@@ -27,54 +22,69 @@ interface BacklinksPanelProps {
 	currentPath: string;
 }
 
+/**
+ * Collapsed state is remembered across reloads. Key follows the "kb-*"
+ * localStorage convention used by editor-store (kb-edit-mode, kb-page-cache).
+ */
+const COLLAPSED_KEY = "kb-backlinks-collapsed";
+
 export function BacklinksPanel({ currentPath }: BacklinksPanelProps) {
-	const [backlinks, setBacklinks] = useState<BacklinkEntry[]>([]);
-	const [loading, setLoading] = useState(false);
 	const [collapsed, setCollapsed] = useState(false);
 	const hasSlug = useWikiSlugsStore((s) => s.has);
+	const storePath = useBacklinksStore((s) => s.path);
+	const storeBacklinks = useBacklinksStore((s) => s.backlinks);
+	const loading = useBacklinksStore((s) => s.loading);
+	const cacheVersion = useBacklinksStore((s) => s.cacheVersion);
 
+	// Only trust the store's results when they belong to the page we're showing;
+	// otherwise the previous page's links flash during navigation.
+	const backlinks = storePath === currentPath ? storeBacklinks : [];
+
+	// Read the persisted collapsed flag once, after mount. Doing it in the
+	// useState initializer would make the server-rendered markup disagree with
+	// the first client render.
 	useEffect(() => {
-		if (!currentPath) return;
-		let cancelled = false;
-		setLoading(true);
-		setBacklinks([]);
+		if (localStorage.getItem(COLLAPSED_KEY) === "1") setCollapsed(true);
+	}, []);
 
-		// Debounced + single server-side resolution: rapid navigation shouldn't
-		// fire a backlinks query per pass-through. Backend runs FTS and confirms
-		// literal [[slug]] links against indexed body text in-process.
+	const toggleCollapsed = () => {
+		const next = !collapsed;
+		setCollapsed(next);
+		try {
+			localStorage.setItem(COLLAPSED_KEY, next ? "1" : "0");
+		} catch {
+			// quota / private-mode errors are non-fatal
+		}
+	};
+
+	// Fetch only while expanded: a shut panel used to still run a backlinks
+	// query on every navigation. Still debounced 200ms so rapid navigation
+	// doesn't fire a query per pass-through; the store dedups and aborts.
+	// cacheVersion is a dep so a watcher-driven invalidateAll() refreshes an
+	// open panel instead of leaving stale links on screen.
+	useEffect(() => {
+		if (collapsed) return;
+		if (!currentPath) return;
+
 		const timer = setTimeout(() => {
-			(async () => {
-				try {
-					const r = await wsFetch(
-						`/api/wiki/backlinks?path=${encodeURIComponent(currentPath)}`,
-					);
-					const d: { backlinks?: BacklinkEntry[] } = r.ok
-						? await r.json()
-						: { backlinks: [] };
-					if (cancelled) return;
-					setBacklinks(d.backlinks ?? []);
-				} catch {
-					if (!cancelled) setBacklinks([]);
-				} finally {
-					if (!cancelled) setLoading(false);
-				}
-			})();
+			void useBacklinksStore.getState().fetch(currentPath);
 		}, 200);
 
 		return () => {
-			cancelled = true;
 			clearTimeout(timer);
+			useBacklinksStore.getState().cancel();
 		};
-	}, [currentPath]);
+	}, [currentPath, collapsed, cacheVersion]);
 
-	// Hide entirely when loading with no prior results or genuinely empty
-	if (!loading && backlinks.length === 0) return null;
+	// Only hide when expanded and genuinely empty. While collapsed we must keep
+	// the header mounted — returning null there leaves no control to re-expand.
+	if (!collapsed && !loading && backlinks.length === 0) return null;
 
 	return (
 		<div className="max-w-[var(--editor-max-w,48rem)] mx-auto px-4 sm:px-8 pb-8 pt-1">
 			<div className="border-t border-border/60 pt-4">
 				<button
-					onClick={() => setCollapsed((c) => !c)}
+					onClick={toggleCollapsed}
 					className="flex items-center gap-1.5 text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors mb-2"
 					aria-expanded={!collapsed}
 				>
