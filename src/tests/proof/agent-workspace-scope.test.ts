@@ -99,6 +99,13 @@ async function rmQuiet(p: string): Promise<void> {
 }
 
 after(async () => {
+	// Agent auth fires `void updateLastSeen(id)` (src/lib/proof/auth.ts:65), a
+	// deliberate fire-and-forget. Deleting tmpHome while that write is mid-flight
+	// makes its rename() fail with ENOENT, which node:test reports as
+	// "asynchronous activity after the test ended" and fails the whole FILE with
+	// no assertion message. Load-sensitive, so it passed for a long time.
+	// Same wait routes.test.ts already uses for the same reason.
+	await new Promise((r) => setTimeout(r, 100));
 	await rmQuiet(tmpHome);
 	await rmQuiet(rootA);
 	await rmQuiet(rootB);

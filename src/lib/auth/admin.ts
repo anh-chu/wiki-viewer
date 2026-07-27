@@ -11,7 +11,7 @@
  */
 
 import { readConfig, updateConfig } from "@/lib/config";
-import { requireUser } from "@/lib/auth/server";
+import { requireUser, SYNTHETIC_USER_IDS } from "@/lib/auth/server";
 
 // ── Internal helpers ───────────────────────────────────────────────────────────
 
@@ -75,6 +75,15 @@ export async function removeAdmin(userId: string): Promise<void> {
  */
 export async function ensureBootstrapAdmin(userId: string): Promise<void> {
 	if (adminEmailsFromEnv().length > 0) return; // env handles it
+
+	// Never bootstrap a synthetic user. requireUser() returns id "api-key" for
+	// API-key-authenticated callers, so on a fresh install a server-to-server
+	// health check hitting an endpoint that bootstraps (e.g.
+	// /api/system/workspaces) would write "api-key" as the sole admin. The first
+	// real human to sign in would then NOT be admin, permanently, with no UI path
+	// to fix it — only hand-editing config.json. Bootstrap must only ever promote
+	// a real session user.
+	if (SYNTHETIC_USER_IDS.has(userId)) return;
 
 	// Fast-path read to avoid the serialized write when an admin already exists.
 	const cfg = await readConfig();

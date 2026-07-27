@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -79,7 +79,19 @@ export function reposDir(): string {
 }
 
 async function ensureDir() {
-	await mkdir(path.join(os.homedir(), ".wiki-viewer"), { recursive: true });
+	const dir = path.join(os.homedir(), ".wiki-viewer");
+	// 0700 on the DIRECTORY is the durable fix for secret exposure in here.
+	// Per-file modes are whack-a-mole: this dir also holds auth.db (sessions,
+	// created by better-auth, not us), *.db-wal/-shm, and timestamped .bak files
+	// written by migrations — all of which land 0644 and none of which we own the
+	// write path for. Denying traversal covers every one of them, present and
+	// future. `mode` is create-only, so chmod fixes dirs from earlier builds.
+	await mkdir(dir, { recursive: true, mode: 0o700 });
+	try {
+		await chmod(dir, 0o700);
+	} catch {
+		// best-effort (read-only fs, foreign owner)
+	}
 }
 
 export async function readConfig(): Promise<WikiViewerConfig> {
@@ -107,7 +119,19 @@ function serialize<T>(fn: () => Promise<T>): Promise<T> {
 
 async function writeConfigUnsafe(next: WikiViewerConfig): Promise<void> {
 	await ensureDir();
-	await writeFile(configPath(), JSON.stringify(next, null, 2), "utf8");
+	// 0600: this file holds secrets (oauth client secret, workspace tokenRefs),
+	// so it gets the same treatment as api-key / owner.token / auth.secret.
+	// `mode` only applies when creating, hence the explicit chmod for configs
+	// that already exist from a build that wrote them 0664.
+	await writeFile(configPath(), JSON.stringify(next, null, 2), {
+		encoding: "utf8",
+		mode: 0o600,
+	});
+	try {
+		await chmod(configPath(), 0o600);
+	} catch {
+		// best-effort (e.g. read-only fs, foreign owner)
+	}
 }
 
 export async function writeConfig(patch: Partial<WikiViewerConfig>): Promise<void> {

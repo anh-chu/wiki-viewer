@@ -1177,8 +1177,21 @@ export default function Page() {
 	// Embed mode: useState(false) matches SSR output; useEffect sets real value
 	// after mount so hydration never mismatches. Used in JSX + postMessage guard.
 	const [isEmbed, setIsEmbed] = useState(false);
+	// Chrome (sidebar/tree) is hidden in embed mode because the host supplies its
+	// own navigation. `?chrome=1` opts back in, for hosts that "open in a new tab"
+	// and want the full app there: that tab is still an embed-authenticated page
+	// (the api-key path lives inside the embed branch of middleware, deliberately
+	// — see below) but it is NOT framed, so hiding the tree just made it a
+	// crippled standalone view.
+	//
+	// This decouples CHROME from embed without decoupling AUTH from embed, which
+	// is the part that would widen where a URL-borne key is honored.
+	const [hideChrome, setHideChrome] = useState(false);
 	useEffect(() => {
-		setIsEmbed(new URLSearchParams(window.location.search).get("embed") === "1");
+		const sp = new URLSearchParams(window.location.search);
+		const embed = sp.get("embed") === "1";
+		setIsEmbed(embed);
+		setHideChrome(embed && sp.get("chrome") !== "1");
 	}, []);
 
 	const [roots, setRoots] = useState<TreeNode[]>([]);
@@ -2529,14 +2542,14 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 				}}
 			/>
 			{/* Tree sidebar */}
-			{!isEmbed && !sidebarCollapsed && isMobile && (
+			{!hideChrome && !sidebarCollapsed && isMobile && (
 				<div
 					className="fixed inset-0 z-40 bg-overlay backdrop-blur-[1px] md:hidden"
 					onClick={() => setSidebarCollapsed(true)}
 					aria-hidden
 				/>
 			)}
-			{!isEmbed && !sidebarCollapsed && (
+			{!hideChrome && !sidebarCollapsed && (
 				<Card
 					style={isMobile ? undefined : { width: sidebarWidth }}
 					className="fixed inset-y-0 left-0 z-50 w-[85vw] max-w-[20rem] md:relative md:z-auto md:w-auto md:max-w-none flex flex-col shrink-0 overflow-hidden rounded-none border-r border-l-0 border-t-0 border-b-0">
@@ -3142,7 +3155,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 			{/* Right panel */}
 			<div className="flex-1 flex flex-col min-w-0 relative">
 				{/* Desktop: floating reopen button when sidebar is collapsed */}
-				{!isEmbed && sidebarCollapsed && (
+				{!hideChrome && sidebarCollapsed && (
 					<Button
 						size="sm"
 						variant="ghost"
@@ -3154,7 +3167,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 					</Button>
 				)}
 				{/* Mobile: dedicated top bar hosting the drawer + AI panel toggles */}
-				{!isEmbed && <div className="md:hidden flex h-11 shrink-0 items-center justify-between gap-2 border-b bg-muted px-1">
+				{!hideChrome && <div className="md:hidden flex h-11 shrink-0 items-center justify-between gap-2 border-b bg-muted px-1">
 					<Button
 						size="sm"
 						variant="ghost"

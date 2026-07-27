@@ -199,6 +199,14 @@ export async function getSessionFromRequest(req: Request) {
 	return auth.api.getSession({ headers: req.headers });
 }
 
+/**
+ * Ids of synthetic (non-session) users. These are NOT real accounts: they exist
+ * only to carry an authorization decision through code that expects a user.
+ * Never persist them anywhere that grants standing privilege — see
+ * ensureBootstrapAdmin, which refuses to promote them.
+ */
+export const SYNTHETIC_USER_IDS = new Set(["api-key", "no-auth"]);
+
 // Synthetic user returned for API-key–authenticated requests (embed / health checks).
 const API_KEY_USER: SessionUser = { id: "api-key", email: "", name: "termyard" };
 

@@ -56,8 +56,65 @@ const WATCH_FLUSH_MS = 200;
 const MAX_WATCH_ERRORS = 20;
 const ERROR_LOG_INTERVAL_MS = 30_000;
 
-/** Name-based skip set — matched as path *segments*, not substrings. */
-const SKIP_NAMES = new Set(["node_modules", ".git", ".next", ".proof"]);
+/**
+ * Hard ceiling on paths offered to a single watcher before it degrades.
+ *
+ * chokidar's setup walk visits the whole tree to install watches — `ignoreInitial`
+ * suppresses EVENTS, not the walk — so a workspace rooted at $HOME with an agent
+ * state dir (336k files, mostly tiny checkpoints) drove RSS to 1.7G and a 2.7G
+ * peak, then a V8 heap OOM and a crash loop. The server accepted connections and
+ * never answered.
+ *
+ * File COUNT is the cost driver, not bytes: those checkpoints total a few MB, so
+ * any size-based guard sails straight past them. And no denylist can be complete,
+ * which is why this budget exists in addition to SKIP_NAMES — degrade loudly
+ * rather than die.
+ */
+const MAX_WATCHED_PATHS = (() => {
+	// Env override doubles as the test hook and as an operator escape hatch for
+	// deliberately-large roots on machines with headroom.
+	const raw = Number(process.env.WIKI_MAX_WATCHED_PATHS);
+	return Number.isFinite(raw) && raw > 0 ? raw : 50_000;
+})();
+
+/**
+ * Name-based skip set — matched as path *segments*, not substrings.
+ *
+ * Two groups: project build output (the original list), and machine-level state
+ * that only shows up when a workspace is rooted at or above $HOME. Deliberately
+ * excludes generic names like `dist`/`build`/`target`/`vendor`: those plausibly
+ * hold real content in a docs tree, and MAX_WATCHED_PATHS is the backstop for
+ * whatever this list misses.
+ */
+const SKIP_NAMES = new Set([
+	// project build output / vcs
+	"node_modules",
+	".git",
+	".next",
+	".proof",
+	".turbo",
+	// agent + tool state (checkpoint dirs are the pathological case)
+	".pi",
+	// package manager and language caches
+	".cache",
+	".npm",
+	".pnpm-store",
+	".yarn",
+	".cargo",
+	".rustup",
+	".gradle",
+	".m2",
+	".venv",
+	"venv",
+	"__pycache__",
+	".pytest_cache",
+	".mypy_cache",
+	".terraform",
+	// OS / container
+	"snap",
+	"overlay2",
+	".Trash",
+]);
 
 // ── Pool ─────────────────────────────────────────────────────────────────────
 
@@ -229,6 +286,13 @@ function createEntry(watchRoot: string, depth?: number): PoolEntry {
 	const polling = rootIsHazardMount(watchRoot);
 	const pruner = makeMountPruner(watchRoot);
 
+	// Assigned immediately after watch() below. The `ignored` predicate can only
+	// fire once the walk starts, which is after assignment, so the null check is
+	// a formality for the type checker.
+	let entryRef: PoolEntry | null = null;
+	let offered = 0;
+	let budgetTripped = false;
+
 	const watcher = watch(watchRoot, {
 		...(depth !== undefined ? { depth } : {}),
 		ignoreInitial: true,
@@ -236,7 +300,24 @@ function createEntry(watchRoot: string, depth?: number): PoolEntry {
 			// Skip name-based patterns matched as path segments.
 			if (hasSkipSegment(absPath)) return true;
 			// Skip nested hazard mounts.
-			return pruner.isPruned(absPath);
+			if (pruner.isPruned(absPath)) return true;
+
+			// Path budget. Counted AFTER the cheap skips so an excluded subtree
+			// doesn't consume budget. The count is approximate — chokidar may
+			// offer a path more than once — which is fine for a safety net.
+			if (budgetTripped) return true;
+			if (++offered > MAX_WATCHED_PATHS) {
+				budgetTripped = true;
+				if (entryRef) entryRef.degraded = true;
+				console.error(
+					`[watcher-pool] ${watchRoot}: exceeded ${MAX_WATCHED_PATHS} watched paths — ` +
+						"ignoring the rest and marking degraded. Live search/backlinks will be stale " +
+						"for this workspace. This root is too large to watch; scope the workspace to " +
+						"a subdirectory, or add the offending directory to SKIP_NAMES.",
+				);
+				return true;
+			}
+			return false;
 		},
 		persistent: true,
 		followSymlinks: false,
@@ -260,6 +341,7 @@ function createEntry(watchRoot: string, depth?: number): PoolEntry {
 		pending: new Map(),
 		flushTimer: null,
 	};
+	entryRef = entry;
 
 	// Shared flush function bound to this entry.
 	const scheduleFlush = () => {
