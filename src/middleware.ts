@@ -23,10 +23,43 @@ const PASSTHROUGH_PREFIXES = [
 // Without a valid key the embed bypass doesn't fire and X-Frame-Options: SAMEORIGIN applies.
 const CSP_FRAME_ANCESTORS = "frame-ancestors *";
 
+// Routes wiki-viewer frames from its OWN pages: the html/app viewers mount a
+// nested <iframe src="/api/assets/..."> (website-viewer.tsx) and the node-app
+// viewer one at /api/app-proxy/... (node-app-viewer.tsx).
+//
+// These match the /api/ passthrough above, so the embed branch below never
+// reached them and next.config's blanket X-Frame-Options: SAMEORIGIN was the
+// only framing header they carried. Browsers check XFO against every ancestor
+// rather than just the parent, so once the TOP frame is the embedding host the
+// nested frame is refused even though it is same-origin with its parent. The
+// outer page was server-approved and the inner one was not.
+//
+// Note SameSite=strict on the embed cookie still reaches these: SameSite is
+// judged on the registrable domain, where term/wiki subdomains are one site,
+// while XFO is judged on the origin, where they are not. Same pair of hosts,
+// opposite verdicts, which is why docs rendered while html did not.
+const FRAMABLE_API_PREFIXES = ["/api/assets/", "/api/app-proxy/"];
+
+function hasValidEmbedKey(req: NextRequest): boolean {
+	const key =
+		req.nextUrl.searchParams.get("api_key") ||
+		req.cookies.get("__wiki_embed_auth")?.value ||
+		"";
+	return key !== "" && validateApiKey(key);
+}
+
 export function middleware(req: NextRequest): NextResponse {
 	const { pathname } = req.nextUrl;
 
 	if (PASSTHROUGH_PREFIXES.some((p) => pathname.startsWith(p))) {
+		if (
+			FRAMABLE_API_PREFIXES.some((p) => pathname.startsWith(p)) &&
+			hasValidEmbedKey(req)
+		) {
+			const res = NextResponse.next();
+			res.headers.set("Content-Security-Policy", CSP_FRAME_ANCESTORS);
+			return res;
+		}
 		return NextResponse.next();
 	}
 
