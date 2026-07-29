@@ -20,17 +20,35 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-import { artifactIdentity } from "./artifact-identity.mjs";
+import { buildStamp } from "./artifact-identity.mjs";
 import { findMissingClasses, escapeClassName } from "./css-completeness.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-console.log(artifactIdentity(path.join(root, "dist")));
+console.log(buildStamp(path.join(root, "dist")));
 const results = [];
 const check = (name, ok, detail = "") => {
   results.push({ name, ok, detail });
   console.log(`  ${ok ? "PASS" : "FAIL"}  ${name}${detail ? "  " + detail : ""}`);
 };
 
+
+
+// Gates must assert through the STABLE exports entry, never a hashed chunk name. A
+// hashed filename is not evidence of freshness: it proves the artifact is different,
+// not that it is current, and treating difference as freshness cost two sessions
+// several exchanges.
+const pkgJson = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
+check(
+  "exports entry is the stable dist/index.js",
+  pkgJson.exports?.["."]?.import === "./dist/index.js",
+);
+check(
+  "every gate imports through that entry, not a chunk",
+  ["ssr-check.mjs", "xss-repro.mjs", "golden.mjs", "hostile-probe.mjs"].every((f) => {
+    const text = readFileSync(path.join(root, "scripts", f), "utf8");
+    return !/index-[A-Za-z0-9_-]{6,}\.js/.test(text);
+  }),
+);
 
 // ── 0. STALENESS: never measure an artifact older than the source ───────────
 console.log("\nArtifact freshness");
@@ -383,6 +401,56 @@ if (!block) {
   const typeSpread = spread(typeColour);
   check("achromatic host: --wv-code-type keeps hue", typeSpread > 8, "channel spread " + typeSpread.toFixed(1));
 
+
+
+  // A background against the background BEHIND it. No contrast test can see this,
+  // by construction, which is how an invisible code surface passed every ratio in
+  // this file: a percentage mix separated the fence from a near-black page by 10 of
+  // 255 units, and by 0.7 on pure black. Includes the exact host that was measured
+  // in a browser, whose page rendered at rgb(3,3,3).
+  console.log("  code surface separation from the page behind it:");
+  const surfaceHosts = {
+    "near-black rgb(3,3,3)": { "--foreground": [1, 1, 1], "--background": [3 / 255, 3 / 255, 3 / 255] },
+    "pure black": { "--foreground": oklch(0.85), "--background": [0, 0, 0] },
+    dark: hosts.dark,
+    light: hosts.light,
+  };
+  for (const [hostName, host] of Object.entries(surfaceHosts)) {
+    const pageBg = host["--background"];
+    const surface = flat(resolve(decls["--wv-code-bg"], host), pageBg);
+    const sep = Math.max(...surface.map((v, i) => Math.abs(v - pageBg[i]))) * 255;
+    check(`surface/${hostName}: perceptibly separated`, sep >= 15, sep.toFixed(1) + "/255");
+  }
+  check(
+    "fence has a border, so the boundary survives any host lightness",
+    /\.tiptap pre\{[^}]*border:1px solid var\(--wv-code-edge\)/.test(css),
+  );
+
+
+  // The font-size CHAIN, not the pixel value, was the bug: .8125rem is
+  // root-relative, so a host with a 14px root rendered fences at 11.375px while the
+  // source viewer stayed at an absolute 13px. A floor makes a host's root unable to
+  // shrink code below the source viewer's size.
+  check(
+    "fence font-size has a floor, so a small host root cannot shrink it",
+    /\.tiptap pre\{[^}]*font-size:max\(13px,\.?8125rem\)/.test(css.replace(/0\./g, ".")),
+  );
+  check(
+    "inline code font-size has a floor",
+    /\.tiptap code\{[^}]*font-size:max\(12px,\.?85em\)/.test(css.replace(/0\./g, ".")),
+  );
+  // The boundary as a CONTRAST RATIO, which is the right unit for a non-text edge.
+  // The surface alone measures about 1.2:1 on either theme, so the edge is what makes
+  // the block a block.
+  for (const [hostName, host] of Object.entries({ dark: hosts.dark, light: hosts.light })) {
+    const pageBg = host["--background"];
+    const surface = flat(resolve(decls["--wv-code-bg"], host), pageBg);
+    const edge = flat(resolve(decls["--wv-code-edge"], host), surface);
+    const r = ratio(edge, pageBg);
+    // 3:1 is the usual threshold for a non-text boundary, and the reviewer was right
+    // that nothing here reached it before.
+    check(`edge/${hostName}: reaches 3:1 against the page`, r >= 3.0, r.toFixed(2) + ":1");
+  }
 
   console.log("  markdown fences, against the fence surface:");
   for (const [hostName, host] of Object.entries(hosts)) {

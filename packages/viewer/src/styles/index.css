@@ -87,7 +87,17 @@
        numbers      8.54:1 dark /  5.99:1 light
        regexp/tags  7.53:1 dark /  6.94:1 light
      AA for body text is 4.5:1. Nothing here is a muted-on-muted pairing. */
-  --wv-code-bg: var(--wv-muted);
+  /* An ALPHA layer, not a mix against the declared --background token.
+     color-mix(fg 7%, bg) separated the code surface from the page by only 10 of
+     255 units on a near-black host, and 0.7 units on pure black, because oklab
+     percentage mixing compresses hard at the dark end. A code block therefore
+     had no visible boundary and read as loose text. Contrast testing cannot see
+     this by construction: it measures TEXT against its background, never a
+     background against the background behind it.
+     An alpha layer lifts relative to whatever is actually behind the element, so
+     it holds 16 to 25 units on every host tested, including pure black, and it
+     also survives a host whose real page colour differs from its declared token. */
+  --wv-code-bg: color-mix(in oklab, var(--wv-fg) 10%, transparent);
   --wv-code-fg: var(--wv-fg);
   --wv-code-dim: color-mix(in oklab, var(--wv-fg) 66%, transparent);
   --wv-code-string: var(--wv-success);
@@ -98,6 +108,12 @@
      the widest oklab hue separation from amber, 171 degrees, and clears AA on
      both themes against both the fence surface and the page. */
   --wv-code-type: color-mix(in oklab, var(--wv-fg) 45%, #268bd2);
+
+  /* 42%, not 32%. Measured against the page: 32% reaches only 2.65:1 dark and
+     2.47:1 light, short of the 3:1 normally wanted for a non-text boundary.
+     42% measures 3.49:1 and 3.19:1, the lowest tested value clearing 3:1 on BOTH
+     themes. Hosts that want a softer rule can override --wv-code-edge. */
+  --wv-code-edge: color-mix(in oklab, var(--wv-fg) 42%, transparent);
 
   --wv-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
@@ -334,18 +350,30 @@
   color: var(--wv-foreground);
   padding: 0.1rem 0.3rem;
   border-radius: var(--wv-radius);
-  font-size: 0.85em;
+  /* Same reasoning as the fence: floored so a small host root cannot shrink
+     inline code into illegibility. */
+  font-size: max(12px, 0.85em);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 .tiptap pre {
   font-family: var(--wv-font-mono);
   background: var(--wv-code-bg);
+  /* Structural boundary that does not depend on the surface being perceptible.
+     The surface alone measured 1.06:1 against the page on a dark host and 1.18:1
+     on a light one, so a code block read as loose text on BOTH themes, not just
+     dark. Two independent cues now: the lifted surface and this edge. */
+  border: 1px solid var(--wv-code-edge);
   color: var(--wv-foreground);
   padding: 0.75rem 0.9rem;
   border-radius: calc(var(--wv-radius) * 2);
   overflow-x: auto;
-  font-size: 0.8125rem;
+  /* Floored. 0.8125rem is ROOT-relative, so a host with a 14px root rendered
+     fences at 11.375px while the source viewer stayed at 13px, making fences the
+     smallest text in the document. max() keeps the default-root result identical
+     at 13px, still scales up on a larger root, and cannot go below the source
+     viewer's size. */
+  font-size: max(13px, 0.8125rem);
   line-height: 1.55;
   margin: 0.75rem 0;
 }
@@ -784,7 +812,12 @@ proof-span.proof-span:hover,
   padding: 0.75rem 0.9rem;
   border-radius: calc(var(--wv-radius) * 2);
   overflow-x: auto;
-  font-size: 0.8125rem;
+  /* Floored. 0.8125rem is ROOT-relative, so a host with a 14px root rendered
+     fences at 11.375px while the source viewer stayed at 13px, making fences the
+     smallest text in the document. max() keeps the default-root result identical
+     at 13px, still scales up on a larger root, and cannot go below the source
+     viewer's size. */
+  font-size: max(13px, 0.8125rem);
   line-height: 1.55;
   margin: 0.75rem 0;
 }
@@ -803,7 +836,9 @@ proof-span.proof-span:hover,
   color: var(--wv-foreground);
   padding: 0.1rem 0.3rem;
   border-radius: var(--wv-radius);
-  font-size: 0.85em;
+  /* Same reasoning as the fence: floored so a small host root cannot shrink
+     inline code into illegibility. */
+  font-size: max(12px, 0.85em);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 

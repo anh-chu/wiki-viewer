@@ -7,10 +7,10 @@
  */
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { artifactIdentity } from "./artifact-identity.mjs";
+import { buildStamp } from "./artifact-identity.mjs";
 
 const dist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../dist");
-console.log(artifactIdentity(dist));
+console.log(buildStamp(dist));
 
 const mod = await import(path.join(dist, "index.js"));
 const html = await mod.renderMarkdownToHtml("# t\n\n| a | b |\n|---|---|\n| 1 | 2 |\n");

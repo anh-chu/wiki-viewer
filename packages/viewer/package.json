@@ -21,11 +21,13 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "build": "vite build && tailwindcss -i src/styles/index.css -o dist/styles.css --minify && cp src/styles/theme.css dist/theme.css && tsc -p tsconfig.build.json --emitDeclarationOnly && node scripts/ssr-check.mjs && node scripts/verify.mjs && node scripts/xss-repro.mjs && node scripts/hostile-probe.mjs",
+    "build": "vite build && tailwindcss -i src/styles/index.css -o dist/styles.css --minify && cp src/styles/theme.css dist/theme.css && tsc -p tsconfig.build.json --emitDeclarationOnly && node scripts/ssr-check.mjs && node scripts/verify.mjs && node scripts/xss-repro.mjs && node scripts/hostile-probe.mjs && node scripts/golden.mjs",
     "dev": "vite build --watch",
-    "verify": "node scripts/ssr-check.mjs && node scripts/verify.mjs && node scripts/xss-repro.mjs && node scripts/hostile-probe.mjs",
+    "verify": "node scripts/ssr-check.mjs && node scripts/verify.mjs && node scripts/xss-repro.mjs && node scripts/hostile-probe.mjs && node scripts/golden.mjs",
     "prepublishOnly": "rm -rf dist && npm run build",
-    "prepack": "node scripts/ssr-check.mjs && node scripts/verify.mjs && node scripts/xss-repro.mjs && node scripts/hostile-probe.mjs"
+    "prepack": "node scripts/ssr-check.mjs && node scripts/verify.mjs && node scripts/xss-repro.mjs && node scripts/hostile-probe.mjs && node scripts/golden.mjs",
+    "golden:update": "node scripts/golden.mjs --update",
+    "prepare": "node scripts/ensure-built.mjs"
   },
   "peerDependencies": {
     "react": "^19",

@@ -11,9 +11,9 @@
 // straight past this.
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { artifactIdentity } from "./artifact-identity.mjs";
+import { buildStamp } from "./artifact-identity.mjs";
 const DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../dist/index.js");
-console.log(artifactIdentity(path.dirname(DIST)));
+console.log(buildStamp(path.dirname(DIST)));
 const m = await import(DIST)
 
 const evil = [

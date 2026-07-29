@@ -88,6 +88,12 @@ function page(o) {
     '  <div id="doc" class="wv-viewer-root tiptap">' + body + "</div>",
     '  <h3 style="padding:0 20px;opacity:.7;font:12px ui-monospace,monospace">SOURCE FILE VIEW (main.go), same tokens, no fence surface behind it</h3>',
     '  <div id="source" class="wv-viewer-root">' + sourceBlock + "</div>",
+    // Deliberate negative control, injected by the meter via innerHTML so the page
+    // can prove its own XSS detection works. The sanitized document above contains
+    // only post-sanitizer markup, so "no marker fired" there proves nothing on its
+    // own; this is the other half of that comparison.
+    '  <p style="padding:0 20px;opacity:.7;font:12px ui-monospace,monospace">NEGATIVE CONTROL: the same payload, injected raw, bypassing the sanitizer. It MUST fire.</p>',
+    '  <div id="control" style="padding:0 20px"></div>',
     "  <script>" + METER + "</script>",
     "</body></html>",
   ].join("\n");

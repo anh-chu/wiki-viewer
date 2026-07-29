@@ -11,6 +11,11 @@ out/
 # failure this package exists to prevent. Consumers build it instead.
 packages/viewer/dist/
 
+# Per-document provenance state written at runtime by the proof subsystem. The app
+# itself excludes it from agent directory listings (see api/agent/fs/ls), so it is
+# local state, not source.
+.proof/
+
 # env files
 .env
 .env.local

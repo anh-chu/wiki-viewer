@@ -4,6 +4,13 @@
 // that were not on ours: data:text/html hrefs, svg onload, base href, meta refresh
 // and external stylesheet links. Vendored verbatim apart from this header and a
 // repo-relative dist path.
+//
+// One further addition, per the planner's own request: the build stamp is printed
+// first, so any pasted result is attributable to a specific artifact.
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { buildStamp } from "./artifact-identity.mjs";
+console.log(buildStamp(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../dist")));
 // Independent hostile-fixture probe. Does not reuse wiki-viewer's test list.
 // Run: node /tmp/tyverify/hostile-probe.mjs
 const m = await import('../dist/index.js')

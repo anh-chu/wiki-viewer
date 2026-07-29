@@ -84,6 +84,30 @@
     }
   }
 
+  // A background measured against the background BEHIND it. Contrast tests cannot
+  // see this, and it is what made the code block invisible on a near-black host.
+  const fenceBgRgb = fenceBg;
+  const surfaceDelta = Math.max(...fenceBgRgb.map((v, i) => Math.abs(v - pageBg[i])));
+  const borderColour = pre ? getComputedStyle(pre).borderTopColor : "none";
+  sourceRows +=
+    "<tr><td>fence surface vs page</td><td>rgb(" + fenceBgRgb.join(",") + ") on rgb(" + pageBg.join(",") +
+    ')</td><td>' + surfaceDelta.toFixed(0) + '/255</td><td style="color:' +
+    (surfaceDelta >= 15 ? "#4ade80" : "#f87171") + '">' + (surfaceDelta >= 15 ? "VISIBLE" : "INVISIBLE") + "</td></tr>";
+  sourceRows +=
+    "<tr><td>fence border</td><td>" + borderColour + '</td><td></td><td style="color:' +
+    (borderColour && borderColour !== "none" && !/rgba\(0, 0, 0, 0\)/.test(borderColour) ? "#4ade80" : "#f87171") +
+    '">' + (borderColour && !/rgba\(0, 0, 0, 0\)/.test(borderColour) ? "PRESENT" : "ABSENT") + "</td></tr>";
+
+  // NEGATIVE CONTROL. Without this, asserting window.__XSS_FIRED === undefined
+  // against a page built from POST-sanitizer HTML is a tautology: no live payload is
+  // present, so nothing could fire. The control injects the SAME payload through
+  // innerHTML, bypassing the sanitizer, so the page proves its own detection works.
+  // If the control does not fire, the sanitized result means nothing.
+  const control = document.getElementById("control");
+  if (control) {
+    control.innerHTML = '<img src="x-does-not-exist" onerror="window.__XSS_CONTROL_FIRED=1" alt="">';
+  }
+
   const xssClean = window.__XSS_FIRED === undefined;
   const inDoc = (sel) => document.querySelectorAll("#doc " + sel).length;
   document.getElementById("meter").innerHTML =
@@ -93,6 +117,10 @@
     '<table><thead><tr><th>element</th><th>computed colour</th><th>contrast</th><th></th></tr></thead><tbody>' +
     rows + sourceRows + "</tbody></table>" +
     "<p>worst measured pair: <strong>" + worst.toFixed(2) + ":1</strong> &nbsp;|&nbsp; " +
+    "detection control fired (MUST be true, else the line after it is meaningless): <strong style=\"color:" +
+    (window.__XSS_CONTROL_FIRED ? "#4ade80" : "#f87171") + "\">" + Boolean(window.__XSS_CONTROL_FIRED) + "</strong>" +
+    " &nbsp;|&nbsp; sanitized payload fired: <strong style=\"color:" + (xssClean ? "#4ade80" : "#f87171") + "\">" +
+    String(!xssClean) + "</strong> &nbsp;|&nbsp; " +
     "window.__XSS_FIRED === undefined: <strong style=\"color:" + (xssClean ? "#4ade80" : "#f87171") + "\">" +
     xssClean + "</strong> &nbsp;|&nbsp; script tags: <strong>" + inDoc("script") +
     "</strong> &nbsp;|&nbsp; iframes: <strong>" + inDoc("iframe") +

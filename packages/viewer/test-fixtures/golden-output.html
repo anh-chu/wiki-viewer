@@ -1,0 +1,66 @@
+<h1>Golden fixture</h1>
+<p>This file is rendered on every build and compared BYTE FOR BYTE against
+test-fixtures/golden-output.html. It exists because the headline parity test is
+RELATIVE: it compares this package against the app's renderer, and both copies of
+the sanitize schema are deliberately patched together to prevent drift. A change
+made to both sides at once therefore passes parity perfectly, which is the exact
+shape of the original defect, where sanitizing was removed to make a comparison
+agree. Only an absolute fixture catches both implementations moving together.</p>
+<p>If this file's rendering changes, a human has to look at the diff and say yes.</p>
+<h2>Wiki links, all four shapes</h2>
+<p>A plain <a data-wiki-link="true" data-slug="some-page" href="#wiki:some-page" class="wiki-link">some-page</a>, an aliased <a data-wiki-link="true" data-slug="some-page" data-alias="Nice Name" href="#wiki:some-page" class="wiki-link">Nice Name</a>, an anchored
+<a data-wiki-link="true" data-slug="some-page" data-anchor="section" href="#wiki:some-page#section" class="wiki-link">some-page#section</a>, and a <a data-wiki-link="true" data-slug="definitely-missing-page" href="#wiki:definitely-missing-page" class="wiki-link">definitely-missing-page</a> that should still carry
+its data attributes.</p>
+<p>Note that [[Some Page]] with capitals and a space is NOT a wiki link: the slug
+validator is ^[a-z0-9-]+$, so it stays literal text. That is deliberate, and it
+incidentally keeps injection attempts like [[a" onmouseover="x]] in text position
+rather than attribute position.</p>
+<h2>Aligned GFM table</h2>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th align="left">left</th><th align="center">centre</th><th align="right">right</th></tr></thead><tbody><tr><td align="left">a</td><td align="center">b</td><td align="right">c</td></tr><tr><td align="left">1</td><td align="center">2</td><td align="right">3</td></tr></tbody></table>
+<p>Column alignment must survive as align attributes. It is emitted as align="..."
+rather than style="text-align:...", which matters because inline style is stripped
+by the schema; if a dependency changed that, alignment would silently vanish.</p>
+<h2>Task list</h2>
+<ul data-type="taskList" class="task-list">
+<li data-type="taskItem" data-checked="true"><label><input type="checkbox" checked disabled></label><div><p>a completed item</p></div></li>
+<li data-type="taskItem" data-checked="false"><label><input type="checkbox" disabled></label><div><p>an open item</p></div></li>
+</ul>
+<h2>Fenced block with a language</h2>
+<pre><code class="language-go">func main() { println("hi") } // a comment
+</code></pre>
+<h2>Inline code and emphasis</h2>
+<p>\Some <code>inline code</code>, some <strong>bold</strong>, some <em>italic</em>.</p>
+<blockquote>
+<p>A blockquote.</p>
+</blockquote>
+<h2>Hostile payloads, locked so a schema loosening shows up here</h2>
+
+<img src="x">
+<p><a>js link</a></p>
+<div class="">overlay</div>
+
+
+<p id="user-content-terminal-pane">id collision attempt</p>
+<p><a href="https://example.com">benign external link</a></p>
+<h2>Provider embed, which must survive</h2>
+<p></p><div data-embed="true" data-provider="youtube" data-src="https://www.youtube.com/embed/dQw4w9WgXcQ" data-original-url="https://youtu.be/dQw4w9WgXcQ" data-aspect-ratio="1.7777777777777777"><iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ" data-embed-provider="youtube" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen" allowfullscreen loading="lazy" frameborder="0"></iframe></div><p></p>
