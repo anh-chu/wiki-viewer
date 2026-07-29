@@ -1,0 +1,126 @@
+/*
+ * @wiki-viewer/viewer — OPTIONAL theme.
+ *
+ * The wiki-viewer palette, light plus .dark. Import this ONLY if you want the
+ * viewer to look like wiki-viewer. Hosts with their own design tokens must NOT
+ * import it: styles.css alone derives everything it needs from --foreground
+ * and --background.
+ */
+
+:root {
+  --background: #f5f5f5;
+  --foreground: #0c0a09;
+  --card: #ffffff;
+  --card-foreground: #0c0a09;
+  --popover: #ffffff;
+  --popover-foreground: #0c0a09;
+  --primary: #292524;
+  --primary-foreground: #ffffff;
+  --secondary: #fafafa;
+  --secondary-foreground: #0c0a09;
+  --muted: #f0efed;
+  --muted-foreground: #777169;
+  --accent: #e7e5e4;
+  --accent-foreground: #0c0a09;
+  --accent-soft: #e7e5e4;
+  --primary-soft: #e7e5e4;
+  --success-soft: #dcfce7;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --destructive-soft: #fee2e2;
+  --warning-soft: #fef3c7;
+  --warning-ink: #a16207;
+  --border: #e7e5e4;
+  --input: #d6d3d1;
+  --switch-checked: #292524;
+  --ring: #292524;
+  --overlay: rgb(12 10 9 / 0.4);
+  --radius: 8px;
+
+  --sidebar-background: #fafafa;
+  --sidebar-foreground: #0c0a09;
+  --sidebar-primary: #292524;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #ffffff;
+  --sidebar-accent-foreground: #0c0a09;
+  --sidebar-border: #e7e5e4;
+  --sidebar-ring: #292524;
+
+  /* Success / Warning / Info — light mode */
+  --success: #16a34a;
+  --warning: #d97706;
+  --info: #292524;
+
+  /* Elevation backing — light mode editorial */
+  --shadow-golden-card: 0 4px 16px rgba(0, 0, 0, 0.04);
+  --shadow-golden-pop: 0 8px 24px rgba(0, 0, 0, 0.06);
+  --shadow-golden-dialog: 0 16px 48px rgba(0, 0, 0, 0.08);
+  --shadow-golden-toast: 0 24px 64px rgba(0, 0, 0, 0.1);
+
+  /* === State tokens === */
+  --state-hover-overlay: 0 0 0 / 0.05; /* black 5% for light */
+
+  /* === Motion tokens === */
+  --motion-fast: 100ms;
+  --motion-base: 150ms;
+  --motion-slow: 300ms;
+  --motion-easing: cubic-bezier(0, 0, 0.2, 1); /* ease-out */
+
+  /* === Z-index tokens === */
+  --z-sticky: 10;
+  --z-sidebar: 30;
+  --z-overlay: 40;
+  --z-float: 50;
+}
+
+.dark {
+  --background: #0c0a09;
+  --foreground: #ffffff;
+  --card: #1c1917;
+  --card-foreground: #ffffff;
+  --popover: #1c1917;
+  --popover-foreground: #ffffff;
+  --primary: #44403c;
+  --primary-foreground: #ffffff;
+  --secondary: #1c1917;
+  --secondary-foreground: #ffffff;
+  --muted: #292524;
+  --muted-foreground: #a8a29e;
+  --accent: #383330;
+  --accent-foreground: #ffffff;
+  --accent-soft: #3d3d3d;
+  --primary-soft: #453c35;
+  --success-soft: #14532d;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --destructive-soft: #7f1d1d;
+  --warning-soft: #3d2b1a;
+  --warning-ink: #fbbf24;
+  --border: #292524;
+  --input: #57534e;
+  --switch-checked: #f5f5f5;
+  --ring: #ffffff;
+  --overlay: rgb(0 0 0 / 0.55);
+
+  --sidebar-background: #0c0a09;
+  --sidebar-foreground: #ffffff;
+  --sidebar-primary: #292524;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #1c1917;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #292524;
+  --sidebar-ring: #ffffff;
+
+  /* Success / Warning / Info */
+  --success: #16a34a;
+  --warning: #fbbf24;
+  --info: #ffffff;
+
+  --state-hover-overlay: 255 255 255 / 0.1; /* white 10% for dark */
+
+  /* Elevation backing — dark mode editorial */
+  --shadow-golden-card: 0 4px 16px rgba(0, 0, 0, 0.3);
+  --shadow-golden-pop: 0 8px 24px rgba(0, 0, 0, 0.4);
+  --shadow-golden-dialog: 0 16px 48px rgba(0, 0, 0, 0.5);
+  --shadow-golden-toast: 0 24px 64px rgba(0, 0, 0, 0.6);
+}

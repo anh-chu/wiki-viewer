@@ -1,0 +1,843 @@
+/*
+ * @wiki-viewer/viewer — structural stylesheet.
+ *
+ * CONTRACT: nothing here applies outside .wv-viewer-root. There is no global
+ * reset, no :root palette, and no element rule that can reach the host app.
+ * The scoped reset uses :where() so it carries ZERO specificity, exactly like
+ * Tailwind's preflight, and never outranks a utility class.
+ *
+ * TOKENS: the host only has to define --background and --foreground. Every
+ * other token is honoured if present and DERIVED from those two if absent, via
+ * color-mix, so contrast holds on a dark host and a light one alike. Want the
+ * wiki-viewer palette instead? Import '@wiki-viewer/viewer/theme.css' too.
+ */
+
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================ */
+/* Derived token layer                                           */
+/* Fallbacks only. A host value always wins, because every        */
+/* consumer reads var(--token, var(--wv-token)).                  */
+/* ============================================================ */
+
+.wv-viewer-root {
+  /* The ONLY two host tokens this package reads. Everything else is derived,
+     because every other shadcn name is likely already claimed by the host with
+     a meaning we did not design against. Termyard, for instance, defines 65
+     custom properties, including --muted as a dark SURFACE. Hosts that want to
+     retheme the viewer override --wv-* directly. */
+  --wv-fg: var(--foreground, #0c0a09);
+  --wv-bg: var(--background, #ffffff);
+
+  --wv-background: var(--wv-bg);
+  --wv-foreground: var(--wv-fg);
+  --wv-card: color-mix(in oklab, var(--wv-fg) 3%, var(--wv-bg));
+  --wv-card-foreground: var(--wv-fg);
+  --wv-popover: var(--wv-card);
+  --wv-popover-foreground: var(--wv-fg);
+  --wv-secondary: color-mix(in oklab, var(--wv-fg) 4%, var(--wv-bg));
+  --wv-secondary-foreground: var(--wv-fg);
+
+  --wv-primary: var(--wv-fg);
+  --wv-primary-foreground: var(--wv-bg);
+  --wv-primary-soft: color-mix(in oklab, var(--wv-fg) 12%, var(--wv-bg));
+
+  --wv-muted: color-mix(in oklab, var(--wv-fg) 7%, var(--wv-bg));
+  /* 66% alpha, not 58%. 58% cleared AA on a dark host (4.69:1) but failed on a
+     light one (4.25:1). 66% measures 5.51:1 dark and 5.15:1 light. */
+  --wv-muted-foreground: color-mix(in oklab, var(--wv-fg) 66%, transparent);
+  --wv-accent: color-mix(in oklab, var(--wv-fg) 12%, var(--wv-bg));
+  --wv-accent-foreground: var(--wv-fg);
+  --wv-accent-soft: var(--wv-accent);
+
+  --wv-border: color-mix(in oklab, var(--wv-fg) 16%, transparent);
+  --wv-input: var(--wv-border);
+  --wv-ring: color-mix(in oklab, var(--wv-fg) 45%, transparent);
+  --wv-overlay: color-mix(in oklab, var(--wv-fg) 40%, transparent);
+  --wv-switch-checked: var(--wv-fg);
+  --wv-info: var(--wv-fg);
+
+  /* Status hues are pulled 45% toward the host foreground, so they lighten on a
+     dark theme and darken on a light one instead of sitting at a fixed
+     lightness that only works against one of them. */
+  --wv-success: color-mix(in oklab, var(--wv-fg) 45%, #2e9e5b);
+  --wv-success-soft: color-mix(in oklab, #2e9e5b 18%, var(--wv-bg));
+  --wv-destructive: color-mix(in oklab, var(--wv-fg) 45%, #e5484d);
+  --wv-destructive-foreground: var(--wv-bg);
+  --wv-destructive-soft: color-mix(in oklab, #e5484d 18%, var(--wv-bg));
+  --wv-warning: color-mix(in oklab, var(--wv-fg) 45%, #c8860d);
+  --wv-warning-soft: color-mix(in oklab, #c8860d 18%, var(--wv-bg));
+  --wv-warning-ink: var(--wv-warning);
+
+  --wv-sidebar-background: var(--wv-card);
+  --wv-sidebar-foreground: var(--wv-fg);
+  --wv-sidebar-primary: var(--wv-fg);
+  --wv-sidebar-primary-foreground: var(--wv-bg);
+  --wv-sidebar-accent: var(--wv-accent);
+  --wv-sidebar-accent-foreground: var(--wv-fg);
+  --wv-sidebar-border: var(--wv-border);
+  --wv-sidebar-ring: var(--wv-ring);
+
+  /* Code. Measured against the derived surface below, not against a host
+     token, so the numbers in the report are the numbers that ship.
+       fence text  12.07:1 dark / 14.94:1 light
+       comments     5.51:1 dark /  5.15:1 light
+       strings      8.06:1 dark /  6.41:1 light
+       numbers      8.54:1 dark /  5.99:1 light
+       regexp/tags  7.53:1 dark /  6.94:1 light
+     AA for body text is 4.5:1. Nothing here is a muted-on-muted pairing. */
+  --wv-code-bg: var(--wv-muted);
+  --wv-code-fg: var(--wv-fg);
+  --wv-code-dim: color-mix(in oklab, var(--wv-fg) 66%, transparent);
+  --wv-code-string: var(--wv-success);
+  --wv-code-danger: var(--wv-destructive);
+  --wv-code-num: var(--wv-warning);
+  /* Types need their own hue: they previously shared --wv-code-num with numeric
+     literals at the same weight, so the two were indistinguishable. Cyan gives
+     the widest oklab hue separation from amber, 171 degrees, and clears AA on
+     both themes against both the fence surface and the page. */
+  --wv-code-type: color-mix(in oklab, var(--wv-fg) 45%, #268bd2);
+
+  --wv-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --wv-radius: 8px;
+  --wv-motion-fast: 100ms;
+  --wv-motion-base: 150ms;
+  --wv-motion-slow: 300ms;
+
+  color: var(--wv-foreground);
+}
+
+
+/* ============================================================ */
+/* Scoped reset — replaces Tailwind preflight.                    */
+/* :where() keeps specificity at zero so utilities still win.      */
+/* ============================================================ */
+
+:where(.wv-viewer-root) *,
+:where(.wv-viewer-root) *::before,
+:where(.wv-viewer-root) *::after {
+  box-sizing: border-box;
+  border-width: 0;
+  border-style: solid;
+  border-color: var(--wv-border);
+}
+
+:where(.wv-viewer-root) :is(pre, code, kbd, samp) {
+  /* Tailwind preflight used to supply this. Disabling preflight to stop the
+     package restyling its host silently dropped it, so code fences inherited the
+     host's proportional font: termyard measured a <pre> computing to Inter.
+     :where() keeps specificity at zero, so .font-mono and any host utility still
+     win, and --wv-font-mono lets a host substitute its own stack. */
+  font-family: var(--wv-font-mono);
+}
+
+:where(.wv-viewer-root) :is(h1, h2, h3, h4, h5, h6, p, blockquote, figure, pre, hr, dl, dd) {
+  margin: 0;
+}
+
+:where(.wv-viewer-root) :is(ol, ul, menu) {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+:where(.wv-viewer-root) :is(img, svg, video, canvas, audio, iframe, embed, object) {
+  display: block;
+  vertical-align: middle;
+}
+
+:where(.wv-viewer-root) :is(img, video) {
+  max-width: 100%;
+  height: auto;
+}
+
+:where(.wv-viewer-root) :is(button, input, optgroup, select, textarea) {
+  font-family: inherit;
+  font-feature-settings: inherit;
+  font-size: 100%;
+  font-weight: inherit;
+  line-height: inherit;
+  color: inherit;
+  margin: 0;
+  padding: 0;
+}
+
+:where(.wv-viewer-root) :is(button, [type="button"]) {
+  -webkit-appearance: button;
+  background-color: transparent;
+  background-image: none;
+  cursor: pointer;
+}
+
+:where(.wv-viewer-root) :is(button, select) {
+  text-transform: none;
+}
+
+:where(.wv-viewer-root) :is(table) {
+  border-color: inherit;
+  border-collapse: collapse;
+  text-indent: 0;
+}
+
+:where(.wv-viewer-root) :is(a) {
+  color: inherit;
+  text-decoration: inherit;
+}
+
+:where(.wv-viewer-root) :is(a, button, input, textarea, select) {
+  transition-property: color, background-color, border-color;
+  transition-duration: var(--wv-motion-base);
+}
+
+:where(.wv-viewer-root) :focus-visible {
+  outline: 2px solid var(--wv-ring);
+  outline-offset: 2px;
+  border-radius: var(--wv-radius);
+}
+
+/* Scrollbars, scoped. Derived from the host foreground, so no light/dark fork. */
+:where(.wv-viewer-root) ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+:where(.wv-viewer-root) ::-webkit-scrollbar-track {
+  background: transparent;
+}
+:where(.wv-viewer-root) ::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--wv-fg) 20%, transparent);
+  border-radius: 4px;
+}
+:where(.wv-viewer-root) ::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklab, var(--wv-fg) 35%, transparent);
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-shimmer {
+  background-size: 200% 100%;
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.3s ease-out both;
+}
+
+/* ============================================================ */
+/* Editor: tiptap / ProseMirror                                  */
+/* Reconciled to ElevenLabs design tokens.                        */
+/* ============================================================ */
+
+.tiptap {
+  font-size: 0.9375rem;
+  line-height: 1.7;
+  letter-spacing: -0.006em;
+  outline: none;
+  hanging-punctuation: first last;
+}
+
+.tiptap p,
+.tiptap li,
+.tiptap h1,
+.tiptap h2,
+.tiptap h3,
+.tiptap h4 {
+  text-wrap: pretty;
+}
+
+/* Jumps from the outline rail / breadcrumb land below the sticky breadcrumb bar. */
+.tiptap :is(h1, h2, h3, h4, h5, h6) {
+  scroll-margin-top: 48px;
+}
+
+.tiptap h1 {
+  font-size: 1.6875rem;
+  font-weight: 650;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  margin: 2rem 0 0.6rem;
+}
+
+.tiptap h2 {
+  font-size: 1.3125rem;
+  font-weight: 650;
+  line-height: 1.3;
+  letter-spacing: -0.015em;
+  margin: 1.75rem 0 0.5rem;
+}
+
+.tiptap h3 {
+  font-size: 1.0938rem;
+  font-weight: 650;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  margin: 1.4rem 0 0.4rem;
+}
+
+.tiptap h4 {
+  font-size: 0.9688rem;
+  font-weight: 650;
+  line-height: 1.4;
+  margin: 1.1rem 0 0.3rem;
+}
+
+.tiptap p {
+  margin-bottom: 0.7rem;
+}
+
+.tiptap ul,
+.tiptap ol {
+  padding-left: 1.4rem;
+  margin-bottom: 0.6rem;
+}
+
+.tiptap ul {
+  list-style: disc;
+}
+
+.tiptap ol {
+  list-style: decimal;
+}
+
+.tiptap li p {
+  margin-bottom: 0.2rem;
+}
+
+.tiptap blockquote {
+  border-left: 2px solid var(--wv-border);
+  padding-left: 0.85rem;
+  color: var(--wv-muted-foreground);
+  font-style: italic;
+}
+
+.tiptap code {
+  background: var(--wv-code-bg);
+  color: var(--wv-foreground);
+  padding: 0.1rem 0.3rem;
+  border-radius: var(--wv-radius);
+  font-size: 0.85em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.tiptap pre {
+  font-family: var(--wv-font-mono);
+  background: var(--wv-code-bg);
+  color: var(--wv-foreground);
+  padding: 0.75rem 0.9rem;
+  border-radius: calc(var(--wv-radius) * 2);
+  overflow-x: auto;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  margin: 0.75rem 0;
+}
+
+.tiptap pre code {
+  background: transparent;
+  padding: 0;
+  /* .tiptap code sets 0.85em for INLINE code. Inside a pre that compounded with
+     the pre's own 0.8125rem and rendered fences at 11.05px, measurably smaller
+     than the 13px source viewer for no stated reason. Contrast tests cannot see
+     a size bug, which is why it survived this long. */
+  font-size: 1em;
+}
+
+.tiptap pre code .hljs-keyword,
+.tiptap pre code .hljs-selector-tag,
+.tiptap pre code .hljs-built_in {
+  color: var(--wv-code-fg);
+  font-weight: 500;
+}
+
+.tiptap pre code .hljs-string,
+.tiptap pre code .hljs-attr {
+  color: var(--wv-code-string);
+}
+
+.tiptap pre code .hljs-number,
+.tiptap pre code .hljs-literal,
+.tiptap pre code .hljs-bullet,
+.tiptap pre code .hljs-symbol {
+  color: var(--wv-code-num);
+}
+
+.tiptap pre code .hljs-comment,
+.tiptap pre code .hljs-quote {
+  color: var(--wv-code-dim);
+  font-style: italic;
+}
+
+.tiptap pre code .hljs-function,
+.tiptap pre code .hljs-title,
+.tiptap pre code .hljs-section {
+  color: var(--wv-code-fg);
+  font-weight: 600;
+}
+
+.tiptap pre code .hljs-type,
+.tiptap pre code .hljs-name,
+.tiptap pre code .hljs-meta {
+  color: var(--wv-code-type);
+}
+
+.tiptap pre code .hljs-variable,
+.tiptap pre code .hljs-template-variable,
+.tiptap pre code .hljs-attribute {
+  color: var(--wv-foreground);
+}
+
+.tiptap pre code .hljs-tag,
+.tiptap pre code .hljs-regexp {
+  color: var(--wv-code-danger);
+}
+
+.tiptap pre code .hljs-emphasis {
+  font-style: italic;
+}
+
+.tiptap pre code .hljs-strong {
+  font-weight: 600;
+}
+
+/* Standalone source viewer (non-Markdown files). Mirrors the tiptap palette
+   so syntax colors follow the active theme instead of a hardcoded dark scheme. */
+.source-viewer-code .hljs-keyword,
+.source-viewer-code .hljs-selector-tag,
+.source-viewer-code .hljs-built_in {
+  color: var(--wv-code-fg);
+  font-weight: 500;
+}
+
+.source-viewer-code .hljs-string,
+.source-viewer-code .hljs-attr {
+  color: var(--wv-code-string);
+}
+
+.source-viewer-code .hljs-number,
+.source-viewer-code .hljs-literal,
+.source-viewer-code .hljs-bullet,
+.source-viewer-code .hljs-symbol {
+  color: var(--wv-code-num);
+}
+
+.source-viewer-code .hljs-comment,
+.source-viewer-code .hljs-quote {
+  color: var(--wv-code-dim);
+  font-style: italic;
+}
+
+.source-viewer-code .hljs-function,
+.source-viewer-code .hljs-title,
+.source-viewer-code .hljs-section {
+  color: var(--wv-code-fg);
+  font-weight: 600;
+}
+
+.source-viewer-code .hljs-type,
+.source-viewer-code .hljs-name,
+.source-viewer-code .hljs-meta {
+  color: var(--wv-code-type);
+}
+
+.source-viewer-code .hljs-variable,
+.source-viewer-code .hljs-template-variable,
+.source-viewer-code .hljs-attribute {
+  color: var(--wv-foreground);
+}
+
+.source-viewer-code .hljs-tag,
+.source-viewer-code .hljs-regexp {
+  color: var(--wv-code-danger);
+}
+
+.source-viewer-code .hljs-emphasis {
+  font-style: italic;
+}
+
+.source-viewer-code .hljs-strong {
+  font-weight: 600;
+}
+
+.tiptap hr {
+  border: 0;
+  border-top: 1px solid var(--wv-border);
+  margin: 1.25rem 0;
+}
+
+.tiptap a {
+  color: var(--wv-code-fg);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.tiptap strong {
+  font-weight: 600;
+  color: var(--wv-foreground);
+}
+
+.tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--wv-muted-foreground);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+.tiptap .tableWrapper {
+  overflow-x: auto;
+  margin: 0.75rem 0;
+}
+
+.tiptap table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  margin: 0.75rem 0;
+  overflow: hidden;
+  border-radius: var(--wv-radius);
+  border: 1px solid var(--wv-border);
+}
+
+.tiptap th,
+.tiptap td {
+  border: 1px solid var(--wv-border);
+  padding: 0.4rem 0.6rem;
+  vertical-align: top;
+  position: relative;
+}
+
+.tiptap th {
+  background: var(--wv-muted);
+  font-weight: 600;
+  text-align: left;
+}
+
+.tiptap td {
+  background: transparent;
+}
+
+.tiptap tr:hover td {
+  background: color-mix(in srgb, var(--wv-muted) 60%, transparent);
+}
+
+.tiptap .selectedCell {
+  background: color-mix(in srgb, var(--wv-accent-foreground) 10%, transparent);
+  position: relative;
+}
+
+.tiptap .selectedCell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--wv-accent-foreground) 6%, transparent);
+}
+
+.tiptap .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: -2px;
+  width: 4px;
+  background: var(--wv-accent-foreground);
+  pointer-events: none;
+}
+
+.tiptap.resize-cursor {
+  cursor: col-resize;
+}
+
+.tiptap .task-list {
+  list-style: none;
+  padding-left: 0;
+}
+
+.tiptap .task-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.tiptap .task-list li > label {
+  flex-shrink: 0;
+  margin-top: 0.2rem;
+  user-select: none;
+}
+
+.tiptap .task-list li label input[type="checkbox"] {
+  appearance: none;
+  width: 0.95rem;
+  height: 0.95rem;
+  border: 1.5px solid var(--wv-border);
+  border-radius: var(--wv-radius);
+  background: var(--wv-background);
+  cursor: pointer;
+  position: relative;
+  transition: border-color 120ms;
+}
+
+.tiptap .task-list li label input[type="checkbox"]:checked {
+  background: var(--wv-accent-foreground);
+  border-color: var(--wv-code-fg);
+}
+
+.tiptap .task-list li label input[type="checkbox"]:checked::after {
+  content: "✓";
+  color: var(--wv-background);
+  font-size: 0.7rem;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -52%);
+}
+
+.tiptap .task-list li[data-checked="true"] > div > p {
+  color: var(--wv-muted-foreground);
+  text-decoration: line-through;
+}
+
+.tiptap .callout-info {
+  border-left: 2px solid var(--wv-accent-foreground);
+  background: color-mix(in srgb, var(--wv-accent-foreground) 10%, transparent);
+}
+
+.tiptap .callout-warning {
+  border-left: 2px solid var(--wv-warning-ink);
+  background: var(--wv-warning-soft);
+}
+
+.tiptap .callout-success {
+  border-left: 2px solid var(--wv-success);
+  background: var(--wv-success-soft);
+}
+
+.tiptap .callout-error {
+  border-left: 2px solid var(--wv-destructive);
+  background: var(--wv-destructive-soft);
+}
+
+.tiptap .resizable-image {
+  position: relative;
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 0.75rem 0;
+  border-radius: var(--wv-radius);
+}
+
+.tiptap .resizable-image[data-align="left"] {
+  margin-left: 0;
+  margin-right: auto;
+}
+
+.tiptap .resizable-image[data-align="right"] {
+  margin-left: auto;
+  margin-right: 0;
+}
+
+.tiptap .resizable-image[data-align="center"] {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.tiptap [style*="text-align: center"] {
+  text-align: center;
+}
+
+.tiptap [style*="text-align: right"] {
+  text-align: right;
+}
+
+.tiptap [style*="text-align: justify"] {
+  text-align: justify;
+}
+
+.tiptap a[href$=".pdf"]::after {
+  content: "📄";
+  color: var(--wv-muted-foreground);
+  font-size: 0.75em;
+  margin-left: 0.25rem;
+}
+
+
+
+
+
+
+.tiptap :is(h1, h2, h3, h4)[id] {
+  position: relative;
+}
+
+.tiptap :is(h1, h2, h3, h4)[id]::before {
+  content: "#";
+  position: absolute;
+  left: -1em;
+  opacity: 0;
+  color: var(--wv-muted-foreground);
+  transition:
+    opacity 120ms ease,
+    color 120ms ease;
+  pointer-events: none;
+}
+
+.tiptap :is(h1, h2, h3, h4)[id]:hover::before {
+  opacity: 1;
+  color: var(--wv-code-fg);
+}
+
+/* Wiki-link mark styles */
+.wiki-link {
+  color: var(--wv-code-fg);
+  text-decoration: none;
+  border-bottom: 1px dotted var(--wv-accent-foreground);
+  padding: 0 1px;
+  cursor: pointer;
+  transition:
+    color 120ms,
+    background 120ms;
+}
+.wiki-link:hover {
+  background: color-mix(in srgb, var(--wv-accent-foreground) 10%, transparent);
+  border-bottom-style: solid;
+}
+.wiki-link[data-broken="true"],
+.wiki-link:has([data-broken="true"]) {
+  color: var(--wv-code-danger);
+  opacity: 0.6;
+  border-bottom: none;
+  text-decoration: line-through;
+}
+/* ProseMirror wraps text in a span — also target it directly */
+.wiki-link [data-broken="true"] {
+  text-decoration: line-through;
+  color: var(--wv-code-danger);
+}
+.wiki-link[data-broken="true"]:hover,
+.wiki-link:has([data-broken="true"]):hover {
+  opacity: 1;
+  background: color-mix(in srgb, var(--wv-destructive) 10%, transparent);
+}
+
+/* Proof-span provenance marks */
+proof-span.proof-span,
+.proof-span {
+  background: linear-gradient(
+    to right,
+    rgba(165, 180, 252, 0.08),
+    rgba(165, 180, 252, 0)
+  );
+  border-left: 2px solid rgb(165, 180, 252);
+  padding-left: 4px;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+proof-span.proof-span[origin="human"],
+.proof-span[origin="human"] {
+  border-left-color: rgb(110, 231, 183);
+  background: linear-gradient(
+    to right,
+    rgba(110, 231, 183, 0.08),
+    rgba(110, 231, 183, 0)
+  );
+}
+proof-span.proof-span:hover,
+.proof-span:hover {
+  background: linear-gradient(
+    to right,
+    rgba(165, 180, 252, 0.18),
+    rgba(165, 180, 252, 0.04)
+  );
+}
+.dark proof-span.proof-span,
+.dark .proof-span {
+  background: linear-gradient(
+    to right,
+    rgba(165, 180, 252, 0.14),
+    rgba(165, 180, 252, 0)
+  );
+}
+
+/* Read-only markdown viewer code styling */
+.md-pre {
+  background: var(--wv-code-bg);
+  color: var(--wv-foreground);
+  padding: 0.75rem 0.9rem;
+  border-radius: calc(var(--wv-radius) * 2);
+  overflow-x: auto;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  margin: 0.75rem 0;
+}
+.md-pre .md-code,
+.md-pre code {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  border-radius: 0;
+  font-size: inherit;
+  white-space: pre;
+  display: block;
+}
+.md-code {
+  background: var(--wv-code-bg);
+  color: var(--wv-foreground);
+  padding: 0.1rem 0.3rem;
+  border-radius: var(--wv-radius);
+  font-size: 0.85em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* NOTE: wiki-viewer's app-shell CSS (the editorial skin, the cabinet rail
+   handles, the hover-reveal / touch-target helpers) is deliberately NOT
+   shipped. No component in this package references it, and none of it was
+   scoped to the viewer root. */
+
+/* Coarse-pointer affordances ─────────────────────────────────────────────────
+   resizable-image.tsx marks its drag handles hover-reveal + resize-hit. On a
+   touch device there is no hover, so without these the handles stay at opacity-0
+   and the image cannot be resized at all. These rules were lost when the
+   app-shell CSS was pruned, and only the completeness gate noticed, because
+   every other check inspects what IS in the stylesheet. Scoped to the viewer
+   root, unlike the app-wide originals. !important is required to beat the
+   opacity-0 utility on the same element. */
+@media (hover: none) {
+  .wv-viewer-root .hover-reveal {
+    opacity: 1 !important;
+    max-width: none !important;
+  }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .wv-viewer-root .resize-hit {
+    width: 1.5rem;
+  }
+}
+
+/* Package safety floor ──────────────────────────────────────────────────────
+   Every viewer branch is flex-1 and collapses to zero height if the ancestor
+   chain has no definite height. This min-height prevents the blank-page failure
+   mode when a consumer renders the package bare. For full-height layouts the
+   consumer must still give the parent a real height (h-screen, h-full). */
+.wv-viewer-root {
+  min-height: 24rem;
+} 

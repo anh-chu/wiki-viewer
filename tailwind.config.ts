@@ -3,7 +3,13 @@ import type { Config } from "tailwindcss";
 
 const config: Config = {
 	darkMode: ["class"],
-	content: ["./src/**/*.{ts,tsx}"],
+	content: [
+		"./src/**/*.{ts,tsx}",
+		// The linked viewer package ships its own prebuilt CSS for external hosts,
+		// but this app does not import it, so the utility classes its components
+		// use must be generated here as well.
+		"./packages/viewer/src/**/*.{ts,tsx}",
+	],
 	theme: {
 		extend: {
 			colors: {

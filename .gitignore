@@ -6,6 +6,11 @@ node_modules/
 .next/
 out/
 
+# viewer package build output. Deliberately NOT committed: vendoring build
+# artifacts is what lets the package and its consumers drift apart, which is the
+# failure this package exists to prevent. Consumers build it instead.
+packages/viewer/dist/
+
 # env files
 .env
 .env.local

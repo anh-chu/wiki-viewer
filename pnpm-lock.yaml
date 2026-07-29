@@ -11,6 +11,9 @@ importers:
 
   .:
     dependencies:
+      '@wiki-viewer/viewer':
+        specifier: link:packages/viewer
+        version: link:packages/viewer
       better-auth:
         specifier: ^1.6.12
         version: 1.6.12(better-sqlite3@12.10.0)(next@16.2.4(react-dom@19.2.5(react@19.2.5))(react@19.2.5))(react-dom@19.2.5(react@19.2.5))(react@19.2.5)

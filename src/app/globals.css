@@ -387,6 +387,11 @@ nextjs-portal {
 .tiptap pre code {
   background: transparent;
   padding: 0;
+  /* .tiptap code sets 0.85em for INLINE code, which compounded with this pre's own
+     0.8125rem and rendered every fence at 11.05px, smaller than the 13px source
+     view for no stated reason. Found by measuring computed styles in a browser;
+     no contrast or parity test can see a size bug. */
+  font-size: 1em;
 }
 
 .tiptap pre code .hljs-keyword,

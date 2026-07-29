@@ -42,8 +42,6 @@ export const previewSanitizeSchema: SanitizeOptions = {
 		colgroup: ["span", "className"],
 		tr: ["className"],
 		// Preserve wiki-link data attributes used by the delegated click handler.
-		// rehype-sanitize uses hast property names (camelCase) in the attributes map.
-		// Plain string = allow any value; tuple [name, val1, val2] = allow only those values.
 		a: [
 			...(defaultSchema.attributes?.a ?? []),
 			"className",

@@ -1,7 +1,7 @@
 {
   "name": "wiki-viewer",
   "version": "2.7.6",
-  "description": "Local file viewer and wiki \u2014 view markdown, HTML, PDFs, notebooks, office docs, and more from any directory",
+  "description": "Local file viewer and wiki — view markdown, HTML, PDFs, notebooks, office docs, and more from any directory",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -42,6 +42,7 @@
     "@vscode/ripgrep": "^1.18.0"
   },
   "dependencies": {
+    "@wiki-viewer/viewer": "link:packages/viewer",
     "better-auth": "^1.6.12",
     "better-sqlite3": "^12.10.0",
     "chokidar": "^5.0.0",

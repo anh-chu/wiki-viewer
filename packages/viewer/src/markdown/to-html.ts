@@ -6,9 +6,8 @@ import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import { unified } from "unified";
-import { detectEmbed } from "@/lib/embeds/detect";
-import { previewSanitizeSchema } from "@/lib/markdown/sanitize-schema";
-import { withWs } from "@/lib/workspace-client";
+import { detectEmbed } from "./embeds-detect";
+import { previewSanitizeSchema } from "./sanitize-schema";
 
 // Canonical wiki-link regex (llm-wiki-pm ground truth).
 // Groups: 1=slug  2=alias  3=anchor
@@ -151,6 +150,48 @@ function resolveRelativeUrls(html: string, pagePath: string): string {
 	return html;
 }
 
+export interface MarkdownRenderOptions {
+	/** File path used to resolve relative URLs (./image.png etc.). */
+	docPath?: string;
+	/**
+	 * Optional transform applied to every /api/assets/... URL in src, href,
+	 * and data-src attributes. When absent, URLs are left unchanged (identity).
+	 * The app uses this to inject workspace-scoping (?ws=... or ?root=...).
+	 */
+	assetUrlTransform?: (url: string) => string;
+	/**
+	 * Run rehype-sanitize over the output. DEFAULTS TO TRUE.
+	 *
+	 * Passing false is UNSAFE for untrusted files. The pipeline uses rehype-raw,
+	 * so raw HTML embedded in a markdown file is expanded: with sanitizing off,
+	 * <script>, onerror= and javascript: hrefs all survive into the host's
+	 * origin. Only pass false for content you control.
+	 */
+	sanitize?: boolean;
+}
+
+// Internal options (extends public options with sanitize flag used by cache key).
+interface MarkdownToHtmlOptions {
+	pagePath?: string;
+	sanitize?: boolean;
+	assetUrlTransform?: (url: string) => string;
+}
+
+function toInternalOpts(
+	optsOrPagePath?: string | MarkdownRenderOptions,
+): MarkdownToHtmlOptions {
+	if (typeof optsOrPagePath === "string") {
+		return { pagePath: optsOrPagePath, sanitize: true };
+	}
+	if (!optsOrPagePath) return { sanitize: true };
+	return {
+		pagePath: optsOrPagePath.docPath,
+		// Safe by default: a caller has to ask for the dangerous mode by name.
+		sanitize: optsOrPagePath.sanitize ?? true,
+		assetUrlTransform: optsOrPagePath.assetUrlTransform,
+	};
+}
+
 // Unified's plugin resolution + processor freeze runs on every `unified()`
 // call. Reuse single frozen pipelines across every page render so
 // navigation doesn't pay that cost on the hot path.
@@ -244,27 +285,12 @@ function hashStr(s: string): string {
 	return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
 }
 
-export interface MarkdownToHtmlOptions {
-	/** File path used to resolve relative URLs (./image.png etc.). */
-	pagePath?: string;
-	/** Run rehype-sanitize on output. Use true for read-only viewer. Default false. */
-	sanitize?: boolean;
-}
-
-function normalizeOpts(
-	optsOrPagePath?: string | MarkdownToHtmlOptions,
-): MarkdownToHtmlOptions {
-	return typeof optsOrPagePath === "string"
-		? { pagePath: optsOrPagePath }
-		: (optsOrPagePath ?? {});
-}
-
 /** Stable cache key for a (markdown, options) render. Shared by sync + worker paths. */
 export function renderCacheKeyFor(
 	markdown: string,
-	optsOrPagePath?: string | MarkdownToHtmlOptions,
+	optsOrPagePath?: string | MarkdownRenderOptions,
 ): string {
-	const opts = normalizeOpts(optsOrPagePath);
+	const opts = toInternalOpts(optsOrPagePath);
 	return `${opts.sanitize ? 1 : 0}:${opts.pagePath ?? ""}:${markdown.length}:${hashStr(markdown)}`;
 }
 
@@ -294,9 +320,20 @@ export function renderCacheStore(key: string, html: string): void {
  */
 export async function renderMarkdownUncached(
 	markdown: string,
-	optsOrPagePath?: string | MarkdownToHtmlOptions,
+	optsOrPagePath?: string | MarkdownRenderOptions | MarkdownToHtmlOptions,
 ): Promise<string> {
-	const opts = normalizeOpts(optsOrPagePath);
+	// Accepts either the public shape (docPath) or the internal one (pagePath).
+	let opts: MarkdownToHtmlOptions;
+	if (typeof optsOrPagePath === "string" || !optsOrPagePath) {
+		opts = toInternalOpts(optsOrPagePath);
+	} else {
+		const raw = optsOrPagePath as MarkdownRenderOptions & MarkdownToHtmlOptions;
+		opts = {
+			pagePath: raw.docPath ?? raw.pagePath,
+			sanitize: raw.sanitize ?? true,
+			assetUrlTransform: raw.assetUrlTransform,
+		};
+	}
 
 	// Pre-process wiki-links before remark (which would treat [[ as text)
 	const preprocessed = convertWikiLinks(markdown);
@@ -318,13 +355,16 @@ export async function renderMarkdownUncached(
 		html = resolveRelativeUrls(html, opts.pagePath);
 	}
 
-	// Workspace-scope every /api/assets URL so the browser <img>/<a> request
-	// (which carries no X-Workspace header) resolves to the right workspace.
-	// No-op on the server/worker (no window) and for URLs already carrying ?ws=.
-	html = html.replace(
-		/(src|href|data-src)="(\/api\/assets\/[^"]*)"/g,
-		(_m, attr: string, url: string) => `${attr}="${withWs(url)}"`,
-	);
+	// Apply asset URL transform to every /api/assets URL so the consumer can
+	// inject workspace-scoping (was: withWs from workspace-client). When no
+	// transform is provided, URLs are left unchanged (identity).
+	const transform = opts.assetUrlTransform;
+	if (transform) {
+		html = html.replace(
+			/(src|href|data-src)="(\/api\/assets\/[^"]*)"/g,
+			(_m, attr: string, url: string) => `${attr}="${transform(url)}"`,
+		);
+	}
 
 	// Sanitize last, after all string post-processing, so no injected
 	// content escapes the sanitizer.
@@ -337,12 +377,12 @@ export async function renderMarkdownUncached(
 
 export async function markdownToHtml(
 	markdown: string,
-	optsOrPagePath?: string | MarkdownToHtmlOptions,
+	optsOrPagePath?: string | MarkdownRenderOptions,
 ): Promise<string> {
-	const opts = normalizeOpts(optsOrPagePath);
+	const opts = toInternalOpts(optsOrPagePath);
 
 	// Parse-free fast path: identical (content, options) was rendered before.
-	const cacheKey = renderCacheKeyFor(markdown, opts);
+	const cacheKey = renderCacheKeyFor(markdown, optsOrPagePath);
 	const cached = renderCacheGet(cacheKey);
 	if (cached !== undefined) return cached;
 
@@ -350,3 +390,18 @@ export async function markdownToHtml(
 	renderCacheStore(cacheKey, html);
 	return html;
 }
+
+/**
+ * Primary entry point for the viewer package.
+ * Renders markdown to the exact HTML the wiki-viewer app renders, with the
+ * asset URL transform injected by the consumer. Sanitizing is opt-in.
+ */
+export async function renderMarkdownToHtml(
+	markdown: string,
+	options?: MarkdownRenderOptions,
+): Promise<string> {
+	return markdownToHtml(markdown, options);
+}
+
+/** Alias matching the name used by index.ts re-export. */
+export type RenderMarkdownOptions = MarkdownRenderOptions;
