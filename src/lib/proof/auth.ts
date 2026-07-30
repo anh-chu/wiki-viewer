@@ -137,7 +137,3 @@ export function verifyBy(
 	return { ok: true };
 }
 
-/** @deprecated No longer relevant — always returns false */
-export function hasTokenConfigured(): boolean {
-	return false;
-}

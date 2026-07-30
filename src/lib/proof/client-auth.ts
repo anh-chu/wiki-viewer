@@ -9,11 +9,6 @@
  * default) or credentials: "include".
  */
 
-/** @deprecated No longer returns a token. Owner cookie is used instead. */
-export function getAgentToken(): string | null {
-	return null;
-}
-
 /**
  * Returns empty object — authentication is via owner cookie automatically.
  * Kept for backwards-compat with call sites.

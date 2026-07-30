@@ -115,28 +115,3 @@ export function detectEmbed(raw: string): DetectedEmbed | null {
 
 	return null;
 }
-
-export function providerLabel(p: EmbedProvider): string {
-	switch (p) {
-		case "youtube":
-			return "YouTube";
-		case "vimeo":
-			return "Vimeo";
-		case "loom":
-			return "Loom";
-		case "twitter":
-			return "X / Twitter";
-		case "facebook":
-			return "Facebook";
-		case "instagram":
-			return "Instagram";
-		case "tiktok":
-			return "TikTok";
-		case "spotify":
-			return "Spotify";
-		case "video":
-			return "Video file";
-		case "iframe":
-			return "Web page";
-	}
-}

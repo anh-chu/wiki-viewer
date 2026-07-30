@@ -2,16 +2,8 @@
  * Canonical wiki-link extractor and slug helpers.
  *
  * This module is the single source of truth for the indexer and the API routes.
- * It deliberately does NOT refactor `to-html.ts` or `remark-wikilinks.ts` at
- * this time — those files drive rendering, are covered by markdown-to-html.test.ts
- * and block-refs.test.ts, and changing their regexes would be a user-visible
- * rendering change unrelated to the search-index migration. The lenient-capture-
- * plus-strict-validation design means adopting this module in the renderer later
- * is a no-op refactor.
- *
- * Regex design: the capture is lenient (matches to-html.ts:15) and includes
- * characters that are not valid slugs; validation happens post-capture via
- * SLUG_VALID_RE, so extracting links from malformed [[brackets]] is safe.
+ * The lenient-capture-plus-strict-validation design means adopting this module
+ * in the renderer later is a no-op refactor.
  */
 
 /**
@@ -108,18 +100,4 @@ export function extractWikiLinks(text: string): WikiLinkOccurrence[] {
 		results.push({ slug, line, lineText, index: idx - lineStart });
 	}
 	return results;
-}
-
-/**
- * True if `body` contains an actual wiki-link to `slug`: `[[slug]]`,
- * `[[slug|alias]]`, or `[[slug#anchor]]`. The slug is regex-escaped so
- * special characters do not become pattern operators.
- *
- * Lifted verbatim from the original indexer.ts:560-563; kept as an export
- * for the degraded backlinks fallback path.
- */
-export function hasWikiLinkTo(body: string, slug: string): boolean {
-	const esc = slug.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-	const re = new RegExp(`\\[\\[${esc}(?:\\|[^\\]#|]+|#[a-z0-9-]+)?\\]\\]`, "i");
-	return re.test(body);
 }

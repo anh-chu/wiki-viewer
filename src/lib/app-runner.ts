@@ -301,14 +301,6 @@ export function stopApp(relPath: string): void {
 	app.status = "stopped";
 }
 
-export function listApps(): Array<{ relPath: string; status: AppStatus; port?: number }> {
-	return [...apps.entries()].map(([relPath, a]) => ({
-		relPath,
-		status: a.status,
-		port: a.port || undefined,
-	}));
-}
-
 /**
  * Given URL path segments, find the longest prefix that matches a running app.
  * e.g. ["apps", "roadmap-server", "api", "specs"] → { relPath: "apps/roadmap-server", port, rest: "/api/specs" }

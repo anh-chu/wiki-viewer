@@ -64,10 +64,6 @@ export function listPendingRegistrations(): PendingRegistration[] {
 	return [...store.values()].filter((r) => r.status === "pending");
 }
 
-export function listAllRegistrations(): PendingRegistration[] {
-	return [...store.values()];
-}
-
 /** Mark as approved and stash one-shot token. */
 export function approveRegistration(id: string, tokenPlaintext: string): boolean {
 	const reg = store.get(id);
