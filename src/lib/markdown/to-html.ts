@@ -122,6 +122,10 @@ function resolveRelativeUrls(html: string, pagePath: string): string {
 			if (seg === "..") out.pop();
 			else out.push(seg);
 		}
+		// Deliberately unprefixed. The workspace-scoping pass below matches on a
+		// bare /api/assets/ prefix and calls withWs(), which applies the URL
+		// prefix itself. Prefixing here would stop that regex matching, so the
+		// asset would ship without ?root= and fail to resolve behind the proxy.
 		return `/api/assets/${out.join("/")}`;
 	};
 
@@ -142,7 +146,7 @@ function resolveRelativeUrls(html: string, pagePath: string): string {
 
 	// Mark PDF links with a data attribute so the editor can handle them
 	html = html.replace(
-		/<a([^>]*?)href="(\/api\/assets\/[^"]+\.pdf)"([^>]*?)>/gi,
+		/<a([^>]*?)href="([^"]*\/api\/assets\/[^"]+\.pdf)"([^>]*?)>/gi,
 		(_match, before: string, url: string, after: string) => {
 			return `<a${before}href="${url}"${after} data-pdf-link="true">`;
 		},

@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { resolveWorkspaceForAgent } from "../../lib/workspace-context.js";
-import { ensureApiKey, EMBED_COOKIE_NAME } from "../../lib/auth/api-key.js";
+import { ensureApiKey } from "../../lib/auth/api-key.js";
 import { listWorkspaces } from "../../lib/workspaces.js";
 
 let rootA: string;
@@ -70,13 +70,13 @@ test("root honored with a valid Bearer API key", async () => {
 	assert.equal(res.ws.ephemeral, true);
 });
 
-test("root honored via embed cookie even when a session cookie precedes it", async () => {
-	// Regression guard for the `;s*` vs `;\\s*` cookie-regex bug: cookies are
-	// separated by "; ", and the embed cookie is commonly NOT first because the
-	// user also has wiki-viewer open standalone.
+test("root honored via Bearer auth with session cookie in request", async () => {
+	// Bearer auth is the remaining path after cookie-based embed auth was
+	// removed in v2.8.0. The presence of a session cookie must not interfere.
 	const res = await resolveWorkspaceForAgent(
 		reqWith(`${BASE}?root=${encodeURIComponent(rootA)}`, {
-			cookie: `better-auth.session_token=abc123; ${EMBED_COOKIE_NAME}=${API_KEY}`,
+			authorization: `Bearer ${API_KEY}`,
+			cookie: "better-auth.session_token=abc123",
 		}),
 	);
 	assert.equal(res.ok, true);

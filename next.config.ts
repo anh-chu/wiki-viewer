@@ -16,9 +16,9 @@ const nextConfig: NextConfig = {
     optimizePackageImports: ["lucide-react"],
   },
   allowedDevOrigins: ['devvm'],
-  // Block framing on all routes by default. The embed middleware branch overrides
-  // this per-request with a frame-ancestors CSP allowing localhost, which browsers
-  // give precedence over X-Frame-Options when both are present.
+  // Block framing on all routes by default. Same-origin framing for nested
+  // /api/assets and /api/app-proxy iframes still works because the host is now
+  // same-origin (X-Frame-Options: SAMEORIGIN permits same-origin ancestors).
   headers: async () => [
     {
       source: "/(.*)",

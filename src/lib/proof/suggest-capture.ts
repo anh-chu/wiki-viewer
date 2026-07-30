@@ -1,5 +1,6 @@
 import { authHeaders } from "./client-auth";
 import type { SuggestionKind } from "./types";
+import { apiUrl } from "@/lib/url-prefix";
 
 interface PostResult {
 	ok: boolean;
@@ -13,7 +14,7 @@ async function postSuggestionOp(
 	op: Record<string, unknown>,
 ): Promise<PostResult> {
 	const encoded = encodeURIComponent(path).replace(/%2F/g, "/");
-	const res = await fetch(`/api/agent/files/${encoded}`, {
+	const res = await fetch(apiUrl(`/api/agent/files/${encoded}`), {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",

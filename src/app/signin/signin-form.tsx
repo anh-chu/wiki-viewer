@@ -2,6 +2,7 @@
 
 import { useState, useEffect, type FormEvent } from "react";
 import { authClient } from "@/lib/auth/client";
+import { apiUrl } from "@/lib/url-prefix";
 
 export default function SignInForm({
 	initialPasswordAuth,
@@ -25,7 +26,7 @@ export default function SignInForm({
 
 	useEffect(() => {
 		// Refresh which auth methods to show. Public endpoint, no session needed.
-		fetch("/api/system/auth-config", { credentials: "include" })
+		fetch(apiUrl("/api/system/auth-config"), { credentials: "include" })
 			.then((r) => r.json())
 			.then((data: unknown) => {
 				if (data && typeof data === "object") {

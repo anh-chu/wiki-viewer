@@ -15,6 +15,7 @@ import { ViewerToolbar } from "@/components/layout/viewer-toolbar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { withWs } from "@/lib/workspace-client";
+import { apiUrl } from "@/lib/url-prefix";
 
 // pdf.js component library (same engine as the official viewer) + its CSS.
 import * as pdfjsLib from "pdfjs-dist";
@@ -24,7 +25,7 @@ import "pdfjs-dist/web/pdf_viewer.css";
 // AnnotationEditorType: NONE=0, FREETEXT=3, HIGHLIGHT=9, STAMP=13, INK=15.
 const { AnnotationEditorType } = pdfjsLib;
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdfjs/pdf.worker.min.mjs";
+pdfjsLib.GlobalWorkerOptions.workerSrc = apiUrl("/pdfjs/pdf.worker.min.mjs");
 
 interface PdfViewerProps {
 	path: string;

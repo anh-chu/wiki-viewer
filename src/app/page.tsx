@@ -85,11 +85,11 @@ import { BranchDropdown } from "@/components/wiki/branch-dropdown";
 import {
 	getActiveWorkspaceId,
 	getEphemeralRoot,
-	isTrustedEmbedParent,
 	toRootRelative,
 	withWs,
 	wsFetch,
 } from "@/lib/workspace-client";
+import { apiUrl, isLite } from "@/lib/url-prefix";
 import { markdownToHtml } from "@/lib/markdown/to-html";
 import { useTheme } from "next-themes";
 import { AuthSettingsSheet } from "@/components/auth-settings-sheet";
@@ -1064,7 +1064,7 @@ export default function Page() {
 			return;
 		}
 		try {
-			const res = await fetch("/api/system/workspaces");
+			const res = await fetch(apiUrl("/api/system/workspaces"));
 			if (!res.ok) throw new Error("Failed");
 			const d: { workspaces: Array<{id:string;name:string;rootDir:string;lastOpenedAt?:string;createdAt:string;readOnly?:boolean;git?:{remoteUrl:string;branch?:string;username?:string;lastPulledAt?:string;lastSha?:string;lastError?:string};ssh?:{host:string}}>; isAdmin: boolean } = await res.json();
 			setWorkspaces(d.workspaces);
@@ -1608,6 +1608,8 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 	// File watcher: auto-update tree + open file via SSE
 	useEffect(() => {
 		if (!rootConfigured) return;
+		// Lite mode has no watcher (the server returns 503), so skip the EventSource.
+		if (isLite()) return;
 		// Don't connect until the workspace is resolved, and reconnect when it
 		// changes. The stream is workspace-scoped via ?ws= (evaluated once at
 		// connect time by withWs), so without this dep a workspace switch would
@@ -1901,24 +1903,14 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 	}, [navigateToPath]);
 
 	// postMessage listener: accept { type: 'open-file', path } from parent frame.
-	// Only active in ?embed=1 mode. Parent origin is checked by
-	// isTrustedEmbedParent: loopback, our own origin, or key-derived trust when
-	// the host supplied a ?root= (see that function for why that's sufficient).
+	// Only active in ?embed=1 mode. The lite reverse-proxy deployment means the
+	// app runs same-origin with its host, so the simple origin check suffices.
 	useEffect(() => {
 		if (!isEmbed) return;
 		const handler = (e: MessageEvent) => {
-			if (
-				!isTrustedEmbedParent(e.origin, {
-					selfOrigin: typeof window !== "undefined" ? window.location.origin : null,
-					hasHostRoot: getEphemeralRoot() !== null,
-				})
-			) {
-				// NEVER drop silently. A dropped open-file is indistinguishable from
-				// a host-side bug, and the initial ?file= load keeps working, so the
-				// panel looks healthy while every later click dies.
+			if (e.origin !== window.location.origin) {
 				console.warn(
-					`[wiki-viewer] ignored postMessage from untrusted parent origin ${e.origin}. ` +
-						"Embedding hosts should pass ?root= (requires API-key auth), which marks the parent as trusted.",
+					`[wiki-viewer] ignored postMessage from untrusted parent origin ${e.origin}.`,
 				);
 				return;
 			}
@@ -1940,7 +1932,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 	const switchWorkspace = useCallback(async (id: string) => {
 		if (id === activeWorkspaceId) return;
 		try {
-			await fetch(`/api/system/workspaces/${id}/open`, { method: "POST" });
+			await fetch(apiUrl(`/api/system/workspaces/${id}/open`), { method: "POST" });
 		} catch {
 			/* best-effort lastOpened bump */
 		}
@@ -1965,7 +1957,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 	const handleDeleteWorkspace = useCallback(async () => {
 		if (!deletingWorkspaceId) return;
 		try {
-			const res = await fetch(`/api/system/workspaces/${deletingWorkspaceId}`, {
+			const res = await fetch(apiUrl(`/api/system/workspaces/${deletingWorkspaceId}`), {
 				method: "DELETE",
 			});
 			if (!res.ok) throw new Error("Failed");
@@ -1993,7 +1985,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 		if (refreshingWsId) return;
 		setRefreshingWsId(id);
 		try {
-			const res = await fetch(`/api/system/workspaces/${id}/refresh`, { method: "POST" });
+			const res = await fetch(apiUrl(`/api/system/workspaces/${id}/refresh`), { method: "POST" });
 			if (!res.ok) {
 				const e: { error?: string } = await res.json();
 				showError(e.error ?? "Refresh failed");
@@ -2009,7 +2001,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 	const loadWsBranches = useCallback(async (id: string) => {
 		if (wsBranches[id]) return;
 		try {
-			const res = await fetch(`/api/system/workspaces/${id}/branch`);
+			const res = await fetch(apiUrl(`/api/system/workspaces/${id}/branch`));
 			if (!res.ok) return;
 			const d: { branches?: string[] } = await res.json();
 			setWsBranches((prev) => ({ ...prev, [id]: d.branches ?? [] }));
@@ -2021,7 +2013,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 		setSwitchingBranch(id);
 		setSwitchingBranchName(branch);
 		try {
-			const res = await fetch(`/api/system/workspaces/${id}/branch`, {
+			const res = await fetch(apiUrl(`/api/system/workspaces/${id}/branch`), {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ branch }),
@@ -2558,7 +2550,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 						<div
 							className="flex min-w-0 items-center gap-1.5"
 							title={`Wiki Viewer v${process.env.NEXT_PUBLIC_APP_VERSION}`}>
-							<img src="/logo.svg" alt="Wiki Viewer" className="h-5 w-5 shrink-0" />
+							<img src={apiUrl("/logo.svg")} alt="Wiki Viewer" className="h-5 w-5 shrink-0" />
 							<span className="truncate text-xs font-semibold leading-5 tracking-tight translate-y-[0.5px]">
 								Wiki Viewer
 							</span>
@@ -3222,7 +3214,7 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 						(() => {
 							const websiteSrc =
 								openFileViewerKind === "html"
-									? `/api/assets/${openFile.path}`
+									? withWs(`/api/assets/${openFile.path}`)
 									: undefined;
 							return appFullscreen ? (
 								<WebsiteViewer
@@ -3683,7 +3675,11 @@ const [shareDialogOpen, setShareDialogOpen] = useState(false);
 				onOpenChange={setShareDialogOpen}
 				filePath={openFile?.path ?? ""}
 			/>
-			<AuthSettingsSheet open={settingsOpen} onOpenChange={setSettingsOpen} />
+			{/* Lite has no auth: mounting this calls authClient.useSession(), which
+			    polls /api/auth/get-session, a route lite does not serve. */}
+			{!isLite() && (
+				<AuthSettingsSheet open={settingsOpen} onOpenChange={setSettingsOpen} />
+			)}
 			<AIPanel currentPath={openFile?.path} />
 			<input
 				ref={fileInputRef}

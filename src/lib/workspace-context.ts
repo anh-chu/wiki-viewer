@@ -102,8 +102,17 @@ type PickResult = { ok: true; ws: Workspace } | WorkspaceError;
  * rootDir.
  */
 async function pickWorkspace(req: Request): Promise<PickResult> {
-	await migrateConfigToWorkspaces();
 	const url = new URL(req.url);
+
+	// Lite mode: only ?root= ephemeral workspaces are permitted. No registry
+	// lookup, no fallback, and config.json is never read or written.
+	if (process.env.WIKI_LITE === "1") {
+		const rootParam = url.searchParams.get("root");
+		if (!rootParam) return { ok: false, status: 400, code: "root_required" };
+		return resolveEphemeralRoot(req, rootParam);
+	}
+
+	await migrateConfigToWorkspaces();
 
 	// Host-supplied ephemeral root takes precedence over all registry lookup.
 	const rootParam = url.searchParams.get("root");

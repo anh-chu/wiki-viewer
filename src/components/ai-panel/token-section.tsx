@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { CheckCircle, XCircle, Clock, Trash2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { apiUrl } from "@/lib/url-prefix";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -152,7 +153,7 @@ export function TokenSection() {
 
 	// Bootstrap owner cookie on first mount (localhost only)
 	useEffect(() => {
-		fetch("/api/owner/init", { credentials: "same-origin" })
+		fetch(apiUrl("/api/owner/init"), { credentials: "same-origin" })
 			.then((r) => {
 				if (r.ok || r.status === 204) setOwnerReady(true);
 			})
@@ -164,7 +165,7 @@ export function TokenSection() {
 
 	const fetchPending = useCallback(async () => {
 		try {
-			const r = await fetch("/api/agent/admin/registrations", { credentials: "same-origin" });
+			const r = await fetch(apiUrl("/api/agent/admin/registrations"), { credentials: "same-origin" });
 			if (!r.ok) return;
 			const data = (await r.json()) as { pending: PendingReg[] };
 			setPending(data.pending);
@@ -175,7 +176,7 @@ export function TokenSection() {
 
 	const fetchAgents = useCallback(async () => {
 		try {
-			const r = await fetch("/api/agent/admin/agents", { credentials: "same-origin" });
+			const r = await fetch(apiUrl("/api/agent/admin/agents"), { credentials: "same-origin" });
 			if (!r.ok) return;
 			const data = (await r.json()) as { agents: RegisteredAgent[] };
 			setAgents(data.agents);
@@ -199,7 +200,7 @@ export function TokenSection() {
 
 	const handleApprove = useCallback(
 		async (regId: string) => {
-			const r = await fetch(`/api/agent/admin/registrations/${regId}/approve`, {
+			const r = await fetch(apiUrl(`/api/agent/admin/registrations/${regId}/approve`), {
 				method: "POST",
 				credentials: "same-origin",
 				headers: { "Content-Type": "application/json" },
@@ -217,7 +218,7 @@ export function TokenSection() {
 
 	const handleDeny = useCallback(
 		async (regId: string) => {
-			const r = await fetch(`/api/agent/admin/registrations/${regId}/deny`, {
+			const r = await fetch(apiUrl(`/api/agent/admin/registrations/${regId}/deny`), {
 				method: "POST",
 				credentials: "same-origin",
 			});
@@ -234,7 +235,7 @@ export function TokenSection() {
 	const handleRevoke = useCallback(
 		async (agentId: string) => {
 			const r = await fetch(
-				`/api/agent/admin/agents/${encodeURIComponent(agentId)}/revoke`,
+				apiUrl(`/api/agent/admin/agents/${encodeURIComponent(agentId)}/revoke`),
 				{ method: "POST", credentials: "same-origin" },
 			);
 			if (r.ok) {

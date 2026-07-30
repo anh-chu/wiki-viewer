@@ -172,6 +172,12 @@ export function createOverlapGate(
 }
 
 export async function GET(request: Request) {
+	// Lite mode: no file watchers. 503 fails the EventSource permanently
+	// (a non-200 response), unlike 204 which would cause infinite reconnect.
+	if (process.env.WIKI_LITE === "1") {
+		return new Response("watch unavailable in lite mode", { status: 503 });
+	}
+
 	const ctx = await resolveWorkspaceForUser(request);
 	if (!ctx.ok) return new Response(ctx.code, { status: ctx.status });
 	const { ws, rootDir } = ctx;

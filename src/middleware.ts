@@ -1,6 +1,4 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { validateApiKey } from "./lib/auth/api-key";
-import { validateRootParam } from "./lib/embed-root";
 
 // Node.js runtime required: middleware reads node:fs to validate the embed API key.
 // Edge runtime (the default) can't access the filesystem.
@@ -18,48 +16,30 @@ const PASSTHROUGH_PREFIXES = [
 	"/favicon.ico",
 ];
 
-// When a valid api_key is present the key itself is the authorization boundary.
-// frame-ancestors * just tells browsers the embedding is server-approved.
-// Without a valid key the embed bypass doesn't fire and X-Frame-Options: SAMEORIGIN applies.
-const CSP_FRAME_ANCESTORS = "frame-ancestors *";
-
-// Routes wiki-viewer frames from its OWN pages: the html/app viewers mount a
-// nested <iframe src="/api/assets/..."> (website-viewer.tsx) and the node-app
-// viewer one at /api/app-proxy/... (node-app-viewer.tsx).
-//
-// These match the /api/ passthrough above, so the embed branch below never
-// reached them and next.config's blanket X-Frame-Options: SAMEORIGIN was the
-// only framing header they carried. Browsers check XFO against every ancestor
-// rather than just the parent, so once the TOP frame is the embedding host the
-// nested frame is refused even though it is same-origin with its parent. The
-// outer page was server-approved and the inner one was not.
-//
-// Note SameSite=strict on the embed cookie still reaches these: SameSite is
-// judged on the registrable domain, where term/wiki subdomains are one site,
-// while XFO is judged on the origin, where they are not. Same pair of hosts,
-// opposite verdicts, which is why docs rendered while html did not.
-const FRAMABLE_API_PREFIXES = ["/api/assets/", "/api/app-proxy/"];
-
-function hasValidEmbedKey(req: NextRequest): boolean {
-	const key =
-		req.nextUrl.searchParams.get("api_key") ||
-		req.cookies.get("__wiki_embed_auth")?.value ||
-		"";
-	return key !== "" && validateApiKey(key);
-}
+// Lite mode deny list: these routes are never available in lite deployments.
+const LITE_DENY_PREFIXES = [
+	"/api/system/",
+	"/api/agent",
+	"/api/agents",
+	"/api/share",
+	"/api/owner",
+	"/api/auth",
+	"/api/pdf",
+	"/signin",
+	"/s/",
+];
 
 export function middleware(req: NextRequest): NextResponse {
 	const { pathname } = req.nextUrl;
 
-	if (PASSTHROUGH_PREFIXES.some((p) => pathname.startsWith(p))) {
-		if (
-			FRAMABLE_API_PREFIXES.some((p) => pathname.startsWith(p)) &&
-			hasValidEmbedKey(req)
-		) {
-			const res = NextResponse.next();
-			res.headers.set("Content-Security-Policy", CSP_FRAME_ANCESTORS);
-			return res;
+	// Lite mode deny list evaluated before passthrough.
+	if (process.env.WIKI_LITE === "1") {
+		if (LITE_DENY_PREFIXES.some((p) => pathname.startsWith(p))) {
+			return new NextResponse(null, { status: 404 });
 		}
+	}
+
+	if (PASSTHROUGH_PREFIXES.some((p) => pathname.startsWith(p))) {
 		return NextResponse.next();
 	}
 
@@ -68,72 +48,6 @@ export function middleware(req: NextRequest): NextResponse {
 	// app work without any credentials.
 	if (process.env.WIKI_NO_AUTH === "1") {
 		return NextResponse.next();
-	}
-
-	// Embed mode: allow iframe framing from localhost when a valid API key is
-	// presented. The key is auto-generated at ~/.wiki-viewer/api-key on first
-	// startup and read by termyard's Go backend.
-	//
-	// On initial iframe load (?embed=1&api_key=<key>): validate key, set an
-	// HttpOnly session cookie so the iframe's same-origin API calls are
-	// authenticated automatically (browsers don't send custom headers on
-	// same-origin fetch from an iframe, but they do send cookies).
-	//
-	// On subsequent navigations (?embed=1 without api_key): cookie already set,
-	// validate via cookie.
-	const isEmbed = req.nextUrl.searchParams.get("embed") === "1";
-	if (isEmbed) {
-		const apiKeyParam = req.nextUrl.searchParams.get("api_key") ?? "";
-		const embedCookieValue =
-			req.cookies.get("__wiki_embed_auth")?.value ?? "";
-
-		const keyToCheck = apiKeyParam || embedCookieValue;
-		if (keyToCheck && validateApiKey(keyToCheck)) {
-			// Validate ?root= HERE, not just in the API routes.
-			//
-			// The iframe's initial load is a page navigation, so without this a bad
-			// root renders the normal shell with HTTP 200 and the embedding host
-			// concludes all is well — the 400 only materializes later from an
-			// in-iframe fetch the host cannot observe cross-origin. That is the
-			// exact silent failure this feature exists to remove, one layer down.
-			//
-			// Ordering matters: this runs only AFTER the key has validated, so it
-			// can't be used as a filesystem-existence oracle by an unauthenticated
-			// caller. Same codes as the API routes (shared validateRootParam).
-			const rootParam = req.nextUrl.searchParams.get("root");
-			if (rootParam) {
-				const valid = validateRootParam(rootParam);
-				if (!valid.ok) {
-					return NextResponse.json(
-						{ error: valid.code },
-						{
-							status: 400,
-							headers: {
-								// Readable without parsing the body, for hosts that only
-								// inspect headers on a navigation probe.
-								"X-Wiki-Error": valid.code,
-								"Cache-Control": "no-store",
-							},
-						},
-					);
-				}
-			}
-
-			const res = NextResponse.next();
-			res.headers.set("Content-Security-Policy", CSP_FRAME_ANCESTORS);
-			// Set / refresh the embed auth cookie whenever the api_key param is
-			// present (initial load or explicit re-auth).
-			if (apiKeyParam) {
-				res.cookies.set("__wiki_embed_auth", apiKeyParam, {
-					httpOnly: true,
-					sameSite: "strict",
-					path: "/",
-					// No maxAge → session cookie (cleared when browser/tab closes)
-				});
-			}
-			return res;
-		}
-		// Key absent or invalid → fall through to cookie / signin check below.
 	}
 
 	// Cheap presence check; real session validation happens in individual routes.

@@ -2,7 +2,7 @@
 // Post-build fixups for the Next.js standalone bundle so it survives `npm pack`
 // and runs from a clean install. Run after `next build`.
 //
-// Three problems this addresses:
+// Four problems this addresses:
 //
 // 1. Static assets and public/ are not copied into the standalone output by
 //    Next, so we copy them in.
@@ -16,8 +16,13 @@
 //    does not exist in node_modules, so the server throws "Cannot find module"
 //    at runtime. Rewrite every hashed external require back to its real package
 //    name. See vercel/next.js#88844 and #91654.
+//
+// 4. Under pnpm, standalone/node_modules is a .pnpm store plus symlinks. npm
+//    pack silently drops symlinks while keeping the store's real files, so the
+//    tarball extracts to a tree where `require("next")` fails. Flatten the
+//    store into a real hoisted tree (step 6).
 
-import { cpSync, mkdirSync, rmSync, existsSync, readdirSync, statSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, rmSync, existsSync, readdirSync, statSync, lstatSync, renameSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -148,6 +153,108 @@ if (rgSrc && existsSync(rgSrc)) {
   console.warn("WARNING: @vscode/ripgrep platform binary not found");
   console.warn("  The published package will rely on the consumer's PATH for ripgrep.");
   console.warn("  Install @vscode/ripgrep (optional dep) or ensure rg is on PATH.");
+}
+
+// 6. Flatten pnpm's symlink farm into a real hoisted tree.
+//
+// pnpm lays out standalone/node_modules as a .pnpm content store plus symlinks
+// pointing into it, both at the top level (next, react) and nested inside each
+// store entry for peer deps (next -> @swc/helpers). `npm pack` follows neither:
+// it packs the store's real files and drops every symlink, so the extracted
+// tarball has the bytes but no resolvable package names.
+//
+// Hoisting is safe here because the traced runtime set contains no duplicate
+// package names at differing versions. That is asserted below rather than
+// assumed, because a future dependency bump could introduce one and flattening
+// would then silently drop a version.
+//
+// This runs last so it cannot disturb the ripgrep binary step 5 places at a
+// flat path. Any top-level entry that is already a real directory is left
+// alone for that reason.
+const nodeModules = path.join(standalone, "node_modules");
+const pnpmStore = path.join(nodeModules, ".pnpm");
+
+if (existsSync(pnpmStore)) {
+  // Collect every real package directory in the store, keyed by package name.
+  const found = new Map();
+  const conflicts = [];
+
+  const record = (name, full) => {
+    // Symlinks are peer-dep pointers to other store entries; the real copy is
+    // recorded when we reach the store entry that owns it.
+    const st = lstatSync(full);
+    if (st.isSymbolicLink() || !st.isDirectory()) return;
+    if (found.has(name)) {
+      conflicts.push(name);
+      return;
+    }
+    found.set(name, full);
+  };
+
+  for (const storeEntry of readdirSync(pnpmStore)) {
+    const inner = path.join(pnpmStore, storeEntry, "node_modules");
+    if (!existsSync(inner)) continue;
+
+    for (const entry of readdirSync(inner)) {
+      if (entry === ".bin") continue;
+
+      if (entry.startsWith("@")) {
+        const scopeDir = path.join(inner, entry);
+        if (!lstatSync(scopeDir).isDirectory()) continue;
+        for (const scoped of readdirSync(scopeDir)) {
+          record(`${entry}/${scoped}`, path.join(scopeDir, scoped));
+        }
+      } else {
+        record(entry, path.join(inner, entry));
+      }
+    }
+  }
+
+  if (conflicts.length) {
+    console.error(`ERROR: cannot flatten standalone node_modules, duplicate versions of: ${[...new Set(conflicts)].join(", ")}`);
+    console.error("  Hoisting would drop one version. Resolve the duplicate dependency before publishing.");
+    process.exit(1);
+  }
+
+  let hoisted = 0;
+  for (const [name, src] of found) {
+    const dst = path.join(nodeModules, name);
+
+    // lstat, not existsSync: a symlink whose target has already been hoisted
+    // is dangling, and existsSync would report it as absent.
+    const present = lstatSync(dst, { throwIfNoEntry: false });
+    if (present) {
+      // A real directory here was placed deliberately (step 5's rg binary).
+      if (!present.isSymbolicLink()) continue;
+      rmSync(dst);
+    }
+
+    mkdirSync(path.dirname(dst), { recursive: true });
+    renameSync(src, dst);
+    hoisted++;
+  }
+
+  rmSync(pnpmStore, { recursive: true, force: true });
+  console.log(`postbuild: hoisted ${hoisted} package(s) out of the pnpm store`);
+
+  // Nothing may resolve through a symlink after this point, or npm pack will
+  // drop it again and the failure only surfaces on a user's machine.
+  const leftovers = [];
+  (function scan(dir) {
+    for (const entry of readdirSync(dir)) {
+      const full = path.join(dir, entry);
+      const st = lstatSync(full);
+      if (st.isSymbolicLink()) leftovers.push(path.relative(standalone, full));
+      else if (st.isDirectory()) scan(full);
+    }
+  })(nodeModules);
+
+  if (leftovers.length) {
+    console.error(`ERROR: ${leftovers.length} symlink(s) survived flattening, npm pack would drop them:`);
+    for (const l of leftovers.slice(0, 10)) console.error(`  ${l}`);
+    process.exit(1);
+  }
+  console.log("postbuild: standalone node_modules is symlink-free");
 }
 
 console.log("postbuild: done");

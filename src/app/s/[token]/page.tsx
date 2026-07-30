@@ -13,6 +13,7 @@ import {
 	Download,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { apiUrl } from "@/lib/url-prefix";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -157,7 +158,7 @@ export default function SharedPage({
 			if (!token) return;
 			setState({ kind: "loading" });
 			try {
-				const res = await fetch(`/api/share/${token}`);
+				const res = await fetch(apiUrl(`/api/share/${token}`));
 				const data = await res.json();
 
 				if (res.ok && data.content !== undefined) {
@@ -210,7 +211,7 @@ export default function SharedPage({
 		setVerifying(true);
 		setPwdError(false);
 		try {
-			const res = await fetch(`/api/share/${token}`, {
+			const res = await fetch(apiUrl(`/api/share/${token}`), {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ password: password.trim() }),
@@ -415,7 +416,7 @@ function SharedContentViewer({
 	filename: string;
 	token: string;
 }) {
-	const assetUrl = `/api/share/${token}/asset`;
+	const assetUrl = apiUrl(`/api/share/${token}/asset`);
 
 	switch (kind) {
 		case "markdown":

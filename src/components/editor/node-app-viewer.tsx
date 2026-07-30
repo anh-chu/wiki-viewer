@@ -22,7 +22,7 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { AppStatus } from "@/lib/app-runner";
-import { wsFetch } from "@/lib/workspace-client";
+import { wsFetch, withWs } from "@/lib/workspace-client";
 
 interface Props {
 	path: string;
@@ -59,7 +59,7 @@ export function NodeAppViewer({ path, title }: Props) {
 	const logsEndRef = useRef<HTMLDivElement>(null);
 
 	// Proxy URL — all traffic flows through wiki-viewer (works remotely)
-	const proxyUrl = `/api/app-proxy/${path}/`;
+	const proxyUrl = withWs(`/api/app-proxy/${path}/`);
 
 	const stopPolling = () => {
 		if (pollRef.current) {

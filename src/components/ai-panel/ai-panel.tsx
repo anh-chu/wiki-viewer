@@ -4,6 +4,7 @@ import { useEffect, useCallback, useRef, useState } from "react";
 import { X, Copy, Check, Bot, Wifi, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAIPanelStore } from "@/stores/ai-panel-store";
+import { apiUrl } from "@/lib/url-prefix";
 import { TokenSection } from "./token-section";
 import { ActivityFeed } from "./activity-row";
 const SKILL_CLI = "npx skills add anh-chu/wiki-viewer/agents/wiki-viewer-skill";
@@ -123,7 +124,7 @@ export function AIPanel({ currentPath }: { currentPath?: string | null }) {
 	// Fetch install JSON once on open for live bootstrap prompt
 	useEffect(() => {
 		if (!isOpen) return;
-		void fetch("/api/agents/install")
+		void fetch(apiUrl("/api/agents/install"))
 			.then((r) => r.json())
 			.then((d: { bootstrapPrompt?: string }) => {
 				if (d.bootstrapPrompt) setBootstrapPrompt(d.bootstrapPrompt);
@@ -242,10 +243,10 @@ export function AIPanel({ currentPath }: { currentPath?: string | null }) {
 							<button type="button" onClick={() => void copy()} className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline">
 								{copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />} curl example
 							</button>
-							<a href="/api/agents/skill" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline">
+							<a href={apiUrl("/api/agents/skill")} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline">
 								<ExternalLink className="h-3 w-3" /> skill
 							</a>
-							<a href="/api/agents/install" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline">
+							<a href={apiUrl("/api/agents/install")} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline">
 								<ExternalLink className="h-3 w-3" /> install JSON
 							</a>
 						</div>
@@ -296,7 +297,7 @@ export function AIPanel({ currentPath }: { currentPath?: string | null }) {
 					{/* Docs link */}
 					<section>
 						<a
-							href="/docs/agent-collab-plan.md"
+							href={apiUrl("/docs/agent-collab-plan.md")}
 							target="_blank"
 							rel="noreferrer"
 							className="text-xs text-primary underline hover:no-underline"

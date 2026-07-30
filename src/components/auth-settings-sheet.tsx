@@ -6,6 +6,7 @@ import { AlertCircle, Check, Key, Loader2, RotateCcw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetClose } from "@/components/ui/sheet";
 import { showError } from "@/lib/toast";
+import { apiUrl } from "@/lib/url-prefix";
 import { authClient } from "@/lib/auth/client";
 import { useSkinStore, SKIN_ORDER, SKIN_LABEL } from "@/stores/skin-store";
 import { useExperimentsStore, EXPERIMENTS } from "@/stores/experiments-store";
@@ -130,7 +131,7 @@ export function AuthSettingsSheet({
 
 	const loadAdmins = useCallback(async () => {
 		try {
-			const res = await fetch("/api/system/admins");
+			const res = await fetch(apiUrl("/api/system/admins"));
 			if (!res.ok) return;
 			const d: { admins?: string[]; isAdmin?: boolean; users?: Array<{ id: string; email: string; name: string }> } =
 				await res.json();
@@ -146,7 +147,7 @@ export function AuthSettingsSheet({
 		setLoading(true);
 		setError(null);
 		try {
-			const res = await fetch("/api/system/auth-settings");
+			const res = await fetch(apiUrl("/api/system/auth-settings"));
 			if (!res.ok) throw new Error("Failed to load settings");
 			const data: AuthSettings = await res.json();
 			setEmailsText(listToText(data.allowedEmails));
@@ -162,7 +163,7 @@ export function AuthSettingsSheet({
 
 	const loadApiKey = useCallback(async () => {
 		try {
-			const res = await fetch("/api/system/api-key");
+			const res = await fetch(apiUrl("/api/system/api-key"));
 			if (!res.ok) return;
 			const d: { key?: string } = await res.json();
 			setApiKey(d.key ?? null);
@@ -183,7 +184,7 @@ export function AuthSettingsSheet({
 		setSaving(true);
 		setError(null);
 		try {
-			const res = await fetch("/api/system/auth-settings", {
+			const res = await fetch(apiUrl("/api/system/auth-settings"), {
 				method: "PUT",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
@@ -247,7 +248,7 @@ export function AuthSettingsSheet({
 										type="button"
 										onClick={async () => {
 											await authClient.signOut();
-											window.location.href = "/signin";
+											window.location.href = apiUrl("/signin");
 										}}
 										className="ml-2 shrink-0 text-xs px-2 py-1 rounded border border-border hover:bg-accent"
 									>
@@ -431,7 +432,7 @@ export function AuthSettingsSheet({
 													setCreatingUser(true);
 													setAdminError(null);
 													try {
-														const res = await fetch("/api/system/users", {
+														const res = await fetch(apiUrl("/api/system/users"), {
 															method: "POST",
 															headers: { "Content-Type": "application/json" },
 															body: JSON.stringify({ email: newUserEmail.trim(), name: newUserName.trim() }),
@@ -472,7 +473,7 @@ export function AuthSettingsSheet({
 														setAdminWorking(u.id);
 														setAdminError(null);
 														try {
-															const res = await fetch("/api/system/admins", {
+															const res = await fetch(apiUrl("/api/system/admins"), {
 																method: isAdminUser ? "DELETE" : "POST",
 																headers: { "Content-Type": "application/json" },
 																body: JSON.stringify({ userId: u.id }),
@@ -547,7 +548,7 @@ export function AuthSettingsSheet({
 											if (!confirm("Rotate the API key? Any tool using the current key will need to be updated.")) return;
 											setApiKeyRotating(true);
 											try {
-												const res = await fetch("/api/system/api-key", { method: "POST" });
+												const res = await fetch(apiUrl("/api/system/api-key"), { method: "POST" });
 												const d: { key?: string } = await res.json();
 												if (d.key) setApiKey(d.key);
 											} catch {

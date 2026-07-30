@@ -17,6 +17,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { apiUrl } from "@/lib/url-prefix";
 
 interface Entry {
 	name: string;
@@ -94,7 +95,7 @@ export function DirPicker({ onSelect }: Props) {
 			if (sshAuthMethod === "password" && sshPassword) body.sshPassword = sshPassword;
 			if (sshReadOnly) body.sshReadOnly = true;
 			if (sshName.trim()) body.name = sshName.trim();
-			const res = await fetch("/api/system/workspaces", {
+			const res = await fetch(apiUrl("/api/system/workspaces"), {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify(body),
@@ -129,7 +130,7 @@ export function DirPicker({ onSelect }: Props) {
 			if (gitUsername.trim()) body.username = gitUsername.trim();
 			if (gitToken.trim()) body.token = gitToken.trim();
 			if (gitName.trim()) body.name = gitName.trim();
-			const res = await fetch("/api/system/workspaces", {
+			const res = await fetch(apiUrl("/api/system/workspaces"), {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify(body),
@@ -159,7 +160,7 @@ export function DirPicker({ onSelect }: Props) {
 		setError(null);
 		try {
 			const res = await fetch(
-				`/api/system/browse?path=${encodeURIComponent(dir)}`,
+				apiUrl(`/api/system/browse?path=${encodeURIComponent(dir)}`),
 			);
 			if (!res.ok) {
 				const e: { error?: string } = await res.json();
@@ -181,7 +182,7 @@ export function DirPicker({ onSelect }: Props) {
 		let cancelled = false;
 		(async () => {
 			try {
-				const res = await fetch("/api/system/config");
+				const res = await fetch(apiUrl("/api/system/config"));
 				if (res.ok && !cancelled) {
 					const cfg: { pinnedPaths: string[]; lastOpenedPath: string | null } =
 						await res.json();
@@ -203,7 +204,7 @@ export function DirPicker({ onSelect }: Props) {
 		if (!target) return;
 		setSelecting(true);
 		try {
-			const res = await fetch("/api/system/workspaces", {
+			const res = await fetch(apiUrl("/api/system/workspaces"), {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ rootDir: target }),
@@ -248,7 +249,7 @@ export function DirPicker({ onSelect }: Props) {
 		setPinLoading(true);
 		try {
 			const action = isPinned ? "unpin" : "pin";
-			const res = await fetch("/api/system/pins", {
+			const res = await fetch(apiUrl("/api/system/pins"), {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ path: data.path, action }),
@@ -269,7 +270,7 @@ export function DirPicker({ onSelect }: Props) {
 
 	const removePin = async (p: string) => {
 		try {
-			const res = await fetch("/api/system/pins", {
+			const res = await fetch(apiUrl("/api/system/pins"), {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ path: p, action: "unpin" }),
@@ -299,7 +300,7 @@ export function DirPicker({ onSelect }: Props) {
 				{/* Header */}
 				<div className="text-center space-y-1">
 					<div className="flex items-center justify-center gap-2 mb-1">
-						<img src="/logo.svg" alt="Wiki Viewer" className="h-8 w-8" />
+						<img src={apiUrl("/logo.svg")} alt="Wiki Viewer" className="h-8 w-8" />
 						<span className="text-xl font-semibold tracking-tight">Wiki Viewer</span>
 					</div>
 					<h1 className="text-xl font-medium">

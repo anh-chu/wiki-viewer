@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { apiUrl } from "@/lib/url-prefix";
 
 /**
  * Web app manifest. Makes iOS/Android "Add to Home Screen" install a real
@@ -11,16 +12,16 @@ export default function manifest(): MetadataRoute.Manifest {
 		name: "Wiki Viewer",
 		short_name: "Wiki",
 		description: "Local file browser, viewer, and editor",
-		start_url: "/",
-		scope: "/",
+		start_url: apiUrl("/"),
+		scope: apiUrl("/"),
 		display: "standalone",
 		background_color: "#0c0a09",
 		theme_color: "#0c0a09",
 		icons: [
-			{ src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
-			{ src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+			{ src: apiUrl("/icon-192.png"), sizes: "192x192", type: "image/png", purpose: "any" },
+			{ src: apiUrl("/icon-512.png"), sizes: "512x512", type: "image/png", purpose: "any" },
 			{
-				src: "/icon-maskable-512.png",
+				src: apiUrl("/icon-maskable-512.png"),
 				sizes: "512x512",
 				type: "image/png",
 				purpose: "maskable",

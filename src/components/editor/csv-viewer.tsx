@@ -2,7 +2,7 @@
 
 import { Code2, Download, Save } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { wsFetch } from "@/lib/workspace-client";
+import { wsFetch, withWs } from "@/lib/workspace-client";
 import { ViewerToolbar } from "@/components/layout/viewer-toolbar";
 import { Button } from "@/components/ui/button";
 
@@ -86,10 +86,10 @@ export function CsvViewer({ path }: CsvViewerProps) {
 	const [isLarge, setIsLarge] = useState(false);
 	const [visibleRows, setVisibleRows] = useState(ROW_CHUNK);
 
-	const csvUrl = `/api/assets/${path}`;
+	const csvUrl = withWs(`/api/assets/${path}`);
 
 	useEffect(() => {
-		wsFetch(csvUrl)
+		fetch(csvUrl)
 			.then((r) => r.text())
 			.then((text) => {
 				const parsed = parseCsv(text);

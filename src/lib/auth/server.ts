@@ -218,11 +218,9 @@ export async function requireUser(
 		return { ok: true, user: { id: "no-auth", email: "", name: "local" } };
 	}
 
-	// API key via Authorization: Bearer header (termyard health checks and other
-	// server-to-server callers) or the __wiki_embed_auth cookie (set by middleware
-	// on the initial iframe load; browsers auto-include it on same-origin fetches
-	// from the iframe). Extraction lives in api-key.ts so the ephemeral-root gate
-	// in workspace-context.ts applies exactly the same rule.
+	// API key via Authorization: Bearer header, for server-to-server callers.
+	// Extraction lives in api-key.ts so the ephemeral-root gate in
+	// workspace-context.ts applies exactly the same rule.
 	const { isApiKeyRequest } = await import("./api-key");
 	if (isApiKeyRequest(req)) {
 		return { ok: true, user: API_KEY_USER };

@@ -18,8 +18,7 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 const DATA_DIR = path.join(process.env.HOME ?? os.homedir(), ".wiki-viewer");
 const KEY_PATH = path.join(DATA_DIR, "api-key");
 
-/** Cookie the middleware sets after validating ?api_key= on an embed load. */
-export const EMBED_COOKIE_NAME = "__wiki_embed_auth";
+
 
 /**
  * Ensure ~/.wiki-viewer/api-key exists; generate if missing.
@@ -85,13 +84,10 @@ export function validateApiKey(key: string): boolean {
 }
 
 /**
- * Every place an API key can arrive on a request, in precedence order:
+ * Every place an API key can arrive on a request:
  *   1. `Authorization: Bearer <key>` — server-to-server (termyard health checks).
- *   2. `__wiki_embed_auth` cookie — set by middleware on the initial iframe
- *      load; browsers auto-include it on same-origin fetches from the iframe.
  *
- * Returns candidates rather than one value so an invalid Bearer header doesn't
- * mask a valid embed cookie (both are tried by the callers below).
+ * Returns candidates rather than one value so callers can try multiple sources.
  */
 export function candidateApiKeys(req: Request): string[] {
 	const out: string[] = [];
@@ -102,27 +98,11 @@ export function candidateApiKeys(req: Request): string[] {
 		if (token) out.push(token);
 	}
 
-	const cookieHeader = req.headers.get("cookie") ?? "";
-	// NOTE: `\s*` needs its backslash here. A previous version read `;s*`
-	// (literal 's'), which only matched when the embed cookie was FIRST in the
-	// header — cookies are separated by "; ", so embed auth silently failed for
-	// any browser that also held a better-auth session cookie.
-	const match = new RegExp(`(?:^|;\\s*)${EMBED_COOKIE_NAME}=([^;]+)`).exec(
-		cookieHeader,
-	);
-	if (match) {
-		try {
-			out.push(decodeURIComponent(match[1]));
-		} catch {
-			out.push(match[1]);
-		}
-	}
-
 	return out;
 }
 
 /**
- * True if this request is authenticated by the embed API key (Bearer or cookie).
+ * True if this request is authenticated by the embed API key (Bearer).
  *
  * This is the authorization boundary for host-supplied ephemeral roots: the key
  * lives at ~/.wiki-viewer/api-key with mode 0600, so anyone who can read it

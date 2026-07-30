@@ -44,3 +44,29 @@ test("unsanitized editor path leaves HTML untouched", async () => {
 	const html = await markdownToHtml(md);
 	assert.ok(html.includes("<table"), "editor path keeps raw HTML");
 });
+
+// The PDF marker runs after relative asset URLs are rewritten, so it must match
+// the prefixed form too. Anchoring it on a bare /api/assets/ silently dropped
+// in-app PDF handling whenever WIKI_URL_PREFIX was set. Distinct markdown per
+// case on purpose: the render cache key does not include the prefix.
+test("pdf links stay marked when a url prefix is set", async () => {
+	const prev = process.env.WIKI_URL_PREFIX;
+	process.env.WIKI_URL_PREFIX = "/wiki";
+	try {
+		const html = await markdownToHtml("[spec](./spec-prefixed.pdf)", "notes/page.md");
+		assert.ok(
+			html.includes('href="/wiki/api/assets/notes/spec-prefixed.pdf"'),
+			"asset url should carry the prefix",
+		);
+		assert.ok(html.includes('data-pdf-link="true"'), "pdf marker must survive the prefix");
+	} finally {
+		if (prev === undefined) delete process.env.WIKI_URL_PREFIX;
+		else process.env.WIKI_URL_PREFIX = prev;
+	}
+});
+
+test("pdf links stay marked with no url prefix", async () => {
+	const html = await markdownToHtml("[spec](./spec-plain.pdf)", "notes/page.md");
+	assert.ok(html.includes('href="/api/assets/notes/spec-plain.pdf"'), "asset url should be bare");
+	assert.ok(html.includes('data-pdf-link="true"'), "pdf marker must still apply");
+});

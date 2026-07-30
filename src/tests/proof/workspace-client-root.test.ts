@@ -14,7 +14,6 @@ import {
 	withWs,
 	getEphemeralRoot,
 	getActiveWorkspaceId,
-	isTrustedEmbedParent,
 } from "../../lib/workspace-client.js";
 
 /** These helpers read window.location.search; fake just enough of it. */
@@ -96,7 +95,7 @@ describe("withWs scope propagation", () => {
 		assert.equal(withWs("/api/wiki"), "/api/wiki?ws=ws_abc");
 	});
 
-	test("no root and no ws -> URL untouched", () => {
+	test("no root and no ws -> URL untouched (prefix unset)", () => {
 		setSearch("");
 		assert.equal(withWs("/api/wiki"), "/api/wiki");
 	});
@@ -109,7 +108,7 @@ describe("withWs scope propagation", () => {
 		);
 	});
 
-	test("leaves non-workspace-scoped URLs alone", () => {
+	test("leaves non-workspace-scoped URLs alone (prefix unset)", () => {
 		setSearch("?root=%2Ftmp%2Fr");
 		assert.equal(withWs("/api/agents"), "/api/agents");
 		assert.equal(withWs("/api/agent/register"), "/api/agent/register");
@@ -123,79 +122,35 @@ describe("withWs scope propagation", () => {
 	});
 });
 
-describe("isTrustedEmbedParent", () => {
-	const SELF = "https://wiki.anhdchu.com";
-
-	test("loopback parents trusted (dev case), any port", () => {
-		for (const o of [
-			"http://localhost:7654",
-			"http://127.0.0.1:3000",
-			"https://localhost",
-			"http://[::1]:8080",
-		]) {
-			assert.equal(
-				isTrustedEmbedParent(o, { selfOrigin: SELF, hasHostRoot: false }),
-				true,
-				o,
-			);
-		}
+describe("withWs url prefix", () => {
+	test("prepends prefix when set", () => {
+		(globalThis as unknown as { window?: Record<string, unknown> }).window = {
+			location: { search: "" },
+			__WIKI_PREFIX: "/wiki",
+		};
+		assert.equal(withWs("/api/wiki"), "/wiki/api/wiki");
+		assert.equal(withWs("/api/assets/x.png"), "/wiki/api/assets/x.png");
 	});
 
-	test("same-origin parent trusted", () => {
-		assert.equal(
-			isTrustedEmbedParent(SELF, { selfOrigin: SELF, hasHostRoot: false }),
-			true,
-		);
+	test("preserves ws injection under prefix", () => {
+		(globalThis as unknown as { window?: Record<string, unknown> }).window = {
+			location: { search: "?ws=ws_abc" },
+			__WIKI_PREFIX: "/wiki",
+		};
+		assert.equal(withWs("/api/wiki"), "/wiki/api/wiki?ws=ws_abc");
 	});
 
-	test("Tailscale / reverse-proxied host trusted when it supplied a root", () => {
-		// The deployment shape termyard's README recommends. Previously dropped.
-		for (const o of [
-			"https://hub.example.ts.net:7654",
-			"https://termyard.mydomain.com",
-			"http://box.local:7654",
-		]) {
-			assert.equal(
-				isTrustedEmbedParent(o, { selfOrigin: SELF, hasHostRoot: true }),
-				true,
-				o,
-			);
-		}
+	test("preserves root injection under prefix", () => {
+		(globalThis as unknown as { window?: Record<string, unknown> }).window = {
+			location: { search: "?root=%2Ftmp%2Fr" },
+			__WIKI_PREFIX: "/wiki",
+		};
+		assert.equal(withWs("/api/wiki"), "/wiki/api/wiki?root=%2Ftmp%2Fr");
 	});
 
-	test("non-loopback WITHOUT a host root is not trusted", () => {
-		assert.equal(
-			isTrustedEmbedParent("https://evil.example.com", {
-				selfOrigin: SELF,
-				hasHostRoot: false,
-			}),
-			false,
-		);
-	});
-
-	test("lookalike loopback hostnames are NOT trusted", () => {
-		// Anchored regex: these must not slip through as loopback.
-		for (const o of [
-			"https://localhost.evil.com",
-			"https://notlocalhost",
-			"https://127.0.0.1.evil.com",
-			"https://evil.com/?x=http://localhost",
-		]) {
-			assert.equal(
-				isTrustedEmbedParent(o, { selfOrigin: SELF, hasHostRoot: false }),
-				false,
-				o,
-			);
-		}
-	});
-
-	test("null selfOrigin does not crash or auto-trust", () => {
-		assert.equal(
-			isTrustedEmbedParent("https://x.example.com", {
-				selfOrigin: null,
-				hasHostRoot: false,
-			}),
-			false,
-		);
+	test("identity when prefix unset", () => {
+		setSearch("?ws=ws_abc");
+		// Ensure __WIKI_PREFIX is not set
+		assert.equal(withWs("/api/wiki"), "/api/wiki?ws=ws_abc");
 	});
 });

@@ -4,6 +4,7 @@ import type { ActivityEvent } from "@/lib/proof/activity-shared";
 import { wsFetch } from "@/lib/workspace-client";
 import { deriveConnections } from "@/lib/proof/activity-shared";
 import { authHeaders } from "@/lib/proof/client-auth";
+import { isLite } from "@/lib/url-prefix";
 
 export interface Connection {
 	by: string;
@@ -43,6 +44,9 @@ export const useAIPanelStore = create<AIPanelState>((set) => ({
 	rateLimit: null,
 
 	loadActivity: async () => {
+		// Lite serves no agent API: /api/agent/activity 404s. Two callers poll
+		// this on 10s intervals, so without the guard it 404s forever.
+		if (isLite()) return;
 		const token =
 			typeof window !== "undefined"
 				? (localStorage.getItem("wiki-agent-token") ?? null)

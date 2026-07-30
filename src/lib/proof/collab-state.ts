@@ -22,6 +22,7 @@
 
 import { readSidecar } from "./sidecar";
 import { hasActiveLease, leaseGeneration } from "./lease";
+import { apiUrl } from "@/lib/url-prefix";
 
 function isMarkdownPath(p: string): boolean {
 	return p.endsWith(".md") || p.endsWith(".markdown");
@@ -45,7 +46,7 @@ export async function computeCollabState(
 		return { state: "not-markdown", revision: 0, snapshotUrl: null };
 	}
 
-	const snapshotUrl = `/api/agent/files/${relPath}`;
+	const snapshotUrl = apiUrl(`/api/agent/files/${relPath}`);
 
 	// Compute revision components
 	// ns = rootDir: workspace-namespaces lease keys so two workspaces sharing

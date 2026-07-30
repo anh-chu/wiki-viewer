@@ -21,6 +21,7 @@ import type { TreeNode } from "@/types";
 import { useProofStore } from "@/stores/proof-store";
 import { captureSuggestion } from "@/lib/proof/suggest-capture";
 import { wsFetch, withWs } from "@/lib/workspace-client";
+import { isLite } from "@/lib/url-prefix";
 import { showError } from "@/lib/toast";
 import { EditorBubbleMenu } from "./bubble-menu";
 import { EditorToolbar } from "./editor-toolbar";
@@ -292,6 +293,8 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	// on watchDir moves the subscription when navigation leaves that directory.
 	useEffect(() => {
 		if (typeof window === "undefined") return;
+		// Lite mode has no watcher (the server returns 503).
+		if (isLite()) return;
 
 		const refreshOpen = (activePath: string) => {
 			// loadSnapshot first so server-side readSnapshot detects

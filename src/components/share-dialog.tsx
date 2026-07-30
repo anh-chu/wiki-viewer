@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { showSuccess, showError } from "@/lib/toast";
 import { wsFetch } from "@/lib/workspace-client";
+import { apiUrl } from "@/lib/url-prefix";
 
 interface Share {
 	id: string;
@@ -116,7 +117,7 @@ export function ShareDialog({
 
 	const handleRevoke = async (token: string) => {
 		try {
-			const res = await fetch(`/api/share/${token}`, { method: "DELETE" });
+			const res = await fetch(apiUrl(`/api/share/${token}`), { method: "DELETE" });
 			if (!res.ok) {
 				showError("Failed to revoke share link");
 				return;
