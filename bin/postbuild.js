@@ -12,9 +12,9 @@
 //    the bundled runtime and compiled server from the tarball. Remove it.
 //
 // 3. Next 16.1+ with Turbopack emits content-hashed require ids for external
-//    packages, e.g. require("better-sqlite3-cf218e5bd1d5f04c"). That hashed id
-//    does not exist in node_modules, so the server throws "Cannot find module"
-//    at runtime. Rewrite every hashed external require back to its real package
+//    packages, e.g. require("sharp-cf218e5bd1d5f04c"). That hashed id does not
+//    exist in node_modules, so the server throws "Cannot find module" at
+//    runtime. Rewrite every hashed external require back to its real package
 //    name. See vercel/next.js#88844 and #91654.
 //
 // 4. Under pnpm, standalone/node_modules is a .pnpm store plus symlinks. npm
@@ -216,8 +216,30 @@ if (existsSync(pnpmStore)) {
     process.exit(1);
   }
 
+  // sharp is an optional dependency of next, required lazily by the
+  // /_next/image optimizer (next/dist/server/image-optimizer.js does
+  // `_sharp = require('sharp')` inside a function, never at module scope).
+  // This app imports next/image nowhere and sets images.unoptimized, so that
+  // code path is unreachable and sharp is dead weight.
+  //
+  // Excluding it matters for more than the ~11MB: @img/sharp-<platform> is a
+  // prebuilt .node binary chosen for the *publishing* machine. Because publish
+  // is pack+tar with no install step, that binary would be frozen into the
+  // tarball and fail to load on any other OS/arch. Dropping it leaves the
+  // package free of platform-locked native binaries.
+  //
+  // Note this is the same failure mode that shipped a Node-22-ABI
+  // better_sqlite3.node in 2.8.0; there the axis was ABI, here it is platform.
+  const isExcluded = (name) => name === "sharp" || name.startsWith("@img/");
+
   let hoisted = 0;
+  let excluded = 0;
   for (const [name, src] of found) {
+    if (isExcluded(name)) {
+      excluded++;
+      continue;
+    }
+
     const dst = path.join(nodeModules, name);
 
     // lstat, not existsSync: a symlink whose target has already been hoisted
@@ -234,8 +256,16 @@ if (existsSync(pnpmStore)) {
     hoisted++;
   }
 
+  // Skipping the hoist above leaves these inside .pnpm, which is removed below.
+  // These removals cover the other placement: a copy Next wrote directly to the
+  // top level rather than through the store.
+  for (const rel of ["sharp", "@img"]) {
+    rmSync(path.join(nodeModules, rel), { recursive: true, force: true });
+  }
+
   rmSync(pnpmStore, { recursive: true, force: true });
   console.log(`postbuild: hoisted ${hoisted} package(s) out of the pnpm store`);
+  console.log(`postbuild: excluded ${excluded} unreachable native package(s) (sharp/@img)`);
 
   // Nothing may resolve through a symlink after this point, or npm pack will
   // drop it again and the failure only surfaces on a user's machine.

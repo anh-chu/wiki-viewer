@@ -6,7 +6,7 @@
  *
  * DB: ~/.wiki-viewer/shared.db (WAL mode, separate from auth.db and search.db).
  */
-import Database from "better-sqlite3";
+import Database from "@/lib/sqlite";
 import path from "node:path";
 import os from "node:os";
 import { mkdirSync } from "node:fs";

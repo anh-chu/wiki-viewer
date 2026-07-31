@@ -10,7 +10,7 @@
  * first user to sign in becomes admin when no WIKI_ADMIN_EMAILS is set.
  */
 import { NextResponse } from "next/server";
-import Database from "better-sqlite3";
+import Database from "@/lib/sqlite";
 import path from "node:path";
 import os from "node:os";
 import { mkdirSync } from "node:fs";

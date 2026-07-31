@@ -12,6 +12,14 @@ const nextConfig: NextConfig = {
   // ~/package-lock.json) can't make Next nest the standalone output under a
   // subdir and break the `server.js` location the publish prepack checks.
   outputFileTracingRoot: path.resolve(__dirname),
+  // No route imports next/image, so the /_next/image optimizer is never
+  // exercised. Declaring that here keeps it from lazily requiring sharp, which
+  // postbuild deliberately excludes from the published tree: sharp's prebuilt
+  // binary is platform-specific and publish is pack+tar with no install step,
+  // so bundling it would lock the tarball to the publishing machine's OS/arch.
+  images: {
+    unoptimized: true,
+  },
   experimental: {
     optimizePackageImports: ["lucide-react"],
   },

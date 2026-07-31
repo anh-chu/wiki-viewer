@@ -6,7 +6,7 @@
  *
  * For .md files the sidecar event covers provenance; this covers ALL types.
  */
-import Database from "better-sqlite3";
+import Database from "@/lib/sqlite";
 import path from "node:path";
 import os from "node:os";
 import { mkdirSync } from "node:fs";

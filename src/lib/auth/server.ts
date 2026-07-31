@@ -5,7 +5,7 @@
  */
 import { betterAuth } from "better-auth";
 import { nextCookies } from "better-auth/next-js";
-import Database from "better-sqlite3";
+import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import os from "node:os";
 import { mkdirSync, readFileSync, writeFileSync, existsSync, chmodSync } from "node:fs";
@@ -63,8 +63,8 @@ function resolveSecret(): string {
 	return fresh;
 }
 
-export const db = new Database(DB_PATH);
-db.pragma("journal_mode = WAL");
+export const db = new DatabaseSync(DB_PATH);
+db.exec("PRAGMA journal_mode = WAL");
 
 function getTrustedOrigins(): string[] {
 	const extra = (process.env.WIKI_OWNER_HOSTS ?? "")
