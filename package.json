@@ -1,6 +1,6 @@
 {
   "name": "wiki-viewer",
-  "version": "2.9.1",
+  "version": "2.9.2",
   "description": "Local file viewer and wiki \u2014 view markdown, HTML, PDFs, notebooks, office docs, and more from any directory",
   "license": "MIT",
   "type": "module",
