@@ -64,6 +64,11 @@ function resolveSecret(): string {
 }
 
 export const db = new DatabaseSync(DB_PATH);
+// busy_timeout must be set before switching journal mode: enabling WAL itself
+// takes an exclusive lock, and concurrent cold processes (e.g. Next.js build
+// workers) racing to open this file and flip journal mode can otherwise fail
+// immediately with SQLITE_BUSY instead of waiting.
+db.exec("PRAGMA busy_timeout = 5000");
 db.exec("PRAGMA journal_mode = WAL");
 
 function getTrustedOrigins(): string[] {

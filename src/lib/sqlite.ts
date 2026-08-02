@@ -84,8 +84,8 @@ export default class Database {
 		// with SQLITE_BUSY when another connection to the same file holds the lock
 		// (e.g. concurrent Next.js build workers each importing a route module
 		// that opens this database).
-		this.db.exec("PRAGMA journal_mode = WAL");
 		this.db.exec("PRAGMA busy_timeout = 5000");
+		this.db.exec("PRAGMA journal_mode = WAL");
 	}
 
 	prepare(sql: string): Statement {
