@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { detectGitRepo, gitCheckout } from "@/lib/git";
 import { checkOrigin } from "@/lib/auth/csrf";
 import { resolveWorkspaceForUser } from "@/lib/workspace-context";
-import { safeWorkspacePath } from "@/lib/workspaces";
+import { resolveWorkspacePath } from "@/lib/fs/workspace-path";
+
+const DENIED_SEGMENTS = [".proof", ".git"];
 
 export async function POST(request: Request) {
 	const csrf = checkOrigin(request);
@@ -19,9 +21,12 @@ export async function POST(request: Request) {
 	if (!rel || typeof rel !== "string" || !branch || typeof branch !== "string")
 		return NextResponse.json({ error: "Invalid params" }, { status: 400 });
 
-	const repoDir = safeWorkspacePath(rootDir, rel);
-	if (!repoDir || repoDir === rootDir)
+	const resolved = await resolveWorkspacePath(rootDir, rel, {
+		deniedSegments: DENIED_SEGMENTS,
+	});
+	if (!resolved || resolved.absolutePath === rootDir)
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+	const repoDir = resolved.absolutePath;
 
 	if (!(await detectGitRepo(repoDir)))
 		return NextResponse.json({ error: "Not a git repository" }, { status: 400 });

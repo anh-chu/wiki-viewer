@@ -6,7 +6,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { NextResponse } from "next/server";
 import { revertProofSpan } from "@/lib/proof/proof-span";
 import { readSidecar, writeSidecar, emptySidecar } from "@/lib/proof/sidecar";
-import { withFileMutex } from "@/lib/proof/mutex";
+import { withFileMutex, workspaceLockKey } from "@/lib/proof/mutex";
 import { emitEvents } from "@/lib/proof/event-bus";
 import { resolveWorkspaceForAgent } from "@/lib/workspace-context";
 import { safeWorkspacePath } from "@/lib/workspaces";
@@ -82,7 +82,7 @@ export async function POST(req: Request): Promise<NextResponse> {
 
 	let notFound = false;
 	try {
-		await withFileMutex(`${rootDir}\u0000${rel}`, async () => {
+		await withFileMutex(workspaceLockKey(rootDir, rel), async () => {
 			let content: string;
 			try {
 				content = await readFile(absPath, "utf-8");

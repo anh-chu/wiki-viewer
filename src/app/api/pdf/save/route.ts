@@ -3,7 +3,9 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 import { checkOrigin } from "@/lib/auth/csrf";
 import { resolveWorkspaceForUser } from "@/lib/workspace-context";
-import { safeWorkspacePath } from "@/lib/workspaces";
+import { resolveWorkspacePath } from "@/lib/fs/workspace-path";
+
+const DENIED_SEGMENTS = [".proof", ".git"];
 
 const MAX_PDF_BYTES = 50 * 1024 * 1024; // 50MB
 
@@ -21,8 +23,12 @@ export async function PUT(request: Request) {
 	if (path.extname(rel).toLowerCase() !== ".pdf")
 		return NextResponse.json({ error: "Not a PDF" }, { status: 400 });
 
-	const filePath = safeWorkspacePath(rootDir, rel);
-	if (!filePath) return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+	const fileRes = await resolveWorkspacePath(rootDir, rel, {
+		allowMissing: true,
+		deniedSegments: DENIED_SEGMENTS,
+	});
+	if (!fileRes) return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+	const filePath = fileRes.absolutePath;
 
 	const buf = Buffer.from(await request.arrayBuffer());
 	if (buf.length === 0)

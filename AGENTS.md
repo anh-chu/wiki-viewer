@@ -21,19 +21,57 @@ Published to npm as `wiki-viewer`. CLI entry: `bin/wiki-viewer.js`.
 - **Zustand** for client state (`src/stores`)
 - **chokidar** file watching, **proper-lockfile** write locks
 - Package manager: **pnpm** (workspace; do not use npm/yarn for installs)
+- Node engines: `>=20.9.0`; pnpm workspace includes this package and `packages/wiki-viewer-mcp`
+  in a single root lockfile.
+
+## Security model
+
+- **Authentication.** UI routes require a valid Better Auth session. The agent API uses
+  per-agent bearer tokens (`Authorization`) plus `X-Agent-Id` / `X-Workspace`. Public share
+  links use opaque tokens only.
+- **CSRF.** All state-changing `/api/wiki/*` and `/api/system/*` routes check the `Origin`
+  header against `WIKI_OWNER_HOSTS`. Cross-origin requests carrying a session cookie are
+  rejected `403 FORBIDDEN`.
+- **Path containment.** The only filesystem boundary primitive is `resolveWorkspacePath()`
+  in `src/lib/fs/workspace-path.ts`. It realpaths the workspace root, rejects absolute paths,
+  `..` segments, and denied segments (e.g. `.proof`, `.git`), and climbs to the nearest real
+  ancestor for missing create targets so symlink/missing-descendant escapes cannot cross
+  workspace roots.
+- **Browser file routes.** `/api/assets/*`, `/api/upload/*`, and all `/api/wiki/*` file routes
+  resolve a user/API-key workspace context before touching disk; unauthenticated reads and
+  writes return `401`.
+- **App runner.** Launching a node app executes host code. In authenticated mode only admins
+  may start/stop apps. `WIKI_NO_AUTH=1` restores local single-user behavior; set
+  `WIKI_ALLOW_APP_RUNNER=1` to explicitly allow non-admins to launch apps in their workspaces.
+  Apps are keyed by `{workspaceId, relPath}` and the proxy requires workspace access before
+  forwarding to the child process.
+- **Protected shares.** Unlocking a password-protected share sets a short-lived, scoped,
+  `HttpOnly` cookie derived from the stored password hash (via HMAC). The password is never
+  accepted or logged in the URL.
+- **HTML previews.** Shared HTML and local HTML previews are sandboxed without combining
+  `allow-scripts` with `allow-same-origin`. Trusted executable apps belong in the privileged
+  node-app runner, not in arbitrary HTML previews.
+- **No process-global root.** The process-global `root-dir` module, the legacy
+  root-mutation routes, and the lexical path guard were removed. `ROOT_DIR` and
+  legacy `lastOpenedPath` still seed a real workspace on startup, but no live route
+  mutates a global root.
 
 ## Commands
 
 ```bash
 pnpm install
-ROOT_DIR=~/notes pnpm dev      # dev server, hot reload
+pnpm dev                       # dev server, hot reload
 pnpm dev:https                 # dev with experimental HTTPS
 pnpm build                     # production build (standalone)
-pnpm test                      # proof + auth suite (tsx node:test, 40 files / 180+ tests)
+pnpm test                      # proof + auth suite (test floor: 636 tests)
+pnpm typecheck                 # tsc --noEmit
+pnpm lint                      # biome check
+pnpm format:check              # format consistency check
 ```
 
-Test runner: `tsx --import ./src/tests/proof/preload.ts --test src/tests/proof/*.test.ts`.
-Single file: `tsx --import ./src/tests/proof/preload.ts --test src/tests/proof/<name>.test.ts`.
+Test runner: `scripts/test-floor.mjs` runs `src/tests/proof/*.test.ts` via `tsx`, fails if the
+pass count drops below `.test-floor` (624), and only writes `.test-floor` when passed
+`--update-floor`.
 
 ## Layout
 
@@ -60,13 +98,18 @@ src/lib/
   auth/                Better Auth server+client, allowlist, CSRF
   git.ts git-secrets.ts  System-git wrapper (provider-agnostic; token via GIT_ASKPASS),
                        secret scanning. Backs git-history/diff/branch + read-only repo workspaces.
-  shared-docs/         Public shared-doc link store (db.ts)
+  shared-docs/         Public shared-doc link store (db.ts) + cookie-based unlock grant
   workspaces.ts        Workspace registry (multi-root)
-  config.ts root-dir.ts app-runner.ts markdown/ search/ cabinets/ embeds/ google/
+  workspace-context.ts Per-request workspace resolution (browser + agent)
+  fs/workspace-path.ts Canonical path containment (`resolveWorkspacePath`)
+  config.ts app-runner.ts markdown/ search/ cabinets/ embeds/
 src/stores/            Zustand stores
-src/middleware.ts      Cookie-presence gate for UI routes
-packages/wiki-viewer-mcp/   Standalone MCP adapter (own package.json, npm-published)
-docs/                  agent-collab-plan.md (tier-2 spec), file-vs-collab-authority.md
+src/hooks/             Page-shell controllers (file tree, workspaces, open file)
+src/components/wiki/   Extracted wiki-shell components
+src/middleware.ts      Cookie-presence gate for UI routes; API auth delegated to handlers
+packages/wiki-viewer-mcp/   Standalone MCP adapter (pnpm workspace package, npm-published)
+docs/                  agent-collab-plan.md (tier-2 spec), agent-fs-plan.md (tier-1 spec),
+                       file-vs-collab-authority.md; docs/archive/ for completed plans
 agents/                Installable Agent Skill + bootstrap prompt
 ```
 

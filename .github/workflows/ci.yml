@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Quality (${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [20.x, 22.x]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck root
+        run: pnpm typecheck
+
+      - name: Lint root
+        run: pnpm lint
+
+      - name: Test root
+        run: pnpm test
+
+      - name: Typecheck MCP
+        run: pnpm --filter wiki-viewer-mcp typecheck
+
+      - name: Build MCP
+        run: pnpm --filter wiki-viewer-mcp build
+
+      - name: Test MCP
+        run: pnpm --filter wiki-viewer-mcp test
+
+      - name: Build root
+        run: pnpm build

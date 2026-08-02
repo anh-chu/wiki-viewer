@@ -11,18 +11,17 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { createTestWorkspace } from "./helpers/workspace.js";
 
 let tmpHome: string;
 let tmpRoot: string;
 
 before(async () => {
 	tmpHome = await mkdtemp(path.join(tmpdir(), "wiki-put-test-"));
-	tmpRoot = await mkdtemp(path.join(tmpdir(), "wiki-put-root-"));
 	process.env.HOME = tmpHome;
-	process.env.ROOT_DIR = tmpRoot;
-	// Force root-dir module to pick up new ROOT_DIR
-	const { setRootDir } = await import("../../lib/root-dir.js");
-	setRootDir(tmpRoot);
+
+	const { rootDir } = await createTestWorkspace({ name: "wiki-put-test" });
+	tmpRoot = rootDir;
 });
 
 after(async () => {

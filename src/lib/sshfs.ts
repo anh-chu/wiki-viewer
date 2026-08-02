@@ -21,11 +21,13 @@ import { promisify } from "node:util";
 import { mkdir, rmdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
+import {
+	parseSshTarget,
+	buildSshfsArgs,
+	isValidKeyPath,
+} from "../../bin/shared/ssh-target.js";
 
 const execFile = promisify(_execFile);
-
-// Defense-in-depth: reject these even though we never pass through a shell.
-const FORBIDDEN_CHARS = /[;|&$`<>(){}\n\r\0]/;
 
 export type SshAuthMethod = "agent" | "keyfile" | "password";
 
@@ -34,6 +36,9 @@ export interface ParsedSshTarget {
 	host: string;
 	remotePath: string;
 }
+
+/** Re-export the shared validators so workspace tests keep the same imports. */
+export { parseSshTarget, buildSshfsArgs, isValidKeyPath };
 
 /** Absolute path to the managed sshfs mount directory. */
 export function mountsDir(): string {
@@ -66,47 +71,8 @@ export async function assertSshfsAvailable(): Promise<void> {
 
 // ── Parse / validate ─────────────────────────────────────────────────────────
 
-/**
- * Parse an SSH target of the form `[user@]host:/abs/path`.
- * Returns null if it does not match or contains forbidden characters.
- */
-export function parseSshTarget(target: string): ParsedSshTarget | null {
-	if (!target || FORBIDDEN_CHARS.test(target)) return null;
-	const trimmed = target.trim();
-
-	// Split host part from the remote path on the FIRST ":" that is not part of
-	// the userinfo. Format: [user@]host:/path  (path must be absolute).
-	const colon = trimmed.indexOf(":");
-	if (colon <= 0) return null;
-	const hostPart = trimmed.slice(0, colon);
-	const remotePath = trimmed.slice(colon + 1);
-
-	if (!remotePath.startsWith("/")) return null;
-	if (remotePath.includes("..")) return null;
-
-	let user: string | undefined;
-	let host = hostPart;
-	const at = hostPart.indexOf("@");
-	if (at >= 0) {
-		user = hostPart.slice(0, at);
-		host = hostPart.slice(at + 1);
-		if (!user) return null;
-	}
-	if (!host) return null;
-	// Host: letters, digits, dots, hyphens, colons (IPv6 not supported here).
-	if (!/^[a-zA-Z0-9.\-]+$/.test(host)) return null;
-	// User: typical unix username charset.
-	if (user && !/^[a-zA-Z0-9._\-]+$/.test(user)) return null;
-
-	return { user, host, remotePath };
-}
-
-/** Validate an explicit private key path (no metachars, absolute or ~). */
-export function isValidKeyPath(keyPath: string): boolean {
-	if (!keyPath || FORBIDDEN_CHARS.test(keyPath)) return false;
-	if (keyPath.includes("..")) return false;
-	return keyPath.startsWith("/") || keyPath.startsWith("~/");
-}
+// parseSshTarget, buildSshfsArgs, and isValidKeyPath are imported from the
+// shared CLI/server contract in bin/shared/ssh-target.js.
 
 // ── Mount state ──────────────────────────────────────────────────────────────
 
@@ -182,48 +148,6 @@ export interface MountOptions {
 	readOnly?: boolean;
 	/** Extra ssh/sshfs -o options (advanced). */
 	extraOptions?: string[];
-}
-
-/** Build the sshfs argv (excluding the binary name). Exported for testing. */
-export function buildSshfsArgs(opts: MountOptions): string[] {
-	const { target, mountpoint, port, authMethod, keyPath, readOnly } = opts;
-	const userPart = target.user ? `${target.user}@` : "";
-	const args: string[] = [
-		`${userPart}${target.host}:${target.remotePath}`,
-		mountpoint,
-	];
-	if (port && Number.isInteger(port) && port > 0 && port < 65536) {
-		args.push("-p", String(port));
-	}
-
-	const o: string[] = [
-		"reconnect",
-		"ServerAliveInterval=15",
-		"ServerAliveCountMax=3",
-		"compression=yes",
-		"cache=yes",
-		"kernel_cache",
-		"StrictHostKeyChecking=accept-new",
-		"BatchMode=yes",
-	];
-	if (readOnly) o.push("ro");
-	if (authMethod === "keyfile" && keyPath) {
-		o.push(`IdentityFile=${keyPath}`);
-		o.push("IdentitiesOnly=yes");
-	}
-	if (authMethod === "password") {
-		// Remove BatchMode (forces password prompt off) and feed via stdin.
-		const idx = o.indexOf("BatchMode=yes");
-		if (idx >= 0) o.splice(idx, 1);
-		o.push("password_stdin");
-		o.push("PreferredAuthentications=password,keyboard-interactive");
-		o.push("PubkeyAuthentication=no");
-		o.push("NumberOfPasswordPrompts=1");
-	}
-	if (opts.extraOptions) o.push(...opts.extraOptions);
-
-	args.push("-o", o.join(","));
-	return args;
 }
 
 /**

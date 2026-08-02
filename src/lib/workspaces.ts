@@ -31,77 +31,17 @@ import {
 	mountSshfs,
 	unmountSshfs,
 	isMounted,
-	type SshAuthMethod,
 } from "./sshfs";
+import type { Workspace, WorkspaceGit, WorkspaceSsh } from "@/types/workspace";
+import type { SshAuthMethod } from "./sshfs";
 
-export interface WorkspaceGit {
-	remoteUrl: string;
-	branch?: string;
-	tokenRef?: string;
-	username?: string;
-	lastPulledAt?: string;
-	lastSha?: string;
-	lastError?: string;
-	/** Sparse-checkout cone path (e.g. "docs"). rootDir points inside cloneRoot. */
-	subpath?: string;
-	/** Absolute path of the clone root. rootDir may differ when subpath is set. */
-	cloneRoot?: string;
-}
-
-export interface WorkspaceSsh {
-	/** Full target as entered: [user@]host:/path. */
-	target: string;
-	host: string;
-	user?: string;
-	remotePath: string;
-	port?: number;
-	authMethod: SshAuthMethod;
-	keyPath?: string;
-	/** Secret-store ref for the password (authMethod="password"). */
-	secretRef?: string;
-	/** Absolute mount point. Equals rootDir. */
-	mountpoint: string;
-	lastMountedAt?: string;
-	lastError?: string;
-}
-
-export interface Workspace {
-	/** "ws_" + 6 random url-safe bytes. Stable, used in ?ws= query param. */
-	id: string;
-	/** Display label. Defaults to path.basename(rootDir). */
-	name: string;
-	/** Absolute, path.resolve'd rootDir. */
-	rootDir: string;
-	createdAt: string;
-	lastOpenedAt?: string;
-	/** Per-workspace pinned paths (moved from flat config.pinnedPaths). */
-	pinnedPaths?: string[];
-	/** User id of admin who created this workspace. */
-	createdBy?: string;
-	/**
-	 * Explicit access list.  Empty / undefined = any signed-in user may access.
-	 * Admin users always have access regardless of this list.
-	 */
-	allowedUserIds?: string[];
-	/** True for git-backed read-only workspaces. Blocks all fs mutations. */
-	readOnly?: boolean;
-	/** Git remote metadata. Present only on git-backed workspaces. */
-	git?: WorkspaceGit;
-	/** SSH/sshfs mount metadata. Present only on sshfs-backed workspaces. */
-	ssh?: WorkspaceSsh;
-	/**
-	 * True for a request-scoped root supplied by an embedding host (?root=).
-	 * NEVER persisted, never in the registry, never the active workspace, never
-	 * shown in the switcher. Minted per request in workspace-context.ts and
-	 * gated on API-key auth. Clients use this to suppress workspace UI.
-	 */
-	ephemeral?: boolean;
-}
+export type { Workspace, WorkspaceGit, WorkspaceSsh } from "@/types/workspace";
 
 /**
  * Strip secret-bearing fields before returning a workspace over HTTP.
- * tokenRef is an internal handle into the PAT store and must never leave the
- * server. Use this on every response that includes workspace objects.
+ * tokenRef/secretRef are internal handles into the secret store and must
+ * never leave the server. Use this on every response that includes workspace
+ * objects.
  */
 export function sanitizeWorkspace(ws: Workspace): Workspace {
 	let out = ws;
@@ -565,7 +505,19 @@ export function userCanAccess(ws: Workspace, userId: string, isAdmin: boolean): 
 export function safeWorkspacePath(rootDir: string, rel: string): string | null {
 	if (!rootDir) return null;
 	if (!rel || rel === ".") return rootDir;
-	const resolved = path.resolve(rootDir, rel);
+	if (rel.includes("\0")) return null;
+
+	const norm = path.normalize(rel).replace(/\\/g, "/");
+	if (norm === "." || norm === "./") return rootDir;
+	if (path.isAbsolute(rel) || path.isAbsolute(norm) || norm.startsWith("/")) return null;
+	if (norm === ".." || norm.startsWith("../")) return null;
+
+	const segments = norm.split("/").filter(Boolean);
+	if (segments.some((segment) => segment === ".proof" || segment === ".git")) {
+		return null;
+	}
+
+	const resolved = path.resolve(rootDir, norm);
 	if (resolved !== rootDir && !resolved.startsWith(rootDir + path.sep)) return null;
 	return resolved;
 }

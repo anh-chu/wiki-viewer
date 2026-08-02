@@ -3,8 +3,10 @@ export const runtime = "nodejs";
 import { readFile } from "node:fs/promises";
 import { NextResponse } from "next/server";
 import { resolveWorkspaceForUser } from "@/lib/workspace-context";
-import { safeWorkspacePath } from "@/lib/workspaces";
+import { resolveWorkspacePath } from "@/lib/fs/workspace-path";
 import { extractWikiLinks } from "@/lib/markdown/wikilink";
+
+const DENIED_SEGMENTS = [".proof", ".git"];
 import { listSlugs } from "@/lib/wiki/slug-listing";
 
 interface OutlinkEntry {
@@ -24,14 +26,16 @@ export async function GET(request: Request) {
 	}
 
 	// Same traversal guard as every sibling wiki route.
-	const absPath = safeWorkspacePath(ctx.rootDir, filePath);
-	if (!absPath) {
+	const resolved = await resolveWorkspacePath(ctx.rootDir, filePath, {
+		deniedSegments: DENIED_SEGMENTS,
+	});
+	if (!resolved) {
 		return NextResponse.json({ error: "invalid path" }, { status: 400 });
 	}
 
 	let text: string;
 	try {
-		text = await readFile(absPath, "utf8");
+		text = await readFile(resolved.absolutePath, "utf8");
 	} catch (e: unknown) {
 		const code = (e as NodeJS.ErrnoException).code;
 		if (code === "ENOENT" || code === "EISDIR") {

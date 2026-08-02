@@ -8,7 +8,7 @@
 
   <p>
     <a href="https://www.npmjs.com/package/wiki-viewer"><img src="https://img.shields.io/npm/v/wiki-viewer" alt="npm version" /></a>
-    <img src="https://img.shields.io/badge/node-%3E%3D18-brightgreen" alt="Node.js ≥18" />
+    <img src="https://img.shields.io/badge/node-%3E%3D20.9.0-brightgreen" alt="Node.js ≥20.9.0" />
     <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license" />
   </p>
 </div>
@@ -364,7 +364,9 @@ read it.
 - Open a file and use **Share** to mint a link. It serves a rendered, read-only
   view at `/share/<token>`.
 - **Password (optional).** Protect a link with a password; only the hash is
-  stored. Visitors unlock before reading.
+  stored. Visitors unlock before reading. A successful password POST sets a
+  short-lived, scoped, `HttpOnly` cookie derived from the stored hash; the
+  password is never accepted in the URL, query string, or logs.
 - **Expiry (optional).** Set a number of days; the link returns `410` once
   expired.
 - **View counts.** Each open increments a counter visible in the share dialog.
@@ -390,6 +392,10 @@ the file browser it shows a **Launch** button.
 
 > Launching runs arbitrary project code on the host. Only launch apps you
 > trust. Git-backed (read-only) workspaces still run apps but reject writes.
+>
+> In authenticated multi-user mode, starting or stopping an app requires admin
+> privilege. Set `WIKI_ALLOW_APP_RUNNER=1` to explicitly allow non-admins to
+> launch apps in their workspaces.
 
 ## Auth and multi-user mode
 
@@ -705,7 +711,7 @@ Note: `AGENT_BEARER_TOKEN` (legacy single-secret mode) does nothing now. The ser
 
 ### Prerequisites
 
-- **Node.js** ≥ 18
+- **Node.js** ≥ 20.9.0
 - **pnpm** — `npm install -g pnpm`
 
 ### Run from source
@@ -728,7 +734,7 @@ The dev server supports hot reload.
 | `pnpm build`     | Production build                       |
 | `pnpm start`     | Production server (after `build`)      |
 | `pnpm wiki`      | CLI entry point (after `build`)        |
-| `pnpm test`      | Run the proof + auth test suite (180+) |
+| `pnpm test`      | Run the proof + auth test suite (636 tests, floor 624) |
 
 ### All environment variables
 
@@ -746,6 +752,7 @@ The dev server supports hot reload.
 | `WIKI_OWNER_HOSTS`     | csv: extra hostnames trusted for CSRF Origin check                                | `localhost,127.0.0.1` |
 | `WIKI_ALLOW_INSECURE`  | Set to `1` to bypass the prod-https guard (dev / CI only)                         | unset                 |
 | `WIKI_ADMIN_EMAILS`    | csv: emails treated as admins (seed/override; otherwise first signup is admin)    | unset                 |
+| `WIKI_ALLOW_APP_RUNNER`| Set to `1` to let non-admins launch node apps (host code execution; multi-user risk) | unset              |
 | `AGENT_RATE_LIMIT`     | Max mutation ops per minute per agent identity                                    | `60`                  |
 | `WIKI_SSH_PASSWORD`    | Password for a `--ssh-password` CLI mount (avoids the interactive prompt)         | unset                 |
 
@@ -878,7 +885,7 @@ wiki-viewer/
 │   │   ├── app-runner.ts         Launches and supervises node-app child processes
 │   │   └── proof/                Agent protocol core (ops-applier, registry, file-lock)
 │   ├── stores/                   Zustand state
-│   ├── tests/proof/              Node test runner suite (180+ tests)
+│   ├── tests/proof/              Node test runner suite (636 tests, floor 624)
 │   └── middleware.ts             Cookie-presence gate for UI routes
 ├── public/
 ├── next.config.ts

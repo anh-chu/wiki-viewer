@@ -1,0 +1,88 @@
+/* ============================================================ */
+/* Viewers: source viewer, PDF, media, share                   */
+/* Shared syntax highlighting for TipTap code blocks and        */
+/* standalone source files so colors follow the active theme.   */
+/* ============================================================ */
+
+.tiptap pre code .hljs-keyword,
+.tiptap pre code .hljs-selector-tag,
+.tiptap pre code .hljs-built_in,
+.source-viewer-code .hljs-keyword,
+.source-viewer-code .hljs-selector-tag,
+.source-viewer-code .hljs-built_in {
+  color: var(--accent-foreground);
+  font-weight: 500;
+}
+
+.tiptap pre code .hljs-string,
+.tiptap pre code .hljs-attr,
+.source-viewer-code .hljs-string,
+.source-viewer-code .hljs-attr {
+  color: var(--success);
+}
+
+.tiptap pre code .hljs-number,
+.tiptap pre code .hljs-literal,
+.tiptap pre code .hljs-bullet,
+.tiptap pre code .hljs-symbol,
+.source-viewer-code .hljs-number,
+.source-viewer-code .hljs-literal,
+.source-viewer-code .hljs-bullet,
+.source-viewer-code .hljs-symbol {
+  color: var(--warning-ink);
+}
+
+.tiptap pre code .hljs-comment,
+.tiptap pre code .hljs-quote,
+.source-viewer-code .hljs-comment,
+.source-viewer-code .hljs-quote {
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+
+.tiptap pre code .hljs-function,
+.tiptap pre code .hljs-title,
+.tiptap pre code .hljs-section,
+.source-viewer-code .hljs-function,
+.source-viewer-code .hljs-title,
+.source-viewer-code .hljs-section {
+  color: var(--accent-foreground);
+  font-weight: 600;
+}
+
+.tiptap pre code .hljs-type,
+.tiptap pre code .hljs-class .hljs-title,
+.tiptap pre code .hljs-name,
+.tiptap pre code .hljs-meta,
+.source-viewer-code .hljs-type,
+.source-viewer-code .hljs-class .hljs-title,
+.source-viewer-code .hljs-name,
+.source-viewer-code .hljs-meta {
+  color: var(--warning-ink);
+}
+
+.tiptap pre code .hljs-variable,
+.tiptap pre code .hljs-template-variable,
+.tiptap pre code .hljs-attribute,
+.source-viewer-code .hljs-variable,
+.source-viewer-code .hljs-template-variable,
+.source-viewer-code .hljs-attribute {
+  color: var(--foreground);
+}
+
+.tiptap pre code .hljs-tag,
+.tiptap pre code .hljs-regexp,
+.source-viewer-code .hljs-tag,
+.source-viewer-code .hljs-regexp {
+  color: var(--destructive);
+}
+
+.tiptap pre code .hljs-emphasis,
+.source-viewer-code .hljs-emphasis {
+  font-style: italic;
+}
+
+.tiptap pre code .hljs-strong,
+.source-viewer-code .hljs-strong {
+  font-weight: 600;
+}

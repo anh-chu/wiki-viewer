@@ -1,0 +1,200 @@
+
+:root {
+  --background: #f5f5f5;
+  --foreground: #0c0a09;
+  --card: #ffffff;
+  --card-foreground: #0c0a09;
+  --popover: #ffffff;
+  --popover-foreground: #0c0a09;
+  --primary: #292524;
+  --primary-foreground: #ffffff;
+  --secondary: #fafafa;
+  --secondary-foreground: #0c0a09;
+  --muted: #f0efed;
+  --muted-foreground: #777169;
+  --accent: #e7e5e4;
+  --accent-foreground: #0c0a09;
+  --accent-soft: #e7e5e4;
+  --primary-soft: #e7e5e4;
+  --success-soft: #dcfce7;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --destructive-soft: #fee2e2;
+  --warning-soft: #fef3c7;
+  --warning-ink: #a16207;
+  --border: #e7e5e4;
+  --input: #d6d3d1;
+  --switch-checked: #292524;
+  --ring: #292524;
+  --overlay: rgb(12 10 9 / 0.4);
+  --radius: 8px;
+
+  --sidebar-background: #fafafa;
+  --sidebar-foreground: #0c0a09;
+  --sidebar-primary: #292524;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #ffffff;
+  --sidebar-accent-foreground: #0c0a09;
+  --sidebar-border: #e7e5e4;
+  --sidebar-ring: #292524;
+
+  /* Success / Warning / Info — light mode */
+  --success: #16a34a;
+  --warning: #d97706;
+  --info: #292524;
+
+  /* Elevation backing — light mode editorial */
+  --shadow-golden-card: 0 4px 16px rgba(0, 0, 0, 0.04);
+  --shadow-golden-pop: 0 8px 24px rgba(0, 0, 0, 0.06);
+  --shadow-golden-dialog: 0 16px 48px rgba(0, 0, 0, 0.08);
+  --shadow-golden-toast: 0 24px 64px rgba(0, 0, 0, 0.1);
+
+  /* === Motion tokens === */
+  --motion-fast: 100ms;
+  --motion-base: 150ms;
+  --motion-slow: 300ms;
+
+  /* === Z-index tokens === */
+  --z-sticky: 10;
+  --z-sidebar: 30;
+  --z-overlay: 40;
+  --z-float: 50;
+}
+
+.dark {
+  --background: #0c0a09;
+  --foreground: #ffffff;
+  --card: #1c1917;
+  --card-foreground: #ffffff;
+  --popover: #1c1917;
+  --popover-foreground: #ffffff;
+  --primary: #44403c;
+  --primary-foreground: #ffffff;
+  --secondary: #1c1917;
+  --secondary-foreground: #ffffff;
+  --muted: #292524;
+  --muted-foreground: #a8a29e;
+  --accent: #383330;
+  --accent-foreground: #ffffff;
+  --accent-soft: #3d3d3d;
+  --primary-soft: #453c35;
+  --success-soft: #14532d;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --destructive-soft: #7f1d1d;
+  --warning-soft: #3d2b1a;
+  --warning-ink: #fbbf24;
+  --border: #292524;
+  --input: #57534e;
+  --switch-checked: #f5f5f5;
+  --ring: #ffffff;
+  --overlay: rgb(0 0 0 / 0.55);
+
+  --sidebar-background: #0c0a09;
+  --sidebar-foreground: #ffffff;
+  --sidebar-primary: #292524;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #1c1917;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #292524;
+  --sidebar-ring: #ffffff;
+
+  /* Success / Warning / Info */
+  --success: #16a34a;
+  --warning: #fbbf24;
+  --info: #ffffff;
+
+  /* Elevation backing — dark mode editorial */
+  --shadow-golden-card: 0 4px 16px rgba(0, 0, 0, 0.3);
+  --shadow-golden-pop: 0 8px 24px rgba(0, 0, 0, 0.4);
+  --shadow-golden-dialog: 0 16px 48px rgba(0, 0, 0, 0.5);
+  --shadow-golden-toast: 0 24px 64px rgba(0, 0, 0, 0.6);
+}
+
+/* Shadow override on dark bg */
+.dark .shadow-golden {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+/* Skip to content link for keyboard navigation */
+.skip-to-content {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 9999;
+  padding: 0.5rem 1rem;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 0.875rem;
+  font-weight: 400;
+  border-radius: 0 0 0.5rem 0;
+}
+
+.skip-to-content:focus {
+  left: 0;
+}
+
+/* File-tree row reveal: newly mounted rows (e.g. children of a just-expanded
+   folder) fade + slide in. Existing rows keep their DOM node across re-renders,
+   so the animation plays once on mount and never replays on re-render. */
+@keyframes tree-row-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    /* opacity omitted on purpose: with fill-mode both it animates toward the
+       element's underlying value, so dotfiles keep their opacity-40 dimming
+       instead of being forced to full opacity. */
+    transform: translateY(0);
+  }
+}
+
+.tree-row-reveal {
+  animation: tree-row-reveal 0.16s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tree-row-reveal,
+  [data-skin="editorial"] main,
+  [data-skin="editorial"] .editorial-content-pane,
+  [data-skin="editorial"] .tiptap h1,
+  [data-skin="editorial"] .tiptap h2,
+  [data-skin="editorial"] .tiptap h3,
+  [data-skin="editorial"] .tiptap hr {
+    animation: none;
+  }
+}
+
+/* Hide Next.js dev mode indicator */
+[data-next-mark],
+nextjs-portal {
+  display: none;
+}
+
+
+
+/* === Mobile readiness === */
+
+/* Coarse-pointer (touch) devices: hover-gated row actions are always visible.
+   Desktop hover-reveal behavior is preserved via the existing
+   `opacity-0 group-hover:opacity-100 ... max-w-0 group-hover:max-w-7` classes. */
+@media (hover: none) {
+  .hover-reveal {
+    opacity: 1 !important;
+    max-width: none !important;
+  }
+}
+
+/* Scoped tap-target sizing: only the specific controls marked
+   `touch-target` get the 44×44 minimum on coarse pointers. We avoid a
+   blanket button rule so the editor toolbar density does not regress. */
+@media (hover: none) and (pointer: coarse) {
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  .resize-hit {
+    width: 1.5rem;
+  }
+}

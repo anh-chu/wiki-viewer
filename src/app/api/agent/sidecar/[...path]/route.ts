@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { checkAuth, enforceScope } from "@/lib/proof/auth";
 import { reconcileTextCommentAnchors } from "@/lib/proof/ops-applier";
 import { readSidecar, emptySidecar } from "@/lib/proof/sidecar";
-import { withFileMutex } from "@/lib/proof/mutex";
+import { withFileMutex, workspaceLockKey } from "@/lib/proof/mutex";
 import { resolveWorkspaceForAgent } from "@/lib/workspace-context";
 import { safeWorkspacePath } from "@/lib/workspaces";
 
@@ -52,7 +52,7 @@ export async function GET(
 
 	const sidecar = (await readSidecar(rootDir, rel)) ?? emptySidecar(rel);
 	if (!isMarkdown(rel)) {
-		await withFileMutex(rel, async () => {
+		await withFileMutex(workspaceLockKey(rootDir, rel), async () => {
 			try {
 				const content = await readFile(absPath, "utf-8");
 				await reconcileTextCommentAnchors(rootDir, rel, content, sidecar);

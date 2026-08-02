@@ -3,7 +3,9 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 import { checkOrigin } from "@/lib/auth/csrf";
 import { resolveWorkspaceForUser } from "@/lib/workspace-context";
-import { safeWorkspacePath } from "@/lib/workspaces";
+import { resolveWorkspacePath } from "@/lib/fs/workspace-path";
+
+const DENIED_SEGMENTS = [".proof", ".git"];
 
 const VALID_DIRS = new Set(["entities", "concepts", "comparisons"]);
 const SLUG_RE = /^[a-z0-9-]+$/;
@@ -52,9 +54,13 @@ export async function POST(request: Request) {
 	}
 
 	const relPath = `${dir}/${slug}.md`;
-	const filePath = safeWorkspacePath(rootDir, relPath);
-	if (!filePath)
+	const fileRes = await resolveWorkspacePath(rootDir, relPath, {
+		allowMissing: true,
+		deniedSegments: DENIED_SEGMENTS,
+	});
+	if (!fileRes)
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+	const filePath = fileRes.absolutePath;
 
 	try {
 		await stat(filePath);

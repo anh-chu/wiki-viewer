@@ -1,8 +1,14 @@
 # Agent Collaboration Protocol — Implementation Plan
 
-**Status:** Ready to implement
-**Target:** wiki-viewer one-shot build, no v2
-**Audience:** An implementing agent with no prior context on this conversation
+**Status:** IMPLEMENTED
+**Target:** wiki-viewer collaboration protocol (no v2)
+**Audience:** Agents working with the current codebase
+
+> Workspace migration notes: this spec predates the multi-workspace refactor.
+> Live routes now resolve workspace context via `resolveWorkspaceForAgent()` and
+> filesystem containment via `resolveWorkspacePath()` in `src/lib/fs/workspace-path.ts`.
+> The old root-path helper and `root-dir.ts` global were removed; agent paths are
+> scoped to a specific workspace root.
 
 ---
 
@@ -38,7 +44,7 @@ The design is intentionally **API-compatible with [Proof SDK](https://github.com
 
 | Term                | Definition                                                                                                                                                                   |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **File path**       | Relative path from `ROOT_DIR`. Acts as the document slug. URL-encoded in routes.                                                                                             |
+| **File path**       | Relative path from the workspace root. Acts as the document slug. URL-encoded in routes.                                                                                             |
 | **Block**           | A top-level markdown element. Heading, paragraph, list, blockquote, code fence, table, hr, html block. Lists and tables are treated as a single block.                       |
 | **Block ref**       | Stable string ID like `b7f2a1`. Persists across edits via the sidecar's ref map.                                                                                             |
 | **Revision**        | Monotonic integer per file. Bumps on every successful mutation. Used for optimistic locking.                                                                                 |
@@ -46,14 +52,14 @@ The design is intentionally **API-compatible with [Proof SDK](https://github.com
 | **Comment**         | A discussion thread attached to a block ref. Lives in the sidecar. Has ordered turns (initial + replies).                                                                    |
 | **Suggestion**      | A proposed edit on a block ref. Pending / accepted / rejected lifecycle. Lives in the sidecar until accepted (becomes a real block edit) or rejected (deleted from sidecar). |
 | **Event**           | Immutable log entry. New events emitted on every state change. Polled by agents.                                                                                             |
-| **Sidecar**         | `<ROOT_DIR>/.proof/<file-path>.json` — one JSON file per markdown file, holds ref map, comments, suggestions, event log.                                                     |
+| **Sidecar**         | `{workspaceRoot}/.proof/<file-path>.json` — one JSON file per markdown file, holds ref map, comments, suggestions, event log.                                                     |
 
 ---
 
 ## 2. Architectural overview
 
 ```
-~/notes/                          ROOT_DIR
+~/notes/                          workspace root
 ├── plan.md                       canonical content + inline <proof-span> marks
 ├── specs.md
 ├── subdir/
@@ -164,7 +170,7 @@ All routes mount under `/api/agent/`. Authentication: `Authorization: Bearer <to
 | `GET`  | `/api/agent/settings`                          | Returns `{ rateLimit, hasToken, root }`                    |
 | `POST` | `/api/agent/settings/token/regenerate`         | Mints a new token (writes to `~/.wiki-viewer/agent-token`) |
 
-`<path>` uses Next.js catch-all `[...path]`. Segments are URL-encoded. Forbidden chars: `..`, leading `/`, anything resolving outside `ROOT_DIR`. Use the existing `safeRootPath` from `src/lib/root-dir.ts`.
+`<path>` uses Next.js catch-all `[...path]`. Segments are URL-encoded. Forbidden chars: `..`, leading `/`, anything resolving outside the workspace root. Paths are resolved with `resolveWorkspacePath()` in `src/lib/fs/workspace-path.ts`.
 
 ### 4.2 Snapshot response
 
@@ -331,7 +337,7 @@ On accept: apply the suggestion as the corresponding `block.*` op, then mark sug
 | 200    | —                                            | Success, body is new snapshot                                            |
 | 400    | `INVALID_PAYLOAD`                            | Malformed body / missing `Idempotency-Key`                               |
 | 401    | `UNAUTHORIZED`                               | Bad / missing bearer token (when token configured)                       |
-| 404    | `FILE_NOT_FOUND`                             | Path doesn't resolve under ROOT_DIR                                      |
+| 404    | `FILE_NOT_FOUND`                             | Path doesn't resolve under the workspace root                                      |
 | 409    | `STALE_REVISION`                             | `baseRevision` doesn't match current. Response includes fresh snapshot.  |
 | 409    | `BLOCK_NOT_FOUND`                            | A block ref in an op no longer exists. Response includes fresh snapshot. |
 | 409    | `COMMENT_NOT_FOUND` / `SUGGESTION_NOT_FOUND` | Same idea.                                                               |
@@ -818,7 +824,7 @@ When `by` is `"human"` (or any non-`ai:*` value), no wrap. Human edits are unmar
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
-import { getRootDir, safeRootPath } from "@/lib/root-dir";
+import { resolveWorkspacePath } from "@/lib/fs/workspace-path.ts";
 import { checkAuth } from "@/lib/proof/auth";
 import { applyOps } from "@/lib/proof/ops-applier";
 import { readSnapshot } from "@/lib/proof/ops-applier"; // pure read variant
@@ -833,11 +839,11 @@ export async function GET(
     return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
 
   const rel = params.path.map(decodeURIComponent).join("/");
-  const abs = safeRootPath(rel);
+  const abs = resolveWorkspacePath(ctx.rootDir, rel);
   if (!abs)
     return NextResponse.json({ error: "INVALID_PATH" }, { status: 400 });
 
-  const snap = await readSnapshot(getRootDir()!, rel);
+  const snap = await readSnapshot(ctx.rootDir!, rel);
   if (!snap)
     return NextResponse.json({ error: "FILE_NOT_FOUND" }, { status: 404 });
   return NextResponse.json(snap);
@@ -874,7 +880,7 @@ export async function POST(req: Request, { params }) {
   }
 
   const result = await applyOps({
-    rootDir: getRootDir()!,
+    rootDir: ctx.rootDir!,
     mdPath: rel,
     baseRevision: body.baseRevision,
     by: body.by,
@@ -1290,7 +1296,7 @@ Events grow unbounded. Trim policy:
 
 ### 6.5 Path traversal
 
-Use existing `safeRootPath` from `src/lib/root-dir.ts`. Reject any path resolving to a directory above root. Reject `.proof` itself as a content path (reserved).
+Resolve paths with `resolveWorkspacePath()` (`src/lib/fs/workspace-path.ts`). Reject any path resolving to a directory above root. Reject `.proof` itself as a content path (reserved).
 
 ### 6.6 Non-markdown files
 
@@ -1332,7 +1338,7 @@ When source changes trigger Next reload, in-memory idempotency cache and mutex m
 
 ## 7. Tests
 
-Minimum suite (place in `src/tests/proof/`). No test framework dependency required if `package.json` doesn't already have one — use `node --test` (built-in since Node 18) and `node:assert`.
+Minimum suite (place in `src/tests/proof/`). No test framework dependency required if `package.json` doesn't already have one — use `node --test` (built-in since Node 20) and `node:assert`.
 
 ### 7.1 Unit: blocks.test.ts
 
@@ -1367,7 +1373,7 @@ For each op type:
 
 ### 7.5 Integration: routes.test.ts
 
-Use `next` dev server in a temp ROOT_DIR. Hit routes with fetch.
+Use `next` dev server in a temp workspace root. Hit routes with fetch.
 
 - GET snapshot of a real .md file
 - POST insertAfter → verify file content changed
@@ -1389,7 +1395,7 @@ Critical: this test catches the silent failure where Tiptap mangles the mark on 
 
 Sub-agent that picks this up: execute phases in order. Do not skip ahead. Each phase ends with a working green test set.
 
-### Phase A — Foundation (no UI yet)
+### A. Foundation (completed)
 
 1. Create `src/lib/proof/types.ts`
 2. Create `src/lib/proof/blocks.ts`, get tests green
@@ -1400,9 +1406,9 @@ Sub-agent that picks this up: execute phases in order. Do not skip ahead. Each p
 7. Create `src/lib/proof/ops-applier.ts`, get tests green
 8. Add `<proof-span>` turndown rule in `src/lib/markdown/to-markdown.ts`
 
-**Acceptance:** All Phase A tests pass. No HTTP yet. No UI yet.
+**Acceptance:** All Foundation tests pass. No HTTP yet. No UI yet.
 
-### Phase B — HTTP surface
+### B. HTTP surface (completed)
 
 1. Create `src/app/api/agent/files/[...path]/route.ts` (GET + POST)
 2. Create `src/app/api/agent/events/[...path]/route.ts` (GET=poll, POST=ack)
@@ -1412,7 +1418,7 @@ Sub-agent that picks this up: execute phases in order. Do not skip ahead. Each p
 
 **Acceptance:** Integration tests pass. `curl` workflow from §10 works.
 
-### Phase C — Editor wiring
+### C. Editor wiring (completed)
 
 1. Create `src/components/editor/extensions/proof-span.ts` TipTap mark
 2. Register in `extensions.ts`
@@ -1423,7 +1429,7 @@ Sub-agent that picks this up: execute phases in order. Do not skip ahead. Each p
 
 **Acceptance:** Load a .md with `<proof-span>` inline → see decoration. Hover → popover works. Accept removes mark.
 
-### Phase D — Comments
+### D. Comments (completed)
 
 1. Create comment pip decoration plugin
 2. Create `comment-thread.tsx`
@@ -1432,7 +1438,7 @@ Sub-agent that picks this up: execute phases in order. Do not skip ahead. Each p
 
 **Acceptance:** Human can create a comment on a block. Agent reply (simulated via curl) appears. Resolve works.
 
-### Phase E — Suggestions
+### E. Suggestions (completed)
 
 1. Create `suggestion-card.tsx` decoration
 2. Wire Accept / Reject buttons
@@ -1482,9 +1488,9 @@ Run after Phase G. This is the acceptance ritual.
 
 ```bash
 # 0. setup
-export ROOT_DIR=/tmp/wiki-smoke
-mkdir -p $ROOT_DIR
-echo "# Plan\n\nShip the rewrite by June." > $ROOT_DIR/plan.md
+export WIKI_TEST_DIR=/tmp/wiki-smoke
+mkdir -p 
+echo "# Plan\n\nShip the rewrite by June." > /plan.md
 pnpm dev
 
 # 1. snapshot (no token, localhost)
@@ -1511,7 +1517,7 @@ curl -s -X POST http://localhost:3000/api/agent/files/plan.md \
 
 # Expect: revision: 1, new block in snapshot, file on disk has <proof-span> around inserted text
 
-cat $ROOT_DIR/plan.md
+cat /plan.md
 # Expect:
 # # Plan
 #
@@ -1561,7 +1567,7 @@ curl -s -X POST http://localhost:3000/api/agent/files/plan.md \
 
 # 11. external edit
 #     while server running:
-#       echo "appended line" >> $ROOT_DIR/plan.md
+#       echo "appended line" >> /plan.md
 #     immediately:
 #     curl /api/agent/events/plan.md?after=<last>
 #     expect: file.externallyEdited event

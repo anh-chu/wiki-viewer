@@ -7,8 +7,10 @@
  * - Atomic write (tmp → rename, preserves mode)
  */
 import { createHash } from "node:crypto";
-import { open, stat, rename, realpath, mkdir } from "node:fs/promises";
+import { open, stat, rename, mkdir } from "node:fs/promises";
 import path from "node:path";
+import { resolveWorkspacePath } from "@/lib/fs/workspace-path";
+import { contentTypeForPath } from "@/lib/mime";
 
 
 // ── Denied path checks ──────────────────────────────────────────────────────
@@ -35,48 +37,19 @@ export function isMarkdown(filePath: string): boolean {
 // ── Path safety ──────────────────────────────────────────────────────────────
 
 /**
- * Resolve the absolute path for `rel`, checking:
- *  1. basic traversal (path.join containment)
- *  2. hard-denied prefixes (.proof/, .git/)
- *  3. symlink escape: if file exists, realpath must still be under root
+ * Compatibility wrapper around `resolveWorkspacePath()`.
  *
- * For non-existent targets (creates), resolves parent dir instead.
- *
- * Returns absolute path on success, null on rejection.
+ * Still used by a few agent/share routes that will migrate in a later phase.
+ * It allows non-existent targets (mkdirs-style creates) but rejects escapes
+ * through symlinks by climbing to the nearest real ancestor.
  */
 export async function safeAbsPath(root: string, rel: string): Promise<string | null> {
 	if (!root) return null;
-
-	// Normalise and basic traversal guard
-	const normalised = path.normalize(rel);
-	if (normalised.startsWith("..") || path.isAbsolute(normalised)) return null;
-
-	if (isDeniedRelPath(normalised)) return null;
-
-	const abs = path.join(root, normalised);
-	// Re-check containment after normalize
-	if (abs !== root && !abs.startsWith(root + path.sep)) return null;
-
-	// Symlink-escape check: resolve realpath of the nearest existing ancestor
-	try {
-		const real = await realpath(abs);
-		if (real !== root && !real.startsWith(root + path.sep)) return null;
-	} catch {
-		// Target doesn't exist — check parent
-		const parent = path.dirname(abs);
-		if (parent !== abs) {
-			try {
-				const parentReal = await realpath(parent);
-				if (parentReal !== root && !parentReal.startsWith(root + path.sep)) {
-					return null;
-				}
-			} catch {
-				// Parent doesn't exist either — containment already checked above
-			}
-		}
-	}
-
-	return abs;
+	const resolved = await resolveWorkspacePath(root, rel, {
+		allowMissing: true,
+		deniedSegments: [".proof", ".git"],
+	});
+	return resolved?.absolutePath ?? null;
 }
 
 // ── Hashing ──────────────────────────────────────────────────────────────────
@@ -99,46 +72,8 @@ export function extractShaHex(header: string): string {
 
 // ── MIME ──────────────────────────────────────────────────────────────────────
 
-const MIME_MAP: Record<string, string> = {
-	".md":       "text/markdown; charset=utf-8",
-	".markdown": "text/markdown; charset=utf-8",
-	".txt":      "text/plain; charset=utf-8",
-	".json":     "application/json; charset=utf-8",
-	".jsonc":    "application/json; charset=utf-8",
-	".ts":       "text/typescript; charset=utf-8",
-	".tsx":      "text/typescript; charset=utf-8",
-	".mts":      "text/typescript; charset=utf-8",
-	".js":       "text/javascript; charset=utf-8",
-	".jsx":      "text/javascript; charset=utf-8",
-	".mjs":      "text/javascript; charset=utf-8",
-	".html":     "text/html; charset=utf-8",
-	".htm":      "text/html; charset=utf-8",
-	".css":      "text/css; charset=utf-8",
-	".yaml":     "text/yaml; charset=utf-8",
-	".yml":      "text/yaml; charset=utf-8",
-	".toml":     "text/toml; charset=utf-8",
-	".xml":      "application/xml; charset=utf-8",
-	".svg":      "image/svg+xml",
-	".png":      "image/png",
-	".jpg":      "image/jpeg",
-	".jpeg":     "image/jpeg",
-	".gif":      "image/gif",
-	".webp":     "image/webp",
-	".pdf":      "application/pdf",
-	".zip":      "application/zip",
-	".tar":      "application/x-tar",
-	".gz":       "application/gzip",
-	".py":       "text/x-python; charset=utf-8",
-	".rs":       "text/x-rustsrc; charset=utf-8",
-	".go":       "text/x-go; charset=utf-8",
-	".sh":       "text/x-shellscript; charset=utf-8",
-	".csv":      "text/csv; charset=utf-8",
-	".env":      "text/plain; charset=utf-8",
-};
-
 export function mimeByExt(filePath: string): string {
-	const ext = path.extname(filePath).toLowerCase();
-	return MIME_MAP[ext] ?? "application/octet-stream";
+	return contentTypeForPath(filePath);
 }
 
 // ── Binary detection ──────────────────────────────────────────────────────────

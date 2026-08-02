@@ -5,14 +5,12 @@ import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { applyOps, readSnapshot } from "../../lib/proof/ops-applier.js";
-import { setRootDir } from "../../lib/root-dir.js";
 import { idempotency } from "../../lib/proof/idempotency.js";
 
 let tmpRoot: string;
 
 before(async () => {
 	tmpRoot = await mkdtemp(path.join(tmpdir(), "wiki-proof-test-"));
-	setRootDir(tmpRoot);
 });
 
 after(async () => {

@@ -15,6 +15,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { createTestWorkspace } from "./helpers/workspace.js";
 
 let tmpHome: string;
 let tmpRoot: string;
@@ -24,11 +25,8 @@ before(async () => {
 	process.env.HOME = tmpHome;
 	process.env.AUTH_ALLOWED_DOMAIN = "test.local";
 
-	tmpRoot = await mkdtemp(path.join(tmpdir(), "wiki-auth-routes-root-"));
-	process.env.ROOT_DIR = tmpRoot;
-
-	const { setRootDir } = await import("../../lib/root-dir.js");
-	setRootDir(tmpRoot);
+	const { rootDir } = await createTestWorkspace({ name: "wiki-auth-routes" });
+	tmpRoot = rootDir;
 
 	// Pre-create test files so routes can operate
 	await mkdir(path.join(tmpRoot, "sub"), { recursive: true });

@@ -13,7 +13,7 @@ import { NextResponse } from "next/server";
 import { checkAuth, enforceScope } from "@/lib/proof/auth";
 import { resolveWorkspaceForAgent } from "@/lib/workspace-context";
 import { safeWorkspacePath } from "@/lib/workspaces";
-import { withFileMutex } from "@/lib/proof/mutex";
+import { withFileMutex, workspaceLockKey } from "@/lib/proof/mutex";
 import { readSidecar, emptySidecar, deleteSidecar } from "@/lib/proof/sidecar";
 import { reconcileSidecar } from "@/lib/proof/ops-applier";
 import { writeAuditRow } from "@/lib/proof/audit";
@@ -276,7 +276,7 @@ async function applyMutation(
 		});
 	};
 
-	return isMarkdown(relPath) ? withFileMutex(`${rootDir}\u0000${relPath}`, doMutation) : doMutation();
+	return isMarkdown(relPath) ? withFileMutex(workspaceLockKey(rootDir, relPath), doMutation) : doMutation();
 }
 
 // ── PUT ──────────────────────────────────────────────────────────────────────
@@ -433,7 +433,7 @@ export async function DELETE(
 	}
 
 	if (isMarkdown(relPath)) {
-		await withFileMutex(`${rootDir}\u0000${relPath}`, async () => {
+		await withFileMutex(workspaceLockKey(rootDir, relPath), async () => {
 			await unlink(absPath);
 			await deleteSidecar(rootDir, relPath);
 		});

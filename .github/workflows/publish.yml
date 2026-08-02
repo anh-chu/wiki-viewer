@@ -6,16 +6,63 @@ on:
       - "v*"
 
 jobs:
-  publish:
+  checks:
+    name: Pre-publish checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
         with:
-          version: 10
+          version: 11
 
-      - uses: actions/setup-node@v4
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck root
+        run: pnpm typecheck
+
+      - name: Lint root
+        run: pnpm lint
+
+      - name: Test root
+        run: pnpm test
+
+      - name: Typecheck MCP
+        run: pnpm --filter wiki-viewer-mcp typecheck
+
+      - name: Build MCP
+        run: pnpm --filter wiki-viewer-mcp build
+
+      - name: Test MCP
+        run: pnpm --filter wiki-viewer-mcp test
+
+      - name: Build root
+        run: pnpm build
+
+  publish:
+    needs: checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
@@ -32,7 +79,10 @@ jobs:
           cp -r .next/static .next/standalone/.next/static
           cp -r public .next/standalone/public
 
-      - name: Publish
+      - name: Inspect package contents
+        run: npm pack --dry-run
+
+      - name: Publish to npm
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

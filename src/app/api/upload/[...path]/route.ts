@@ -1,10 +1,12 @@
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
-import { resolveWorkspaceForAgent } from "@/lib/workspace-context";
-import { safeWorkspacePath } from "@/lib/workspaces";
+import { checkOrigin } from "@/lib/auth/csrf";
+import { resolveWorkspaceForUser } from "@/lib/workspace-context";
+import { resolveWorkspacePath } from "@/lib/fs/workspace-path";
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+const DENIED_SEGMENTS = [".proof", ".git"];
 
 function sanitizeFilename(name: string): string {
 	const lowered = name.toLowerCase();
@@ -33,21 +35,40 @@ export async function POST(
 	request: Request,
 	{ params }: { params: Promise<{ path: string[] }> },
 ) {
-	const wsx = await resolveWorkspaceForAgent(request, "write");
+	const csrf = checkOrigin(request);
+	if (csrf) return csrf;
+
+	const wsx = await resolveWorkspaceForUser(request, "write");
 	if (!wsx.ok) return NextResponse.json({ error: wsx.code }, { status: wsx.status });
 	const { rootDir } = wsx;
 
 	const { path: segments } = await params;
 	const subPath = (segments ?? []).join("/");
 
+	// Validate the requested page path itself before deriving the co-located
+	// assets folder.  This catches symlink escapes such as a page path that is
+	// itself a symlink pointing outside the workspace.
+	const pageResolved = await resolveWorkspacePath(rootDir, subPath, {
+		allowMissing: true,
+		deniedSegments: DENIED_SEGMENTS,
+	});
+	if (!pageResolved) {
+		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+	}
+
 	// Co-locate uploads in an `assets/` subfolder next to the page so the stored
 	// markdown path is portable: docs/notes.md -> docs/assets/<file> -> ./assets/<file>
 	const pageDir = path.posix.dirname(subPath);
 	const baseRel = pageDir && pageDir !== "." ? `${pageDir}/assets` : "assets";
-	const uploadsDir = path.join(rootDir, baseRel);
-	const resolved = safeWorkspacePath(rootDir, baseRel);
+
+	const resolved = await resolveWorkspacePath(rootDir, baseRel, {
+		allowMissing: true,
+		deniedSegments: DENIED_SEGMENTS,
+	});
 	if (!resolved)
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+
+	const uploadsDir = resolved.absolutePath;
 
 	let form: FormData;
 	try {
@@ -77,7 +98,6 @@ export async function POST(
 		return NextResponse.json({
 			url: `/api/assets/${relUrl}`,
 			path: relPath,
-			absolutePath: targetPath,
 			size: bytes.length,
 			mimeType: file.type || "application/octet-stream",
 		});

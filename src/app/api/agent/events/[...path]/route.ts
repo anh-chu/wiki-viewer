@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { checkAuth, enforceScope, verifyBy } from "@/lib/proof/auth";
 import { readSidecar, writeSidecar, emptySidecar } from "@/lib/proof/sidecar";
 import { pollEvents } from "@/lib/proof/event-bus";
-import { withFileMutex } from "@/lib/proof/mutex";
+import { withFileMutex, workspaceLockKey } from "@/lib/proof/mutex";
 import { resolveWorkspaceForAgent } from "@/lib/workspace-context";
 import { safeWorkspacePath } from "@/lib/workspaces";
 
@@ -138,7 +138,7 @@ export async function POST(
 	const by = body.by as string;
 
 	// Namespace mutex key with rootDir to prevent cross-workspace lock contention.
-	await withFileMutex(`${rootDir}\0${rel}`, async () => {
+	await withFileMutex(workspaceLockKey(rootDir, rel), async () => {
 		const sidecar = (await readSidecar(rootDir, rel)) ?? emptySidecar(rel);
 		sidecar.lastAck[by] = upToId;
 		await writeSidecar(rootDir, rel, sidecar);

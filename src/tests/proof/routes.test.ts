@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHash, randomBytes } from "node:crypto";
-import { setRootDir } from "../../lib/root-dir.js";
+import { createTestWorkspace } from "./helpers/workspace.js";
 
 // Import route handlers (disk reads are lazy — happen at request time)
 import { GET as filesGET, POST as filesPOST } from "../../app/api/agent/files/[...path]/route.js";
@@ -30,9 +30,9 @@ before(async () => {
 	tmpHome = await mkdtemp(path.join(tmpdir(), "wiki-home-test-"));
 	process.env.HOME = tmpHome;
 
-	// Wiki files root
-	tmpRoot = await mkdtemp(path.join(tmpdir(), "wiki-routes-test-"));
-	setRootDir(tmpRoot);
+	// Wiki files root — create a real workspace so routes resolve via the registry
+	const { rootDir } = await createTestWorkspace({ name: "wiki-routes-test" });
+	tmpRoot = rootDir;
 
 	// Create registry and add test agents
 	await ensureRegistry();

@@ -3,9 +3,11 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 import { checkOrigin } from "@/lib/auth/csrf";
 import { resolveWorkspaceForUser } from "@/lib/workspace-context";
-import { safeWorkspacePath } from "@/lib/workspaces";
+import { resolveWorkspacePath } from "@/lib/fs/workspace-path";
 import { isAppFolder, isNodeApp } from "@/lib/wiki-helpers";
 import { detectGitRepo } from "@/lib/git";
+
+const DENIED_SEGMENTS = [".proof", ".git"];
 
 export async function GET(request: Request) {
 	const ctx = await resolveWorkspaceForUser(request);
@@ -15,9 +17,13 @@ export async function GET(request: Request) {
 	const { searchParams } = new URL(request.url);
 	const dir = searchParams.get("dir") ?? "";
 
-	const targetDir = safeWorkspacePath(rootDir, dir);
-	if (!targetDir)
+	const dirRes = await resolveWorkspacePath(rootDir, dir, {
+		allowMissing: true,
+		deniedSegments: DENIED_SEGMENTS,
+	});
+	if (!dirRes)
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+	const targetDir = dirRes.absolutePath;
 
 	try {
 		let names: string[];
@@ -90,9 +96,12 @@ export async function DELETE(request: Request) {
 	if (!rel || typeof rel !== "string")
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
 
-	const filePath = safeWorkspacePath(rootDir, rel);
-	if (!filePath || filePath === rootDir)
+	const fileRes = await resolveWorkspacePath(rootDir, rel, {
+		deniedSegments: DENIED_SEGMENTS,
+	});
+	if (!fileRes || fileRes.absolutePath === rootDir)
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+	const filePath = fileRes.absolutePath;
 
 	try {
 		const info = await stat(filePath);

@@ -3,7 +3,9 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 import { checkOrigin } from "@/lib/auth/csrf";
 import { resolveWorkspaceForUser } from "@/lib/workspace-context";
-import { safeWorkspacePath } from "@/lib/workspaces";
+import { resolveWorkspacePath } from "@/lib/fs/workspace-path";
+
+const DENIED_SEGMENTS = [".proof", ".git"];
 
 const ALLOWED_MIME_TYPES = new Set([
 	"application/pdf",
@@ -55,9 +57,13 @@ export async function POST(request: Request) {
 		return NextResponse.json({ error: "No file provided" }, { status: 400 });
 
 	const dir = (formData.get("dir") as string) ?? "";
-	const targetDir = safeWorkspacePath(rootDir, dir);
-	if (!targetDir)
+	const dirRes = await resolveWorkspacePath(rootDir, dir, {
+		allowMissing: true,
+		deniedSegments: DENIED_SEGMENTS,
+	});
+	if (!dirRes)
 		return NextResponse.json({ error: "Invalid directory" }, { status: 400 });
+	const targetDir = dirRes.absolutePath;
 
 	const fileExt = file.name.split(".").pop()?.toLowerCase() ?? "";
 	if (!ALLOWED_MIME_TYPES.has(file.type) && !ALLOWED_EXTENSIONS.has(fileExt)) {

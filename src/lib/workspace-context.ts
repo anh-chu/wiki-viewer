@@ -1,8 +1,10 @@
 /**
- * Request-scoped workspace resolution for browser/session routes.
+ * Request-scoped workspace resolution for browser/session and agent routes.
  *
  * Determines which workspace a request targets and enforces access control.
- * Phase B routes call this instead of getRootDir().
+ * Workspace selection is always registry-based (real workspaces only);
+ * `ROOT_DIR` / `lastOpenedPath` seed a real workspace via
+ * migrateConfigToWorkspaces() before selection.
  */
 
 import path from "node:path";
@@ -11,7 +13,6 @@ import { validateRootParam } from "@/lib/embed-root";
 import { requireUser } from "@/lib/auth/server";
 import { isApiKeyRequest } from "@/lib/auth/api-key";
 import { isAdmin } from "@/lib/auth/admin";
-import { getRootDir } from "@/lib/root-dir";
 import {
 	getWorkspace,
 	listWorkspaces,
@@ -22,28 +23,11 @@ import {
 } from "@/lib/workspaces";
 
 /**
- * Synthetic fallback workspace built from the legacy process-global rootDir
- * (root-dir.ts). Used only when the registry has no workspaces — keeps the
- * ROOT_DIR / CLI / test paths working until Phase E removes the global.
- * Returns null when no global root is set either.
- */
-function fallbackWorkspace(): Workspace | null {
-	const root = getRootDir();
-	if (!root) return null;
-	return {
-		id: "ws_default",
-		name: path.basename(root) || "workspace",
-		rootDir: root,
-		createdAt: new Date(0).toISOString(),
-	};
-}
-
-/**
  * Synthetic, request-scoped workspace for a host-supplied `?root=` (termyard
- * embed). Same in-memory-only shape as fallbackWorkspace(): never written to
- * the registry, never the active workspace, never in the switcher. The id is
- * derived from the path so it's stable across requests for the same root
- * without ever being allocated or stored.
+ * embed). In-memory only: never written to the registry, never the active
+ * workspace, never shown in the switcher. The id is derived from the path so
+ * it's stable across requests for the same root without ever being allocated
+ * or stored.
  */
 function ephemeralWorkspace(rootDir: string): Workspace {
 	const digest = createHash("sha256").update(rootDir).digest("hex").slice(0, 12);
@@ -98,8 +82,7 @@ type PickResult = { ok: true; ws: Workspace } | WorkspaceError;
  * Resolve the target workspace from the request alone (no auth/access check,
  * except the API-key gate on `?root=`).
  * Selection: ?root= (ephemeral, api-key gated) → ?ws= query → x-workspace
- * header → most-recent lastOpenedAt → synthetic fallback from the global
- * rootDir.
+ * header → most-recent lastOpenedAt. No synthetic global fallback exists.
  */
 async function pickWorkspace(req: Request): Promise<PickResult> {
 	const url = new URL(req.url);
@@ -125,17 +108,20 @@ async function pickWorkspace(req: Request): Promise<PickResult> {
 	} else {
 		const all = await listWorkspaces();
 		if (all.length === 0) {
-			ws = fallbackWorkspace();
-		} else {
-			ws = all
-				.slice()
-				.sort((a, b) => {
-					const ta = a.lastOpenedAt ? new Date(a.lastOpenedAt).getTime() : 0;
-					const tb = b.lastOpenedAt ? new Date(b.lastOpenedAt).getTime() : 0;
-					if (tb !== ta) return tb - ta;
-					return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-				})[0];
+			return {
+				ok: false,
+				status: 400,
+				code: "WORKSPACE_REQUIRED",
+			};
 		}
+		ws = all
+			.slice()
+			.sort((a, b) => {
+				const ta = a.lastOpenedAt ? new Date(a.lastOpenedAt).getTime() : 0;
+				const tb = b.lastOpenedAt ? new Date(b.lastOpenedAt).getTime() : 0;
+				if (tb !== ta) return tb - ta;
+				return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+			})[0];
 	}
 
 	if (!ws) {
@@ -172,9 +158,8 @@ export interface WorkspaceError {
  * Selection order:
  *   1. `?ws=<id>` query param (preferred).
  *   2. `x-workspace` header.
- *   3. Fall back to the workspace with the most recent lastOpenedAt.
- *      If exactly one workspace exists, use it.
- *      If zero workspaces -> 400 WORKSPACE_REQUIRED.
+ *   3. Workspace with the most recent lastOpenedAt (if registry is empty,
+ *      `ROOT_DIR` / `lastOpenedPath` are migrated into a real workspace first).
  *
  * Pass intent="write" on any route that mutates the filesystem.
  * Returns 403 WORKSPACE_READ_ONLY for write intent on a readOnly workspace.
@@ -227,10 +212,8 @@ export interface AgentWorkspaceContext {
 
 /**
  * Resolve the target workspace for an AUTHENTICATED agent request.
- *
- * Phase B: resolution only (no per-agent workspace grant check - that is added
- * in Phase C, which will verify the agent's scope.workspaceId === ws.id).
- * Selection mirrors the session resolver: ?ws / x-workspace / default / global.
+ * Selection mirrors the session resolver: ?ws / x-workspace / default.
+ * Per-agent scope checks happen in the route after this resolution.
  *
  * Pass intent="write" on any route that mutates the filesystem.
  * Returns 403 WORKSPACE_READ_ONLY for write intent on a readOnly workspace.

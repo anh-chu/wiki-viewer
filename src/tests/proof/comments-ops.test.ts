@@ -4,13 +4,11 @@ import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { applyOps, readSnapshot } from "../../lib/proof/ops-applier.js";
-import { setRootDir } from "../../lib/root-dir.js";
 
 let tmpRoot: string;
 
 before(async () => {
 	tmpRoot = await mkdtemp(path.join(tmpdir(), "wiki-comment-test-"));
-	setRootDir(tmpRoot);
 });
 
 after(async () => {

@@ -8,14 +8,14 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import {
-	mkdtemp, rm, writeFile, readFile, mkdir, symlink,
+	mkdtemp, rm, writeFile, readFile, mkdir, symlink, stat,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { randomBytes } from "node:crypto";
 
-import { setRootDir } from "../../lib/root-dir.js";
+import { createTestWorkspace } from "./helpers/workspace.js";
 import { ensureRegistry, addAgent, hashToken } from "../../lib/proof/registry.js";
 import { writeSidecar, readSidecar, emptySidecar } from "../../lib/proof/sidecar.js";
 import { _resetAuditDb } from "../../lib/proof/audit.js";
@@ -51,10 +51,11 @@ function agentHeaders(token: string, id: string): Record<string, string> {
 
 before(async () => {
 	tmpHome = await mkdtemp(path.join(tmpdir(), "agent-fs-home-"));
-	tmpRoot = await mkdtemp(path.join(tmpdir(), "agent-fs-root-"));
-
 	process.env.HOME = tmpHome;
-	setRootDir(tmpRoot);
+
+	const { rootDir } = await createTestWorkspace({ name: "agent-fs-test" });
+	tmpRoot = rootDir;
+
 	_resetAuditDb();
 
 	await ensureRegistry();
@@ -677,6 +678,69 @@ test("move: 404 when source doesn't exist", async () => {
 	});
 	const res = await movePOST(req);
 	assert.equal(res.status, 404);
+});
+
+test("move: 409 when destination already exists", async () => {
+	await writeFile(path.join(tmpRoot, "move-existing-src.txt"), "source-data");
+	await writeFile(path.join(tmpRoot, "move-existing-dst.txt"), "destination-data");
+
+	const req = new Request("http://localhost/api/agent/fs/move", {
+		method: "POST",
+		headers: {
+			...agentHeaders(MUTATE_TOKEN, "ai:mutate-agent"),
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify({ from: "move-existing-src.txt", to: "move-existing-dst.txt" }),
+	});
+	const res = await movePOST(req);
+	assert.equal(res.status, 409);
+	const body = (await res.json()) as { error: string };
+	assert.equal(body.error, "DESTINATION_EXISTS");
+
+	// Non-destructive: neither source nor destination was touched.
+	assert.equal(await readFile(path.join(tmpRoot, "move-existing-src.txt"), "utf-8"), "source-data");
+	assert.equal(await readFile(path.join(tmpRoot, "move-existing-dst.txt"), "utf-8"), "destination-data");
+});
+
+test("move: overwrite:true replaces existing destination", async () => {
+	await writeFile(path.join(tmpRoot, "move-overwrite-src.txt"), "new-data");
+	await writeFile(path.join(tmpRoot, "move-overwrite-dst.txt"), "old-data");
+
+	const req = new Request("http://localhost/api/agent/fs/move", {
+		method: "POST",
+		headers: {
+			...agentHeaders(MUTATE_TOKEN, "ai:mutate-agent"),
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify({ from: "move-overwrite-src.txt", to: "move-overwrite-dst.txt", overwrite: true }),
+	});
+	const res = await movePOST(req);
+	assert.equal(res.status, 200);
+
+	await assert.rejects(
+		() => readFile(path.join(tmpRoot, "move-overwrite-src.txt")),
+		{ code: "ENOENT" },
+	);
+	assert.equal(await readFile(path.join(tmpRoot, "move-overwrite-dst.txt"), "utf-8"), "new-data");
+});
+
+test("move: rejects missing destination parent", async () => {
+	await writeFile(path.join(tmpRoot, "move-no-parent-src.txt"), "data");
+
+	const req = new Request("http://localhost/api/agent/fs/move", {
+		method: "POST",
+		headers: {
+			...agentHeaders(MUTATE_TOKEN, "ai:mutate-agent"),
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify({ from: "move-no-parent-src.txt", to: "missing-parent/dst.txt" }),
+	});
+	const res = await movePOST(req);
+	assert.equal(res.status, 400);
+	const body = (await res.json()) as { error: string };
+	assert.equal(body.error, "INVALID_PATH");
+
+	await assert.doesNotReject(stat(path.join(tmpRoot, "move-no-parent-src.txt")));
 });
 
 // ── search tests ──────────────────────────────────────────────────────────────

@@ -5,7 +5,9 @@ import { Readable } from "node:stream";
 import JSZip from "jszip";
 import { NextResponse } from "next/server";
 import { resolveWorkspaceForUser } from "@/lib/workspace-context";
-import { safeWorkspacePath } from "@/lib/workspaces";
+import { resolveWorkspacePath } from "@/lib/fs/workspace-path";
+
+const DENIED_SEGMENTS = [".proof", ".git"];
 
 // Skip noise that should never end up in a downloaded archive.
 const SKIP_DIRS = new Set([".git", "node_modules", ".next", ".proof"]);
@@ -44,9 +46,12 @@ export async function GET(request: Request) {
 
 	const { searchParams } = new URL(request.url);
 	const rel = searchParams.get("path") ?? "";
-	const target = safeWorkspacePath(rootDir, rel);
-	if (!target)
+	const targetRes = await resolveWorkspacePath(rootDir, rel, {
+		deniedSegments: DENIED_SEGMENTS,
+	});
+	if (!targetRes)
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+	const target = targetRes.absolutePath;
 
 	let info: Awaited<ReturnType<typeof stat>>;
 	try {

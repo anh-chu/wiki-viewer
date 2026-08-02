@@ -114,7 +114,6 @@ function Stage({
 				style={{
 					transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
 				}}
-				// biome-ignore lint/security/noDangerouslySetInnerHtml: mermaid SVG, securityLevel loose
 				dangerouslySetInnerHTML={{ __html: svg }}
 			/>
 			<div

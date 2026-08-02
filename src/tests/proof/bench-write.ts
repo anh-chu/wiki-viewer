@@ -16,7 +16,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 
-import { setRootDir } from "../../lib/root-dir.js";
 import { ensureRegistry, addAgent, hashToken } from "../../lib/proof/registry.js";
 
 const ITERS = Number(process.env.BENCH_ITERS) || 300;
@@ -28,8 +27,10 @@ function sha256(buf: Buffer): string {
 function hdrs(token: string, id: string): Record<string, string> {
 	return { Authorization: `Bearer ${token}`, "X-Agent-Id": id };
 }
+let benchWsId = "";
 function fileUrl(rel: string, qs = ""): string {
-	return `http://localhost/api/agent/fs/file/${rel}${qs}`;
+	const sep = qs ? "&" : "?";
+	return `http://localhost/api/agent/fs/file/${rel}${qs}${sep}ws=${benchWsId}`;
 }
 
 function pct(sorted: number[], p: number): number {
@@ -62,7 +63,9 @@ async function main() {
 	const tmpHome = await mkdtemp(path.join(tmpdir(), "bench-home-"));
 	const tmpRoot = await mkdtemp(path.join(tmpdir(), "bench-root-"));
 	process.env.HOME = tmpHome;
-	setRootDir(tmpRoot);
+	const { createWorkspace } = await import("../../lib/workspaces.js");
+	const ws = await createWorkspace({ rootDir: tmpRoot, name: "bench" });
+	benchWsId = ws.id;
 	await ensureRegistry();
 
 	const TOKEN = randomBytes(32).toString("hex");

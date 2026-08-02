@@ -13,8 +13,10 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { resolveWorkspaceForUser } from "@/lib/workspace-context";
-import { safeWorkspacePath } from "@/lib/workspaces";
+import { resolveWorkspacePath } from "@/lib/fs/workspace-path";
 import { setLease, clearLease } from "@/lib/proof/lease";
+
+const DENIED_SEGMENTS = [".proof", ".git"];
 
 function errJson(code: string, message: string, status: number): NextResponse {
 	return NextResponse.json({ error: code, message }, { status });
@@ -41,7 +43,11 @@ export async function POST(req: Request): Promise<NextResponse> {
 	}
 
 	// Basic traversal guard
-	if (!safeWorkspacePath(rootDir, relPath)) {
+	const resolved = await resolveWorkspacePath(rootDir, relPath, {
+		allowMissing: true,
+		deniedSegments: DENIED_SEGMENTS,
+	});
+	if (!resolved) {
 		return errJson("INVALID_PATH", "Path traversal rejected", 400);
 	}
 

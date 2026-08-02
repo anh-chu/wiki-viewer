@@ -19,6 +19,7 @@ const WS_SCOPED_PREFIXES = [
 	"/api/upload/",
 	"/api/pdf/",
 	"/api/system/reveal",
+	"/api/app-proxy/",
 ];
 
 const WS_AGENT_PREFIX = "/api/agent/";

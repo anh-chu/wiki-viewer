@@ -1,7 +1,7 @@
 {
   "name": "wiki-viewer",
   "version": "2.9.2",
-  "description": "Local file viewer and wiki \u2014 view markdown, HTML, PDFs, notebooks, office docs, and more from any directory",
+  "description": "Local file viewer and wiki — view markdown, HTML, PDFs, notebooks, office docs, and more from any directory",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -21,11 +21,14 @@
     "postbuild": "node bin/postbuild.js",
     "prepublishOnly": "npm run build",
     "prepack": "node -e \"require('fs').existsSync('.next/standalone/server.js')||(console.error('ERROR: .next/standalone/server.js missing, run pnpm build before publishing'),process.exit(1))\"",
+    "lint": "biome check .",
+    "format:check": "node scripts/format-check.mjs",
     "test": "node scripts/test-floor.mjs",
-    "test:raw": "tsx --import ./src/tests/proof/preload.ts --test src/tests/proof/*.test.ts"
+    "test:raw": "tsx --import ./src/tests/proof/preload.ts --test src/tests/proof/*.test.ts",
+    "typecheck": "tsc --noEmit"
   },
   "engines": {
-    "node": ">=22.5.0"
+    "node": ">=20.9.0"
   },
   "keywords": [
     "wiki",
@@ -58,6 +61,7 @@
     "undici": "^8.3.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.6",
     "@radix-ui/react-context-menu": "^2.2.16",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-dropdown-menu": "^2.1.16",
@@ -122,10 +126,5 @@
     "unified": "^11.0.5",
     "xlsx": "^0.18.5",
     "zustand": "^5.0.12"
-  },
-  "pnpm": {
-    "overrides": {
-      "kysely": "0.28.5"
-    }
   }
 }

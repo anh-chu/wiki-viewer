@@ -3,26 +3,39 @@
  * Lives as a module-level Map so it persists across requests in both dev and
  * the Next.js standalone production server.
  */
-import { spawn, type ChildProcess, execSync } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { createConnection, createServer } from "node:net";
 import path from "node:path";
 
 export type AppStatus = "stopped" | "installing" | "starting" | "running" | "error";
 
+interface AppKey {
+	workspaceId: string;
+	relPath: string;
+}
+
 interface RunningApp {
+	workspaceId: string;
+	relPath: string;
 	port: number;
 	process: ChildProcess | null;
 	status: AppStatus;
 	error?: string;
 	logs: string[];
-	// Port the app actually bound to, parsed from its stdout — used as a fallback
-	// when our --port/PORT override is ignored (unknown PM/flag conventions).
-	detectedPort?: number;
+	/** Generation token: only the current generation may update readiness/exit state. */
+	generation: number;
+	/** Cancels readiness polling and signals the install child to terminate. */
+	abort: AbortController;
 }
 
 // ── singleton ────────────────────────────────────────────────────────────────
+
 const apps = new Map<string, RunningApp>();
+
+function keyOf(key: AppKey): string {
+	return `${key.workspaceId}\0${key.relPath}`;
+}
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -43,7 +56,7 @@ function canConnect(port: number, host: string): Promise<boolean> {
 		const sock = createConnection(port, host);
 		sock.setTimeout(800);
 		sock.on("connect", () => { sock.destroy(); resolve(true); });
-		sock.on("error",   () => { sock.destroy(); resolve(false); });
+		sock.on("error", () => { sock.destroy(); resolve(false); });
 		sock.on("timeout", () => { sock.destroy(); resolve(false); });
 	});
 }
@@ -57,14 +70,13 @@ async function probe(port: number): Promise<boolean> {
 	return v4 || v6;
 }
 
-// Wait until the requested port OR the port the app printed becomes reachable.
-// Returns the reachable port (so the caller can re-point the proxy), or null.
+// Wait until the assigned port becomes reachable.
+// Returns the reachable port, or null on timeout/abort.
 async function waitForApp(entry: RunningApp, timeoutMs = 30_000): Promise<number | null> {
 	const deadline = Date.now() + timeoutMs;
 	while (Date.now() < deadline) {
-		for (const p of [entry.port, entry.detectedPort]) {
-			if (p && (await probe(p))) return p;
-		}
+		if (entry.abort.signal.aborted) return null;
+		if (await probe(entry.port)) return entry.port;
 		await new Promise((r) => setTimeout(r, 400));
 	}
 	return null;
@@ -107,14 +119,18 @@ function hasViteDep(pkg: Pkg): boolean {
 	return Object.keys(allDeps).some((k) => k === "vite" || k.includes("vite"));
 }
 
+function hasScript(scripts: Record<string, string>, name: string): boolean {
+	return Object.prototype.hasOwnProperty.call(scripts, name);
+}
+
 /**
  * Default script chosen when the user doesn't pick one explicitly.
  * Priority: start > preview (built) > dev.
  */
 function defaultScript(dir: string, scripts: Record<string, string>): string | null {
-	if (scripts.start) return "start";
-	if (scripts.preview && existsSync(path.join(dir, "dist"))) return "preview";
-	if (scripts.dev) return "dev";
+	if (hasScript(scripts, "start")) return "start";
+	if (hasScript(scripts, "preview") && existsSync(path.join(dir, "dist"))) return "preview";
+	if (hasScript(scripts, "dev")) return "dev";
 	return null;
 }
 
@@ -149,15 +165,18 @@ function detectCmd(dir: string, pm: PM, port: number, script?: string): Cmd | nu
 	// npm strips the first `--` and forwards the rest to the script; pnpm/yarn
 	// forward the literal `--` through, which makes arg parsers (e.g. commander)
 	// treat `--port N` as positional operands and ignore them. So only npm gets
-	// the separator.  ponytail: per-PM branch, the only place PMs diverge here.
+	// the separator.
 	const run = (s: string): Cmd => ({
 		bin: pm,
 		args: pm === "npm" ? ["run", s, "--", ...portArgs] : ["run", s, ...portArgs],
 		isVite: hasVite,
 	});
 
-	// Explicit script choice wins
-	if (script && scripts[script]) return run(script);
+	// Explicit script choice wins. Validate by own-property lookup only.
+	if (script) {
+		if (!hasScript(scripts, script)) return null;
+		return run(script);
+	}
 
 	const def = defaultScript(dir, scripts);
 	if (def) return run(def);
@@ -183,26 +202,87 @@ function spawnPath(): string {
 		: `${nodeBin}${path.delimiter}${existing}`;
 }
 
-function runInstall(dir: string, pm: PM): Promise<void> {
+function runInstall(
+	dir: string,
+	pm: PM,
+	pushLog: (line: string) => void,
+	signal: AbortSignal,
+): Promise<void> {
 	return new Promise((resolve, reject) => {
-		const child = spawn(pm, ["install"], { cwd: dir, stdio: "pipe", env: { ...process.env, PATH: spawnPath() } });
-		child.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`${pm} install failed (exit ${code})`))));
-		child.on("error", reject);
+		if (signal.aborted) {
+			reject(new Error("Install aborted"));
+			return;
+		}
+
+		const local: string[] = [];
+		const log = (line: string) => {
+			pushLog(line);
+			local.push(line);
+		};
+
+		const child = spawn(pm, ["install"], {
+			cwd: dir,
+			stdio: "pipe",
+			env: { ...process.env, PATH: spawnPath() },
+		});
+
+		const onAbort = () => {
+			try { child.kill("SIGTERM"); } catch {}
+		};
+		signal.addEventListener("abort", onAbort, { once: true });
+
+		const drain = (data: Buffer) => {
+			for (const line of data.toString().split("\n")) {
+				const trimmed = line.trim();
+				if (!trimmed) continue;
+				log(trimmed);
+			}
+		};
+		child.stdout?.on("data", drain);
+		child.stderr?.on("data", drain);
+
+		child.on("error", (err) => {
+			signal.removeEventListener("abort", onAbort);
+			reject(err);
+		});
+		child.on("exit", (code) => {
+			signal.removeEventListener("abort", onAbort);
+			if (code === 0) {
+				resolve();
+			} else {
+				const tail = local.slice(-20).join("\n");
+				reject(new Error(`${pm} install failed (exit ${code}):\n${tail}`));
+			}
+		});
 	});
 }
 
 // ── public API ───────────────────────────────────────────────────────────────
 
-export function getStatus(relPath: string): { status: AppStatus; port?: number; error?: string; logs: string[] } {
-	const app = apps.get(relPath);
+export function getStatus(
+	workspaceId: string,
+	relPath: string,
+): { status: AppStatus; port?: number; error?: string; logs: string[] } {
+	const app = apps.get(keyOf({ workspaceId, relPath }));
 	if (!app) return { status: "stopped", logs: [] };
 	return { status: app.status, port: app.port || undefined, error: app.error, logs: app.logs };
 }
 
-export async function startApp(relPath: string, absPath: string, script?: string): Promise<{ port: number }> {
-	const existing = apps.get(relPath);
-	if (existing && existing.status !== "stopped" && existing.status !== "error") {
+export async function startApp(
+	workspaceId: string,
+	relPath: string,
+	absPath: string,
+	script?: string,
+): Promise<{ port: number }> {
+	const key = keyOf({ workspaceId, relPath });
+
+	const existing = apps.get(key);
+	if (existing && existing.status !== "stopped" && existing.status !== "error" && existing.process) {
 		return { port: existing.port };
+	}
+	if (existing) {
+		existing.abort.abort();
+		apps.delete(key);
 	}
 
 	const port = await findFreePort();
@@ -210,107 +290,122 @@ export async function startApp(relPath: string, absPath: string, script?: string
 	const cmd = detectCmd(absPath, pm, port, script);
 	if (!cmd) throw new Error("No runnable script found in package.json (need start, preview, or dev)");
 
-	const entry: RunningApp = { port, process: null, status: "installing", logs: [] };
-	apps.set(relPath, entry);
+	const entry: RunningApp = {
+		workspaceId,
+		relPath,
+		port,
+		process: null,
+		status: "installing",
+		logs: [],
+		generation: 1,
+		abort: new AbortController(),
+	};
+	apps.set(key, entry);
 
 	const pushLog = (line: string) => {
 		entry.logs.push(line);
 		if (entry.logs.length > 200) entry.logs.shift();
 	};
 
-	// Install if needed
-	if (needsInstall(absPath)) {
-		try {
+	try {
+		if (needsInstall(absPath)) {
 			pushLog(`[wiki-viewer] Running ${pm} install…`);
-			await runInstall(absPath, pm);
-		} catch (e) {
-			entry.status = "error";
-			entry.error = String(e);
-			return { port };
+			await runInstall(absPath, pm, pushLog, entry.abort.signal);
 		}
-	}
 
-	entry.status = "starting";
-	pushLog(`[wiki-viewer] Starting on port ${port}: ${cmd.bin} ${cmd.args.join(" ")}`);
+		entry.status = "starting";
+		pushLog(`[wiki-viewer] Starting on port ${port}: ${cmd.bin} ${cmd.args.join(" ")}`);
 
-	// Port is already baked into cmd.args by detectCmd.
-	const child = spawn(cmd.bin, cmd.args, {
-		cwd: absPath,
-		stdio: "pipe",
-		env: {
-			...process.env,
-			PATH: spawnPath(),
-			PORT: String(port),
-			VITE_PORT: String(port),
-		},
-	});
-	entry.process = child;
+		const child = spawn(cmd.bin, cmd.args, {
+			cwd: absPath,
+			stdio: "pipe",
+			env: {
+				...process.env,
+				PATH: spawnPath(),
+				PORT: String(port),
+				VITE_PORT: String(port),
+			},
+		});
+		entry.process = child;
 
-	const handleOutput = (data: Buffer) => {
-		for (const line of data.toString().split("\n")) {
-			if (!line.trim()) continue;
-			pushLog(line);
-			// Fallback: capture the port the server actually printed, in case it
-			// ignored our override and bound elsewhere (e.g. vite default 4173).
-			if (!entry.detectedPort) {
-				const m = line.match(/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\]):(\d{2,5})/);
-				const p = m ? Number(m[1]) : 0;
-				if (p && p !== entry.port) {
-					entry.detectedPort = p;
-					pushLog(`[wiki-viewer] App bound to ${p}, not requested ${entry.port}; will attach to ${p}.`);
-				}
+		const handleOutput = (data: Buffer) => {
+			for (const line of data.toString().split("\n")) {
+				const trimmed = line.trim();
+				if (!trimmed) continue;
+				pushLog(trimmed);
 			}
-		}
-	};
-	child.stdout?.on("data", handleOutput);
-	child.stderr?.on("data", handleOutput);
+		};
+		child.stdout?.on("data", handleOutput);
+		child.stderr?.on("data", handleOutput);
 
-	child.on("exit", (code) => {
-		const a = apps.get(relPath);
-		// Don't clobber an explicit error (e.g. port-timeout kill below).
-		if (a?.process === child && a.status !== "error") {
-			a.status = code === 0 || code === null ? "stopped" : "error";
-			a.error = code ? `Process exited with code ${code}` : undefined;
-		}
-	});
+		child.on("exit", (code) => {
+			// Only the current entry may update state, and never after an explicit stop.
+			if (apps.get(key) !== entry) return;
+			if (entry.status === "stopped") return;
+			entry.process = null;
+			entry.status = code === 0 || code === null ? "stopped" : "error";
+			entry.error = code ? `Process exited with code ${code}` : undefined;
+		});
 
-	// Wait for either the requested port or the one the app actually printed.
-	waitForApp(entry).then((reachable) => {
-		const a = apps.get(relPath);
-		if (a?.process === child) {
+		waitForApp(entry).then((reachable) => {
+			if (apps.get(key) !== entry) return;
+			if (entry.abort.signal.aborted) return;
 			if (reachable) {
-				a.status = "running";
-				a.port = reachable; // route the proxy to where the app really is
+				entry.status = "running";
 			} else {
-				a.status = "error";
-				a.error = "Port never became reachable (30 s timeout)";
+				entry.status = "error";
+				entry.error = "Port never became reachable (30 s timeout)";
 				try { child.kill("SIGTERM"); } catch {}
 			}
-		}
-	});
+		});
 
-	return { port };
+		return { port };
+	} catch (e) {
+		if (apps.get(key) === entry) {
+			entry.status = "error";
+			entry.error = e instanceof Error ? e.message : String(e);
+		}
+		throw e;
+	}
 }
 
-export function stopApp(relPath: string): void {
-	const app = apps.get(relPath);
-	if (!app?.process) return;
+export function stopApp(workspaceId: string, relPath: string): void {
+	const key = keyOf({ workspaceId, relPath });
+	const entry = apps.get(key);
+	if (!entry) return;
+
+	entry.abort.abort();
+	const child = entry.process;
+	entry.process = null;
+	apps.delete(key);
+
+	if (!child) return;
+
+	const killLater = setTimeout(() => {
+		try {
+			if (!child.killed && child.pid) child.kill("SIGKILL");
+		} catch {}
+	}, 2000);
+
+	child.once("exit", () => clearTimeout(killLater));
+
 	try {
-		app.process.kill("SIGTERM");
+		if (!child.killed && child.pid) child.kill("SIGTERM");
 	} catch {}
-	app.status = "stopped";
 }
 
 /**
- * Given URL path segments, find the longest prefix that matches a running app.
+ * Given URL path segments, find the longest prefix that matches a running app
+ * in the requested workspace.
  * e.g. ["apps", "roadmap-server", "api", "specs"] → { relPath: "apps/roadmap-server", port, rest: "/api/specs" }
  */
 export function resolveByPrefix(
+	workspaceId: string,
 	segments: string[],
 ): { relPath: string; port: number; rest: string } | null {
 	for (let i = segments.length; i > 0; i--) {
 		const relPath = segments.slice(0, i).join("/");
-		const app = apps.get(relPath);
+		const app = apps.get(keyOf({ workspaceId, relPath }));
 		if (app && app.status === "running" && app.port) {
 			const rest = "/" + segments.slice(i).join("/");
 			return { relPath, port: app.port, rest };

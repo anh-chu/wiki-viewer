@@ -18,7 +18,7 @@
                  │  Authorization: Bearer + X-Agent-Id        │
                  │  enforceScope(path-glob, op)               │
                  │  withFileMutex (in-proc + proper-lockfile) │
-                 │  safeRootPath (traversal/symlink guard)    │
+                 │  resolveWorkspacePath() (traversal/symlink guard)    │
                  │  event log + audit                         │
                  └───────────────┬───────────────┬────────────┘
                                  │               │
@@ -40,7 +40,7 @@
 
 ## 2. Tier 1 — Raw FS API (v1, minimal)
 
-All routes reuse `checkAuth` + `enforceScope` + `withFileMutex` + `safeRootPath`. All reject paths under `.proof/`, the lock dir, and the app db/config. Scope is enforced on **every** surface (reads, listings, search results, move endpoints).
+All routes reuse `checkAuth` + `enforceScope` + `withFileMutex` + `resolveWorkspacePath()`. All reject paths under `.proof/`, the lock dir, and the app db/config. Scope is enforced on **every** surface (reads, listings, search results, move endpoints).
 
 | Method   | Route                                           | Purpose                                                                      |
 | -------- | ----------------------------------------------- | ---------------------------------------------------------------------------- |

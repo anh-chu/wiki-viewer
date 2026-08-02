@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 
-import { setRootDir } from "../../lib/root-dir.js";
+import { createTestWorkspace } from "./helpers/workspace.js";
 import { ensureRegistry, addAgent, hashToken } from "../../lib/proof/registry.js";
 import { writeSidecar, emptySidecar } from "../../lib/proof/sidecar.js";
 import { setLease, clearLease, leaseGeneration, hasActiveLease, _resetLeaseStore, LEASE_TTL_MS } from "../../lib/proof/lease.js";
@@ -52,10 +52,11 @@ function tier2Url(rel: string): string {
 
 before(async () => {
 	tmpHome = await mkdtemp(path.join(tmpdir(), "collab-state-home-"));
-	tmpRoot = await mkdtemp(path.join(tmpdir(), "collab-state-root-"));
-
 	process.env.HOME = tmpHome;
-	setRootDir(tmpRoot);
+
+	const { rootDir } = await createTestWorkspace({ name: "collab-state" });
+	tmpRoot = rootDir;
+
 	_resetAuditDb();
 	_resetLeaseStore();
 

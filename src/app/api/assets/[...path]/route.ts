@@ -1,68 +1,36 @@
 import { readFile, stat } from "node:fs/promises";
-import path from "node:path";
 import { NextResponse } from "next/server";
-import { resolveWorkspaceForAgent } from "@/lib/workspace-context";
-import { safeWorkspacePath } from "@/lib/workspaces";
+import { resolveWorkspaceForUser } from "@/lib/workspace-context";
+import { resolveWorkspacePath } from "@/lib/fs/workspace-path";
+import { contentTypeForPath } from "@/lib/mime";
 
-const MIME_MAP: Record<string, string> = {
-	jpg: "image/jpeg",
-	jpeg: "image/jpeg",
-	png: "image/png",
-	gif: "image/gif",
-	webp: "image/webp",
-	svg: "image/svg+xml",
-	avif: "image/avif",
-	ico: "image/x-icon",
-	bmp: "image/bmp",
-	pdf: "application/pdf",
-	txt: "text/plain; charset=utf-8",
-	md: "text/markdown; charset=utf-8",
-	mp4: "video/mp4",
-	webm: "video/webm",
-	mov: "video/quicktime",
-	m4v: "video/mp4",
-	mp3: "audio/mpeg",
-	wav: "audio/wav",
-	ogg: "audio/ogg",
-	m4a: "audio/mp4",
-	aac: "audio/aac",
-	ipynb: "application/json",
-	json: "application/json",
-	js: "text/javascript",
-	ts: "text/plain",
-	css: "text/css",
-	html: "text/html",
-	mmd: "text/plain",
-	docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-	xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-	pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-};
+const DENIED_SEGMENTS = [".proof", ".git"];
 
 export async function GET(
 	request: Request,
 	{ params }: { params: Promise<{ path: string[] }> },
 ) {
-	const wsx = await resolveWorkspaceForAgent(request);
+	const wsx = await resolveWorkspaceForUser(request);
 	if (!wsx.ok) return NextResponse.json({ error: wsx.code }, { status: wsx.status });
 	const { rootDir } = wsx;
 
 	const segments = (await params).path;
 	const rel = segments.join("/");
 
-	// Path traversal guard
-	const resolved = safeWorkspacePath(rootDir, rel);
+	const resolved = await resolveWorkspacePath(rootDir, rel, {
+		deniedSegments: DENIED_SEGMENTS,
+	});
 	if (!resolved) {
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
 	}
 
 	try {
-		const info = await stat(resolved);
+		const info = await stat(resolved.absolutePath);
 		if (info.isDirectory())
 			return NextResponse.json({ error: "Not a file" }, { status: 400 });
 
-		const ext = path.extname(resolved).slice(1).toLowerCase();
-		const contentType = MIME_MAP[ext] ?? "application/octet-stream";
-		const buffer = await readFile(resolved);
+		const contentType = contentTypeForPath(resolved.absolutePath);
+		const buffer = await readFile(resolved.absolutePath);
 		return new Response(buffer, {
 			headers: {
 				"Content-Type": contentType,

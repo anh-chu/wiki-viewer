@@ -4,9 +4,11 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 import { checkOrigin } from "@/lib/auth/csrf";
 import { resolveWorkspaceForUser } from "@/lib/workspace-context";
-import { safeWorkspacePath } from "@/lib/workspaces";
+import { resolveWorkspacePath } from "@/lib/fs/workspace-path";
 import { emitEvents, trimEvents } from "@/lib/proof/event-bus";
-import { withFileMutex } from "@/lib/proof/mutex";
+
+const DENIED_SEGMENTS = [".proof", ".git"];
+import { withFileMutex, workspaceLockKey } from "@/lib/proof/mutex";
 import { emptySidecar, readSidecar, writeSidecar } from "@/lib/proof/sidecar";
 import { SIDECAR_EVENT_TRIM_SIZE } from "@/lib/proof-config";
 
@@ -41,9 +43,12 @@ export async function GET(request: Request) {
 
 	const { searchParams } = new URL(request.url);
 	const rel = searchParams.get("path") ?? "";
-	const filePath = safeWorkspacePath(rootDir, rel);
-	if (!filePath)
+	const fileRes = await resolveWorkspacePath(rootDir, rel, {
+		deniedSegments: DENIED_SEGMENTS,
+	});
+	if (!fileRes)
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+	const filePath = fileRes.absolutePath;
 	if (!isTextFile(path.basename(filePath)))
 		return NextResponse.json({ error: "Not a text file" }, { status: 400 });
 	try {
@@ -83,9 +88,13 @@ export async function PUT(request: Request) {
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
 	if (typeof content !== "string")
 		return NextResponse.json({ error: "Missing content" }, { status: 400 });
-	const filePath = safeWorkspacePath(rootDir, rel);
-	if (!filePath)
+	const fileRes = await resolveWorkspacePath(rootDir, rel, {
+		allowMissing: true,
+		deniedSegments: DENIED_SEGMENTS,
+	});
+	if (!fileRes)
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+	const filePath = fileRes.absolutePath;
 	if (!isTextFile(path.basename(filePath)))
 		return NextResponse.json({ error: "Not a text file" }, { status: 400 });
 
@@ -101,9 +110,9 @@ export async function PUT(request: Request) {
 	}
 
 	// Markdown files: mutex + sidecar revision check + fingerprint update + event.
-	// Use the same key format as the agent routes (`${rootDir}\0${rel}`) so a doc
-	// edited via both the editor and the agent fs API shares one lock.
-	return withFileMutex(`${rootDir}\u0000${rel}`, async () => {
+	// Share the same workspace-scoped lock key as the agent routes so a doc
+	// edited via both the editor and the agent fs API serializes correctly.
+	return withFileMutex(workspaceLockKey(rootDir, rel), async () => {
 		const sc = (await readSidecar(rootDir, rel)) ?? emptySidecar(rel);
 
 		// baseRevision is required for markdown to prevent lost writes.

@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { detectGitRepo, gitBranches } from "@/lib/git";
 import { resolveWorkspaceForUser } from "@/lib/workspace-context";
-import { safeWorkspacePath } from "@/lib/workspaces";
+import { resolveWorkspacePath } from "@/lib/fs/workspace-path";
+
+const DENIED_SEGMENTS = [".proof", ".git"];
 
 export async function GET(request: Request) {
 	const ctx = await resolveWorkspaceForUser(request);
@@ -12,9 +14,12 @@ export async function GET(request: Request) {
 	const rel = searchParams.get("path") ?? "";
 	if (!rel) return NextResponse.json({ error: "Invalid path" }, { status: 400 });
 
-	const repoDir = safeWorkspacePath(rootDir, rel);
-	if (!repoDir || repoDir === rootDir)
+	const resolved = await resolveWorkspacePath(rootDir, rel, {
+		deniedSegments: DENIED_SEGMENTS,
+	});
+	if (!resolved || resolved.absolutePath === rootDir)
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+	const repoDir = resolved.absolutePath;
 
 	if (!(await detectGitRepo(repoDir)))
 		return NextResponse.json({ error: "Not a git repository" }, { status: 400 });

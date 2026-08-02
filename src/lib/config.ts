@@ -1,55 +1,7 @@
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-
-// Workspace type is defined in workspaces.ts; we use a forward-compatible
-// inline shape here to avoid a circular import between config ↔ workspaces.
-export interface WorkspaceGitEntry {
-	remoteUrl: string;
-	branch?: string;
-	tokenRef?: string;
-	username?: string;
-	lastPulledAt?: string;
-	lastSha?: string;
-	lastError?: string;
-	/** Sparse-checkout cone path (e.g. "docs"). rootDir points here inside the clone. */
-	subpath?: string;
-	/** Absolute path of the clone root. rootDir may differ when subpath is set. */
-	cloneRoot?: string;
-}
-
-/** SSH/sshfs mount metadata. Present only on sshfs-backed workspaces. */
-export interface WorkspaceSshEntry {
-	/** Full target as entered: [user@]host:/path. */
-	target: string;
-	host: string;
-	user?: string;
-	remotePath: string;
-	port?: number;
-	authMethod: "agent" | "keyfile" | "password";
-	/** Private key path (authMethod="keyfile"). */
-	keyPath?: string;
-	/** Secret-store ref for the password (authMethod="password"). */
-	secretRef?: string;
-	/** Absolute mount point: ~/.wiki-viewer/mounts/<id>. Equals rootDir. */
-	mountpoint: string;
-	lastMountedAt?: string;
-	lastError?: string;
-}
-
-export interface WorkspaceEntry {
-	id: string;
-	name: string;
-	rootDir: string;
-	createdAt: string;
-	lastOpenedAt?: string;
-	pinnedPaths?: string[];
-	createdBy?: string;
-	allowedUserIds?: string[];
-	readOnly?: boolean;
-	git?: WorkspaceGitEntry;
-	ssh?: WorkspaceSshEntry;
-}
+import type { PersistedWorkspace } from "@/types/workspace";
 
 export interface WikiViewerConfig {
 	pinnedPaths?: string[];
@@ -59,7 +11,7 @@ export interface WikiViewerConfig {
 	/** Domain allowlist for signup. Empty/undefined = no domain restriction. */
 	allowedDomains?: string[];
 	/** Registered workspaces (replaces flat lastOpenedPath/pinnedPaths over time). */
-	workspaces?: WorkspaceEntry[];
+	workspaces?: PersistedWorkspace[];
 	/** User IDs with admin privileges. Empty = no admins yet (bootstrap on first request). */
 	adminUserIds?: string[];
 	/** Git-backed workspace host policy. */

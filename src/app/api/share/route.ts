@@ -44,7 +44,10 @@ export async function POST(request: Request) {
 
 	const { stat } = await import("node:fs/promises");
 	try {
-		await stat(absPath);
+		const info = await stat(absPath);
+		if (info.isDirectory()) {
+			return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+		}
 	} catch {
 		return NextResponse.json({ error: "File not found" }, { status: 404 });
 	}

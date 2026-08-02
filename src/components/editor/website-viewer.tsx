@@ -1,6 +1,7 @@
 "use client";
 
-import { ArrowLeft, ExternalLink } from "lucide-react";
+import { useState } from "react";
+import { ArrowLeft, ExternalLink, Play, Ban } from "lucide-react";
 import { ViewerToolbar } from "@/components/layout/viewer-toolbar";
 import { Button } from "@/components/ui/button";
 import { withWs } from "@/lib/workspace-client";
@@ -21,7 +22,13 @@ export function WebsiteViewer({
 	fullscreen,
 	onExit,
 }: WebsiteViewerProps) {
+	const [scriptsEnabled, setScriptsEnabled] = useState(false);
 	const iframeSrc = withWs(src ?? `/api/assets/${path}/index.html`);
+
+	const sandbox = scriptsEnabled
+		? "allow-scripts allow-forms allow-popups allow-top-navigation-by-user-activation"
+		: "allow-forms allow-popups allow-top-navigation-by-user-activation";
+
 	const exitButton =
 		fullscreen && onExit ? (
 			<Button
@@ -57,6 +64,29 @@ export function WebsiteViewer({
 					variant="ghost"
 					size="sm"
 					className="h-7 gap-1.5 text-xs"
+					onClick={() => setScriptsEnabled((s) => !s)}
+					title={
+						scriptsEnabled
+							? "Disable scripts (recommended for untrusted content)"
+							: "Enable scripts"
+					}
+				>
+					{scriptsEnabled ? (
+						<>
+							<Ban className="h-3.5 w-3.5" />
+							Disable scripts
+						</>
+					) : (
+						<>
+							<Play className="h-3.5 w-3.5" />
+							Enable scripts
+						</>
+					)}
+				</Button>
+				<Button
+					variant="ghost"
+					size="sm"
+					className="h-7 gap-1.5 text-xs"
 					onClick={() => window.open(iframeSrc, "_blank")}
 				>
 					<ExternalLink className="h-3.5 w-3.5" />
@@ -68,7 +98,7 @@ export function WebsiteViewer({
 				src={iframeSrc}
 				className="flex-1 w-full border-0 bg-card"
 				title={title}
-				sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-top-navigation-by-user-activation"
+				sandbox={sandbox}
 			/>
 		</div>
 	);

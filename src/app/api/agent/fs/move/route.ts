@@ -16,7 +16,7 @@ import { NextResponse } from "next/server";
 import { checkAuth, enforceScope } from "@/lib/proof/auth";
 import { resolveWorkspaceForAgent } from "@/lib/workspace-context";
 import { safeWorkspacePath } from "@/lib/workspaces";
-import { withFileMutex } from "@/lib/proof/mutex";
+import { withFileMutex, workspaceLockKey } from "@/lib/proof/mutex";
 import { moveSidecar } from "@/lib/proof/sidecar";
 import { writeAuditRow } from "@/lib/proof/audit";
 import { safeAbsPath, sha256ofBuf, extractShaHex, isMarkdown } from "@/lib/proof/raw-fs";
@@ -30,7 +30,7 @@ export async function POST(req: Request): Promise<NextResponse> {
 	const auth = await checkAuth(req);
 	if (!auth.ok) return errJson("UNAUTHORIZED", auth.message ?? "Unauthorized", 401);
 
-	let body: { from?: unknown; to?: unknown; ifMatch?: unknown };
+	let body: { from?: unknown; to?: unknown; ifMatch?: unknown; overwrite?: unknown };
 	try {
 		body = (await req.json()) as typeof body;
 	} catch {
@@ -101,11 +101,40 @@ export async function POST(req: Request): Promise<NextResponse> {
 	}
 
 	const isMd = isMarkdown(fromRel);
+	const overwrite = body.overwrite === true;
 
 	// Lock source + dest in sorted order to avoid deadlock
 	const [first, second] = [fromRel, toRel].sort();
 
-	const doMove = async () => {
+	const doMove = async (): Promise<NextResponse | undefined> => {
+		// Destination collision check happens inside the lock so the decision is
+		// serialized with all other file operations on these paths.
+		try {
+			const destStat = await stat(toAbs);
+			if (!overwrite) {
+				return errJson("DESTINATION_EXISTS", "Destination already exists", 409);
+			}
+			if (destStat.isDirectory()) {
+				return errJson("DESTINATION_EXISTS", "Cannot overwrite a directory", 409);
+			}
+		} catch (e) {
+			if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+		}
+
+		// Destination parent must exist and be a directory; do not rely on rename()
+		// to produce a platform-specific error for a missing parent.
+		try {
+			const parentStat = await stat(path.dirname(toAbs));
+			if (!parentStat.isDirectory()) {
+				return errJson("INVALID_PATH", "Destination parent is not a directory", 400);
+			}
+		} catch (e) {
+			if ((e as NodeJS.ErrnoException).code === "ENOENT") {
+				return errJson("INVALID_PATH", "Destination parent directory does not exist", 400);
+			}
+			throw e;
+		}
+
 		await rename(fromAbs, toAbs);
 		if (isMd) {
 			await moveSidecar(rootDir, fromRel, toRel);
@@ -115,16 +144,17 @@ export async function POST(req: Request): Promise<NextResponse> {
 			op: "move",
 			path: fromRel,
 			newSha: toRel, // store destination in newSha field for audit trail
-			forced: false,
+			forced: overwrite,
 			workspaceId: ws.id,
 		});
+		return undefined;
 	};
 
-	if (first === fromRel) {
-		await withFileMutex(`${rootDir}\u0000${first}`, () => withFileMutex(`${rootDir}\u0000${second}`, doMove));
-	} else {
-		await withFileMutex(`${rootDir}\u0000${first}`, () => withFileMutex(`${rootDir}\u0000${second}`, doMove));
-	}
+	const maybeShortCircuit = await withFileMutex(
+		workspaceLockKey(rootDir, first),
+		() => withFileMutex(workspaceLockKey(rootDir, second), doMove),
+	);
+	if (maybeShortCircuit) return maybeShortCircuit;
 
 	return NextResponse.json({ from: fromRel, to: toRel });
 }

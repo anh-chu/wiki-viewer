@@ -15,6 +15,7 @@ import {
 	emptySidecar,
 	sidecarPath,
 } from "../../lib/proof/sidecar.js";
+import { createTestWorkspace } from "./helpers/workspace.js";
 
 let tmpRoot: string;
 
@@ -93,13 +94,10 @@ test("deleteSidecar: no-op when sidecar does not exist", async () => {
 test("wiki/move: moves sidecar alongside .md file rename", async () => {
 	// Set up isolated tmp env
 	const home = await mkdtemp(path.join(tmpdir(), "wiki-move-home-"));
-	const root = await mkdtemp(path.join(tmpdir(), "wiki-move-root-"));
 
 	try {
 		process.env.HOME = home;
-		process.env.ROOT_DIR = root;
-		const { setRootDir } = await import("../../lib/root-dir.js");
-		setRootDir(root);
+		const { rootDir: root } = await createTestWorkspace({ name: "wiki-move-test" });
 
 		const { makeUserSession } = await import("./helpers/auth-session.js");
 		const { POST } = await import("../../app/api/wiki/move/route.js");
@@ -136,21 +134,19 @@ test("wiki/move: moves sidecar alongside .md file rename", async () => {
 		const destSidecar = await readSidecar(root, toRel);
 		assert.ok(destSidecar, "destination sidecar should exist after move");
 		assert.equal(destSidecar!.revision, 7, "sidecar data should be preserved");
+
+		await rm(root, { recursive: true, force: true });
 	} finally {
 		await rm(home, { recursive: true, force: true });
-		await rm(root, { recursive: true, force: true });
 	}
 });
 
 test("wiki/move: non-.md moves don't call moveSidecar (no error)", async () => {
 	const home = await mkdtemp(path.join(tmpdir(), "wiki-move-nm-home-"));
-	const root = await mkdtemp(path.join(tmpdir(), "wiki-move-nm-root-"));
 
 	try {
 		process.env.HOME = home;
-		process.env.ROOT_DIR = root;
-		const { setRootDir } = await import("../../lib/root-dir.js");
-		setRootDir(root);
+		const { rootDir: root } = await createTestWorkspace({ name: "wiki-move-nm-test" });
 
 		const { makeUserSession } = await import("./helpers/auth-session.js");
 		const { POST } = await import("../../app/api/wiki/move/route.js");
@@ -170,8 +166,9 @@ test("wiki/move: non-.md moves don't call moveSidecar (no error)", async () => {
 
 		const res = await POST(req);
 		assert.equal(res.status, 200, "non-.md move should succeed without error");
+
+		await rm(root, { recursive: true, force: true });
 	} finally {
 		await rm(home, { recursive: true, force: true });
-		await rm(root, { recursive: true, force: true });
 	}
 });

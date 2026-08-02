@@ -213,7 +213,6 @@ export function NodeAppViewer({ path, title }: Props) {
 						<span className="text-muted-foreground">No output yet.</span>
 					) : (
 						logs.map((l, i) => (
-							// biome-ignore lint/suspicious/noArrayIndexKey: log lines are append-only
 							<div key={i} className="whitespace-pre-wrap leading-5">
 								{l}
 							</div>

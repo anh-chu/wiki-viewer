@@ -2,7 +2,9 @@ import { mkdir } from "node:fs/promises";
 import { NextResponse } from "next/server";
 import { checkOrigin } from "@/lib/auth/csrf";
 import { resolveWorkspaceForUser } from "@/lib/workspace-context";
-import { safeWorkspacePath } from "@/lib/workspaces";
+import { resolveWorkspacePath } from "@/lib/fs/workspace-path";
+
+const DENIED_SEGMENTS = [".proof", ".git"];
 
 export async function POST(request: Request) {
 	const csrf = checkOrigin(request);
@@ -18,9 +20,13 @@ export async function POST(request: Request) {
 		return NextResponse.json({ error: "Invalid folder path" }, { status: 400 });
 	}
 
-	const folderPath = safeWorkspacePath(rootDir, rel);
-	if (!folderPath)
+	const folderRes = await resolveWorkspacePath(rootDir, rel, {
+		allowMissing: true,
+		deniedSegments: DENIED_SEGMENTS,
+	});
+	if (!folderRes)
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+	const folderPath = folderRes.absolutePath;
 
 	try {
 		await mkdir(folderPath, { recursive: true });

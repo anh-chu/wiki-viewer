@@ -10,6 +10,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import { createTestWorkspace } from "./helpers/workspace.js";
 import {
 	assertGitAvailable,
 	gitFileHistory,
@@ -74,11 +75,8 @@ before(async () => {
 	process.env.HOME = tmpHome;
 	process.env.AUTH_ALLOWED_DOMAIN = "test.local";
 
-	tmpRootDir = await mkdtemp(path.join(tmpdir(), "wiki-git-rt-root-"));
-	process.env.ROOT_DIR = tmpRootDir;
-
-	const { setRootDir } = await import("../../lib/root-dir.js");
-	setRootDir(tmpRootDir);
+	const { rootDir } = await createTestWorkspace({ name: "wiki-git-rt" });
+	tmpRootDir = rootDir;
 
 	subrepoDir = path.join(tmpRootDir, "myrepo");
 	await mkdir(subrepoDir, { recursive: true });

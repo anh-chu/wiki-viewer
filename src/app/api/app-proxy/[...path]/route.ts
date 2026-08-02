@@ -13,10 +13,20 @@ import { request as undiciRequest } from "undici";
 import type { Dispatcher } from "undici";
 import { NextResponse } from "next/server";
 import { resolveByPrefix } from "@/lib/app-runner";
+import { resolveWorkspaceForUser } from "@/lib/workspace-context";
 
 const HOP_BY_HOP = new Set([
 	"connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
 	"te", "trailers", "transfer-encoding", "upgrade",
+]);
+
+// Wiki credentials that must never be forwarded to an untrusted child app.
+const STRIP_UPSTREAM = new Set([
+	"cookie",
+	"authorization",
+	"x-agent-id",
+	"x-workspace",
+	"origin",
 ]);
 
 // ── service worker ────────────────────────────────────────────────────────────
@@ -163,7 +173,9 @@ function upstreamHeaders(
 ): Record<string, string> {
 	const out: Record<string, string> = {};
 	for (const [k, v] of src.entries()) {
-		if (HOP_BY_HOP.has(k.toLowerCase())) continue;
+		const kl = k.toLowerCase();
+		if (HOP_BY_HOP.has(kl)) continue;
+		if (STRIP_UPSTREAM.has(kl)) continue;
 		out[k] = v;
 	}
 	out["host"] = `localhost:${port}`;
@@ -189,14 +201,19 @@ async function handleProxy(
 	request: Request,
 	{ params }: { params: Promise<{ path: string[] }> },
 ): Promise<Response> {
+	const ctx = await resolveWorkspaceForUser(request, "read");
+	if (!ctx.ok) {
+		return NextResponse.json({ error: ctx.code }, { status: ctx.status });
+	}
+
 	const segments = (await params).path ?? [];
 	const reqUrl = new URL(request.url);
 
-	const resolved = resolveByPrefix(segments);
+	const resolved = resolveByPrefix(ctx.ws.id, segments);
 	if (!resolved) {
 		return NextResponse.json(
-			{ error: "App not running — launch it first in wiki-viewer." },
-			{ status: 503 },
+			{ error: "APP_NOT_FOUND" },
+			{ status: 404 },
 		);
 	}
 

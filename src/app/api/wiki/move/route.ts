@@ -3,8 +3,10 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 import { checkOrigin } from "@/lib/auth/csrf";
 import { resolveWorkspaceForUser } from "@/lib/workspace-context";
-import { safeWorkspacePath } from "@/lib/workspaces";
+import { resolveWorkspacePath } from "@/lib/fs/workspace-path";
 import { moveSidecar } from "@/lib/proof/sidecar";
+
+const DENIED_SEGMENTS = [".proof", ".git"];
 
 export async function POST(request: Request) {
 	const csrf = checkOrigin(request);
@@ -26,11 +28,19 @@ export async function POST(request: Request) {
 		);
 	}
 
-	const fromPath = safeWorkspacePath(rootDir, body.from);
-	const toPath = safeWorkspacePath(rootDir, body.to);
+	const fromRes = await resolveWorkspacePath(rootDir, body.from, {
+		deniedSegments: DENIED_SEGMENTS,
+	});
+	const toRes = await resolveWorkspacePath(rootDir, body.to, {
+		allowMissing: true,
+		deniedSegments: DENIED_SEGMENTS,
+	});
 
-	if (!fromPath || !toPath)
+	if (!fromRes || !toRes)
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+
+	const fromPath = fromRes.absolutePath;
+	const toPath = toRes.absolutePath;
 
 	if (toPath.startsWith(fromPath + path.sep) || toPath === fromPath) {
 		return NextResponse.json(

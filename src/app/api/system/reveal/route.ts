@@ -3,7 +3,9 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 import { checkOrigin } from "@/lib/auth/csrf";
 import { resolveWorkspaceForUser } from "@/lib/workspace-context";
-import { safeWorkspacePath } from "@/lib/workspaces";
+import { resolveWorkspacePath } from "@/lib/fs/workspace-path";
+
+const DENIED_SEGMENTS = [".proof", ".git"];
 
 export async function POST(request: Request) {
 	const csrf = checkOrigin(request);
@@ -18,7 +20,9 @@ export async function POST(request: Request) {
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
 
 	// Path traversal guard
-	const resolved = safeWorkspacePath(rootDir, rel);
+	const resolved = await resolveWorkspacePath(rootDir, rel, {
+		deniedSegments: DENIED_SEGMENTS,
+	});
 	if (!resolved)
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
 
@@ -26,10 +30,10 @@ export async function POST(request: Request) {
 	const platform = process.platform;
 	const cmd =
 		platform === "darwin"
-			? `open -R "${resolved}"`
+			? `open -R "${resolved.absolutePath}"`
 			: platform === "win32"
-				? `explorer /select,"${resolved}"`
-				: `xdg-open "${path.dirname(resolved)}"`;
+				? `explorer /select,"${resolved.absolutePath}"`
+				: `xdg-open "${path.dirname(resolved.absolutePath)}"`;
 
 	exec(cmd, () => {});
 	return NextResponse.json({ ok: true });

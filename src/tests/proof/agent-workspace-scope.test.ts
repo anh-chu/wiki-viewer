@@ -13,7 +13,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 
-import { setRootDir } from "../../lib/root-dir.js";
 import { ensureRegistry, addAgent, hashToken } from "../../lib/proof/registry.js";
 import { writeConfig } from "../../lib/config.js";
 import type { Workspace } from "../../lib/workspaces.js";
@@ -42,7 +41,6 @@ before(async () => {
 	rootA = await mkdtemp(path.join(tmpdir(), "ws-scope-A-"));
 	rootB = await mkdtemp(path.join(tmpdir(), "ws-scope-B-"));
 	process.env.HOME = tmpHome;
-	setRootDir(rootA); // fallback (unused once registry has workspaces)
 
 	wsA = {
 		id: "ws_AAAAAA",

@@ -3,7 +3,9 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 import { checkOrigin } from "@/lib/auth/csrf";
 import { resolveWorkspaceForUser } from "@/lib/workspace-context";
-import { safeWorkspacePath } from "@/lib/workspaces";
+import { resolveWorkspacePath } from "@/lib/fs/workspace-path";
+
+const DENIED_SEGMENTS = [".proof", ".git"];
 
 export async function POST(request: Request) {
 	const csrf = checkOrigin(request);
@@ -23,9 +25,13 @@ export async function POST(request: Request) {
 		return NextResponse.json({ error: "Invalid file path" }, { status: 400 });
 	}
 
-	const filePath = safeWorkspacePath(rootDir, rel);
-	if (!filePath)
+	const fileRes = await resolveWorkspacePath(rootDir, rel, {
+		allowMissing: true,
+		deniedSegments: DENIED_SEGMENTS,
+	});
+	if (!fileRes)
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+	const filePath = fileRes.absolutePath;
 
 	try {
 		await stat(filePath);

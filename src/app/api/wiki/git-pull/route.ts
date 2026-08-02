@@ -3,7 +3,9 @@ import { NextResponse } from "next/server";
 import { checkOrigin } from "@/lib/auth/csrf";
 import { detectGitRepo, pullRepo, currentBranch, headSha } from "@/lib/git";
 import { resolveWorkspaceForUser } from "@/lib/workspace-context";
-import { safeWorkspacePath } from "@/lib/workspaces";
+import { resolveWorkspacePath } from "@/lib/fs/workspace-path";
+
+const DENIED_SEGMENTS = [".proof", ".git"];
 
 export async function POST(request: Request) {
 	const csrf = checkOrigin(request);
@@ -18,9 +20,12 @@ export async function POST(request: Request) {
 	if (!rel || typeof rel !== "string")
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
 
-	const repoDir = safeWorkspacePath(rootDir, rel);
-	if (!repoDir || repoDir === rootDir)
+	const resolved = await resolveWorkspacePath(rootDir, rel, {
+		deniedSegments: DENIED_SEGMENTS,
+	});
+	if (!resolved || resolved.absolutePath === rootDir)
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+	const repoDir = resolved.absolutePath;
 
 	// Verify it's a valid git repo root (same check as directory listing)
 	if (!(await detectGitRepo(repoDir))) {

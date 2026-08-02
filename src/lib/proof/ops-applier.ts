@@ -7,7 +7,7 @@ import { parseBlocks, blockToMarkdown, blocksToMarkdown } from "./blocks";
 import { assignRefs, resolveRef, computeRefDelta, textHash } from "./block-refs";
 import { wrapAsProofSpan, newSpanId } from "./proof-span";
 import { readSidecar, writeSidecar, emptySidecar } from "./sidecar";
-import { withFileMutex } from "./mutex";
+import { withFileMutex, workspaceLockKey } from "./mutex";
 import { emitEvents, trimEvents } from "./event-bus";
 import { SIDECAR_EVENT_TRIM_SIZE, SIDECAR_TRIM_EVERY_N_MUTATIONS } from "../proof-config";
 
@@ -200,7 +200,8 @@ function buildSnapshot(
  * Reconcile a sidecar after a file was modified outside of block-ops.
  * Rebuilds refMap, bumps revision, marks orphaned anchors stale, emits event, writes sidecar.
  *
- * Callers MUST hold `withFileMutex(mdPath, ...)` before calling.
+ * The function does not acquire its own mutex; callers must hold the workspace
+ * lock (`workspaceLockKey(rootDir, mdPath)`).
  *
  * Used by:
  *   - readSnapshot: eventType="file.externallyEdited", by="system"
@@ -261,7 +262,7 @@ export async function readSnapshot(
 
 	// Detect external edits: fingerprint set and mismatched
 	if (sidecar.fingerprint && sidecar.fingerprint !== fingerprint) {
-		return withFileMutex(mdPath, async () => {
+		return withFileMutex(workspaceLockKey(rootDir, mdPath), async () => {
 			// Re-read under mutex to avoid TOCTOU
 			let freshContent: string;
 			try {
@@ -326,7 +327,7 @@ async function applyTextCommentOps(args: {
 }): Promise<ApplyResult> {
 	const { rootDir, mdPath, baseRevision, by, ops } = args;
 
-	return withFileMutex(mdPath, async (): Promise<ApplyResult> => {
+	return withFileMutex(workspaceLockKey(rootDir, mdPath), async (): Promise<ApplyResult> => {
 		const absPath = path.join(rootDir, mdPath);
 
 		let content: string;
@@ -494,7 +495,7 @@ export async function applyOps(args: {
 
 	const { rootDir, mdPath, baseRevision, by, ops } = args;
 
-	return withFileMutex(mdPath, async (): Promise<ApplyResult> => {
+	return withFileMutex(workspaceLockKey(rootDir, mdPath), async (): Promise<ApplyResult> => {
 		const absPath = path.join(rootDir, mdPath);
 
 		let content: string;

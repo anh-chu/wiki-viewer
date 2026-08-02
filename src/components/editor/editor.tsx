@@ -2,31 +2,30 @@
 
 import { cellAround, isInTable } from "@tiptap/pm/tables";
 import { EditorContent, useEditor } from "@tiptap/react";
+import type { Editor } from "@tiptap/core";
 import { AlertCircle, Check, Code2, FilePlus, Loader2, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { findNodeByPath } from "@/lib/cabinets/tree";
 import { markdownToHtml } from "@/lib/markdown/to-html";
 import { htmlToMarkdown } from "@/lib/markdown/to-markdown";
 import { parseFrontmatter } from "@/lib/markdown/parse-frontmatter";
 import { useAIPanelStore } from "@/stores/ai-panel-store";
 import { useEditorStore } from "@/stores/editor-store";
-import { useTreeStore } from "@/stores/tree-store";
 import {
 	useViewWidthStore,
 	VIEW_WIDTH_CSS,
 	VIEW_ALIGN_ML,
 } from "@/stores/view-width-store";
 import { useWikiSlugsStore } from "@/stores/wiki-slugs-store";
-import type { TreeNode } from "@/types";
 import { useProofStore } from "@/stores/proof-store";
-import { captureSuggestion } from "@/lib/proof/suggest-capture";
 import { wsFetch, withWs } from "@/lib/workspace-client";
-import { isLite } from "@/lib/url-prefix";
 import { showError } from "@/lib/toast";
 import { EditorBubbleMenu } from "./bubble-menu";
 import { EditorToolbar } from "./editor-toolbar";
 import { editorExtensions } from "./extensions";
-import { FolderIndex } from "./folder-index";
+import { resolveWikiLink } from "./link-navigation";
+import { useDocumentPresence } from "./hooks/use-document-presence";
+import { useDocumentWatch } from "./hooks/use-document-watch";
+import { useSuggestionCapture } from "./hooks/use-suggestion-capture";
 import { CommentPip } from "./comment-pip";
 import { CommentThread } from "./comment-thread";
 import { ProofSpanPopover } from "./proof-span-popover";
@@ -69,90 +68,6 @@ async function uploadFile(
 	}
 }
 
-function flattenTree(nodes: TreeNode[]): { path: string; name: string }[] {
-	const result: { path: string; name: string }[] = [];
-	for (const node of nodes) {
-		result.push({ path: node.path, name: node.name });
-		if (node.children) result.push(...flattenTree(node.children));
-	}
-	return result;
-}
-
-function findPageBySlug(
-	slug: string,
-	currentPath: string | null,
-	nodes: TreeNode[],
-): string | null {
-	const allPages = flattenTree(nodes);
-	// The slug matches the last segment of the path
-	const matches = allPages.filter(
-		(p) => p.name === slug || p.path.endsWith(`/${slug}`),
-	);
-	if (matches.length === 0) return null;
-	if (matches.length === 1) return matches[0].path;
-
-	// Prefer sibling pages (same parent directory as current page)
-	if (currentPath) {
-		const parentDir = currentPath.includes("/")
-			? currentPath.substring(0, currentPath.lastIndexOf("/"))
-			: "";
-		const sibling = matches.find(
-			(m) => m.path === (parentDir ? `${parentDir}/${slug}` : slug),
-		);
-		if (sibling) return sibling.path;
-	}
-	return matches[0].path;
-}
-
-function navigateToPage(
-	targetPath: string,
-	selectPage: (path: string) => void,
-	expandPath: (path: string) => void,
-) {
-	const parts = targetPath.split("/");
-	for (let i = 1; i < parts.length; i++) {
-		expandPath(parts.slice(0, i).join("/"));
-	}
-	selectPage(targetPath);
-	useEditorStore.getState().loadPage(targetPath);
-	// Scroll editor container to top
-	setTimeout(() => {
-		document.querySelector("[data-editor-scroll]")?.scrollTo(0, 0);
-	}, 0);
-}
-
-function resolveInternalLink(
-	href: string,
-	currentPath: string | null,
-	nodes: TreeNode[],
-): string | null {
-	const allPages = flattenTree(nodes);
-
-	// Clean up the href: strip .md extension, leading ./ or /
-	const linkPath = href
-		.replace(/\.md$/, "")
-		.replace(/^\.\//, "")
-		.replace(/^\//, "");
-
-	// 1. Try as absolute path (exact match in tree)
-	const exactMatch = allPages.find((p) => p.path === linkPath);
-	if (exactMatch) return exactMatch.path;
-
-	// 2. Try relative to current page's directory
-	if (currentPath) {
-		const parentDir = currentPath.includes("/")
-			? currentPath.substring(0, currentPath.lastIndexOf("/"))
-			: "";
-		const relativePath = parentDir ? `${parentDir}/${linkPath}` : linkPath;
-		const relMatch = allPages.find((p) => p.path === relativePath);
-		if (relMatch) return relMatch.path;
-	}
-
-	// 3. Try matching by last segment (slug-style lookup)
-	const slug = linkPath.includes("/") ? linkPath.split("/").pop()! : linkPath;
-	return findPageBySlug(slug, currentPath, nodes);
-}
-
 type KBEditorMode = "viewing" | "editing" | "suggesting";
 
 interface KBEditorProps {
@@ -178,7 +93,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		() => (isViewing ? parseFrontmatter(content) : { data: {}, body: content }),
 		[content, isViewing],
 	);
-	const nodes = useTreeStore((s) => s.nodes);
 	const editorMaxW = useViewWidthStore((s) => VIEW_WIDTH_CSS[s.width]);
 	const editorMl = useViewWidthStore((s) => VIEW_ALIGN_ML[s.align]);
 	const isRtl = isViewing
@@ -196,17 +110,9 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	const isLoadingRef = useRef(false);
 	const isViewingRef = useRef(isViewing);
 	isViewingRef.current = isViewing;
+	const editorRef = useRef<Editor | null>(null);
 	const [sourceMode, setSourceMode] = useState(false);
 	const [sourceText, setSourceText] = useState("");
-	// Reset the tab to "page" whenever the path changes — opening a new folder
-	// shouldn't skip its index.md if the previous folder was on Files. Has to
-	// be an effect (not state-during-render) because Tiptap's EditorContent
-	// calls flushSync internally; setState during the parent render explodes
-	// when EditorContent renders in the same pass.
-	const [folderTab, setFolderTab] = useState<"page" | "files">("page");
-	useEffect(() => {
-		setFolderTab("page");
-	}, []);
 
 	// Prime the slug index once on mount so wiki-link broken-state and
 	// the autocomplete picker both have data immediately.
@@ -225,121 +131,15 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		return () => clearTimeout(id);
 	}, [currentPath]);
 
-	// Human edit-lease heartbeat: tell the server a human has this markdown doc
+	// Document presence heartbeat: tell the server a human has this markdown doc
 	// open so computeCollabState() reports "active" even before the first
-	// suggestion/comment. This is what makes raw-fs writes from agents defer to
-	// the collaborative (Tier-2) path while a human is editing. Only markdown
-	// files participate in the collab-state machine.
-	useEffect(() => {
-		if (typeof window === "undefined") return;
-		if (!currentPath) return;
-		if (isViewing) return;
-		if (!/\.(md|markdown)$/i.test(currentPath)) return;
+	// suggestion/comment. Only markdown files participate in the collab-state machine.
+	useDocumentPresence({ path: currentPath, mode: effectiveMode, enabled: true });
 
-		const path = currentPath;
-		const ping = (action: "open" | "heartbeat" | "close") => {
-			// keepalive lets the "close" beacon survive page unload.
-			void wsFetch("/api/wiki/presence", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ path, action }),
-				keepalive: action === "close",
-			}).catch(() => {
-				/* presence is best-effort; ignore failures */
-			});
-		};
-
-		// Debounce the "open" ping: rapid navigation through files otherwise emits
-		// an open+close pair per pass-through. Only claim the lease once the user
-		// settles on a file for >200ms; if we never opened, we never close.
-		let opened = false;
-		let id: ReturnType<typeof setInterval> | null = null;
-		const onHidden = () => {
-			if (opened && document.visibilityState === "hidden") ping("heartbeat");
-		};
-		const openTimer = setTimeout(() => {
-			opened = true;
-			ping("open");
-			// Refresh well within the 90s server lease TTL.
-			id = setInterval(() => ping("heartbeat"), 30_000);
-			document.addEventListener("visibilitychange", onHidden);
-		}, 200);
-
-		return () => {
-			clearTimeout(openTimer);
-			if (id) clearInterval(id);
-			document.removeEventListener("visibilitychange", onHidden);
-			if (opened) ping("close");
-		};
-	}, [currentPath, isViewing]);
-
-	// Directory the SSE watcher must cover for the open file. Empty string for a
-	// root-level file — the server always watches the workspace root, so we send
-	// no dir in that case.
-	//
-	// This is deliberately the PARENT directory, not the file: a pool listener
-	// whose base IS the file gets rel === "" for every event on it, and empty rel
-	// is dropped as a root event, so we'd receive nothing. Watching the parent at
-	// depth 0 is also physically identical — chokidar watches a file's parent
-	// directory regardless.
-	const watchDir = useMemo(() => {
-		if (!currentPath) return "";
-		const i = currentPath.lastIndexOf("/");
-		return i === -1 ? "" : currentPath.slice(0, i);
-	}, [currentPath]);
-
-	// Subscribe to chokidar SSE: when current file changes on disk, reload sidecar.
-	// Scoped to the open file's directory so a big workspace isn't walked; the dep
-	// on watchDir moves the subscription when navigation leaves that directory.
-	useEffect(() => {
-		if (typeof window === "undefined") return;
-		// Lite mode has no watcher (the server returns 503).
-		if (isLite()) return;
-
-		const refreshOpen = (activePath: string) => {
-			// loadSnapshot first so server-side readSnapshot detects
-			// fingerprint mismatch, emits file.externallyEdited, and persists
-			// the sidecar. Then loadSidecar to refresh comments/suggestions.
-			void useProofStore
-				.getState()
-				.loadSnapshot(activePath)
-				.then(() => useProofStore.getState().loadSidecar(activePath));
-			if (isViewingRef.current) {
-				void useEditorStore.getState().loadPage(activePath);
-			}
-		};
-
-		const url = watchDir
-			? `/api/wiki/watch?dir=${encodeURIComponent(watchDir)}`
-			: "/api/wiki/watch";
-		const es = new EventSource(withWs(url));
-		es.onmessage = (evt: MessageEvent<string>) => {
-			try {
-				const data = JSON.parse(evt.data) as { type: string; path: string };
-				const activePath = useEditorStore.getState().currentPath;
-				if (!activePath) return;
-				if (data.type === "rescan") {
-					// The server's watcher degraded and was torn down; it closes the
-					// stream and the browser reconnects on its own. Anything could have
-					// changed while it was down, so treat the open file as unknown and
-					// re-read it.
-					refreshOpen(activePath);
-					return;
-				}
-				if (
-					(data.type === "change" || data.type === "add") &&
-					data.path === activePath
-				) {
-					refreshOpen(activePath);
-				}
-			} catch {
-				// ignore malformed events
-			}
-		};
-		return () => {
-			es.close();
-		};
-	}, [watchDir]);
+	// Subscribe to filesystem changes for the open file's parent directory.
+	// The hook recreates the EventSource on path or workspace changes and on
+	// degraded/rescan reloads the snapshot+sidecar. Lite mode has no watcher.
+	useDocumentWatch({ path: currentPath, isViewingRef });
 
 	// Proof-span popover state.
 	const [proofTarget, setProofTarget] = useState<HTMLElement | null>(null);
@@ -470,112 +270,15 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		setThreadTarget({ blockRef: resolved.blockRef, el: resolved.blockEl });
 	}, [resolveSelectionBlock]);
 
-	// ── Suggesting mode: capture human block edits as suggestions ──────────────
-	//
-	// In suggesting mode the editor stays editable but edits never touch the
-	// file. On flush (leaving a block or blurring the editor) we diff each
-	// top-level block against the snapshot, emit a human `suggestion.add` for
-	// every changed/added/removed block, then revert the editor to the snapshot
-	// so the pending suggestion cards render over the original content.
-
-	/** Set true whenever the user edits while in suggesting mode. */
-	const suggestDirtyRef = useRef(false);
-	/** Guards against re-entrant flushes (capture is async). */
-	const flushingRef = useRef(false);
-	/** Top-level block index that currently holds the selection. */
-	const activeBlockIndexRef = useRef<number | null>(null);
-
-	const normalizeMd = (s: string): string => s.replace(/\s+$/g, "").trimStart();
-
-	const flushSuggestions = useCallback(async () => {
-		if (flushingRef.current) return;
-		if (isViewingRef.current) return;
-		if (useEditorStore.getState().editMode !== "suggesting") return;
-		if (!suggestDirtyRef.current) return;
-		const ed = editorRef.current;
-		const path = useEditorStore.getState().currentPath;
-		if (!ed || !path) return;
-
-		const proseMirror = scrollContainerRef.current?.querySelector(".ProseMirror");
-		if (!proseMirror) return;
-		const children = Array.from(proseMirror.children) as HTMLElement[];
-		const snapBlocks =
-			useProofStore.getState().byPath[path]?.snapshotBlocks ?? [];
-		if (snapBlocks.length === 0) return;
-
-		flushingRef.current = true;
-		suggestDirtyRef.current = false;
-		try {
-			const getRevision = () =>
-				useProofStore.getState().byPath[path]?.snapshotRevision ?? 0;
-			const refresh = async () => {
-				await useProofStore.getState().loadSnapshot(path);
-				await useProofStore.getState().loadSidecar(path);
-			};
-
-			const count = Math.max(children.length, snapBlocks.length);
-			let captured = false;
-			for (let i = 0; i < count; i++) {
-				const el = children[i];
-				const snap = snapBlocks[i];
-				const curMd = el ? htmlToMarkdown(el.outerHTML, path).trim() : null;
-
-				if (snap && curMd !== null) {
-					if (normalizeMd(curMd) !== normalizeMd(snap.markdown)) {
-						const ok = await captureSuggestion({
-							path,
-							ref: snap.ref,
-							kind: "replace",
-							markdown: curMd,
-							getRevision,
-							refresh,
-						});
-						captured = captured || ok;
-					}
-				} else if (snap && curMd === null) {
-					const ok = await captureSuggestion({
-						path,
-						ref: snap.ref,
-						kind: "delete",
-						getRevision,
-						refresh,
-					});
-					captured = captured || ok;
-				} else if (!snap && curMd !== null && curMd.length > 0) {
-					// New trailing block: suggest inserting after the last known block.
-					const lastRef = snapBlocks[snapBlocks.length - 1]?.ref;
-					if (lastRef) {
-						const ok = await captureSuggestion({
-							path,
-							ref: lastRef,
-							kind: "insertAfter",
-							markdown: curMd,
-							getRevision,
-							refresh,
-						});
-						captured = captured || ok;
-					}
-				}
-			}
-
-			if (captured) {
-				// Reload sidecar so the new pending suggestion cards appear, then
-				// revert the editor to the snapshot (file unchanged).
-				await refresh();
-				const freshSnap =
-					useProofStore.getState().byPath[path]?.snapshotBlocks ?? snapBlocks;
-				const snapshotMarkdown = freshSnap.map((b) => b.markdown).join("\n\n");
-				isLoadingRef.current = true;
-				const html = await markdownToHtml(snapshotMarkdown, path);
-				ed.commands.setContent(html);
-				setTimeout(() => {
-					isLoadingRef.current = false;
-				}, 50);
-			}
-		} finally {
-			flushingRef.current = false;
-		}
-	}, []);
+	// Suggesting-mode dirty block tracking, flush, and snapshot refresh.
+	const { markDirty, flush: flushSuggestions, onSelectionUpdate } =
+		useSuggestionCapture({
+			path: currentPath,
+			editorRef,
+			scrollContainerRef,
+			isLoadingRef,
+			isViewingRef,
+		});
 
 	// Load snapshot (ordered block list) when path changes so suggestion cards
 	// can look up block content by ref.
@@ -624,9 +327,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 			// In suggesting mode, mark the edit dirty so the next block-change or
 			// blur flushes it into suggestions. Still push content to the store so
 			// the store guard (no autosave in suggesting mode) keeps it in sync.
-			if (useEditorStore.getState().editMode === "suggesting") {
-				suggestDirtyRef.current = true;
-			}
+			markDirty();
 			const html = editor.getHTML();
 			const md = htmlToMarkdown(
 				html,
@@ -646,16 +347,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 			void flushSuggestions();
 		},
 		onSelectionUpdate: ({ editor: ed }) => {
-			if (useEditorStore.getState().editMode !== "suggesting") return;
-			const { from } = ed.state.selection;
-			const $pos = ed.state.doc.resolve(from);
-			const idx = $pos.depth > 0 ? $pos.index(0) : 0;
-			const prev = activeBlockIndexRef.current;
-			activeBlockIndexRef.current = idx;
-			// Moved to a different top-level block — flush edits to the prior one.
-			if (prev !== null && prev !== idx && suggestDirtyRef.current) {
-				void flushSuggestions();
-			}
+			onSelectionUpdate(ed);
 		},
 		editorProps: {
 			attributes: {
@@ -733,35 +425,32 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 					return true;
 				}
 
-				// Wiki-links: #page:slug
-				if (href.startsWith("#page:")) {
-					event.preventDefault();
-					event.stopPropagation();
-					const slug = href.replace("#page:", "");
-					const { nodes, selectPage, expandPath } = useTreeStore.getState();
-					const activePath = useEditorStore.getState().currentPath;
-					const targetPath = findPageBySlug(slug, activePath, nodes);
-					if (targetPath) {
-						navigateToPage(targetPath, selectPage, expandPath);
-					}
-					return true;
-				}
-
-				// Internal links: relative paths to .md files or other KB pages
-				// Skip external URLs and API asset links (PDFs, images)
+				// Internal links: relative paths to .md files or other KB pages.
+				// Skip external URLs and API asset links.
 				if (/^https?:\/\//.test(href) || href.startsWith("/api/")) return false;
 				if (href.startsWith("mailto:") || href.startsWith("tel:")) return false;
 
 				event.preventDefault();
 				event.stopPropagation();
 
-				const { nodes, selectPage, expandPath } = useTreeStore.getState();
 				const activePath = useEditorStore.getState().currentPath;
-
-				// Resolve the link target to a KB page path
-				const targetPath = resolveInternalLink(href, activePath, nodes);
+				const targetPath = resolveWikiLink(
+					href,
+					activePath,
+					useWikiSlugsStore.getState(),
+				);
 				if (targetPath) {
-					navigateToPage(targetPath, selectPage, expandPath);
+					void useEditorStore.getState().loadPage(targetPath);
+					const hash = href.includes("#")
+						? href.slice(href.indexOf("#") + 1)
+						: "";
+					if (hash) {
+						setTimeout(() => {
+							document
+								.querySelector(`[id="${hash}"]`)
+								?.scrollIntoView({ behavior: "smooth" });
+						}, 200);
+					}
 				}
 				return true;
 			},
@@ -829,7 +518,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	});
 
 	// Stable ref to the editor so callbacks with empty deps reach the live instance.
-	const editorRef = useRef<typeof editor>(editor);
 	editorRef.current = editor;
 
 	useEffect(() => {
@@ -945,9 +633,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		const inferredTitle = slug
 			.replace(/[-_]+/g, " ")
 			.replace(/\b\w/g, (c) => c.toUpperCase());
-		const folderNode = findNodeByPath(nodes, currentPath);
-		const folderChildren = folderNode?.children ?? [];
-		const hasChildren = folderChildren.length > 0;
 		return (
 			<div className="flex-1 overflow-y-auto">
 				<div className="max-w-3xl mx-auto px-6 py-10 space-y-6">
@@ -956,11 +641,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 							{inferredTitle}
 						</p>
 						<p className="text-sm text-muted-foreground/80">
-							This folder doesn&apos;t have an{" "}
-							<code className="px-1 py-0.5 rounded bg-muted text-[12px]">
-								index.md
-							</code>
-							{hasChildren ? " yet — its contents are listed below." : " yet."}
+							This page doesn&apos;t exist yet.
 						</p>
 						<button
 							onClick={() => void createMissingPage(inferredTitle)}
@@ -970,13 +651,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 							Create page
 						</button>
 					</div>
-					{hasChildren && (
-						<FolderIndex
-							key={currentPath}
-							folderPath={currentPath}
-							entries={folderChildren}
-						/>
-					)}
 				</div>
 			</div>
 		);
@@ -1002,62 +676,9 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		}
 	};
 
-	// Folder pages with both an index.md (loadStatus === "ok") AND children
-	// get a Page / Files tab strip so users can switch between the page body
-	// and the directory listing without leaving the route.
-	const renderedFolderNode = findNodeByPath(nodes, currentPath);
-	const renderedFolderChildren =
-		renderedFolderNode?.type === "directory" ||
-		renderedFolderNode?.type === "cabinet"
-			? (renderedFolderNode.children ?? [])
-			: [];
-	const showFolderTabs = renderedFolderChildren.length > 0;
-	const onFilesTab = showFolderTabs && folderTab === "files";
-
 	return (
 		<>
 			<div className="flex-1 flex flex-col overflow-hidden">
-				{showFolderTabs && (
-					<div className="flex items-center gap-1 px-3 pt-2 border-b border-border">
-						<button
-							onClick={() => setFolderTab("page")}
-							className={`px-3 py-1.5 text-[12px] rounded-t-md border-b-2 -mb-px transition-colors ${
-								folderTab === "page"
-									? "border-primary text-foreground"
-									: "border-transparent text-muted-foreground hover:text-foreground"
-							}`}
-							aria-pressed={folderTab === "page"}
-						>
-							Page
-						</button>
-						<button
-							onClick={() => setFolderTab("files")}
-							className={`px-3 py-1.5 text-[12px] rounded-t-md border-b-2 -mb-px transition-colors ${
-								folderTab === "files"
-									? "border-primary text-foreground"
-									: "border-transparent text-muted-foreground hover:text-foreground"
-							}`}
-							aria-pressed={folderTab === "files"}
-						>
-							Files
-							<span className="ml-1.5 text-muted-foreground/60">
-								{renderedFolderChildren.length}
-							</span>
-						</button>
-					</div>
-				)}
-				{onFilesTab ? (
-					<div className="flex-1 overflow-y-auto">
-						<div className="max-w-3xl mx-auto px-6 py-6">
-							<FolderIndex
-								key={currentPath}
-								folderPath={currentPath}
-								entries={renderedFolderChildren}
-							/>
-						</div>
-					</div>
-				) : (
-					<>
 						{!isViewing && (
 							<div className="flex items-center min-w-0">
 								<div className="flex-1 min-w-0">
@@ -1364,10 +985,8 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 							</div>
 						</div>
 						)}
-					</>
-				)}
-			</div>
-			{WikiCreateDialog}
-		</>
+		</div>
+		{WikiCreateDialog}
+	</>
 	);
 }
