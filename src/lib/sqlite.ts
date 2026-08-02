@@ -79,6 +79,13 @@ export default class Database {
 
 	constructor(filename: string) {
 		this.db = new DatabaseSync(filename);
+		// Match src/lib/auth/server.ts: WAL lets readers and a writer coexist, and a
+		// busy_timeout makes a transient writer wait instead of failing immediately
+		// with SQLITE_BUSY when another connection to the same file holds the lock
+		// (e.g. concurrent Next.js build workers each importing a route module
+		// that opens this database).
+		this.db.exec("PRAGMA journal_mode = WAL");
+		this.db.exec("PRAGMA busy_timeout = 5000");
 	}
 
 	prepare(sql: string): Statement {
