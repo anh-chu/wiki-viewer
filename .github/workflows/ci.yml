@@ -19,7 +19,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [20.x, 22.x]
+        # pnpm 11 requires Node >=22.13 (node:sqlite builtin); it cannot run
+        # on Node 20 at all, so the matrix only covers Node versions pnpm can
+        # actually execute under. package.json engines (>=20.9.0) describes the
+        # deployed app's runtime requirement, not the pnpm toolchain requirement.
+        node-version: [22.x, 24.x]
 
     steps:
       - name: Checkout
