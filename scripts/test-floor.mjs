@@ -66,8 +66,10 @@ const TSX = path.resolve(import.meta.dirname, "..", "node_modules", ".bin", "tsx
 let out = "";
 
 function flushSummary() {
-	const m = out.match(/^\u2139 tests (\d+)$/m);
-	const pass = out.match(/^\u2139 pass (\d+)$/m);
+	// node:test's reporter prints "\u2139 tests N" on a TTY (spec reporter) and
+	// "# tests N" otherwise (plain TAP, e.g. in CI without a TTY). Accept both.
+	const m = out.match(/^(?:\u2139|#) tests (\d+)$/m);
+	const pass = out.match(/^(?:\u2139|#) pass (\d+)$/m);
 	return { total: m ? Number(m[1]) : null, passCount: pass ? Number(pass[1]) : null };
 }
 
