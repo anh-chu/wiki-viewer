@@ -174,7 +174,7 @@ export function useOpenFile({
 		[openViewer, treeApi],
 	);
 
-	const openPinnedEntry = useCallback(
+	const openFavoriteEntry = useCallback(
 		async (p: { path: string; name: string; type?: string }) => {
 			const parentDir = p.path.split("/").slice(0, -1).join("/");
 			const siblings = await fetchDir(parentDir);
@@ -454,7 +454,7 @@ export function useOpenFile({
 		bypassGate: () => setGateBypassPath(openFileRef.current?.path ?? null),
 		openViewer,
 		openFromSearch,
-		openPinnedEntry,
+		openFavoriteEntry,
 		navigateToPath,
 		handleSave,
 		refreshViewer,

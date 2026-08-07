@@ -588,7 +588,7 @@ export function Sidebar({
 																	: "hover:bg-muted",
 															)}
 															onClick={() => {
-																void doc.openPinnedEntry(p);
+																void doc.openFavoriteEntry(p);
 															}}
 															onKeyDown={(e) => {
 																if (
@@ -596,7 +596,7 @@ export function Sidebar({
 																	e.key === " "
 																) {
 																	e.preventDefault();
-																	void doc.openPinnedEntry(p);
+																	void doc.openFavoriteEntry(p);
 																}
 															}}
 														>
