@@ -28,7 +28,7 @@ const nextConfig: NextConfig = {
   // comma-separated list, without editing this file.
   allowedDevOrigins: process.env.NEXT_ALLOWED_DEV_ORIGINS
     ? process.env.NEXT_ALLOWED_DEV_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean)
-    : ["devvm", "192.168.31.179"],
+    : ["localhost"],
   // Block framing on all routes by default. Same-origin framing for nested
   // /api/assets and /api/app-proxy iframes still works because the host is now
   // same-origin (X-Frame-Options: SAMEORIGIN permits same-origin ancestors).
