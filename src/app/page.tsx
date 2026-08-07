@@ -38,7 +38,7 @@ import { isLite } from "@/lib/url-prefix";
 import { withWs } from "@/lib/workspace-client";
 import { useAIPanelStore } from "@/stores/ai-panel-store";
 import { useEditorStore, prefetchPage } from "@/stores/editor-store";
-import { usePinStore } from "@/stores/pin-store";
+import { useFavoriteStore } from "@/stores/favorite-store";
 import { useRecentStore } from "@/stores/recent-store";
 import {
 	useViewWidthStore,
@@ -93,7 +93,7 @@ export default function Page() {
 	const upload = useUpload({ reloadDir: fileTree.reloadDir });
 	const gitHistory = useGitHistory(doc.openFile);
 
-	const pins = usePinStore((s) => s.pins);
+	const favorites = useFavoriteStore((s) => s.favorites);
 	const recents = useRecentStore((s) => s.recents);
 	const activity = useAIPanelStore((s) => s.activity);
 	const activePaths = useMemo(() => {
@@ -137,13 +137,13 @@ export default function Page() {
 	// Load recents and pins for the active workspace.
 	useEffect(() => {
 		useRecentStore.getState().loadForWorkspace(workspace.activeWorkspaceId);
-		usePinStore.getState().loadForWorkspace(workspace.activeWorkspaceId);
+		useFavoriteStore.getState().loadForWorkspace(workspace.activeWorkspaceId);
 	}, [workspace.activeWorkspaceId]);
 
 	// Prefetch markdown pages for pins/recents at idle.
 	useEffect(() => {
 		const paths = [
-			...pins.map((p) => p.path),
+			...favorites.map((p) => p.path),
 			...recents.slice(0, 8).map((r) => r.path),
 		]
 			.filter((p, i, arr) => isMarkdown(p) && arr.indexOf(p) === i)
@@ -175,7 +175,7 @@ export default function Page() {
 				clearTimeout(id);
 			}
 		};
-	}, [pins, recents]);
+	}, [favorites, recents]);
 
 	// Workspace switch resets the open document.
 	useEffect(() => {
@@ -289,7 +289,7 @@ export default function Page() {
 						hideChrome={hideChrome}
 						sidebarCollapsed={sidebarCollapsed}
 						setSidebarCollapsed={setSidebarCollapsed}
-						pins={pins}
+						favorites={favorites}
 						recents={recents}
 						activePaths={activePaths}
 						setDeleting={setDeleting}

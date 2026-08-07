@@ -12,7 +12,7 @@ import type { useUpload } from "@/hooks/use-upload";
 import type { FileTreeApi } from "@/hooks/use-file-tree";
 import { withWs } from "@/lib/workspace-client";
 import { useAIPanelStore } from "@/stores/ai-panel-store";
-import { usePinStore, type PinnedEntry } from "@/stores/pin-store";
+import { useFavoriteStore, type FavoriteEntry } from "@/stores/favorite-store";
 import type { RecentEntry } from "@/stores/recent-store";
 import { useSidebarWidthStore } from "@/stores/sidebar-width-store";
 import type { FileTreeNode } from "@/types/wiki";
@@ -28,7 +28,7 @@ export interface SidebarShellProps {
 	hideChrome: boolean;
 	sidebarCollapsed: boolean;
 	setSidebarCollapsed: Dispatch<SetStateAction<boolean>>;
-	pins: PinnedEntry[];
+	favorites: FavoriteEntry[];
 	recents: RecentEntry[];
 	activePaths: Set<string>;
 	setDeleting: Dispatch<
@@ -48,7 +48,7 @@ export function SidebarShell({
 	hideChrome,
 	sidebarCollapsed,
 	setSidebarCollapsed,
-	pins,
+	favorites,
 	recents,
 	activePaths,
 	setDeleting,
@@ -56,7 +56,7 @@ export function SidebarShell({
 }: SidebarShellProps) {
 	const [sidebarResizing, setSidebarResizing] = useState(false);
 	const [dragOverPath, setDragOverPath] = useState<string | null>(null);
-	const [collapsed, setCollapsed] = useState({ pinned: false, recent: true });
+	const [collapsed, setCollapsed] = useState({ favorites: false, recent: true });
 	const [createEntry, setCreateEntry] = useState({
 		file: {
 			parent: null as string | null,
@@ -252,8 +252,8 @@ export function SidebarShell({
 		handleCheckout: (p, b, d) => void fileTree.handleCheckout(p, b, d),
 		loadBranches: (p) => void fileTree.loadBranches(p),
 		prefetch: (n) => void fileTree.prefetch(n),
-		togglePin: (node, wsId) =>
-			usePinStore
+		toggleFavorite: (node, wsId) =>
+			useFavoriteStore
 				.getState()
 				.toggle(
 					{ path: node.path, name: node.name, type: node.type },
@@ -319,7 +319,7 @@ export function SidebarShell({
 			treeHandlersRef.current!.handleCheckout(p, b, d),
 		loadBranches: (p) => treeHandlersRef.current!.loadBranches(p),
 		prefetch: (n) => treeHandlersRef.current!.prefetch(n),
-		togglePin: (n, w) => treeHandlersRef.current!.togglePin(n, w),
+		toggleFavorite: (n, w) => treeHandlersRef.current!.toggleFavorite(n, w),
 		setDragOverPath: (p) => treeHandlersRef.current!.setDragOverPath(p),
 		setSidebarCollapsed: (b) =>
 			treeHandlersRef.current!.setSidebarCollapsed(b),
@@ -387,7 +387,7 @@ export function SidebarShell({
 				handleDropOnFolder={handleDropOnFolder}
 				sidebarScrollRef={sidebarScrollRef}
 				treeCtx={treeCtx}
-				pins={pins}
+				favorites={favorites}
 				recents={recents}
 				activePaths={activePaths}
 				setDialogs={setDialogs}

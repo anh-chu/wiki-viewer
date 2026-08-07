@@ -17,7 +17,7 @@ import {
 	Link,
 	Loader2,
 	MoreHorizontal,
-	Pin,
+	Star,
 	RefreshCw,
 	Terminal,
 	Trash2,
@@ -260,7 +260,7 @@ export interface TreeCtx {
 	handleCheckout: (nodePath: string, branch: string, parentDir: string) => void;
 	loadBranches: (nodePath: string) => void;
 	prefetch: (node: TreeNode) => void;
-	togglePin: (node: TreeNode, wsId: string | null) => void;
+	toggleFavorite: (node: TreeNode, wsId: string | null) => void;
 	setDragOverPath: (p: string | null) => void;
 	setSidebarCollapsed: (b: boolean) => void;
 	setBranchDropdownNode: (p: string | null) => void;
@@ -287,7 +287,7 @@ interface FileTreeProps {
 	checkingOutBranch: string | null;
 	pullingRepo: string | null;
 	activePaths: Set<string>;
-	pins: Array<{ path: string }>;
+	favorites: Array<{ path: string }>;
 	isMobile: boolean;
 	activeWorkspaceId: string | null;
 	newFileParent: string | null;
@@ -309,12 +309,12 @@ export const ROW_CV: React.CSSProperties = { contentVisibility: "auto", containI
 export function FileContextMenuItems({
 	node,
 	ctx,
-	isPinned,
+	isFavorited,
 	activeWorkspaceId,
 }: {
 	node: TreeNode;
 	ctx: TreeCtx;
-	isPinned: boolean;
+	isFavorited: boolean;
 	activeWorkspaceId: string | null;
 }) {
 	return (
@@ -380,9 +380,9 @@ export function FileContextMenuItems({
 				<Download className="mr-2 h-3.5 w-3.5" />
 				{node.type === "file" ? "Download" : "Download as zip"}
 			</ContextMenuItem>
-			<ContextMenuItem onSelect={() => ctx.togglePin(node, activeWorkspaceId)}>
-				<Pin className={cn("mr-2 h-3.5 w-3.5", isPinned && "fill-current text-amber-400")} />
-				{isPinned ? "Unpin" : "Pin to top"}
+			<ContextMenuItem onSelect={() => ctx.toggleFavorite(node, activeWorkspaceId)}>
+				<Star className={cn("mr-2 h-3.5 w-3.5", isFavorited && "fill-current text-amber-400")} />
+				{isFavorited ? "Remove from favorites" : "Add to favorites"}
 			</ContextMenuItem>
 			<ContextMenuSeparator />
 			<ContextMenuItem
@@ -419,7 +419,7 @@ interface TreeRowViewProps {
 	sidebarScrollRef: React.RefObject<HTMLDivElement | null>;
 	isActive: boolean;
 	isDragOver: boolean;
-	isPinned: boolean;
+	isFavorited: boolean;
 	isAgentActive: boolean;
 	isPulling: boolean;
 	branchOpen: boolean;
@@ -435,7 +435,7 @@ interface TreeRowViewProps {
 // (openPath change) re-renders just the two affected rows, not the whole tree.
 const TreeRowView = memo(function TreeRowView({
 	node, depth, ctx, isMobile, activeWorkspaceId, sidebarScrollRef,
-	isActive, isDragOver, isPinned, isAgentActive, isPulling,
+	isActive, isDragOver, isFavorited, isAgentActive, isPulling,
 	branchOpen, branchPos, branches, branchLoading, checkingOut,
 	onHoverEnter, onHoverLeave,
 }: TreeRowViewProps) {
@@ -707,10 +707,10 @@ const TreeRowView = memo(function TreeRowView({
 									{node.type === "file" ? "Download" : "Download as zip"}
 								</DropdownMenuItem>
 								<DropdownMenuItem
-									onClick={() => ctx.togglePin(node, activeWorkspaceId)}
+									onClick={() => ctx.toggleFavorite(node, activeWorkspaceId)}
 								>
-									<Pin className={cn("mr-2 h-3.5 w-3.5", isPinned && "fill-current text-amber-400")} />
-									{isPinned ? "Unpin" : "Pin to top"}
+									<Star className={cn("mr-2 h-3.5 w-3.5", isFavorited && "fill-current text-amber-400")} />
+									{isFavorited ? "Remove from favorites" : "Add to favorites"}
 								</DropdownMenuItem>
 								<DropdownMenuSeparator />
 								<DropdownMenuItem
@@ -731,7 +731,7 @@ const TreeRowView = memo(function TreeRowView({
 			<FileContextMenuItems
 				node={node}
 				ctx={ctx}
-				isPinned={isPinned}
+				isFavorited={isFavorited}
 				activeWorkspaceId={activeWorkspaceId}
 			/>
 		</ContextMenu>
@@ -750,7 +750,7 @@ export const FileTree = memo(function FileTree(p: FileTreeProps) {
 		checkingOutBranch,
 		pullingRepo,
 		activePaths,
-		pins,
+		favorites,
 		isMobile,
 		activeWorkspaceId,
 		newFileParent,
@@ -821,7 +821,7 @@ export const FileTree = memo(function FileTree(p: FileTreeProps) {
 							sidebarScrollRef={sidebarScrollRef}
 							isActive={openPath === node.path}
 							isDragOver={dragOverPath === node.path}
-							isPinned={pins.some((pin) => pin.path === node.path)}
+							isFavorited={favorites.some((fav) => fav.path === node.path)}
 							isAgentActive={activePaths.has(node.path)}
 							isPulling={pullingRepo === node.path}
 							branchOpen={branchOpen}

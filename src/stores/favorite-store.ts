@@ -1,43 +1,43 @@
 "use client";
 import { create } from "zustand";
 
-export interface PinnedEntry {
+export interface FavoriteEntry {
 	path: string;
 	name: string;
 	type?: "file" | "dir" | "app" | "node-app";
 }
 
-interface PinState {
-	pins: PinnedEntry[];
+interface FavoriteState {
+	favorites: FavoriteEntry[];
 	loadForWorkspace: (workspaceId: string | null | undefined) => void;
-	toggle: (entry: PinnedEntry, workspaceId: string | null | undefined) => void;
-	isPinned: (path: string) => boolean;
+	toggle: (entry: FavoriteEntry, workspaceId: string | null | undefined) => void;
+	isFavorited: (path: string) => boolean;
 }
 
 function storageKey(ws: string | null | undefined): string {
 	return ws ? `wiki-pinned-files-${ws}` : "wiki-pinned-files";
 }
 
-function readStorage(ws: string | null | undefined): PinnedEntry[] {
+function readStorage(ws: string | null | undefined): FavoriteEntry[] {
 	if (typeof window === "undefined") return [];
 	try {
 		const raw = localStorage.getItem(storageKey(ws));
-		return raw ? (JSON.parse(raw) as PinnedEntry[]) : [];
+		return raw ? (JSON.parse(raw) as FavoriteEntry[]) : [];
 	} catch {
 		return [];
 	}
 }
 
-function writeStorage(ws: string | null | undefined, items: PinnedEntry[]): void {
+function writeStorage(ws: string | null | undefined, items: FavoriteEntry[]): void {
 	if (typeof window === "undefined") return;
 	localStorage.setItem(storageKey(ws), JSON.stringify(items));
 }
 
-export const usePinStore = create<PinState>((set, get) => ({
-	pins: [],
+export const useFavoriteStore = create<FavoriteState>((set, get) => ({
+	favorites: [],
 
 	loadForWorkspace: (ws) => {
-		set({ pins: readStorage(ws) });
+		set({ favorites: readStorage(ws) });
 	},
 
 	toggle: (entry, ws) => {
@@ -47,10 +47,10 @@ export const usePinStore = create<PinState>((set, get) => ({
 			? current.filter((p) => p.path !== entry.path)
 			: [...current, entry];
 		writeStorage(ws, next);
-		set({ pins: next });
+		set({ favorites: next });
 	},
 
-	isPinned: (path) => {
-		return get().pins.some((p) => p.path === path);
+	isFavorited: (path) => {
+		return get().favorites.some((p) => p.path === path);
 	},
 }));

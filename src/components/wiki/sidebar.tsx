@@ -19,7 +19,7 @@ import {
 	Moon,
 	MoreHorizontal,
 	PanelLeftClose,
-	Pin,
+	Star,
 	Plus,
 	RefreshCw,
 	Settings,
@@ -59,7 +59,7 @@ import { apiUrl } from "@/lib/url-prefix";
 import { cn } from "@/lib/utils";
 import { useAIPanelStore } from "@/stores/ai-panel-store";
 import { useHumanizeStore } from "@/stores/humanize-store";
-import { usePinStore } from "@/stores/pin-store";
+import { useFavoriteStore } from "@/stores/favorite-store";
 import { useShowHiddenStore } from "@/stores/show-hidden-store";
 import {
 	SIDEBAR_MAX_WIDTH,
@@ -67,7 +67,7 @@ import {
 } from "@/stores/sidebar-width-store";
 import { useTheme } from "next-themes";
 
-import type { PinnedEntry } from "@/stores/pin-store";
+import type { FavoriteEntry } from "@/stores/favorite-store";
 import type { RecentEntry } from "@/stores/recent-store";
 import type { FileTreeNode } from "@/types/wiki";
 
@@ -90,8 +90,8 @@ export interface SidebarProps {
 	setSidebarResizing: Dispatch<SetStateAction<boolean>>;
 	sidebarWidth: number;
 	setSidebarWidth: (width: number) => void;
-	collapsed: { pinned: boolean; recent: boolean };
-	setCollapsed: Dispatch<SetStateAction<{ pinned: boolean; recent: boolean }>>;
+	collapsed: { favorites: boolean; recent: boolean };
+	setCollapsed: Dispatch<SetStateAction<{ favorites: boolean; recent: boolean }>>;
 	createEntry: {
 		file: { parent: string | null; name: string; error: string | null };
 		folder: { parent: string | null; name: string; error: string | null };
@@ -114,7 +114,7 @@ export interface SidebarProps {
 	handleDropOnFolder: (e: DragEvent, targetDirPath: string) => void;
 	sidebarScrollRef: RefObject<HTMLDivElement | null>;
 	treeCtx: TreeCtx;
-	pins: PinnedEntry[];
+	favorites: FavoriteEntry[];
 	recents: RecentEntry[];
 	activePaths: Set<string>;
 	setDialogs: Dispatch<
@@ -148,7 +148,7 @@ export function Sidebar({
 	handleDropOnFolder,
 	sidebarScrollRef,
 	treeCtx,
-	pins,
+	favorites,
 	recents,
 	activePaths,
 	setDialogs,
@@ -551,7 +551,7 @@ export function Sidebar({
 								onDrop={(e) => handleDropOnFolder(e, "")}
 							>
 								{/* Pinned section */}
-								{pins.length > 0 && (
+								{favorites.length > 0 && (
 									<div className="border-b mb-1">
 										<button
 											type="button"
@@ -559,23 +559,23 @@ export function Sidebar({
 											onClick={() =>
 												setCollapsed((c) => ({
 													...c,
-													pinned: !c.pinned,
+													favorites: !c.favorites,
 												}))
 											}
 										>
-											{collapsed.pinned ? (
+											{collapsed.favorites ? (
 												<ChevronRight className="h-3 w-3" />
 											) : (
 												<ChevronDown className="h-3 w-3" />
 											)}
-											<Pin className="h-3 w-3" />
-											Pinned
+											<Star className="h-3 w-3" />
+											Favorites
 											<span className="ml-auto text-[9px] tabular-nums opacity-60">
-												{pins.length}
+												{favorites.length}
 											</span>
 										</button>
-										{!collapsed.pinned &&
-											pins.map((p) => (
+										{!collapsed.favorites &&
+											favorites.map((p) => (
 												<ContextMenu key={p.path}>
 													<ContextMenuTrigger asChild>
 														<div
@@ -626,10 +626,10 @@ export function Sidebar({
 															<button
 																type="button"
 																className="hover-reveal shrink-0 rounded p-0.5 text-muted-foreground/50 opacity-0 transition-colors hover:bg-muted hover:text-amber-400 group-hover:opacity-100 focus:opacity-100"
-																title="Remove from pinned"
+																title="Remove from favorites"
 																onClick={(e) => {
 																	e.stopPropagation();
-																	usePinStore
+																	useFavoriteStore
 																		.getState()
 																		.toggle(
 																				{
@@ -652,7 +652,7 @@ export function Sidebar({
 																"file") as TreeNodeAlias["type"],
 														} as TreeNodeAlias}
 														ctx={treeCtx}
-														isPinned={true}
+														isFavorited={true}
 														activeWorkspaceId={
 															workspace.activeWorkspaceId
 														}
@@ -758,8 +758,8 @@ export function Sidebar({
 																"file") as TreeNodeAlias["type"],
 														} as TreeNodeAlias}
 														ctx={treeCtx}
-														isPinned={pins.some(
-															(pin) => pin.path === r.path,
+														isFavorited={favorites.some(
+															(fav) => fav.path === r.path,
 														)}
 														activeWorkspaceId={
 															workspace.activeWorkspaceId
@@ -815,7 +815,7 @@ export function Sidebar({
 										checkingOutBranch={fileTree.checkingOutBranch}
 										pullingRepo={fileTree.pullingRepo}
 										activePaths={activePaths}
-										pins={pins}
+										favorites={favorites}
 										isMobile={isMobile}
 										activeWorkspaceId={workspace.activeWorkspaceId}
 										newFileParent={createEntry.file.parent}

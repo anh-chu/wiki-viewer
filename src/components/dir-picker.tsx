@@ -10,8 +10,8 @@ import {
 	Home,
 	Key,
 	Loader2,
-	Pin,
-	PinOff,
+	Star,
+	StarOff,
 	X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -46,8 +46,8 @@ export function DirPicker({ onSelect }: Props) {
 	const [error, setError] = useState<string | null>(null);
 	const [pathInput, setPathInput] = useState("");
 	const [selecting, setSelecting] = useState(false);
-	const [pins, setPins] = useState<string[]>([]);
-	const [pinLoading, setPinLoading] = useState(false);
+	const [favorites, setFavorites] = useState<string[]>([]);
+	const [favoriteLoading, setFavoriteLoading] = useState(false);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -186,7 +186,7 @@ export function DirPicker({ onSelect }: Props) {
 				if (res.ok && !cancelled) {
 					const cfg: { pinnedPaths: string[]; lastOpenedPath: string | null } =
 						await res.json();
-					setPins(cfg.pinnedPaths ?? []);
+					setFavorites(cfg.pinnedPaths ?? []);
 					await navigate(cfg.lastOpenedPath ?? "");
 					return;
 				}
@@ -242,20 +242,20 @@ export function DirPicker({ onSelect }: Props) {
 		}
 	};
 
-	const isPinned = data ? pins.includes(data.path) : false;
+	const isFavorited = data ? favorites.includes(data.path) : false;
 
-	const togglePin = async () => {
+	const toggleFavorite = async () => {
 		if (!data) return;
-		setPinLoading(true);
+		setFavoriteLoading(true);
 		try {
-			const action = isPinned ? "unpin" : "pin";
+			const action = isFavorited ? "unpin" : "pin";
 			const res = await fetch(apiUrl("/api/system/pins"), {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ path: data.path, action }),
 			});
 			if (res.ok) {
-				setPins((prev) =>
+				setFavorites((prev) =>
 					action === "pin"
 						? [...prev, data.path]
 						: prev.filter((p) => p !== data.path),
@@ -264,18 +264,18 @@ export function DirPicker({ onSelect }: Props) {
 		} catch {
 			/* ignore */
 		} finally {
-			setPinLoading(false);
+			setFavoriteLoading(false);
 		}
 	};
 
-	const removePin = async (p: string) => {
+	const removeFavorite = async (p: string) => {
 		try {
 			const res = await fetch(apiUrl("/api/system/pins"), {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ path: p, action: "unpin" }),
 			});
-			if (res.ok) setPins((prev) => prev.filter((x) => x !== p));
+			if (res.ok) setFavorites((prev) => prev.filter((x) => x !== p));
 		} catch {
 			/* ignore */
 		}
@@ -734,22 +734,22 @@ export function DirPicker({ onSelect }: Props) {
 							type="button"
 							className={cn(
 								"flex items-center gap-1.5 text-xs transition-colors rounded px-1.5 py-1",
-								isPinned
+								isFavorited
 									? "text-foreground hover:text-destructive"
 									: "text-muted-foreground hover:text-foreground",
 							)}
-							title={isPinned ? "Unpin this path" : "Pin this path for quick access"}
-							onClick={togglePin}
-							disabled={pinLoading || !data}
+							title={isFavorited ? "Remove from favorites" : "Add to favorites for quick access"}
+							onClick={toggleFavorite}
+							disabled={favoriteLoading || !data}
 						>
-							{pinLoading ? (
+							{favoriteLoading ? (
 								<Loader2 className="h-3.5 w-3.5 animate-spin" />
-							) : isPinned ? (
-								<PinOff className="h-3.5 w-3.5" />
+							) : isFavorited ? (
+								<StarOff className="h-3.5 w-3.5" />
 							) : (
-								<Pin className="h-3.5 w-3.5" />
+								<Star className="h-3.5 w-3.5" />
 							)}
-							{isPinned ? "Unpin" : "Pin"}
+							{isFavorited ? "Unfavorite" : "Favorite"}
 						</button>
 						<Button
 							size="sm"
@@ -768,15 +768,15 @@ export function DirPicker({ onSelect }: Props) {
 				</div>}
 
 				{/* Pinned paths */}
-				{mode === "local" && pins.length > 0 && (
+				{mode === "local" && favorites.length > 0 && (
 					<div className="rounded-lg border bg-card shadow-sm overflow-hidden">
 						<div className="px-3 py-2 border-b bg-muted">
 							<span className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
-								<Pin className="h-3 w-3" /> Pinned
+								<Star className="h-3 w-3" /> Pinned
 							</span>
 						</div>
 						<div className="max-h-40 overflow-y-auto">
-							{pins.map((p) => (
+							{favorites.map((p) => (
 								<div
 									key={p}
 									className="flex items-center gap-2 px-3 py-1.5 hover:bg-accent group"
@@ -792,8 +792,8 @@ export function DirPicker({ onSelect }: Props) {
 									<button
 										type="button"
 										className="shrink-0 text-muted-foreground/50 hover:text-destructive opacity-0 group-hover:opacity-100 transition-all"
-										onClick={() => removePin(p)}
-										title="Remove pin"
+										onClick={() => removeFavorite(p)}
+										title="Remove from favorites"
 									>
 										<X className="h-3.5 w-3.5" />
 									</button>

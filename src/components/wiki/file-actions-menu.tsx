@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, Download, FileText, Link, MoreHorizontal, Pin } from "lucide-react";
+import { Copy, Download, FileText, Link, MoreHorizontal, Star } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 import { withWs } from "@/lib/workspace-client";
 import { isMarkdown, isText } from "@/components/wiki/file-tree";
 import type { useOpenFile } from "@/hooks/use-open-file";
-import { usePinStore } from "@/stores/pin-store";
+import { useFavoriteStore } from "@/stores/favorite-store";
 
 export interface FileActionsMenuProps {
 	doc: ReturnType<typeof useOpenFile>;
@@ -30,7 +30,7 @@ export function FileActionsMenu({
 	extraItems,
 	activeWorkspaceId = null,
 }: FileActionsMenuProps) {
-	const isPinned = usePinStore((s) => s.isPinned(node.path));
+	const isFavorited = useFavoriteStore((s) => s.isFavorited(node.path));
 
 	const handleDownload = () => {
 		const url = withWs(
@@ -44,8 +44,8 @@ export function FileActionsMenu({
 		a.remove();
 	};
 
-	const handleTogglePin = () => {
-		usePinStore
+	const handleToggleFavorite = () => {
+		useFavoriteStore
 			.getState()
 			.toggle({ path: node.path, name: node.name }, activeWorkspaceId);
 	};
@@ -67,14 +67,14 @@ export function FileActionsMenu({
 					<Download className="mr-2 h-3.5 w-3.5" />
 					Download
 				</DropdownMenuItem>
-				<DropdownMenuItem onClick={handleTogglePin}>
-					<Pin
+				<DropdownMenuItem onClick={handleToggleFavorite}>
+					<Star
 						className={cn(
 							"mr-2 h-3.5 w-3.5",
-							isPinned && "fill-current text-amber-400",
+							isFavorited && "fill-current text-amber-400",
 						)}
 					/>
-					{isPinned ? "Unpin" : "Pin to top"}
+					{isFavorited ? "Remove from favorites" : "Add to favorites"}
 				</DropdownMenuItem>
 				<DropdownMenuSeparator />
 				<DropdownMenuItem onClick={() => doc.copyPath(node.path)}>
