@@ -100,7 +100,7 @@ const config: Config = {
 			},
 			fontFamily: {
 				sans: [
-					"Inter",
+					"var(--font-family-ui)",
 					"ui-sans-serif",
 					"system-ui",
 					"-apple-system",

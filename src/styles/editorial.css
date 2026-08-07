@@ -90,12 +90,12 @@
 
 /* === Body typography === */
 [data-skin="editorial"] body {
-  font-family: var(--font-newsreader), Georgia, serif;
+  font-family: var(--font-family-body);
 }
 
 /* === Prose redesign: .tiptap === */
 [data-skin="editorial"] .tiptap {
-  font-family: var(--font-newsreader), Georgia, serif;
+  font-family: var(--font-family-body);
   font-size: 1.0625rem;
   line-height: 1.65;
   letter-spacing: 0;
@@ -111,7 +111,7 @@
 [data-skin="editorial"] .tiptap h4,
 [data-skin="editorial"] .tiptap h5,
 [data-skin="editorial"] .tiptap h6 {
-  font-family: var(--font-fraunces), Georgia, serif;
+  font-family: var(--font-family-heading);
   letter-spacing: -0.01em;
 }
 
@@ -215,7 +215,7 @@
   content: "\2733 \00A0 \2733 \00A0 \2733";
   display: block;
   text-align: center;
-  font-family: var(--font-fraunces), Georgia, serif;
+  font-family: var(--font-family-heading);
   color: var(--muted-foreground);
   letter-spacing: 0.4em;
   font-size: 0.9rem;
@@ -234,7 +234,7 @@
 }
 
 [data-skin="editorial"] .tiptap th {
-  font-family: var(--font-fraunces), Georgia, serif;
+  font-family: var(--font-family-heading);
   font-variant: small-caps;
   font-size: 0.9em;
   letter-spacing: 0.06em;
@@ -267,7 +267,7 @@
 
 /* === Sidebar header sections === */
 [data-skin="editorial"] h3.editorial-section-label {
-  font-family: var(--font-fraunces), Georgia, serif;
+  font-family: var(--font-family-heading);
   font-variant: small-caps;
   letter-spacing: 0.12em;
   position: relative;
@@ -290,7 +290,7 @@
 }
 
 [data-skin="editorial"] .editorial-doc-header span {
-  font-family: var(--font-fraunces), Georgia, serif;
+  font-family: var(--font-family-heading);
   letter-spacing: -0.01em;
   font-size: 0.9375rem;
 }
@@ -302,7 +302,7 @@
 }
 
 [data-skin="editorial"] .editorial-outline .editorial-outline-heading {
-  font-family: var(--font-fraunces), Georgia, serif;
+  font-family: var(--font-family-heading);
   font-variant: small-caps;
   letter-spacing: 0.12em;
   color: var(--muted-foreground);

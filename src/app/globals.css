@@ -7,6 +7,186 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Font role system: ui (chrome), body (prose), heading (h1–h6 and decorative labels) */
+@layer base {
+  :root {
+    --font-family-ui: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif;
+    --font-family-body: var(--font-newsreader), Georgia, serif;
+    --font-family-heading: var(--font-fraunces), Georgia, serif;
+  }
+
+  /* UI font role (sans-only) */
+  html[data-font-ui="satoshi"] {
+    --font-family-ui: var(--font-satoshi), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-ui="general-sans"] {
+    --font-family-ui: var(--font-general-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-ui="roboto"] {
+    --font-family-ui: var(--font-roboto), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-ui="open-sans"] {
+    --font-family-ui: var(--font-open-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-ui="lexend"] {
+    --font-family-ui: var(--font-lexend), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-ui="atkinson-hyperlegible"] {
+    --font-family-ui: var(--font-atkinson-hyperlegible), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-ui="elms-sans"] {
+    --font-family-ui: var(--font-elms-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-ui="stack-sans-notch"] {
+    --font-family-ui: var(--font-stack-sans-notch), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-ui="stack-sans-text"] {
+    --font-family-ui: var(--font-stack-sans-text), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-ui="datatype"] {
+    --font-family-ui: var(--font-datatype), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-ui="miranda-sans"] {
+    --font-family-ui: var(--font-miranda-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-ui="luciole"] {
+    --font-family-ui: var(--font-luciole), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-ui="verdana"] {
+    --font-family-ui: Verdana, Geneva, Tahoma, sans-serif;
+  }
+
+  /* Body font role (sans and serif) */
+  html[data-font-body="inter"] {
+    --font-family-body: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-body="satoshi"] {
+    --font-family-body: var(--font-satoshi), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-body="general-sans"] {
+    --font-family-body: var(--font-general-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-body="roboto"] {
+    --font-family-body: var(--font-roboto), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-body="open-sans"] {
+    --font-family-body: var(--font-open-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-body="lexend"] {
+    --font-family-body: var(--font-lexend), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-body="atkinson-hyperlegible"] {
+    --font-family-body: var(--font-atkinson-hyperlegible), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-body="elms-sans"] {
+    --font-family-body: var(--font-elms-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-body="stack-sans-notch"] {
+    --font-family-body: var(--font-stack-sans-notch), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-body="stack-sans-text"] {
+    --font-family-body: var(--font-stack-sans-text), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-body="datatype"] {
+    --font-family-body: var(--font-datatype), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-body="miranda-sans"] {
+    --font-family-body: var(--font-miranda-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-body="luciole"] {
+    --font-family-body: var(--font-luciole), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-body="verdana"] {
+    --font-family-body: Verdana, Geneva, Tahoma, sans-serif;
+  }
+  html[data-font-body="newsreader"] {
+    --font-family-body: var(--font-newsreader), Georgia, serif;
+  }
+  html[data-font-body="fraunces"] {
+    --font-family-body: var(--font-fraunces), Georgia, serif;
+  }
+  html[data-font-body="sentient"] {
+    --font-family-body: var(--font-sentient), Georgia, serif;
+  }
+  html[data-font-body="gambetta"] {
+    --font-family-body: var(--font-gambetta), Georgia, serif;
+  }
+  html[data-font-body="merriweather"] {
+    --font-family-body: var(--font-merriweather), Georgia, serif;
+  }
+  html[data-font-body="baskerville"] {
+    --font-family-body: var(--font-libre-baskerville), Georgia, serif;
+  }
+  html[data-font-body="palatino"] {
+    --font-family-body: Palatino Linotype, Palatino, Book Antiqua, Georgia, serif;
+  }
+
+  /* Heading font role (sans and serif) */
+  html[data-font-heading="inter"] {
+    --font-family-heading: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-heading="satoshi"] {
+    --font-family-heading: var(--font-satoshi), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-heading="general-sans"] {
+    --font-family-heading: var(--font-general-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-heading="roboto"] {
+    --font-family-heading: var(--font-roboto), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-heading="open-sans"] {
+    --font-family-heading: var(--font-open-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-heading="lexend"] {
+    --font-family-heading: var(--font-lexend), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-heading="atkinson-hyperlegible"] {
+    --font-family-heading: var(--font-atkinson-hyperlegible), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-heading="elms-sans"] {
+    --font-family-heading: var(--font-elms-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-heading="stack-sans-notch"] {
+    --font-family-heading: var(--font-stack-sans-notch), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-heading="stack-sans-text"] {
+    --font-family-heading: var(--font-stack-sans-text), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-heading="datatype"] {
+    --font-family-heading: var(--font-datatype), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-heading="miranda-sans"] {
+    --font-family-heading: var(--font-miranda-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-heading="luciole"] {
+    --font-family-heading: var(--font-luciole), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  html[data-font-heading="verdana"] {
+    --font-family-heading: Verdana, Geneva, Tahoma, sans-serif;
+  }
+  html[data-font-heading="newsreader"] {
+    --font-family-heading: var(--font-newsreader), Georgia, serif;
+  }
+  html[data-font-heading="fraunces"] {
+    --font-family-heading: var(--font-fraunces), Georgia, serif;
+  }
+  html[data-font-heading="sentient"] {
+    --font-family-heading: var(--font-sentient), Georgia, serif;
+  }
+  html[data-font-heading="gambetta"] {
+    --font-family-heading: var(--font-gambetta), Georgia, serif;
+  }
+  html[data-font-heading="merriweather"] {
+    --font-family-heading: var(--font-merriweather), Georgia, serif;
+  }
+  html[data-font-heading="baskerville"] {
+    --font-family-heading: var(--font-libre-baskerville), Georgia, serif;
+  }
+  html[data-font-heading="palatino"] {
+    --font-family-heading: Palatino Linotype, Palatino, Book Antiqua, Georgia, serif;
+  }
+}
+
 @layer base {
   * {
     @apply border-border;

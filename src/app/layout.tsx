@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Fraunces, Newsreader, IBM_Plex_Mono } from "next/font/google";
+import { Inter, Fraunces, Newsreader, IBM_Plex_Mono, Roboto, Open_Sans, Lexend, Atkinson_Hyperlegible, Elms_Sans, Stack_Sans_Notch, Stack_Sans_Text, Merriweather, Libre_Baskerville } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 import { Toaster } from "sonner";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -23,6 +24,218 @@ const ibmPlexMono = IBM_Plex_Mono({
 	subsets: ["latin"],
 	variable: "--font-plex-mono",
 	weight: ["400", "500", "600"],
+	display: "swap",
+});
+
+const roboto = Roboto({
+	subsets: ["latin"],
+	variable: "--font-roboto",
+	weight: ["300", "400", "500", "700"],
+	display: "swap",
+});
+
+const openSans = Open_Sans({
+	subsets: ["latin"],
+	variable: "--font-open-sans",
+	display: "swap",
+});
+
+const lexend = Lexend({
+	subsets: ["latin"],
+	variable: "--font-lexend",
+	display: "swap",
+});
+
+const atkinsonHyperlegible = Atkinson_Hyperlegible({
+	subsets: ["latin"],
+	variable: "--font-atkinson-hyperlegible",
+	weight: ["400", "700"],
+	style: ["normal", "italic"],
+	display: "swap",
+});
+
+// adjustFontFallback disabled for these three: next/font's metrics database doesn't
+// have override values for them yet (too new), which otherwise just logs a harmless
+// "Failed to find font override values" warning on every build.
+const elmsSans = Elms_Sans({
+	subsets: ["latin"],
+	variable: "--font-elms-sans",
+	weight: ["400", "500", "700"],
+	display: "swap",
+	adjustFontFallback: false,
+});
+
+const stackSansNotch = Stack_Sans_Notch({
+	subsets: ["latin"],
+	variable: "--font-stack-sans-notch",
+	weight: ["400", "500", "700"],
+	display: "swap",
+	adjustFontFallback: false,
+});
+
+const stackSansText = Stack_Sans_Text({
+	subsets: ["latin"],
+	variable: "--font-stack-sans-text",
+	weight: ["400", "500", "700"],
+	display: "swap",
+	adjustFontFallback: false,
+});
+
+// Datatype and Miranda Sans are not in this Next.js version's bundled next/font/google
+// snapshot yet, so they're self-hosted the same way as the Fontshare fonts below.
+const datatype = localFont({
+	src: "../../public/fonts/datatype/datatype-regular.woff2",
+	weight: "400",
+	variable: "--font-datatype",
+	display: "swap",
+});
+
+const mirandaSans = localFont({
+	src: "../../public/fonts/miranda-sans/miranda-sans-regular.woff2",
+	weight: "400",
+	variable: "--font-miranda-sans",
+	display: "swap",
+});
+
+// Luciole (CC-BY 4.0, Laurent Bourcellier & Jonathan Perez) — designed for low-vision
+// readability. Self-hosted from the official webfont kit (not on next/font/google).
+const luciole = localFont({
+	src: [
+		{
+			path: "../../public/fonts/luciole/luciole-regular.woff2",
+			weight: "400",
+			style: "normal",
+		},
+		{
+			path: "../../public/fonts/luciole/luciole-italic.woff2",
+			weight: "400",
+			style: "italic",
+		},
+		{
+			path: "../../public/fonts/luciole/luciole-bold.woff2",
+			weight: "700",
+			style: "normal",
+		},
+		{
+			path: "../../public/fonts/luciole/luciole-bolditalic.woff2",
+			weight: "700",
+			style: "italic",
+		},
+	],
+	variable: "--font-luciole",
+	display: "swap",
+});
+
+const merriweather = Merriweather({
+	subsets: ["latin"],
+	variable: "--font-merriweather",
+	weight: ["300", "400", "700", "900"],
+	style: ["normal", "italic"],
+	display: "swap",
+});
+
+const libreBaskerville = Libre_Baskerville({
+	subsets: ["latin"],
+	variable: "--font-libre-baskerville",
+	weight: ["400", "700"],
+	style: ["normal", "italic"],
+	display: "swap",
+});
+
+// New fonts from Fontshare (self-hosted via next/font/local)
+const satoshi = localFont({
+	src: [
+		{
+			path: "../../public/fonts/satoshi/WNDVG7O66ENLOD43GS7FBUCC4KMT5OM2.woff2",
+			weight: "300",
+		},
+		{
+			path: "../../public/fonts/satoshi/KFIAZD4RUMEZIYV6FQ3T3GP5PDBDB6JY.woff2",
+			weight: "400",
+		},
+		{
+			path: "../../public/fonts/satoshi/7AHDUZ4A7LFLVFUIFSARGIWCRQJHISQP.woff2",
+			weight: "500",
+		},
+		{
+			path: "../../public/fonts/satoshi/GHM6WVH6MILNYOOCXHXB5GTSGNTMGXZR.woff2",
+			weight: "700",
+		},
+		{
+			path: "../../public/fonts/satoshi/J64QX5IPOHK56I2KYUNBQ5M2XWZEYKYX.woff2",
+			weight: "900",
+		},
+	],
+	variable: "--font-satoshi",
+	display: "swap",
+});
+
+const generalSans = localFont({
+	src: [
+		{
+			path: "../../public/fonts/general-sans/TW4KNQIPR4LNP4I6I6C6HKQ23B2EQAU5.woff2",
+			weight: "300",
+		},
+		{
+			path: "../../public/fonts/general-sans/7YY3ZAAE3TRV2LANYOLXNHTPHLXVWTKH.woff2",
+			weight: "400",
+		},
+		{
+			path: "../../public/fonts/general-sans/SB2OEB6IKZPRR6JT4GFJ2TFT6HBB6AZN.woff2",
+			weight: "500",
+		},
+		{
+			path: "../../public/fonts/general-sans/3ZLMEXZEQPLTEPMHTQDAUXP5ZZXCZAEN.woff2",
+			weight: "600",
+		},
+		{
+			path: "../../public/fonts/general-sans/NIQ54PVBBIWVK3PFSOIOUJSXIJ5WTNDP.woff2",
+			weight: "700",
+		},
+	],
+	variable: "--font-general-sans",
+	display: "swap",
+});
+
+const sentient = localFont({
+	src: [
+		{
+			path: "../../public/fonts/sentient/SIH66VPT4WS2HIF5PEJNDU4INNUF54LG.woff2",
+			weight: "400",
+		},
+		{
+			path: "../../public/fonts/sentient/RNUZPHMIVMPXFHVACRGCAJ32E6WUEDVU.woff2",
+			weight: "500",
+		},
+		{
+			path: "../../public/fonts/sentient/433XP6QWDVL6KQ5K7ZCOP524TX4LE4RJ.woff2",
+			weight: "700",
+		},
+	],
+	variable: "--font-sentient",
+	display: "swap",
+});
+
+const gambetta = localFont({
+	src: [
+		{
+			path: "../../public/fonts/gambetta/ODDSCHC7OZCRRQJDJV5LMJKTGF7URFO4.woff2",
+			weight: "400",
+		},
+		{
+			path: "../../public/fonts/gambetta/UMQTMTAEPCAFNEJDVEURBIXJENGOHOWO.woff2",
+			weight: "500",
+		},
+		{
+			path: "../../public/fonts/gambetta/6KRVTMHEY26GBVOWXYL6F3ZLGUXE5ZD5.woff2",
+			weight: "600",
+		},
+		{
+			path: "../../public/fonts/gambetta/RMBKFTS6UFOXVBCL3EVCXLWRQBA3PN4K.woff2",
+			weight: "700",
+		},
+	],
+	variable: "--font-gambetta",
 	display: "swap",
 });
 
@@ -69,7 +282,11 @@ export default function RootLayout({
 	children: React.ReactNode;
 }) {
 	return (
-		<html lang="en" suppressHydrationWarning>
+		<html
+			lang="en"
+			suppressHydrationWarning
+			className={`${inter.variable} ${fraunces.variable} ${newsreader.variable} ${ibmPlexMono.variable} ${satoshi.variable} ${generalSans.variable} ${sentient.variable} ${gambetta.variable} ${roboto.variable} ${openSans.variable} ${lexend.variable} ${atkinsonHyperlegible.variable} ${elmsSans.variable} ${stackSansNotch.variable} ${stackSansText.variable} ${datatype.variable} ${mirandaSans.variable} ${luciole.variable} ${merriweather.variable} ${libreBaskerville.variable}`}
+		>
 			<head>
 				{/* WIKI_URL_PREFIX / WIKI_LITE globals injected before any module loads */}
 				<script
@@ -77,14 +294,14 @@ export default function RootLayout({
 						__html: `window.__WIKI_PREFIX=${JSON.stringify(process.env.WIKI_URL_PREFIX ?? "")};window.__WIKI_LITE=${process.env.WIKI_LITE === "1"};`,
 					}}
 				/>
-				{/* No-flash skin script: sets data-skin before paint so editorial tokens apply immediately */}
+				{/* No-flash skin & fonts script: sets data-skin and font attributes before paint */}
 				<script
 					dangerouslySetInnerHTML={{
-						__html: `(function(){try{var s=localStorage.getItem('wiki-skin');if(s!=='default'){document.documentElement.setAttribute('data-skin','editorial');}}catch(e){}})();`,
+						__html: `(function(){try{var s=localStorage.getItem('wiki-skin');if(s!=='default'){document.documentElement.setAttribute('data-skin','editorial');}var f=localStorage.getItem('wiki-fonts');if(f){try{var p=JSON.parse(f);if(p.ui){document.documentElement.dataset.fontUi=p.ui;}if(p.body){document.documentElement.dataset.fontBody=p.body;}if(p.heading){document.documentElement.dataset.fontHeading=p.heading;}}}catch(e){}}}catch(e){}})();`,
 					}}
 				/>
 			</head>
-			<body className={`${inter.variable} ${fraunces.variable} ${newsreader.variable} ${ibmPlexMono.variable} font-sans antialiased`}>
+			<body className="font-sans antialiased">
 				<ThemeProvider>
 					{children}
 					<Toaster

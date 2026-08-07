@@ -1,14 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, Check, Key, Loader2, RotateCcw, X } from "lucide-react";
+import { AlertCircle, Check, ChevronDown, Key, Loader2, RotateCcw, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetClose } from "@/components/ui/sheet";
 import { showError } from "@/lib/toast";
 import { apiUrl } from "@/lib/url-prefix";
 import { authClient } from "@/lib/auth/client";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useSkinStore, SKIN_ORDER, SKIN_LABEL } from "@/stores/skin-store";
+import { useFontStore } from "@/stores/font-store";
+import { FONTS, SANS_FONT_IDS, ALL_FONT_IDS, type FontRole } from "@/lib/fonts";
 import { useExperimentsStore, EXPERIMENTS } from "@/stores/experiments-store";
 
 interface AuthSettings {
@@ -92,6 +100,54 @@ function SkinSelector() {
 					{SKIN_LABEL[s]}
 				</button>
 			))}
+		</div>
+	);
+}
+
+function FontRoleSelector({ role, ids }: { role: FontRole; ids: typeof ALL_FONT_IDS }) {
+	const store = useFontStore();
+	const current = role === "ui" ? store.ui : role === "body" ? store.body : store.heading;
+	const setFont = useFontStore((s) => s.setFont);
+
+	const roleLabel = role === "ui" ? "UI font" : role === "body" ? "Body font" : "Heading font";
+
+	return (
+		<div className="space-y-1.5">
+			<p className="text-xs text-muted-foreground font-medium">{roleLabel}</p>
+			<DropdownMenu>
+				<DropdownMenuTrigger asChild>
+					<button
+						type="button"
+						className="w-full flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm text-foreground hover:bg-accent/50 transition-colors"
+					>
+						<span>{FONTS[current]?.label ?? "Select font"}</span>
+						<ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+					</button>
+				</DropdownMenuTrigger>
+				<DropdownMenuContent className="w-56">
+					{ids.map((fontId) => {
+						const font = FONTS[fontId];
+						return (
+							<DropdownMenuItem
+								key={fontId}
+								onClick={() => setFont(role, fontId)}
+								className={current === fontId ? "font-medium" : ""}
+							>
+								<span className="flex items-center gap-2 w-full">
+									{current === fontId ? (
+										<Check className="h-3.5 w-3.5 shrink-0" />
+									) : (
+										<span className="w-3.5 shrink-0" />
+									)}
+									<span style={{ fontFamily: font.cssValue }}>
+										{font.label}
+									</span>
+								</span>
+							</DropdownMenuItem>
+						);
+					})}
+				</DropdownMenuContent>
+			</DropdownMenu>
 		</div>
 	);
 }
@@ -270,6 +326,42 @@ export function AuthSettingsSheet({
 							<SkinSelector />
 						</section>
 
+
+						{/* Typography — font selections with presets */}
+						<section className="space-y-2">
+							<h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+								Typography
+							</h3>
+							<p className="text-xs text-muted-foreground">
+								Choose fonts for interface chrome, body text, and headings. Mix and match freely, or use a preset.
+							</p>
+							<div className="space-y-3">
+								{/* Quick presets */}
+								<div className="space-y-1.5">
+									<p className="text-xs text-muted-foreground font-medium">Quick presets</p>
+									<div className="flex gap-1.5">
+										<button
+											type="button"
+											onClick={() => useFontStore.getState().applyPreset("classic")}
+											className="flex-1 rounded-md border px-3 py-2 text-sm transition-colors border-border text-muted-foreground hover:bg-accent/50"
+										>
+											Classic
+										</button>
+										<button
+											type="button"
+											onClick={() => useFontStore.getState().applyPreset("modern")}
+											className="flex-1 rounded-md border px-3 py-2 text-sm transition-colors border-border text-muted-foreground hover:bg-accent/50"
+										>
+											Modern
+										</button>
+									</div>
+								</div>
+								{/* Individual font role selectors */}
+								<FontRoleSelector role="ui" ids={SANS_FONT_IDS} />
+								<FontRoleSelector role="body" ids={ALL_FONT_IDS} />
+								<FontRoleSelector role="heading" ids={ALL_FONT_IDS} />
+							</div>
+						</section>
 						{/* Lab — experimental reading features */}
 						<section className="space-y-2">
 							<h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
