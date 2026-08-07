@@ -16,7 +16,15 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useSkinStore, SKIN_ORDER, SKIN_LABEL } from "@/stores/skin-store";
 import { useFontStore } from "@/stores/font-store";
-import { FONTS, SANS_FONT_IDS, ALL_FONT_IDS, FONT_PRESETS, FONT_PRESET_IDS, type FontRole } from "@/lib/fonts";
+import {
+	FONTS,
+	SANS_FONT_IDS,
+	ALL_FONT_IDS,
+	FONT_PRESETS,
+	FONT_PRESET_IDS,
+	FONT_SCALE_STEPS,
+	type FontRole,
+} from "@/lib/fonts";
 import { useExperimentsStore, EXPERIMENTS } from "@/stores/experiments-store";
 
 interface AuthSettings {
@@ -158,6 +166,45 @@ function PresetSelector() {
 	);
 }
 
+function ScaleSelector({ role }: { role: FontRole }) {
+	const store = useFontStore();
+	const current = role === "ui" ? store.uiScale : role === "body" ? store.bodyScale : store.headingScale;
+	const setScale = useFontStore((s) => s.setScale);
+
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger asChild>
+				<button
+					type="button"
+					aria-label="Font size"
+					className="flex items-center gap-1 rounded-md border border-border px-2 py-2 text-sm text-foreground hover:bg-accent/50 transition-colors shrink-0"
+				>
+					<span className="tabular-nums">{Math.round(current * 100)}%</span>
+					<ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+				</button>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align="end" className="w-24">
+				{FONT_SCALE_STEPS.map((step) => (
+					<DropdownMenuItem
+						key={step}
+						onClick={() => setScale(role, step)}
+						className={current === step ? "font-medium" : ""}
+					>
+						<span className="flex items-center gap-2 w-full">
+							{current === step ? (
+								<Check className="h-3.5 w-3.5 shrink-0" />
+							) : (
+								<span className="w-3.5 shrink-0" />
+							)}
+							<span className="tabular-nums">{Math.round(step * 100)}%</span>
+						</span>
+					</DropdownMenuItem>
+				))}
+			</DropdownMenuContent>
+		</DropdownMenu>
+	);
+}
+
 function FontRoleSelector({ role, ids }: { role: FontRole; ids: typeof ALL_FONT_IDS }) {
 	const store = useFontStore();
 	const current = role === "ui" ? store.ui : role === "body" ? store.body : store.heading;
@@ -168,40 +215,46 @@ function FontRoleSelector({ role, ids }: { role: FontRole; ids: typeof ALL_FONT_
 	return (
 		<div className="space-y-1.5">
 			<p className="text-xs text-muted-foreground font-medium">{roleLabel}</p>
-			<DropdownMenu>
-				<DropdownMenuTrigger asChild>
-					<button
-						type="button"
-						className="w-full flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm text-foreground hover:bg-accent/50 transition-colors"
-					>
-						<span>{FONTS[current]?.label ?? "Select font"}</span>
-						<ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-					</button>
-				</DropdownMenuTrigger>
-				<DropdownMenuContent className="w-56">
-					{ids.map((fontId) => {
-						const font = FONTS[fontId];
-						return (
-							<DropdownMenuItem
-								key={fontId}
-								onClick={() => setFont(role, fontId)}
-								className={current === fontId ? "font-medium" : ""}
-							>
-								<span className="flex items-center gap-2 w-full">
-									{current === fontId ? (
-										<Check className="h-3.5 w-3.5 shrink-0" />
-									) : (
-										<span className="w-3.5 shrink-0" />
-									)}
-									<span style={{ fontFamily: font.cssValue }}>
-										{font.label}
+			<div className="flex gap-1.5">
+				<DropdownMenu>
+					<DropdownMenuTrigger asChild>
+						<button
+							type="button"
+							className="flex-1 min-w-0 flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm text-foreground hover:bg-accent/50 transition-colors"
+						>
+							<span className="truncate">{FONTS[current]?.label ?? "Select font"}</span>
+							<ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+						</button>
+					</DropdownMenuTrigger>
+					<DropdownMenuContent className="w-56">
+						{ids.map((fontId) => {
+							const font = FONTS[fontId];
+							return (
+								<DropdownMenuItem
+									key={fontId}
+									onClick={() => setFont(role, fontId)}
+									className={current === fontId ? "font-medium" : ""}
+								>
+									<span className="flex items-center gap-2 w-full">
+										{current === fontId ? (
+											<Check className="h-3.5 w-3.5 shrink-0" />
+										) : (
+											<span className="w-3.5 shrink-0" />
+										)}
+										<span style={{ fontFamily: font.cssValue }}>
+											{font.label}
+										</span>
 									</span>
-								</span>
-							</DropdownMenuItem>
-						);
-					})}
-				</DropdownMenuContent>
-			</DropdownMenu>
+								</DropdownMenuItem>
+							);
+						})}
+					</DropdownMenuContent>
+				</DropdownMenu>
+				{/* Size: a percentage multiplier, not an absolute px value — each role spans
+				    many different underlying sizes across the app, so % scales them all
+				    proportionally instead of pinning everything to one size. */}
+				<ScaleSelector role={role} />
+			</div>
 		</div>
 	);
 }

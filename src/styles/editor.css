@@ -5,7 +5,7 @@
 
 .tiptap {
   font-family: var(--font-family-body);
-  font-size: 0.9375rem;
+  font-size: calc(0.9375rem * var(--font-scale-body, 1));
   line-height: 1.7;
   letter-spacing: -0.006em;
   outline: none;
@@ -36,7 +36,7 @@
 }
 
 .tiptap h1 {
-  font-size: 1.6875rem;
+  font-size: calc(1.6875rem * var(--font-scale-heading, 1));
   font-weight: 650;
   line-height: 1.2;
   letter-spacing: -0.02em;
@@ -44,7 +44,7 @@
 }
 
 .tiptap h2 {
-  font-size: 1.3125rem;
+  font-size: calc(1.3125rem * var(--font-scale-heading, 1));
   font-weight: 650;
   line-height: 1.3;
   letter-spacing: -0.015em;
@@ -52,7 +52,7 @@
 }
 
 .tiptap h3 {
-  font-size: 1.0938rem;
+  font-size: calc(1.0938rem * var(--font-scale-heading, 1));
   font-weight: 650;
   line-height: 1.4;
   letter-spacing: -0.01em;
@@ -60,7 +60,7 @@
 }
 
 .tiptap h4 {
-  font-size: 0.9688rem;
+  font-size: calc(0.9688rem * var(--font-scale-heading, 1));
   font-weight: 650;
   line-height: 1.4;
   margin: 1.1rem 0 0.3rem;

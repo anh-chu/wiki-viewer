@@ -1,12 +1,23 @@
 "use client";
 import { create } from "zustand";
-import { FONT_PRESETS, type FontId, type FontPresetId, type FontRole, ALL_FONT_IDS } from "@/lib/fonts";
+import {
+  FONT_PRESETS,
+  DEFAULT_FONT_SCALE,
+  isValidFontScale,
+  type FontId,
+  type FontPresetId,
+  type FontRole,
+} from "@/lib/fonts";
 
 interface FontState {
   ui: FontId;
   body: FontId;
   heading: FontId;
+  uiScale: number;
+  bodyScale: number;
+  headingScale: number;
   setFont: (role: FontRole, id: FontId) => void;
+  setScale: (role: FontRole, scale: number) => void;
   applyPreset: (name: FontPresetId) => void;
 }
 
@@ -14,38 +25,49 @@ interface FontStorage {
   ui: FontId;
   body: FontId;
   heading: FontId;
+  uiScale: number;
+  bodyScale: number;
+  headingScale: number;
 }
 
 const STORAGE_KEY = "wiki-fonts";
 
-function loadInitial(): FontStorage {
-  // Read from the attributes already set by the no-flash script (avoids hydration mismatch).
-  // Defaults: Classic preset (Inter UI, Newsreader body, Fraunces heading).
-  if (typeof window === "undefined") {
-    return { ui: "inter", body: "newsreader", heading: "fraunces" };
-  }
-  const html = document.documentElement;
-  const ui = (html.dataset.fontUi || "inter") as FontId;
-  const body = (html.dataset.fontBody || "newsreader") as FontId;
-  const heading = (html.dataset.fontHeading || "fraunces") as FontId;
-  return { ui, body, heading };
+const DEFAULTS: FontStorage = {
+  ui: "inter",
+  body: "newsreader",
+  heading: "fraunces",
+  uiScale: DEFAULT_FONT_SCALE,
+  bodyScale: DEFAULT_FONT_SCALE,
+  headingScale: DEFAULT_FONT_SCALE,
+};
+
+function scaleVarName(role: FontRole): string {
+  return `--font-scale-${role}`;
 }
 
-function parseStorage(): FontStorage {
-  // Parse stored JSON or return defaults (classic preset)
-  try {
-    if (typeof window === "undefined") return { ui: "inter", body: "newsreader", heading: "fraunces" };
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (!stored) return { ui: "inter", body: "newsreader", heading: "fraunces" };
-    const parsed = JSON.parse(stored) as FontStorage;
-    return {
-      ui: ALL_FONT_IDS.includes(parsed.ui) ? parsed.ui : "inter",
-      body: ALL_FONT_IDS.includes(parsed.body) ? parsed.body : "newsreader",
-      heading: ALL_FONT_IDS.includes(parsed.heading) ? parsed.heading : "fraunces",
-    };
-  } catch {
-    return { ui: "inter", body: "newsreader", heading: "fraunces" };
-  }
+function loadInitial(): FontStorage {
+  // Read from the attributes/inline styles already set by the no-flash script
+  // (avoids hydration mismatch). Defaults: Classic preset at 100% scale.
+  if (typeof window === "undefined") return DEFAULTS;
+  const html = document.documentElement;
+  const ui = (html.dataset.fontUi || DEFAULTS.ui) as FontId;
+  const body = (html.dataset.fontBody || DEFAULTS.body) as FontId;
+  const heading = (html.dataset.fontHeading || DEFAULTS.heading) as FontId;
+
+  const readScale = (role: FontRole, fallback: number) => {
+    const raw = html.style.getPropertyValue(scaleVarName(role));
+    const parsed = raw ? Number.parseFloat(raw) : Number.NaN;
+    return isValidFontScale(parsed) ? parsed : fallback;
+  };
+
+  return {
+    ui,
+    body,
+    heading,
+    uiScale: readScale("ui", DEFAULTS.uiScale),
+    bodyScale: readScale("body", DEFAULTS.bodyScale),
+    headingScale: readScale("heading", DEFAULTS.headingScale),
+  };
 }
 
 export const useFontStore = create<FontState>((set) => {
@@ -54,26 +76,31 @@ export const useFontStore = create<FontState>((set) => {
     ui: initial.ui,
     body: initial.body,
     heading: initial.heading,
+    uiScale: initial.uiScale,
+    bodyScale: initial.bodyScale,
+    headingScale: initial.headingScale,
 
     setFont: (role, id) => {
       if (typeof window !== "undefined") {
-        // Read current state from attributes or parseStorage as fallback
-        const ui = (document.documentElement.dataset.fontUi || "inter") as FontId;
-        const body = (document.documentElement.dataset.fontBody || "newsreader") as FontId;
-        const heading = (document.documentElement.dataset.fontHeading || "fraunces") as FontId;
+        // Read current state from attributes as fallback
+        const html = document.documentElement;
+        const ui = (html.dataset.fontUi || DEFAULTS.ui) as FontId;
+        const body = (html.dataset.fontBody || DEFAULTS.body) as FontId;
+        const heading = (html.dataset.fontHeading || DEFAULTS.heading) as FontId;
+        const current = loadInitial();
 
         // Update the one role being changed
-        const storage: FontStorage =
-          role === "ui"
-            ? { ui: id, body, heading }
-            : role === "body"
-              ? { ui, body: id, heading }
-              : { ui, body, heading: id };
+        const storage: FontStorage = {
+          ...current,
+          ui: role === "ui" ? id : ui,
+          body: role === "body" ? id : body,
+          heading: role === "heading" ? id : heading,
+        };
 
         localStorage.setItem(STORAGE_KEY, JSON.stringify(storage));
-        document.documentElement.dataset.fontUi = storage.ui;
-        document.documentElement.dataset.fontBody = storage.body;
-        document.documentElement.dataset.fontHeading = storage.heading;
+        html.dataset.fontUi = storage.ui;
+        html.dataset.fontBody = storage.body;
+        html.dataset.fontHeading = storage.heading;
       }
 
       set((state) => {
@@ -84,14 +111,41 @@ export const useFontStore = create<FontState>((set) => {
       });
     },
 
+    setScale: (role, scale) => {
+      if (!isValidFontScale(scale)) return;
+
+      if (typeof window !== "undefined") {
+        const html = document.documentElement;
+        const current = loadInitial();
+        const storage: FontStorage = {
+          ...current,
+          uiScale: role === "ui" ? scale : current.uiScale,
+          bodyScale: role === "body" ? scale : current.bodyScale,
+          headingScale: role === "heading" ? scale : current.headingScale,
+        };
+
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(storage));
+        html.style.setProperty(scaleVarName(role), String(scale));
+      }
+
+      set((state) => {
+        if (role === "ui") return { ...state, uiScale: scale };
+        if (role === "body") return { ...state, bodyScale: scale };
+        if (role === "heading") return { ...state, headingScale: scale };
+        return state;
+      });
+    },
+
     applyPreset: (name) => {
       const preset = FONT_PRESETS[name].fonts;
       if (typeof window !== "undefined") {
-        const storage: FontStorage = { ui: preset.ui, body: preset.body, heading: preset.heading };
+        const html = document.documentElement;
+        const current = loadInitial();
+        const storage: FontStorage = { ...current, ui: preset.ui, body: preset.body, heading: preset.heading };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(storage));
-        document.documentElement.dataset.fontUi = preset.ui;
-        document.documentElement.dataset.fontBody = preset.body;
-        document.documentElement.dataset.fontHeading = preset.heading;
+        html.dataset.fontUi = preset.ui;
+        html.dataset.fontBody = preset.body;
+        html.dataset.fontHeading = preset.heading;
       }
 
       set((state) => ({ ...state, ui: preset.ui, body: preset.body, heading: preset.heading }));

@@ -118,57 +118,76 @@ const config: Config = {
 					"monospace",
 				],
 			},
+			// All sizes below (both Tailwind's default scale, re-declared here, and our
+			// custom named sizes) are multiplied by --font-scale-ui so the "UI font size"
+			// percentage control in Settings scales every text-* utility in the app shell
+			// proportionally. Document content (.tiptap prose) does NOT use these utilities —
+			// it's sized directly in src/styles/editor.css / editorial.css, scaled instead by
+			// --font-scale-body / --font-scale-heading.
 			fontSize: {
+				xs: ["calc(0.75rem * var(--font-scale-ui, 1))", { lineHeight: "calc(1rem * var(--font-scale-ui, 1))" }],
+				sm: ["calc(0.875rem * var(--font-scale-ui, 1))", { lineHeight: "calc(1.25rem * var(--font-scale-ui, 1))" }],
+				base: ["calc(1rem * var(--font-scale-ui, 1))", { lineHeight: "calc(1.5rem * var(--font-scale-ui, 1))" }],
+				lg: ["calc(1.125rem * var(--font-scale-ui, 1))", { lineHeight: "calc(1.75rem * var(--font-scale-ui, 1))" }],
+				xl: ["calc(1.25rem * var(--font-scale-ui, 1))", { lineHeight: "calc(1.75rem * var(--font-scale-ui, 1))" }],
+				"2xl": ["calc(1.5rem * var(--font-scale-ui, 1))", { lineHeight: "calc(2rem * var(--font-scale-ui, 1))" }],
+				"3xl": ["calc(1.875rem * var(--font-scale-ui, 1))", { lineHeight: "calc(2.25rem * var(--font-scale-ui, 1))" }],
+				"4xl": ["calc(2.25rem * var(--font-scale-ui, 1))", { lineHeight: "calc(2.5rem * var(--font-scale-ui, 1))" }],
+				"5xl": ["calc(3rem * var(--font-scale-ui, 1))", { lineHeight: "1" }],
+				"6xl": ["calc(3.75rem * var(--font-scale-ui, 1))", { lineHeight: "1" }],
+				"7xl": ["calc(4.5rem * var(--font-scale-ui, 1))", { lineHeight: "1" }],
+				"8xl": ["calc(6rem * var(--font-scale-ui, 1))", { lineHeight: "1" }],
+				"9xl": ["calc(8rem * var(--font-scale-ui, 1))", { lineHeight: "1" }],
 				"display-mega": [
-					"64px",
+					"calc(64px * var(--font-scale-ui, 1))",
 					{ lineHeight: "1.05", fontWeight: "300", letterSpacing: "-1.92px" },
 				],
 				"display-xl": [
-					"48px",
+					"calc(48px * var(--font-scale-ui, 1))",
 					{ lineHeight: "1.08", fontWeight: "300", letterSpacing: "-0.96px" },
 				],
 				"display-lg": [
-					"36px",
+					"calc(36px * var(--font-scale-ui, 1))",
 					{ lineHeight: "1.17", fontWeight: "300", letterSpacing: "-0.36px" },
 				],
 				"display-md": [
-					"32px",
+					"calc(32px * var(--font-scale-ui, 1))",
 					{ lineHeight: "1.13", fontWeight: "300", letterSpacing: "-0.32px" },
 				],
 				"display-sm": [
-					"24px",
+					"calc(24px * var(--font-scale-ui, 1))",
 					{ lineHeight: "1.2", fontWeight: "300", letterSpacing: "0" },
 				],
 				"title-md": [
-					"20px",
+					"calc(20px * var(--font-scale-ui, 1))",
 					{ lineHeight: "1.35", fontWeight: "500", letterSpacing: "0" },
 				],
 				"title-sm": [
-					"18px",
+					"calc(18px * var(--font-scale-ui, 1))",
 					{ lineHeight: "1.44", fontWeight: "500", letterSpacing: "0.18px" },
 				],
 				"body-md": [
-					"16px",
+					"calc(16px * var(--font-scale-ui, 1))",
 					{ lineHeight: "1.5", fontWeight: "400", letterSpacing: "0.16px" },
 				],
 				"body-sm": [
-					"15px",
+					"calc(15px * var(--font-scale-ui, 1))",
 					{ lineHeight: "1.47", fontWeight: "400", letterSpacing: "0.15px" },
 				],
 				caption: [
-					"14px",
+					"calc(14px * var(--font-scale-ui, 1))",
 					{ lineHeight: "1.5", fontWeight: "400", letterSpacing: "0" },
 				],
 				"caption-uppercase": [
-					"12px",
+					"calc(12px * var(--font-scale-ui, 1))",
 					{ lineHeight: "1.4", fontWeight: "600", letterSpacing: "0.96px" },
 				],
 				button: [
-					"15px",
+					"calc(15px * var(--font-scale-ui, 1))",
 					{ lineHeight: "1", fontWeight: "500", letterSpacing: "0" },
 				],
 				"nav-link": [
-					"15px",
+					"calc(15px * var(--font-scale-ui, 1))",
 					{ lineHeight: "1.4", fontWeight: "500", letterSpacing: "0" },
 				],
 			},

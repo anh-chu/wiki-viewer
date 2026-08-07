@@ -296,7 +296,7 @@ export default function RootLayout({
 				{/* No-flash skin & fonts script: sets data-skin and font attributes before paint */}
 				<script
 					dangerouslySetInnerHTML={{
-						__html: `(function(){try{var s=localStorage.getItem('wiki-skin');if(s!=='default'){document.documentElement.setAttribute('data-skin','editorial');}var f=localStorage.getItem('wiki-fonts');if(f){try{var p=JSON.parse(f);if(p.ui){document.documentElement.dataset.fontUi=p.ui;}if(p.body){document.documentElement.dataset.fontBody=p.body;}if(p.heading){document.documentElement.dataset.fontHeading=p.heading;}}}catch(e){}}}catch(e){}})();`,
+						__html: `(function(){try{var s=localStorage.getItem('wiki-skin');if(s!=='default'){document.documentElement.setAttribute('data-skin','editorial');}var f=localStorage.getItem('wiki-fonts');if(f){try{var p=JSON.parse(f);var html=document.documentElement;if(p.ui){html.dataset.fontUi=p.ui;}if(p.body){html.dataset.fontBody=p.body;}if(p.heading){html.dataset.fontHeading=p.heading;}var isScale=function(v){return typeof v==='number'&&v>=0.5&&v<=2;};if(isScale(p.uiScale)){html.style.setProperty('--font-scale-ui',String(p.uiScale));}if(isScale(p.bodyScale)){html.style.setProperty('--font-scale-body',String(p.bodyScale));}if(isScale(p.headingScale)){html.style.setProperty('--font-scale-heading',String(p.headingScale));}}catch(e){}}}catch(e){}})();`,
 					}}
 				/>
 			</head>

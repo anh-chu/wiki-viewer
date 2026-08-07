@@ -13,6 +13,14 @@
     --font-family-ui: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif;
     --font-family-body: var(--font-newsreader), Georgia, serif;
     --font-family-heading: var(--font-fraunces), Georgia, serif;
+
+    /* Per-role font SIZE scale, as a multiplier (1 = 100%). Set as an inline style on
+       <html> by the font store / no-flash script, not by a discrete attribute selector,
+       since it's a continuous percentage rather than a fixed enum like the family choices
+       above. These :root values are just the pre-hydration/SSR fallback. */
+    --font-scale-ui: 1;
+    --font-scale-body: 1;
+    --font-scale-heading: 1;
   }
 
   /* UI font role (sans-only) */

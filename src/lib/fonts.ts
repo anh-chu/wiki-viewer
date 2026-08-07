@@ -260,3 +260,18 @@ export const FONT_PRESETS: Record<FontPresetId, FontPresetDef> = {
 };
 
 export const FONT_PRESET_IDS: FontPresetId[] = ["classic", "modern", "literary", "legible", "warm", "stack"];
+
+/**
+ * Per-role font SIZE control, expressed as a percentage multiplier rather than an
+ * absolute px value. Each role (ui, body, heading) spans many different underlying
+ * px sizes across the app (e.g. the "ui" role alone covers text-xs buttons through
+ * text-2xl dialog titles), so a single absolute size wouldn't make sense — a
+ * percentage scales everything under that role proportionally instead.
+ */
+export const DEFAULT_FONT_SCALE = 1;
+
+export const FONT_SCALE_STEPS: number[] = [0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.4, 1.5];
+
+export function isValidFontScale(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0.5 && value <= 2;
+}
