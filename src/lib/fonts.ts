@@ -210,7 +210,53 @@ export const ALL_FONT_IDS: FontId[] = [
 
 export type FontRole = "ui" | "body" | "heading";
 
-export const FONT_PRESETS: Record<"classic" | "modern", Record<FontRole, FontId>> = {
-  classic: { ui: "inter", body: "newsreader", heading: "fraunces" },
-  modern: { ui: "satoshi", body: "sentient", heading: "gambetta" },
+export type FontPresetId = "classic" | "modern" | "literary" | "legible" | "warm" | "stack";
+
+export interface FontPresetDef {
+  id: FontPresetId;
+  label: string;
+  /** One-line description of the pairing's character, shown under the preset name. */
+  description: string;
+  fonts: Record<FontRole, FontId>;
+}
+
+export const FONT_PRESETS: Record<FontPresetId, FontPresetDef> = {
+  classic: {
+    id: "classic",
+    label: "Classic",
+    description: "Inter, Newsreader, Fraunces — the original pairing",
+    fonts: { ui: "inter", body: "newsreader", heading: "fraunces" },
+  },
+  modern: {
+    id: "modern",
+    label: "Modern",
+    description: "Satoshi, Sentient, Gambetta — clean and contemporary",
+    fonts: { ui: "satoshi", body: "sentient", heading: "gambetta" },
+  },
+  literary: {
+    id: "literary",
+    label: "Literary",
+    description: "General Sans, Merriweather, Baskerville — magazine-style contrast",
+    fonts: { ui: "general-sans", body: "merriweather", heading: "baskerville" },
+  },
+  legible: {
+    id: "legible",
+    label: "Legible",
+    description: "Atkinson Hyperlegible, Lexend — built for accessibility",
+    fonts: { ui: "atkinson-hyperlegible", body: "atkinson-hyperlegible", heading: "lexend" },
+  },
+  warm: {
+    id: "warm",
+    label: "Warm",
+    description: "Luciole, Palatino — humanist and generously proportioned",
+    fonts: { ui: "luciole", body: "palatino", heading: "palatino" },
+  },
+  stack: {
+    id: "stack",
+    label: "Stack",
+    description: "Stack Sans Text/Notch, Sentient — display headings, calm reading",
+    fonts: { ui: "stack-sans-text", body: "sentient", heading: "stack-sans-notch" },
+  },
 };
+
+export const FONT_PRESET_IDS: FontPresetId[] = ["classic", "modern", "literary", "legible", "warm", "stack"];

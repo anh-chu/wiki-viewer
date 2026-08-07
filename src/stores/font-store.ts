@@ -1,13 +1,13 @@
 "use client";
 import { create } from "zustand";
-import { FONT_PRESETS, type FontId, type FontRole, ALL_FONT_IDS } from "@/lib/fonts";
+import { FONT_PRESETS, type FontId, type FontPresetId, type FontRole, ALL_FONT_IDS } from "@/lib/fonts";
 
 interface FontState {
   ui: FontId;
   body: FontId;
   heading: FontId;
   setFont: (role: FontRole, id: FontId) => void;
-  applyPreset: (name: "classic" | "modern") => void;
+  applyPreset: (name: FontPresetId) => void;
 }
 
 interface FontStorage {
@@ -85,8 +85,8 @@ export const useFontStore = create<FontState>((set) => {
     },
 
     applyPreset: (name) => {
+      const preset = FONT_PRESETS[name].fonts;
       if (typeof window !== "undefined") {
-        const preset = FONT_PRESETS[name];
         const storage: FontStorage = { ui: preset.ui, body: preset.body, heading: preset.heading };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(storage));
         document.documentElement.dataset.fontUi = preset.ui;
@@ -94,10 +94,7 @@ export const useFontStore = create<FontState>((set) => {
         document.documentElement.dataset.fontHeading = preset.heading;
       }
 
-      set((state) => {
-        const preset = FONT_PRESETS[name];
-        return { ...state, ui: preset.ui, body: preset.body, heading: preset.heading };
-      });
+      set((state) => ({ ...state, ui: preset.ui, body: preset.body, heading: preset.heading }));
     },
   };
 });

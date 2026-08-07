@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useSkinStore, SKIN_ORDER, SKIN_LABEL } from "@/stores/skin-store";
 import { useFontStore } from "@/stores/font-store";
-import { FONTS, SANS_FONT_IDS, ALL_FONT_IDS, type FontRole } from "@/lib/fonts";
+import { FONTS, SANS_FONT_IDS, ALL_FONT_IDS, FONT_PRESETS, FONT_PRESET_IDS, type FontRole } from "@/lib/fonts";
 import { useExperimentsStore, EXPERIMENTS } from "@/stores/experiments-store";
 
 interface AuthSettings {
@@ -100,6 +100,60 @@ function SkinSelector() {
 					{SKIN_LABEL[s]}
 				</button>
 			))}
+		</div>
+	);
+}
+
+function PresetSelector() {
+	const { ui, body, heading } = useFontStore();
+	const applyPreset = useFontStore((s) => s.applyPreset);
+
+	// Detect whether the current {ui, body, heading} combo matches a known preset exactly;
+	// otherwise the user has mixed-and-matched roles by hand, so show "Custom".
+	const activeId = FONT_PRESET_IDS.find((id) => {
+		const fonts = FONT_PRESETS[id].fonts;
+		return fonts.ui === ui && fonts.body === body && fonts.heading === heading;
+	});
+	const active = activeId ? FONT_PRESETS[activeId] : null;
+
+	return (
+		<div className="space-y-1.5">
+			<p className="text-xs text-muted-foreground font-medium">Quick presets</p>
+			<DropdownMenu>
+				<DropdownMenuTrigger asChild>
+					<button
+						type="button"
+						className="w-full flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm text-foreground hover:bg-accent/50 transition-colors"
+					>
+						<span>{active ? active.label : "Custom"}</span>
+						<ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+					</button>
+				</DropdownMenuTrigger>
+				<DropdownMenuContent className="w-64">
+					{FONT_PRESET_IDS.map((id) => {
+						const preset = FONT_PRESETS[id];
+						return (
+							<DropdownMenuItem
+								key={id}
+								onClick={() => applyPreset(id)}
+								className="flex-col items-start gap-0.5 py-2"
+							>
+								<span className="flex items-center gap-2 w-full">
+									{activeId === id ? (
+										<Check className="h-3.5 w-3.5 shrink-0" />
+									) : (
+										<span className="w-3.5 shrink-0" />
+									)}
+									<span className="font-medium">{preset.label}</span>
+								</span>
+								<span className="pl-[1.375rem] text-xs text-muted-foreground leading-snug">
+									{preset.description}
+								</span>
+							</DropdownMenuItem>
+						);
+					})}
+				</DropdownMenuContent>
+			</DropdownMenu>
 		</div>
 	);
 }
@@ -339,26 +393,7 @@ export function AuthSettingsSheet({
 								Choose fonts for interface chrome, body text, and headings. Mix and match freely, or use a preset.
 							</p>
 							<div className="space-y-3">
-								{/* Quick presets */}
-								<div className="space-y-1.5">
-									<p className="text-xs text-muted-foreground font-medium">Quick presets</p>
-									<div className="flex gap-1.5">
-										<button
-											type="button"
-											onClick={() => useFontStore.getState().applyPreset("classic")}
-											className="flex-1 rounded-md border px-3 py-2 text-sm transition-colors border-border text-muted-foreground hover:bg-accent/50"
-										>
-											Classic
-										</button>
-										<button
-											type="button"
-											onClick={() => useFontStore.getState().applyPreset("modern")}
-											className="flex-1 rounded-md border px-3 py-2 text-sm transition-colors border-border text-muted-foreground hover:bg-accent/50"
-										>
-											Modern
-										</button>
-									</div>
-								</div>
+								<PresetSelector />
 								{/* Individual font role selectors */}
 								<FontRoleSelector role="ui" ids={SANS_FONT_IDS} />
 								<FontRoleSelector role="body" ids={ALL_FONT_IDS} />
