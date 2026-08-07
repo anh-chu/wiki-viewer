@@ -273,6 +273,9 @@ export function AuthSettingsSheet({
 			<SheetContent
 				side="right"
 				className="w-[90vw] max-w-sm md:w-80 sm:max-w-md flex flex-col border-l border-border p-0"
+				// No backdrop blur here: the page behind should stay crisp so
+				// font/appearance changes made in this panel are visible live.
+				overlayClassName="backdrop-blur-none"
 			>
 				{/* Header — matches AI panel chrome */}
 				<div className="flex items-center justify-between border-b border-border px-4 py-3 shrink-0">

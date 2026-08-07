@@ -41,6 +41,8 @@ interface SheetContentProps
 	side?: SheetSide;
 	/** Show close button in top-right corner */
 	showClose?: boolean;
+	/** Extra classes for the backdrop overlay, e.g. to opt out of the default blur */
+	overlayClassName?: string;
 }
 
 const SheetContent = React.forwardRef<
@@ -48,11 +50,18 @@ const SheetContent = React.forwardRef<
 	SheetContentProps
 >(
 	(
-		{ side = "bottom", showClose = false, className, children, ...props },
+		{
+			side = "bottom",
+			showClose = false,
+			className,
+			overlayClassName,
+			children,
+			...props
+		},
 		ref,
 	) => (
 		<SheetPortal>
-			<SheetOverlay />
+			<SheetOverlay className={overlayClassName} />
 			<DialogPrimitive.Content
 				ref={ref}
 				className={cn(
