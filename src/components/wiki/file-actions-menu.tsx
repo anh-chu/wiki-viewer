@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, FileText, Link, MoreHorizontal } from "lucide-react";
+import { Copy, Download, FileText, Link, MoreHorizontal } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { withWs } from "@/lib/workspace-client";
 import { isMarkdown, isText } from "@/components/wiki/file-tree";
 import type { useOpenFile } from "@/hooks/use-open-file";
 
@@ -21,6 +22,18 @@ export interface FileActionsMenuProps {
 }
 
 export function FileActionsMenu({ doc, node, extraItems }: FileActionsMenuProps) {
+	const handleDownload = () => {
+		const url = withWs(
+			`/api/wiki/download?path=${encodeURIComponent(node.path)}`,
+		);
+		const a = document.createElement("a");
+		a.href = url;
+		a.download = node.name;
+		document.body.appendChild(a);
+		a.click();
+		a.remove();
+	};
+
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
@@ -34,6 +47,11 @@ export function FileActionsMenu({ doc, node, extraItems }: FileActionsMenuProps)
 				</Button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="end" className="w-52">
+				<DropdownMenuItem onClick={handleDownload}>
+					<Download className="mr-2 h-3.5 w-3.5" />
+					Download
+				</DropdownMenuItem>
+				<DropdownMenuSeparator />
 				<DropdownMenuItem onClick={() => doc.copyPath(node.path)}>
 					<Copy className="mr-2 h-3.5 w-3.5" />
 					Copy path
