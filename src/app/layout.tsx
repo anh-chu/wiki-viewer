@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Fraunces, Newsreader, IBM_Plex_Mono, Roboto, Open_Sans, Lexend, Atkinson_Hyperlegible, Elms_Sans, Stack_Sans_Notch, Stack_Sans_Text, Merriweather, Libre_Baskerville } from "next/font/google";
+import { Inter, Fraunces, Newsreader, IBM_Plex_Mono, Roboto, Open_Sans, Lexend, Atkinson_Hyperlegible, Merriweather, Libre_Baskerville } from "next/font/google";
 import localFont from "next/font/local";
 import "./globals.css";
 import { Toaster } from "sonner";
@@ -54,31 +54,30 @@ const atkinsonHyperlegible = Atkinson_Hyperlegible({
 	display: "swap",
 });
 
-// adjustFontFallback disabled for these three: next/font's metrics database doesn't
-// have override values for them yet (too new), which otherwise just logs a harmless
-// "Failed to find font override values" warning on every build.
-const elmsSans = Elms_Sans({
-	subsets: ["latin"],
+// Elms Sans, Stack Sans Notch, and Stack Sans Text are self-hosted via next/font/local
+// instead of next/font/google. Each only ships a single static weight on Google Fonts
+// (500/700 requests resolve to the same file as 400), and self-hosting sidesteps
+// next/font/google's fallback-metrics lookup, which has no entry for these very new
+// families and otherwise logs a noisy "Failed to find font override values" warning.
+const elmsSans = localFont({
+	src: "../../public/fonts/elms-sans/elms-sans-regular.woff2",
+	weight: "400",
 	variable: "--font-elms-sans",
-	weight: ["400", "500", "700"],
 	display: "swap",
-	adjustFontFallback: false,
 });
 
-const stackSansNotch = Stack_Sans_Notch({
-	subsets: ["latin"],
+const stackSansNotch = localFont({
+	src: "../../public/fonts/stack-sans-notch/stack-sans-notch-regular.woff2",
+	weight: "400",
 	variable: "--font-stack-sans-notch",
-	weight: ["400", "500", "700"],
 	display: "swap",
-	adjustFontFallback: false,
 });
 
-const stackSansText = Stack_Sans_Text({
-	subsets: ["latin"],
+const stackSansText = localFont({
+	src: "../../public/fonts/stack-sans-text/stack-sans-text-regular.woff2",
+	weight: "400",
 	variable: "--font-stack-sans-text",
-	weight: ["400", "500", "700"],
 	display: "swap",
-	adjustFontFallback: false,
 });
 
 // Datatype and Miranda Sans are not in this Next.js version's bundled next/font/google
