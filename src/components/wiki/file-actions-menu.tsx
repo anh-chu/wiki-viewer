@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, Download, FileText, Link, MoreHorizontal } from "lucide-react";
+import { Copy, Download, FileText, Link, MoreHorizontal, Pin } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -11,17 +11,27 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 import { withWs } from "@/lib/workspace-client";
 import { isMarkdown, isText } from "@/components/wiki/file-tree";
 import type { useOpenFile } from "@/hooks/use-open-file";
+import { usePinStore } from "@/stores/pin-store";
 
 export interface FileActionsMenuProps {
 	doc: ReturnType<typeof useOpenFile>;
 	node: { path: string; name: string };
 	extraItems?: ReactNode;
+	activeWorkspaceId?: string | null;
 }
 
-export function FileActionsMenu({ doc, node, extraItems }: FileActionsMenuProps) {
+export function FileActionsMenu({
+	doc,
+	node,
+	extraItems,
+	activeWorkspaceId = null,
+}: FileActionsMenuProps) {
+	const isPinned = usePinStore((s) => s.isPinned(node.path));
+
 	const handleDownload = () => {
 		const url = withWs(
 			`/api/wiki/download?path=${encodeURIComponent(node.path)}`,
@@ -32,6 +42,12 @@ export function FileActionsMenu({ doc, node, extraItems }: FileActionsMenuProps)
 		document.body.appendChild(a);
 		a.click();
 		a.remove();
+	};
+
+	const handleTogglePin = () => {
+		usePinStore
+			.getState()
+			.toggle({ path: node.path, name: node.name }, activeWorkspaceId);
 	};
 
 	return (
@@ -50,6 +66,15 @@ export function FileActionsMenu({ doc, node, extraItems }: FileActionsMenuProps)
 				<DropdownMenuItem onClick={handleDownload}>
 					<Download className="mr-2 h-3.5 w-3.5" />
 					Download
+				</DropdownMenuItem>
+				<DropdownMenuItem onClick={handleTogglePin}>
+					<Pin
+						className={cn(
+							"mr-2 h-3.5 w-3.5",
+							isPinned && "fill-current text-amber-400",
+						)}
+					/>
+					{isPinned ? "Unpin" : "Pin to top"}
 				</DropdownMenuItem>
 				<DropdownMenuSeparator />
 				<DropdownMenuItem onClick={() => doc.copyPath(node.path)}>

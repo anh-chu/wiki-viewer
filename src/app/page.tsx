@@ -224,9 +224,14 @@ export default function Page() {
 
 	const renderCopyMenu = useCallback(
 		(node: { path: string; name: string }, extraItems?: ReactNode) => (
-			<FileActionsMenu doc={doc} node={node} extraItems={extraItems} />
+			<FileActionsMenu
+				doc={doc}
+				node={node}
+				extraItems={extraItems}
+				activeWorkspaceId={workspace.activeWorkspaceId}
+			/>
 		),
-		[doc],
+		[doc, workspace.activeWorkspaceId],
 	);
 
 	return (
