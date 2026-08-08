@@ -99,7 +99,7 @@ export function WorkspaceMenu({
 								{workspaces.find((w) => w.id === activeWorkspaceId)?.name ??
 									"Workspace"}
 							</span>
-							<span className="truncate text-[10px] text-muted-foreground font-mono">
+							<span className="truncate text-[10px] text-muted-foreground">
 								{rootPath ?? ""}
 							</span>
 						</span>
@@ -183,7 +183,7 @@ export function WorkspaceMenu({
 										</span>
 									) : null}
 								</span>
-								<span className="truncate text-[10px] text-muted-foreground font-mono">
+								<span className="truncate text-[10px] text-muted-foreground">
 									{w.rootDir}
 								</span>
 								{w.git?.lastPulledAt && timeAgo(w.git.lastPulledAt) && (

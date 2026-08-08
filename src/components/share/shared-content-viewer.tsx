@@ -198,7 +198,7 @@ function SharedSourceViewer({ content, filename }: { content: string; filename: 
 		<div className="flex-1 overflow-auto">
 			<div className="mx-auto max-w-4xl">
 				<div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
-					<span className="text-xs text-muted-foreground font-mono">{filename}</span>
+					<span className="text-xs text-muted-foreground">{filename}</span>
 					<span className="text-xs text-muted-foreground">
 						{lineCount.toLocaleString()} lines
 					</span>

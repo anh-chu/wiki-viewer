@@ -703,7 +703,7 @@ export function DirPicker({ onSelect }: Props) {
 										onClick={() => navigate(data.parent!)}
 									>
 										<Folder className="h-4 w-4 shrink-0" />
-										<span className="font-mono text-xs">..</span>
+										<span className="text-xs">..</span>
 									</button>
 								)}
 
@@ -787,7 +787,7 @@ export function DirPicker({ onSelect }: Props) {
 										onClick={() => navigate(p)}
 									>
 										<Folder className="h-4 w-4 shrink-0 text-warning" />
-										<span className="truncate font-mono text-xs">{p}</span>
+										<span className="truncate text-xs">{p}</span>
 									</button>
 									<button
 										type="button"

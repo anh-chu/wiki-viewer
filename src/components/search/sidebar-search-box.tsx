@@ -104,7 +104,7 @@ export function SidebarSearchBox({
 								idx === active ? "bg-accent" : "hover:bg-accent"
 							}`}
 						>
-							<div className="truncate font-mono text-xs">
+							<div className="truncate text-xs">
 								{r.path}
 							</div>
 							{r.snippet && (

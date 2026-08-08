@@ -138,7 +138,7 @@ export default function SharedPage({ params }: { params: Promise<{ token: string
 							<>
 								<div className="flex items-center gap-2 min-w-0 flex-1">
 									<span className="h-2 w-2 rounded-full bg-success shrink-0" />
-									<span className="text-sm font-mono truncate" title={state.filename}>
+									<span className="text-sm truncate" title={state.filename}>
 										{state.filename}
 									</span>
 								</div>

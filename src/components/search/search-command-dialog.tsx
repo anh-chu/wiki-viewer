@@ -256,7 +256,7 @@ export function SearchCommandDialog({
 											}}
 										>
 											<div className="flex min-w-0 flex-col gap-0.5">
-												<span className="truncate font-mono text-xs">
+												<span className="truncate text-xs">
 													{r.path}
 												</span>
 												{r.snippet && (
