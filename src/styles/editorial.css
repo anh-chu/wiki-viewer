@@ -88,11 +88,6 @@
   --sidebar-ring: #e8a07d;
 }
 
-/* === Body typography === */
-[data-skin="editorial"] body {
-  font-family: var(--font-family-body);
-}
-
 /* === Prose redesign: .tiptap === */
 [data-skin="editorial"] .tiptap {
   font-family: var(--font-family-body);
@@ -328,7 +323,7 @@
 
 /* === Settings section labels (h3) === */
 [data-skin="editorial"] .settings-section-label {
-  font-family: var(--font-fraunces), Georgia, serif;
+  font-family: var(--font-family-heading);
   font-variant: small-caps;
   letter-spacing: 0.1em;
 }
