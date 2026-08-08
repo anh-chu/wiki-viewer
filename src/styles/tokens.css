@@ -1,47 +1,48 @@
 
 :root {
-  --background: #f5f5f5;
-  --foreground: #0c0a09;
-  --card: #ffffff;
-  --card-foreground: #0c0a09;
-  --popover: #ffffff;
-  --popover-foreground: #0c0a09;
-  --primary: #292524;
-  --primary-foreground: #ffffff;
-  --secondary: #fafafa;
-  --secondary-foreground: #0c0a09;
-  --muted: #f0efed;
-  --muted-foreground: #777169;
-  --accent: #e7e5e4;
-  --accent-foreground: #0c0a09;
-  --accent-soft: #e7e5e4;
-  --primary-soft: #e7e5e4;
+  --background: #ECEAE3;
+  --foreground: #201F1B;
+  --card: #F4F2EB;
+  --card-foreground: #201F1B;
+  --popover: #F4F2EB;
+  --popover-foreground: #201F1B;
+  --primary: #55552F;
+  --primary-foreground: #F4F2EB;
+  --secondary: #E2DFD6;
+  --secondary-foreground: #201F1B;
+  --muted: #E2DFD6;
+  --muted-foreground: #75726A;
+  --accent: #DEDBD1;
+  --accent-foreground: #201F1B;
+  --accent-soft: #D9D4AE;
+  --primary-soft: #D9D4AE;
   --success-soft: #dcfce7;
   --destructive: #dc2626;
   --destructive-foreground: #ffffff;
   --destructive-soft: #fee2e2;
   --warning-soft: #fef3c7;
   --warning-ink: #a16207;
-  --border: #e7e5e4;
-  --input: #d6d3d1;
-  --switch-checked: #292524;
-  --ring: #292524;
-  --overlay: rgb(12 10 9 / 0.4);
+  --border: #D8D5CB;
+  --input: #B8B4A6;
+  --switch-checked: #55552F;
+  --ring: #201F1B;
+  --link: #5C5C33;
+  --overlay: rgb(32 31 27 / 0.4);
   --radius: 8px;
 
-  --sidebar-background: #fafafa;
-  --sidebar-foreground: #0c0a09;
-  --sidebar-primary: #292524;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #ffffff;
-  --sidebar-accent-foreground: #0c0a09;
-  --sidebar-border: #e7e5e4;
-  --sidebar-ring: #292524;
+  --sidebar-background: #E6E3DA;
+  --sidebar-foreground: #201F1B;
+  --sidebar-primary: #55552F;
+  --sidebar-primary-foreground: #F4F2EB;
+  --sidebar-accent: #D9D4AE;
+  --sidebar-accent-foreground: #201F1B;
+  --sidebar-border: #D8D5CB;
+  --sidebar-ring: #201F1B;
 
   /* Success / Warning / Info — light mode */
   --success: #16a34a;
   --warning: #d97706;
-  --info: #292524;
+  --info: #55552F;
 
   /* Elevation backing — light mode editorial */
   --shadow-golden-card: 0 4px 16px rgba(0, 0, 0, 0.04);
@@ -62,47 +63,48 @@
 }
 
 .dark {
-  --background: #0c0a09;
-  --foreground: #ffffff;
-  --card: #1c1917;
-  --card-foreground: #ffffff;
-  --popover: #1c1917;
-  --popover-foreground: #ffffff;
-  --primary: #44403c;
-  --primary-foreground: #ffffff;
-  --secondary: #1c1917;
-  --secondary-foreground: #ffffff;
-  --muted: #292524;
-  --muted-foreground: #a8a29e;
-  --accent: #383330;
-  --accent-foreground: #ffffff;
-  --accent-soft: #3d3d3d;
-  --primary-soft: #453c35;
+  --background: #1B1A17;
+  --foreground: #E6E4DD;
+  --card: #22211D;
+  --card-foreground: #E6E4DD;
+  --popover: #22211D;
+  --popover-foreground: #E6E4DD;
+  --primary: #B9BA7E;
+  --primary-foreground: #1B1B12;
+  --secondary: #282722;
+  --secondary-foreground: #E6E4DD;
+  --muted: #282722;
+  --muted-foreground: #918E83;
+  --accent: #282722;
+  --accent-foreground: #E6E4DD;
+  --accent-soft: #3A3A22;
+  --primary-soft: #3A3A22;
   --success-soft: #14532d;
-  --destructive: #dc2626;
-  --destructive-foreground: #ffffff;
+  --destructive: #f87171;
+  --destructive-foreground: #1B1A18;
   --destructive-soft: #7f1d1d;
   --warning-soft: #3d2b1a;
   --warning-ink: #fbbf24;
-  --border: #292524;
-  --input: #57534e;
-  --switch-checked: #f5f5f5;
-  --ring: #ffffff;
+  --border: #302F29;
+  --input: #4A4940;
+  --switch-checked: #B9BA7E;
+  --ring: #E6E4DD;
+  --link: #C2C389;
   --overlay: rgb(0 0 0 / 0.55);
 
-  --sidebar-background: #0c0a09;
-  --sidebar-foreground: #ffffff;
-  --sidebar-primary: #292524;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #1c1917;
-  --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: #292524;
-  --sidebar-ring: #ffffff;
+  --sidebar-background: #171613;
+  --sidebar-foreground: #E6E4DD;
+  --sidebar-primary: #B9BA7E;
+  --sidebar-primary-foreground: #1B1B12;
+  --sidebar-accent: #3A3A22;
+  --sidebar-accent-foreground: #E6E4DD;
+  --sidebar-border: #2C2B25;
+  --sidebar-ring: #E6E4DD;
 
   /* Success / Warning / Info */
   --success: #16a34a;
   --warning: #fbbf24;
-  --info: #ffffff;
+  --info: #B9BA7E;
 
   /* Elevation backing — dark mode editorial */
   --shadow-golden-card: 0 4px 16px rgba(0, 0, 0, 0.3);

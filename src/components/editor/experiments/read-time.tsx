@@ -61,7 +61,7 @@ export function ReadTimeExperiment({ editor, scrollContainerRef }: ExperimentPro
 	return (
 		<div
 			ref={pillRef}
-			className="absolute bottom-3 left-3 z-20 pointer-events-none rounded-full border border-border/60 bg-background/80 text-[11px] text-muted-foreground backdrop-blur shadow-sm"
+			className="absolute bottom-3 left-3 z-20 pointer-events-none rounded-full bg-background/80 text-[11px] text-muted-foreground backdrop-blur shadow-sm"
 		>
 			<span className="block px-2.5 pt-[7px] pb-[5px] leading-none tabular-nums">{label}</span>
 			{size.w > 0 ? (

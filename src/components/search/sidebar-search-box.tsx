@@ -52,7 +52,7 @@ export function SidebarSearchBox({
 				<Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 opacity-50" />
 				<input
 					type="text"
-					className="w-full rounded-sm border bg-transparent py-1 pl-7 pr-2 text-xs outline-none focus:ring-1 focus:ring-ring"
+					className="w-full rounded-sm bg-muted py-1 pl-7 pr-2 text-xs outline-none focus:ring-1 focus:ring-ring"
 					placeholder="Search… (⌘K)"
 					value={query}
 					onChange={(e) => {

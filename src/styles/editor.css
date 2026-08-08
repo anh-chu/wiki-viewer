@@ -100,7 +100,6 @@
   color: var(--foreground);
   padding: 0.15em 0.4em;
   border-radius: 4px;
-  border: 1px solid var(--border);
   font-size: 0.85em;
   font-family: var(--font-plex-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
@@ -130,9 +129,15 @@
 }
 
 .tiptap a {
-  color: var(--accent-foreground);
+  color: var(--link);
   text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--link) 45%, transparent);
   text-underline-offset: 2px;
+  transition: text-decoration-color 120ms;
+}
+
+.tiptap a:hover {
+  text-decoration-color: var(--link);
 }
 
 .tiptap strong {
@@ -158,17 +163,19 @@
   table-layout: fixed;
   width: 100%;
   margin: 0.75rem 0;
-  overflow: hidden;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
 }
 
 .tiptap th,
 .tiptap td {
-  border: 1px solid var(--border);
+  border: none;
+  border-bottom: 1px solid var(--border);
   padding: 0.4rem 0.6rem;
   vertical-align: top;
   position: relative;
+}
+
+.tiptap tr:last-child td {
+  border-bottom: none;
 }
 
 .tiptap th {
@@ -376,18 +383,20 @@
 
 /* Wiki-link mark styles */
 .wiki-link {
-  color: var(--accent-foreground);
+  color: var(--link);
   text-decoration: none;
-  border-bottom: 1px dotted var(--accent-foreground);
+  border-bottom: 1px dotted color-mix(in srgb, var(--link) 45%, transparent);
   padding: 0 1px;
   cursor: pointer;
   transition:
     color 120ms,
-    background 120ms;
+    background 120ms,
+    border-color 120ms;
 }
 .wiki-link:hover {
-  background: color-mix(in srgb, var(--accent-foreground) 10%, transparent);
+  background: color-mix(in srgb, var(--link) 10%, transparent);
   border-bottom-style: solid;
+  border-bottom-color: var(--link);
 }
 .wiki-link[data-broken="true"],
 .wiki-link:has([data-broken="true"]) {

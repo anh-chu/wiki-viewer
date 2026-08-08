@@ -171,7 +171,7 @@ export function Sidebar({
 					{!hideChrome && !sidebarCollapsed && (
 						<Card
 							style={isMobile ? undefined : { width: sidebarWidth }}
-							className="fixed inset-y-0 left-0 z-50 w-[85vw] max-w-[20rem] md:relative md:z-auto md:w-auto md:max-w-none flex flex-col shrink-0 overflow-hidden rounded-none border-r border-l-0 border-t-0 border-b-0"
+							className="fixed inset-y-0 left-0 z-50 w-[85vw] max-w-[20rem] md:relative md:z-auto md:w-auto md:max-w-none flex flex-col shrink-0 overflow-hidden rounded-none border-r border-l-0 border-t-0 border-b-0 bg-sidebar border-sidebar-border text-sidebar-foreground"
 						>
 							{/* Row 1: brand + collapse */}
 							<div className="flex items-center justify-between gap-2 px-3 py-2 border-b bg-muted shrink-0">

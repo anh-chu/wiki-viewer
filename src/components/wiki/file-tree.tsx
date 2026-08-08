@@ -402,7 +402,7 @@ export function FileContextMenuItems({
 // File-type icon for compact rows (recent/pinned), mirroring the tree row.
 export function FileTypeIcon({ name, type }: { name: string; type: TreeNode["type"] }) {
 	const cls = "h-3.5 w-3.5 shrink-0";
-	if (type === "dir") return <Folder className={cn(cls, "text-warning")} />;
+	if (type === "dir") return <Folder className={cn(cls, "text-foreground/70")} />;
 	if (type === "app") return <Globe className={cn(cls, "text-foreground/70")} />;
 	if (type === "node-app") return <Terminal className={cn(cls, "text-emerald-500")} />;
 	if (isHtmlFile(name)) return <Globe className={cn(cls, "text-foreground/60")} />;
@@ -542,9 +542,9 @@ const TreeRowView = memo(function TreeRowView({
 
 					<span className="">{node.type === "dir" ? (
 						node.expanded ? (
-							<FolderOpen className={cn("h-4 w-4 shrink-0", !isActive && "text-warning")} />
+							<FolderOpen className={cn("h-4 w-4 shrink-0", !isActive && "text-foreground/70")} />
 						) : (
-							<Folder className={cn("h-4 w-4 shrink-0", !isActive && "text-warning")} />
+							<Folder className={cn("h-4 w-4 shrink-0", !isActive && "text-foreground/70")} />
 						)
 					) : node.type === "app" ? (
 						<Globe className={cn("h-4 w-4 shrink-0", !isActive && "text-foreground/70")} />
@@ -581,7 +581,7 @@ const TreeRowView = memo(function TreeRowView({
 							>
 								<GitBranch className="h-2.5 w-2.5" />
 								{node.git.branch}
-								{node.git.dirty && <span className="ml-0.5 text-warning">*</span>}
+								{node.git.dirty && <span className="ml-0.5 text-foreground/70">*</span>}
 							</button>
 							{isPulling ? (
 								<Loader2 className="ml-0.5 h-2.5 w-2.5 animate-spin" />
@@ -842,7 +842,7 @@ export const FileTree = memo(function FileTree(p: FileTreeProps) {
 							style={{ paddingLeft: `${(depth + 1) * 14 + 8}px`, ...ROW_CV }}
 						>
 							<span className="w-3.5 shrink-0" />
-							<Folder className="h-4 w-4 shrink-0 text-warning" />
+							<Folder className="h-4 w-4 shrink-0 text-foreground/70" />
 							<input
 								className="flex-1 bg-transparent text-sm outline-none border-b border-border min-w-0"
 								placeholder="Folder name"
