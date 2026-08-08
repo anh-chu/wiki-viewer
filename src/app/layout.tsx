@@ -293,10 +293,10 @@ export default function RootLayout({
 						__html: `window.__WIKI_PREFIX=${JSON.stringify(process.env.WIKI_URL_PREFIX ?? "")};window.__WIKI_LITE=${process.env.WIKI_LITE === "1"};`,
 					}}
 				/>
-				{/* No-flash skin & fonts script: sets data-skin and font attributes before paint */}
+				{/* No-flash fonts script: sets font attributes before paint */}
 				<script
 					dangerouslySetInnerHTML={{
-						__html: `(function(){try{var s=localStorage.getItem('wiki-skin');if(s!=='default'){document.documentElement.setAttribute('data-skin','editorial');}var f=localStorage.getItem('wiki-fonts');if(f){try{var p=JSON.parse(f);var html=document.documentElement;if(p.ui){html.dataset.fontUi=p.ui;}if(p.body){html.dataset.fontBody=p.body;}if(p.heading){html.dataset.fontHeading=p.heading;}var isScale=function(v){return typeof v==='number'&&v>=0.5&&v<=2;};if(isScale(p.uiScale)){html.style.setProperty('--font-scale-ui',String(p.uiScale));}if(isScale(p.bodyScale)){html.style.setProperty('--font-scale-body',String(p.bodyScale));}if(isScale(p.headingScale)){html.style.setProperty('--font-scale-heading',String(p.headingScale));}}catch(e){}}}catch(e){}})();`,
+						__html: `(function(){try{var f=localStorage.getItem('wiki-fonts');if(f){try{var p=JSON.parse(f);var html=document.documentElement;if(p.ui){html.dataset.fontUi=p.ui;}if(p.body){html.dataset.fontBody=p.body;}if(p.heading){html.dataset.fontHeading=p.heading;}var isScale=function(v){return typeof v==='number'&&v>=0.5&&v<=2;};if(isScale(p.uiScale)){html.style.setProperty('--font-scale-ui',String(p.uiScale));}if(isScale(p.bodyScale)){html.style.setProperty('--font-scale-body',String(p.bodyScale));}if(isScale(p.headingScale)){html.style.setProperty('--font-scale-heading',String(p.headingScale));}}catch(e){}}}catch(e){}})();`,
 					}}
 				/>
 			</head>

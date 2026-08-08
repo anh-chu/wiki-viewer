@@ -20,9 +20,7 @@ const focusCss = `
 	opacity: .6;
 }
 
-body.exp-focus-cocoon .editorial-file-tree,
 body.exp-focus-cocoon .editor-toolbar-scroll,
-body.exp-focus-cocoon .editorial-doc-header,
 body.exp-focus-cocoon aside[aria-label="AI Agent Panel"],
 body.exp-focus-cocoon nav[aria-label="Document outline"],
 body.exp-focus-cocoon button[aria-label="Collapse outline"],

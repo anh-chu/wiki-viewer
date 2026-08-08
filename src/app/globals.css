@@ -1,7 +1,6 @@
 @import "../styles/tokens.css";
 @import "../styles/editor.css";
 @import "../styles/viewers.css";
-@import "../styles/editorial.css";
 
 @tailwind base;
 @tailwind components;
@@ -9,6 +8,15 @@
 
 /* Font role system: ui (chrome), body (prose), heading (h1–h6 and decorative labels) */
 @layer base {
+  /* Baseline hover transition for links/buttons that don't declare their own
+     transition utility (e.g. raw markdown-rendered <a>/<button> in prose).
+     Scoped to @layer base so it never overrides Tailwind's transition-*
+     utilities (which live in the higher-priority utilities layer) on
+     styled components like <Button>. */
+  a, button {
+    transition: color 120ms, background-color 120ms;
+  }
+
   :root {
     --font-family-ui: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif;
     --font-family-body: var(--font-newsreader), Georgia, serif;

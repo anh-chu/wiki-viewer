@@ -540,7 +540,7 @@ const TreeRowView = memo(function TreeRowView({
 						<span className="w-3.5 shrink-0" />
 					)}
 
-					<span className="editorial-tree-typeicon">{node.type === "dir" ? (
+					<span className="">{node.type === "dir" ? (
 						node.expanded ? (
 							<FolderOpen className={cn("h-4 w-4 shrink-0", !isActive && "text-warning")} />
 						) : (

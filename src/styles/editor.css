@@ -98,10 +98,11 @@
 .tiptap code {
   background: var(--muted);
   color: var(--foreground);
-  padding: 0.1rem 0.3rem;
-  border-radius: var(--radius);
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  border: 1px solid var(--border);
   font-size: 0.85em;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-plex-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 .tiptap pre {

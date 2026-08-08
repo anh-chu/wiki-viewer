@@ -330,7 +330,7 @@ export default function Page() {
 									title={doc.openFile?.path}
 								>
 									{doc.openFile && (
-										<span className="editorial-tree-typeicon shrink-0">
+										<span className="shrink-0">
 											{doc.openFileViewerKind === "app" ||
 											doc.openFileViewerKind === "html" ? (
 												<Globe className="h-4 w-4 text-foreground/70" />

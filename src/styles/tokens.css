@@ -155,13 +155,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tree-row-reveal,
-  [data-skin="editorial"] main,
-  [data-skin="editorial"] .editorial-content-pane,
-  [data-skin="editorial"] .tiptap h1,
-  [data-skin="editorial"] .tiptap h2,
-  [data-skin="editorial"] .tiptap h3,
-  [data-skin="editorial"] .tiptap hr {
+  .tree-row-reveal {
     animation: none;
   }
 }

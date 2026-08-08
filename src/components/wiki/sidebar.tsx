@@ -535,7 +535,7 @@ export function Sidebar({
 							<div
 								ref={sidebarScrollRef}
 								className={cn(
-									"flex-1 overflow-auto py-1 editorial-file-tree",
+									"flex-1 overflow-auto py-1 ",
 									dragOverPath === "" &&
 										"ring-2 ring-inset ring-primary bg-primary/5",
 								)}
