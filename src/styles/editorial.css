@@ -290,9 +290,9 @@
   font-size: calc(0.9375rem * var(--font-scale-heading, 1));
 }
 
-/* === Outline panel: mono + uppercase tracked label === */
+/* === Outline panel: UI font + uppercase tracked label === */
 [data-skin="editorial"] .editorial-outline {
-  font-family: var(--font-plex-mono), ui-monospace, Menlo, monospace;
+  font-family: var(--font-family-ui);
   font-size: 0.8125rem;
 }
 
