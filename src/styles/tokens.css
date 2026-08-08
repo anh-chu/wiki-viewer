@@ -13,8 +13,8 @@
   --muted: #f0efed;
   --muted-foreground: #777169;
   --accent: #e7e5e4;
-  --accent-foreground: #0c0a09;
-  --accent-soft: #e7e5e4;
+  --accent-foreground: #2563eb;
+  --accent-soft: #dbe6fd;
   --primary-soft: #e7e5e4;
   --success-soft: #dcfce7;
   --destructive: #dc2626;
@@ -24,19 +24,21 @@
   --warning-ink: #a16207;
   --border: #e7e5e4;
   --input: #d6d3d1;
-  --switch-checked: #292524;
-  --ring: #292524;
+  --switch-checked: #2563eb;
+  --ring: #2563eb;
   --overlay: rgb(12 10 9 / 0.4);
   --radius: 8px;
 
-  --sidebar-background: #fafafa;
+  /* Sidebar sits one step darker than the white content card so panel
+     boundaries read clearly without relying solely on the hairline border. */
+  --sidebar-background: #f0efec;
   --sidebar-foreground: #0c0a09;
   --sidebar-primary: #292524;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #ffffff;
-  --sidebar-accent-foreground: #0c0a09;
-  --sidebar-border: #e7e5e4;
-  --sidebar-ring: #292524;
+  --sidebar-accent: #e5e3e0;
+  --sidebar-accent-foreground: #2563eb;
+  --sidebar-border: #ddd9d4;
+  --sidebar-ring: #2563eb;
 
   /* Success / Warning / Info — light mode */
   --success: #16a34a;
@@ -75,8 +77,8 @@
   --muted: #292524;
   --muted-foreground: #a8a29e;
   --accent: #383330;
-  --accent-foreground: #ffffff;
-  --accent-soft: #3d3d3d;
+  --accent-foreground: #60a5fa;
+  --accent-soft: #1e3a5f;
   --primary-soft: #453c35;
   --success-soft: #14532d;
   --destructive: #dc2626;
@@ -86,18 +88,20 @@
   --warning-ink: #fbbf24;
   --border: #292524;
   --input: #57534e;
-  --switch-checked: #f5f5f5;
-  --ring: #ffffff;
+  --switch-checked: #60a5fa;
+  --ring: #60a5fa;
   --overlay: rgb(0 0 0 / 0.55);
 
-  --sidebar-background: #0c0a09;
+  /* Sidebar sits one step lighter than the page background so panel
+     boundaries read clearly without relying solely on the hairline border. */
+  --sidebar-background: #141210;
   --sidebar-foreground: #ffffff;
   --sidebar-primary: #292524;
   --sidebar-primary-foreground: #ffffff;
   --sidebar-accent: #1c1917;
-  --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: #292524;
-  --sidebar-ring: #ffffff;
+  --sidebar-accent-foreground: #60a5fa;
+  --sidebar-border: #2e2925;
+  --sidebar-ring: #60a5fa;
 
   /* Success / Warning / Info */
   --success: #16a34a;
