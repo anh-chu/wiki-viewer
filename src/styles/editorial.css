@@ -241,9 +241,9 @@
   background-color: var(--background) !important;
 }
 
-/* === File tree: mono font + active terracotta === */
+/* === File tree: UI font + active terracotta === */
 [data-skin="editorial"] .editorial-file-tree {
-  font-family: var(--font-plex-mono), ui-monospace, Menlo, monospace;
+  font-family: var(--font-family-ui);
   font-size: 0.8125rem;
 }
 
