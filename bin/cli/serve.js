@@ -81,11 +81,11 @@ function unmountSync(mp) {
 }
 
 function registerMountCleanup() {
-	const cleanup = () => { if (activeMount) { const mp = activeMount; activeMount = null; unmountSync(mp); } };
-	process.on("exit", cleanup);
-	for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
-		process.on(sig, () => { cleanup(); process.exit(0); });
-	}
+	// Signal handling (SIGINT/SIGTERM/SIGHUP) is centralized in start() so
+	// mount cleanup and child-process shutdown happen as one coordinated
+	// sequence instead of racing independent listeners. This only wires the
+	// unconditional exit-time safety net for the sshfs mount.
+	process.on("exit", () => { if (activeMount) { const mp = activeMount; activeMount = null; unmountSync(mp); } });
 }
 
 async function mountSshTarget({ targetStr, port, keyPath, password, readOnly }) {
@@ -367,7 +367,34 @@ export async function start(opts) {
 		},
 	});
 
-	child.on("exit", (code) => process.exit(code ?? 0));
+	// Next's production server (startServer from next/dist/server/lib/start-server)
+	// does a graceful shutdown on SIGTERM/SIGINT: it waits for in-flight requests
+	// and idle keep-alive sockets to close naturally before actually exiting. With
+	// keep-alive connections held open by browser tabs, that wait can stretch out
+	// far longer than expected — and under systemd (Type=simple, default
+	// TimeoutStopSec=90s) "systemctl restart" then blocks for up to 90 seconds
+	// before systemd gives up and SIGKILLs it. Bound that here directly: forward
+	// the signal immediately, then force-kill after a short grace period so
+	// restarts stay fast regardless of how long Next's own drain logic wants to wait.
+	let childExited = false;
+	child.on("exit", (code) => { childExited = true; process.exit(code ?? 0); });
+
+	let shuttingDown = false;
+	const SHUTDOWN_GRACE_MS = 5_000;
+	function shutdown(signal) {
+		if (shuttingDown) return;
+		shuttingDown = true;
+		if (activeMount) { const mp = activeMount; activeMount = null; unmountSync(mp); }
+		if (childExited) return;
+		try { child.kill(signal); } catch { /* already gone */ }
+		const killTimer = setTimeout(() => {
+			if (!childExited) { try { child.kill("SIGKILL"); } catch { /* already gone */ } }
+		}, SHUTDOWN_GRACE_MS);
+		child.once("exit", () => clearTimeout(killTimer));
+	}
+	for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+		process.on(sig, () => shutdown(sig));
+	}
 
 	if (useHttps) {
 		const { key, cert } = ensureCerts(host);

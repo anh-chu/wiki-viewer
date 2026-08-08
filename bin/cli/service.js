@@ -2,12 +2,17 @@ import { execFileSync, execSync } from "node:child_process";
 import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { configPath, logDir, loadConfig, saveConfig, parseEnvFlags } from "./config.js";
 import { computeServerEnv, parseServeArgs } from "./serve.js";
 import { looksLikeSshTarget } from "../shared/ssh-target.js";
 
-const selfScript = fileURLToPath(import.meta.url);
+// The actual CLI entrypoint (bin/wiki-viewer.js), not this module's own file
+// (bin/cli/service.js). resolveServiceScript() below needs the entrypoint
+// path to build a correct systemd ExecStart / launchd ProgramArguments —
+// pointing at this module itself would produce a unit that starts a script
+// with no CLI dispatch, exiting immediately without ever serving anything.
+const selfScript = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "wiki-viewer.js");
 
 export const SERVICE_NAME = "wiki-viewer";
 export const LAUNCHD_LABEL = "com.wiki-viewer";
@@ -58,6 +63,10 @@ Type=simple
 ExecStart=${nodeBin} ${scriptPath} service run
 Restart=on-failure
 RestartSec=3
+# Our own SIGTERM/SIGKILL escalation in serve.js bounds shutdown to ~5s, but
+# cap systemd's own wait too (default TimeoutStopSec is 90s) so "systemctl
+# restart" can never hang longer than that regardless of process behavior.
+TimeoutStopSec=10
 Environment=NODE_ENV=production
 Environment=PATH=${sysPath}${rgEnv}
 
@@ -295,6 +304,17 @@ export function serviceIsInstalled() {
 export function serviceRestart() {
 	const p = platform();
 	if (p === "linux") {
+		// Self-heal units installed before TimeoutStopSec was added: without it,
+		// "systemctl restart" can block up to systemd's default 90s if the
+		// service doesn't exit promptly on SIGTERM. Rewrite the unit in place
+		// (same content installSystemd would generate) before restarting.
+		const unitPath = path.join(os.homedir(), ".config", "systemd", "user", `${SERVICE_NAME}.service`);
+		try {
+			const current = existsSync(unitPath) ? readFileSync(unitPath, "utf8") : "";
+			if (current && !current.includes("TimeoutStopSec")) {
+				installSystemd(resolveServiceNode(), resolveServiceScript());
+			}
+		} catch { /* best-effort; fall through to restart regardless */ }
 		run("systemctl", ["--user", "restart", `${SERVICE_NAME}.service`]);
 	} else if (p === "macos") {
 		const plistPath = path.join(os.homedir(), "Library", "LaunchAgents", `${LAUNCHD_LABEL}.plist`);
