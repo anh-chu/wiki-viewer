@@ -328,21 +328,13 @@
   letter-spacing: 0.1em;
 }
 
-/* === Load reveal — staged choreography ===
-   Body rises and fades, then headings settle (fade + tighten tracking),
-   then the asterism rule draws in. Replays on every doc open. */
+/* === Load reveal ===
+   Body rises and fades in, then the asterism rule draws in.
+   Replays on every doc open. Heading bloom animation removed — was
+   distracting on repeated navigation. */
 [data-skin="editorial"] main,
 [data-skin="editorial"] .editorial-content-pane {
   animation: editorial-rise 480ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-[data-skin="editorial"] .tiptap h1 {
-  animation: editorial-bloom 620ms cubic-bezier(0.16, 1, 0.3, 1) 90ms both;
-}
-
-[data-skin="editorial"] .tiptap h2,
-[data-skin="editorial"] .tiptap h3 {
-  animation: editorial-bloom 560ms cubic-bezier(0.16, 1, 0.3, 1) 140ms both;
 }
 
 [data-skin="editorial"] .tiptap hr {
@@ -358,17 +350,6 @@
   to {
     opacity: 1;
     transform: translateY(0);
-  }
-}
-
-@keyframes editorial-bloom {
-  from {
-    opacity: 0;
-    letter-spacing: 0.02em;
-  }
-  to {
-    opacity: 1;
-    letter-spacing: -0.01em;
   }
 }
 
