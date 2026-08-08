@@ -285,9 +285,9 @@
 }
 
 [data-skin="editorial"] .editorial-doc-header span {
-  font-family: var(--font-family-heading);
+  font-family: var(--font-family-ui);
   letter-spacing: -0.01em;
-  font-size: calc(0.9375rem * var(--font-scale-heading, 1));
+  font-size: calc(0.9375rem * var(--font-scale-ui, 1));
 }
 
 /* === Outline panel: UI font + uppercase tracked label === */
