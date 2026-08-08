@@ -19,6 +19,7 @@ import { useFontStore } from "@/stores/font-store";
 import {
 	FONTS,
 	SANS_FONT_IDS,
+	MONO_FONT_IDS,
 	ALL_FONT_IDS,
 	FONT_PRESETS,
 	FONT_PRESET_IDS,
@@ -89,14 +90,14 @@ function LabSection() {
 }
 
 function PresetSelector() {
-	const { ui, body, heading } = useFontStore();
+	const { ui, body, heading, code } = useFontStore();
 	const applyPreset = useFontStore((s) => s.applyPreset);
 
-	// Detect whether the current {ui, body, heading} combo matches a known preset exactly;
+	// Detect whether the current {ui, body, heading, code} combo matches a known preset exactly;
 	// otherwise the user has mixed-and-matched roles by hand, so show "Custom".
 	const activeId = FONT_PRESET_IDS.find((id) => {
 		const fonts = FONT_PRESETS[id].fonts;
-		return fonts.ui === ui && fonts.body === body && fonts.heading === heading;
+		return fonts.ui === ui && fonts.body === body && fonts.heading === heading && fonts.code === code;
 	});
 	const active = activeId ? FONT_PRESETS[activeId] : null;
 
@@ -414,6 +415,7 @@ export function AuthSettingsSheet({
 								<FontRoleSelector role="ui" ids={SANS_FONT_IDS} />
 								<FontRoleSelector role="body" ids={ALL_FONT_IDS} />
 								<FontRoleSelector role="heading" ids={ALL_FONT_IDS} />
+						<FontRoleSelector role="code" ids={MONO_FONT_IDS} />
 							</div>
 						</section>
 						{/* Lab — experimental reading features */}

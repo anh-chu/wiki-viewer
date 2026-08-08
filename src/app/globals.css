@@ -21,6 +21,7 @@
     --font-family-ui: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif;
     --font-family-body: var(--font-newsreader), Georgia, serif;
     --font-family-heading: var(--font-fraunces), Georgia, serif;
+    --font-family-code: var(--font-plex-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
     /* Per-role font SIZE scale, as a multiplier (1 = 100%). Set as an inline style on
        <html> by the font store / no-flash script, not by a discrete attribute selector,
@@ -200,6 +201,26 @@
   }
   html[data-font-heading="palatino"] {
     --font-family-heading: Palatino Linotype, Palatino, Book Antiqua, Georgia, serif;
+  }
+
+  /* Code font role (mono only) */
+  html[data-font-code="plex-mono"] {
+    --font-family-code: var(--font-plex-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  html[data-font-code="jetbrains-mono"] {
+    --font-family-code: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  html[data-font-code="fira-code"] {
+    --font-family-code: var(--font-fira-code), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  html[data-font-code="roboto-mono"] {
+    --font-family-code: var(--font-roboto-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  html[data-font-code="space-mono"] {
+    --font-family-code: var(--font-space-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  html[data-font-code="source-code-pro"] {
+    --font-family-code: var(--font-source-code-pro), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
 }
 

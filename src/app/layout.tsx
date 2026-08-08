@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Fraunces, Newsreader, IBM_Plex_Mono, Roboto, Open_Sans, Lexend, Atkinson_Hyperlegible, Merriweather, Libre_Baskerville } from "next/font/google";
+import { Inter, Fraunces, Newsreader, IBM_Plex_Mono, Roboto, Open_Sans, Lexend, Atkinson_Hyperlegible, Merriweather, Libre_Baskerville, JetBrains_Mono, Fira_Code, Roboto_Mono, Space_Mono, Source_Code_Pro } from "next/font/google";
 import localFont from "next/font/local";
 import "./globals.css";
 import { Toaster } from "sonner";
@@ -23,6 +23,41 @@ const newsreader = Newsreader({
 const ibmPlexMono = IBM_Plex_Mono({
 	subsets: ["latin"],
 	variable: "--font-plex-mono",
+	weight: ["400", "500", "600"],
+	display: "swap",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+	subsets: ["latin"],
+	variable: "--font-jetbrains-mono",
+	weight: ["400", "500", "600"],
+	display: "swap",
+});
+
+const firaCode = Fira_Code({
+	subsets: ["latin"],
+	variable: "--font-fira-code",
+	weight: ["400", "500", "600"],
+	display: "swap",
+});
+
+const robotoMono = Roboto_Mono({
+	subsets: ["latin"],
+	variable: "--font-roboto-mono",
+	weight: ["400", "500"],
+	display: "swap",
+});
+
+const spaceMono = Space_Mono({
+	subsets: ["latin"],
+	variable: "--font-space-mono",
+	weight: ["400"],
+	display: "swap",
+});
+
+const sourceCodePro = Source_Code_Pro({
+	subsets: ["latin"],
+	variable: "--font-source-code-pro",
 	weight: ["400", "500", "600"],
 	display: "swap",
 });
@@ -284,7 +319,7 @@ export default function RootLayout({
 		<html
 			lang="en"
 			suppressHydrationWarning
-			className={`${inter.variable} ${fraunces.variable} ${newsreader.variable} ${ibmPlexMono.variable} ${satoshi.variable} ${generalSans.variable} ${sentient.variable} ${gambetta.variable} ${roboto.variable} ${openSans.variable} ${lexend.variable} ${atkinsonHyperlegible.variable} ${elmsSans.variable} ${stackSansNotch.variable} ${stackSansText.variable} ${datatype.variable} ${mirandaSans.variable} ${luciole.variable} ${merriweather.variable} ${libreBaskerville.variable}`}
+			className={`${inter.variable} ${fraunces.variable} ${newsreader.variable} ${ibmPlexMono.variable} ${jetbrainsMono.variable} ${firaCode.variable} ${robotoMono.variable} ${spaceMono.variable} ${sourceCodePro.variable} ${satoshi.variable} ${generalSans.variable} ${sentient.variable} ${gambetta.variable} ${roboto.variable} ${openSans.variable} ${lexend.variable} ${atkinsonHyperlegible.variable} ${elmsSans.variable} ${stackSansNotch.variable} ${stackSansText.variable} ${datatype.variable} ${mirandaSans.variable} ${luciole.variable} ${merriweather.variable} ${libreBaskerville.variable}`}
 		>
 			<head>
 				{/* WIKI_URL_PREFIX / WIKI_LITE globals injected before any module loads */}
@@ -296,7 +331,7 @@ export default function RootLayout({
 				{/* No-flash fonts script: sets font attributes before paint */}
 				<script
 					dangerouslySetInnerHTML={{
-						__html: `(function(){try{var f=localStorage.getItem('wiki-fonts');if(f){try{var p=JSON.parse(f);var html=document.documentElement;if(p.ui){html.dataset.fontUi=p.ui;}if(p.body){html.dataset.fontBody=p.body;}if(p.heading){html.dataset.fontHeading=p.heading;}var isScale=function(v){return typeof v==='number'&&v>=0.5&&v<=2;};if(isScale(p.uiScale)){html.style.setProperty('--font-scale-ui',String(p.uiScale));}if(isScale(p.bodyScale)){html.style.setProperty('--font-scale-body',String(p.bodyScale));}if(isScale(p.headingScale)){html.style.setProperty('--font-scale-heading',String(p.headingScale));}}catch(e){}}}catch(e){}})();`,
+						__html: `(function(){try{var f=localStorage.getItem('wiki-fonts');if(f){try{var p=JSON.parse(f);var html=document.documentElement;if(p.ui){html.dataset.fontUi=p.ui;}if(p.body){html.dataset.fontBody=p.body;}if(p.heading){html.dataset.fontHeading=p.heading;}if(p.code){html.dataset.fontCode=p.code;}var isScale=function(v){return typeof v==='number'&&v>=0.5&&v<=2;};if(isScale(p.uiScale)){html.style.setProperty('--font-scale-ui',String(p.uiScale));}if(isScale(p.bodyScale)){html.style.setProperty('--font-scale-body',String(p.bodyScale));}if(isScale(p.headingScale)){html.style.setProperty('--font-scale-heading',String(p.headingScale));}}catch(e){}}}catch(e){}})();`,
 					}}
 				/>
 			</head>

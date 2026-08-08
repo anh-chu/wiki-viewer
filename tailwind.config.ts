@@ -111,10 +111,11 @@ const config: Config = {
 				display: ["var(--font-fraunces)", "Georgia", "serif"],
 				reading: ["var(--font-newsreader)", "Georgia", "serif"],
 				mono: [
-					"var(--font-plex-mono)",
+					"var(--font-family-code)",
 					"ui-monospace",
 					"SFMono-Regular",
 					"Menlo",
+					"Consolas",
 					"monospace",
 				],
 			},

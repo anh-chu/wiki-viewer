@@ -13,6 +13,7 @@ interface FontState {
   ui: FontId;
   body: FontId;
   heading: FontId;
+  code: FontId;
   uiScale: number;
   bodyScale: number;
   headingScale: number;
@@ -25,6 +26,7 @@ interface FontStorage {
   ui: FontId;
   body: FontId;
   heading: FontId;
+  code: FontId;
   uiScale: number;
   bodyScale: number;
   headingScale: number;
@@ -36,6 +38,7 @@ const DEFAULTS: FontStorage = {
   ui: "inter",
   body: "newsreader",
   heading: "fraunces",
+  code: "plex-mono",
   uiScale: DEFAULT_FONT_SCALE,
   bodyScale: DEFAULT_FONT_SCALE,
   headingScale: DEFAULT_FONT_SCALE,
@@ -53,6 +56,7 @@ function loadInitial(): FontStorage {
   const ui = (html.dataset.fontUi || DEFAULTS.ui) as FontId;
   const body = (html.dataset.fontBody || DEFAULTS.body) as FontId;
   const heading = (html.dataset.fontHeading || DEFAULTS.heading) as FontId;
+  const code = (html.dataset.fontCode || DEFAULTS.code) as FontId;
 
   const readScale = (role: FontRole, fallback: number) => {
     const raw = html.style.getPropertyValue(scaleVarName(role));
@@ -64,6 +68,7 @@ function loadInitial(): FontStorage {
     ui,
     body,
     heading,
+    code,
     uiScale: readScale("ui", DEFAULTS.uiScale),
     bodyScale: readScale("body", DEFAULTS.bodyScale),
     headingScale: readScale("heading", DEFAULTS.headingScale),
@@ -76,6 +81,7 @@ export const useFontStore = create<FontState>((set) => {
     ui: initial.ui,
     body: initial.body,
     heading: initial.heading,
+    code: initial.code,
     uiScale: initial.uiScale,
     bodyScale: initial.bodyScale,
     headingScale: initial.headingScale,
@@ -87,6 +93,7 @@ export const useFontStore = create<FontState>((set) => {
         const ui = (html.dataset.fontUi || DEFAULTS.ui) as FontId;
         const body = (html.dataset.fontBody || DEFAULTS.body) as FontId;
         const heading = (html.dataset.fontHeading || DEFAULTS.heading) as FontId;
+        const code = (html.dataset.fontCode || DEFAULTS.code) as FontId;
         const current = loadInitial();
 
         // Update the one role being changed
@@ -95,18 +102,21 @@ export const useFontStore = create<FontState>((set) => {
           ui: role === "ui" ? id : ui,
           body: role === "body" ? id : body,
           heading: role === "heading" ? id : heading,
+          code: role === "code" ? id : code,
         };
 
         localStorage.setItem(STORAGE_KEY, JSON.stringify(storage));
         html.dataset.fontUi = storage.ui;
         html.dataset.fontBody = storage.body;
         html.dataset.fontHeading = storage.heading;
+        html.dataset.fontCode = storage.code;
       }
 
       set((state) => {
         if (role === "ui") return { ...state, ui: id };
         if (role === "body") return { ...state, body: id };
         if (role === "heading") return { ...state, heading: id };
+        if (role === "code") return { ...state, code: id };
         return state;
       });
     },
@@ -141,14 +151,15 @@ export const useFontStore = create<FontState>((set) => {
       if (typeof window !== "undefined") {
         const html = document.documentElement;
         const current = loadInitial();
-        const storage: FontStorage = { ...current, ui: preset.ui, body: preset.body, heading: preset.heading };
+        const storage: FontStorage = { ...current, ui: preset.ui, body: preset.body, heading: preset.heading, code: preset.code };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(storage));
         html.dataset.fontUi = preset.ui;
         html.dataset.fontBody = preset.body;
         html.dataset.fontHeading = preset.heading;
+        html.dataset.fontCode = preset.code;
       }
 
-      set((state) => ({ ...state, ui: preset.ui, body: preset.body, heading: preset.heading }));
+      set((state) => ({ ...state, ui: preset.ui, body: preset.body, heading: preset.heading, code: preset.code }));
     },
   };
 });

@@ -24,12 +24,18 @@ export type FontId =
   | "gambetta"
   | "merriweather"
   | "baskerville"
-  | "palatino";
+  | "palatino"
+  | "plex-mono"
+  | "jetbrains-mono"
+  | "fira-code"
+  | "roboto-mono"
+  | "space-mono"
+  | "source-code-pro";
 
 export interface FontDef {
   id: FontId;
   label: string;
-  kind: "sans" | "serif";
+  kind: "sans" | "serif" | "mono";
   /** Fully resolved font-family CSS value, e.g. "var(--font-inter), ui-sans-serif, system-ui, sans-serif"
    *  or a literal system stack for Verdana/Palatino. */
   cssValue: string;
@@ -165,6 +171,44 @@ export const FONTS: Record<FontId, FontDef> = {
     kind: "serif",
     cssValue: "Palatino Linotype, Palatino, Book Antiqua, Georgia, serif",
   },
+
+  // MONO (6)
+  "plex-mono": {
+    id: "plex-mono",
+    label: "IBM Plex Mono",
+    kind: "mono",
+    cssValue: "var(--font-plex-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+  },
+  "jetbrains-mono": {
+    id: "jetbrains-mono",
+    label: "JetBrains Mono",
+    kind: "mono",
+    cssValue: "var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+  },
+  "fira-code": {
+    id: "fira-code",
+    label: "Fira Code",
+    kind: "mono",
+    cssValue: "var(--font-fira-code), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+  },
+  "roboto-mono": {
+    id: "roboto-mono",
+    label: "Roboto Mono",
+    kind: "mono",
+    cssValue: "var(--font-roboto-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+  },
+  "space-mono": {
+    id: "space-mono",
+    label: "Space Mono",
+    kind: "mono",
+    cssValue: "var(--font-space-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+  },
+  "source-code-pro": {
+    id: "source-code-pro",
+    label: "Source Code Pro",
+    kind: "mono",
+    cssValue: "var(--font-source-code-pro), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+  },
 };
 
 export const SANS_FONT_IDS: FontId[] = [
@@ -182,6 +226,15 @@ export const SANS_FONT_IDS: FontId[] = [
   "miranda-sans",
   "luciole",
   "verdana",
+];
+
+export const MONO_FONT_IDS: FontId[] = [
+  "plex-mono",
+  "jetbrains-mono",
+  "fira-code",
+  "roboto-mono",
+  "space-mono",
+  "source-code-pro",
 ];
 
 export const ALL_FONT_IDS: FontId[] = [
@@ -206,9 +259,15 @@ export const ALL_FONT_IDS: FontId[] = [
   "merriweather",
   "baskerville",
   "palatino",
+  "plex-mono",
+  "jetbrains-mono",
+  "fira-code",
+  "roboto-mono",
+  "space-mono",
+  "source-code-pro",
 ];
 
-export type FontRole = "ui" | "body" | "heading";
+export type FontRole = "ui" | "body" | "heading" | "code";
 
 export type FontPresetId = "classic" | "modern" | "literary" | "legible" | "warm" | "stack";
 
@@ -217,7 +276,7 @@ export interface FontPresetDef {
   label: string;
   /** One-line description of the pairing's character, shown under the preset name. */
   description: string;
-  fonts: Record<FontRole, FontId>;
+  fonts: Record<FontRole, FontId>; // includes ui, body, heading, code
 }
 
 export const FONT_PRESETS: Record<FontPresetId, FontPresetDef> = {
@@ -225,37 +284,37 @@ export const FONT_PRESETS: Record<FontPresetId, FontPresetDef> = {
     id: "classic",
     label: "Classic",
     description: "Inter, Newsreader, Fraunces — the original pairing",
-    fonts: { ui: "inter", body: "newsreader", heading: "fraunces" },
+    fonts: { ui: "inter", body: "newsreader", heading: "fraunces", code: "plex-mono" },
   },
   modern: {
     id: "modern",
     label: "Modern",
     description: "Satoshi, Sentient, Gambetta — clean and contemporary",
-    fonts: { ui: "satoshi", body: "sentient", heading: "gambetta" },
+    fonts: { ui: "satoshi", body: "sentient", heading: "gambetta", code: "plex-mono" },
   },
   literary: {
     id: "literary",
     label: "Literary",
     description: "General Sans, Merriweather, Baskerville — magazine-style contrast",
-    fonts: { ui: "general-sans", body: "merriweather", heading: "baskerville" },
+    fonts: { ui: "general-sans", body: "merriweather", heading: "baskerville", code: "plex-mono" },
   },
   legible: {
     id: "legible",
     label: "Legible",
     description: "Atkinson Hyperlegible, Lexend — built for accessibility",
-    fonts: { ui: "atkinson-hyperlegible", body: "atkinson-hyperlegible", heading: "lexend" },
+    fonts: { ui: "atkinson-hyperlegible", body: "atkinson-hyperlegible", heading: "lexend", code: "plex-mono" },
   },
   warm: {
     id: "warm",
     label: "Warm",
     description: "Luciole, Palatino — humanist and generously proportioned",
-    fonts: { ui: "luciole", body: "palatino", heading: "palatino" },
+    fonts: { ui: "luciole", body: "palatino", heading: "palatino", code: "plex-mono" },
   },
   stack: {
     id: "stack",
     label: "Stack",
     description: "Stack Sans Text/Notch, Sentient — display headings, calm reading",
-    fonts: { ui: "stack-sans-text", body: "sentient", heading: "stack-sans-notch" },
+    fonts: { ui: "stack-sans-text", body: "sentient", heading: "stack-sans-notch", code: "plex-mono" },
   },
 };
 
