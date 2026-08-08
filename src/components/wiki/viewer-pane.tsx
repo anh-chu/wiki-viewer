@@ -18,6 +18,7 @@ import {
 	X,
 } from "lucide-react";
 import dynamic from "next/dynamic";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -51,6 +52,10 @@ import { XlsxViewer } from "@/components/editor/office/xlsx-viewer";
 import { SourceViewer } from "@/components/editor/source-viewer";
 import { WebsiteViewer } from "@/components/editor/website-viewer";
 import { NodeAppViewer } from "@/components/editor/node-app-viewer";
+import {
+	ViewerToolbarBadgeSlotContext,
+	ViewerToolbarSlotContext,
+} from "@/components/layout/viewer-toolbar";
 
 const PdfViewer = dynamic(
 	() => import("@/components/editor/pdf-viewer").then((m) => m.PdfViewer),
@@ -201,6 +206,17 @@ export function ViewerPane({
 	isMobile,
 	sidebarCollapsed,
 }: ViewerPaneProps) {
+	// Portal target for merging viewer toolbar content into single header row
+	const [toolbarSlotEl, setToolbarSlotEl] = useState<HTMLElement | null>(null);
+	const [toolbarBadgeSlotEl, setToolbarBadgeSlotEl] = useState<HTMLElement | null>(null);
+
+	// Lifted so it survives the header's Refresh action (which remounts
+	// WebsiteViewer via a changing key), but resets on a genuinely different file.
+	const [scriptsEnabled, setScriptsEnabled] = useState(false);
+	useEffect(() => {
+		setScriptsEnabled(false);
+	}, [openFile.path]);
+
 	const viewerKind = viewerKindFor(openFile.name, openFile.nodeType);
 	const showLargeFileGate =
 		!SAFE_VIEWER_KINDS.has(viewerKind) &&
@@ -220,6 +236,8 @@ export function ViewerPane({
 		if (appFullscreen) {
 			return (
 				<WebsiteViewer
+					scriptsEnabled={scriptsEnabled}
+					onToggleScripts={() => setScriptsEnabled((s) => !s)}
 					path={openFile.path}
 					title={openFile.name}
 					src={websiteSrc}
@@ -248,8 +266,20 @@ export function ViewerPane({
 						>
 							{openFile.path}
 						</span>
+						<div
+							ref={(el) => {
+								if (el) setToolbarBadgeSlotEl(el);
+							}}
+							className="flex items-center gap-1 shrink-0"
+						/>
 					</div>
 					<div className="flex items-center gap-1 shrink-0">
+					<div
+						ref={(el) => {
+							if (el) setToolbarSlotEl(el);
+						}}
+						className="flex items-center gap-1 shrink-0"
+					/>
 						{renderCopyMenu(
 							openFile,
 							<>
@@ -336,14 +366,24 @@ export function ViewerPane({
 						</div>
 					</div>
 				) : htmlSourceMode && viewerKind === "html" ? (
-					<SourceViewer path={openFile.path} title={openFile.name} />
+					<ViewerToolbarBadgeSlotContext.Provider value={toolbarBadgeSlotEl}>
+						<ViewerToolbarSlotContext.Provider value={toolbarSlotEl}>
+							<SourceViewer path={openFile.path} title={openFile.name} />
+						</ViewerToolbarSlotContext.Provider>
+					</ViewerToolbarBadgeSlotContext.Provider>
 				) : (
-					<WebsiteViewer
-						key={appKey}
-						path={openFile.path}
-						title={openFile.name}
-						src={websiteSrc}
-					/>
+					<ViewerToolbarBadgeSlotContext.Provider value={toolbarBadgeSlotEl}>
+						<ViewerToolbarSlotContext.Provider value={toolbarSlotEl}>
+							<WebsiteViewer
+								key={appKey}
+								scriptsEnabled={scriptsEnabled}
+								onToggleScripts={() => setScriptsEnabled((s) => !s)}
+								path={openFile.path}
+								title={openFile.name}
+								src={websiteSrc}
+							/>
+						</ViewerToolbarSlotContext.Provider>
+					</ViewerToolbarBadgeSlotContext.Provider>
 				)}
 			</div>
 		);
@@ -375,6 +415,12 @@ export function ViewerPane({
 					>
 						{openFile.path}
 					</span>
+					<div
+						ref={(el) => {
+							if (el) setToolbarBadgeSlotEl(el);
+						}}
+						className="flex items-center gap-1 shrink-0"
+					/>
 					{gitFileInfo && (
 						<span className="hidden md:flex items-center gap-1 text-[11px] text-muted-foreground shrink-0 ml-1">
 							<User className="h-3 w-3 shrink-0" />
@@ -391,6 +437,12 @@ export function ViewerPane({
 					)}
 				</div>
 				<div className="flex items-center gap-1 shrink-0">
+					<div
+						ref={(el) => {
+							if (el) setToolbarSlotEl(el);
+						}}
+						className="flex items-center gap-1 shrink-0"
+					/>
 					{renderCopyMenu(
 						openFile,
 						<>
@@ -601,6 +653,8 @@ export function ViewerPane({
 			  viewerKind === "pptx" ||
 			  viewerKind === "source" ||
 			  viewerKind === "fallback" ? (
+			<ViewerToolbarBadgeSlotContext.Provider value={toolbarBadgeSlotEl}>
+			<ViewerToolbarSlotContext.Provider value={toolbarSlotEl}>
 				<div
 					key={viewerKey}
 					className="flex-1 flex flex-col overflow-hidden min-h-0"
@@ -641,6 +695,8 @@ export function ViewerPane({
 						<FileFallbackViewer path={openFile.path} title={openFile.name} />
 					)}
 				</div>
+			</ViewerToolbarSlotContext.Provider>
+			</ViewerToolbarBadgeSlotContext.Provider>
 			) : (
 				<div className="flex-1 overflow-auto p-4 min-h-0">
 					<div className={cn("w-full", contentAlignClass, contentWidthClass)}>

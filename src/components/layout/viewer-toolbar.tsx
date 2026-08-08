@@ -1,10 +1,17 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { createContext, useContext } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 
-// Simplified toolbar stub used by the ported viewer components.
-// Replace with a fuller implementation if navigation breadcrumbs are needed.
+// Context for portal-based toolbar slots: leaf viewers (nested inside viewer-pane's
+// header) render their sublabel/actions into the right-hand slot and their file-type
+// badge into the left-hand slot (next to the path), merging into a single header row.
+// Standalone viewers (NodeAppViewer, WebsiteViewer fullscreen) get null for both and
+// render their own full self-contained toolbar bar.
+export const ViewerToolbarSlotContext = createContext<HTMLElement | null>(null);
+export const ViewerToolbarBadgeSlotContext = createContext<HTMLElement | null>(null);
 
 export function ViewerToolbar({
 	path,
@@ -23,6 +30,44 @@ export function ViewerToolbar({
 	children?: ReactNode;
 	className?: string;
 }) {
+	const slotEl = useContext(ViewerToolbarSlotContext);
+	const badgeSlotEl = useContext(ViewerToolbarBadgeSlotContext);
+
+	// Nested mode: portal sublabel/actions into the right-hand slot, and the
+	// badge into the left-hand slot (next to the path) if one is available.
+	if (slotEl) {
+		return (
+			<>
+				{badge &&
+					(badgeSlotEl
+						? createPortal(
+								<span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground/50">
+									{badge}
+								</span>,
+								badgeSlotEl,
+							)
+						: createPortal(
+								<span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground/50">
+									{badge}
+								</span>,
+								slotEl,
+							))}
+				{createPortal(
+					<>
+						{sublabel && (
+							<span className="shrink-0 text-xs text-muted-foreground/40">
+								{sublabel}
+							</span>
+						)}
+						{children}
+					</>,
+					slotEl,
+				)}
+			</>
+		);
+	}
+
+	// Standalone mode: render full bar with path and actions
 	return (
 		<div
 			className={cn(

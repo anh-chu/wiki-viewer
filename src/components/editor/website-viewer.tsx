@@ -13,6 +13,14 @@ interface WebsiteViewerProps {
 	src?: string;
 	fullscreen?: boolean;
 	onExit?: () => void;
+	/**
+	 * Controlled scripts-enabled state. Lifted to the parent (viewer-pane) so
+	 * the toggle survives the header's Refresh action, which remounts this
+	 * component via a changing `key`. Falls back to internal state when not
+	 * provided (e.g. if used standalone elsewhere).
+	 */
+	scriptsEnabled?: boolean;
+	onToggleScripts?: () => void;
 }
 
 export function WebsiteViewer({
@@ -21,8 +29,12 @@ export function WebsiteViewer({
 	src,
 	fullscreen,
 	onExit,
+	scriptsEnabled: scriptsEnabledProp,
+	onToggleScripts,
 }: WebsiteViewerProps) {
-	const [scriptsEnabled, setScriptsEnabled] = useState(false);
+	const [scriptsEnabledState, setScriptsEnabledState] = useState(false);
+	const scriptsEnabled = scriptsEnabledProp ?? scriptsEnabledState;
+	const toggleScripts = onToggleScripts ?? (() => setScriptsEnabledState((s) => !s));
 	const iframeSrc = withWs(src ?? `/api/assets/${path}/index.html`);
 
 	const sandbox = scriptsEnabled
@@ -64,7 +76,7 @@ export function WebsiteViewer({
 					variant="ghost"
 					size="sm"
 					className="h-7 gap-1.5 text-xs"
-					onClick={() => setScriptsEnabled((s) => !s)}
+					onClick={toggleScripts}
 					title={
 						scriptsEnabled
 							? "Disable scripts (recommended for untrusted content)"

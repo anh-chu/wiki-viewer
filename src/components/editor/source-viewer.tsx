@@ -296,7 +296,7 @@ export function SourceViewer({ path }: SourceViewerProps) {
 
 	return (
 		<div className="flex-1 flex flex-col overflow-hidden">
-			<ViewerToolbar path={path} badge={formatBadge(filename)} sublabel={language || undefined}>
+			<ViewerToolbar path={path} badge={formatBadge(filename)}>
 				<Button
 					variant="ghost"
 					size="sm"
@@ -342,7 +342,7 @@ export function SourceViewer({ path }: SourceViewerProps) {
 					Raw
 				</Button>
 			</ViewerToolbar>
-			<div ref={containerRef} className="relative flex-1 overflow-auto source-viewer-code bg-muted">
+			<div ref={containerRef} className="relative flex-1 overflow-auto source-viewer-code bg-background">
 				{!loading && content && !binary && <ViewModeCommentButton containerRef={containerRef} onComment={openSelectionThread} align="left" />}
 				<div className="relative pointer-events-none" style={{ height: 0 }}>
 					{Object.entries(commentsByAnchor).map(([anchorKey, anchorComments]) => {
