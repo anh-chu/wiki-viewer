@@ -47,7 +47,7 @@
 .source-viewer-code .hljs-title,
 .source-viewer-code .hljs-section {
   color: var(--accent-foreground);
-  font-weight: 600;
+  font-weight: 550;
 }
 
 .tiptap pre code .hljs-type,
@@ -84,5 +84,5 @@
 
 .tiptap pre code .hljs-strong,
 .source-viewer-code .hljs-strong {
-  font-weight: 600;
+  font-weight: 550;
 }
