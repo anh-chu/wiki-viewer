@@ -28,9 +28,6 @@ export function AnchorFlashExperiment({ scrollContainerRef }: ExperimentProps) {
 
 		const active = new Set<HTMLElement>();
 		const handlers = new WeakMap<HTMLElement, EventListener>();
-		const headings = ".tiptap > :is(h1,h2,h3,h4,h5,h6)";
-		let settleTimer: ReturnType<typeof setTimeout> | null = null;
-		let rafId = 0;
 
 		const clearFlash = (el: HTMLElement) => {
 			el.classList.remove("exp-anchor-flash");
@@ -59,48 +56,53 @@ export function AnchorFlashExperiment({ scrollContainerRef }: ExperimentProps) {
 			el.addEventListener("animationend", done, { once: true });
 		};
 
-		const findHeadingNearTop = () => {
-			const containerTop = container.getBoundingClientRect().top;
-			let best: HTMLElement | null = null;
-			let bestDelta = Number.POSITIVE_INFINITY;
+		// Find element by fragment with proper URL-decoding
+		const findElementByFragment = (fragment: string): HTMLElement | null => {
+			let decodedId = fragment;
+			try {
+				decodedId = decodeURIComponent(fragment);
+			} catch {
+				// Invalid encoding; use as-is
+			}
 
-			// Headings have scroll-margin-top: 48px (globals.css), so a jump lands the
-			// heading ~48px below the container top, clearing the sticky breadcrumb bar.
-			const landing = 48;
-			for (const node of container.querySelectorAll(headings)) {
-				const el = node as HTMLElement;
-				const delta = el.getBoundingClientRect().top - containerTop;
-				const off = Math.abs(delta - landing);
-				if (off <= 14 && off < bestDelta) {
-					best = el;
-					bestDelta = off;
+			// Iterate container's headings comparing element.id
+			const headings = container.querySelectorAll("h1, h2, h3, h4, h5, h6");
+			for (const heading of headings) {
+				if (heading.id === decodedId) {
+					return heading as HTMLElement;
 				}
 			}
 
-			return best;
+			// Fallback: try document.getElementById if element isn't in container's headings
+			const direct = document.getElementById(decodedId);
+			if (direct && container.contains(direct)) {
+				return direct;
+			}
+
+			return null;
 		};
 
-		const settle = () => {
-			settleTimer = null;
-			const heading = findHeadingNearTop();
-			if (heading) flash(heading);
+		// Listen for explicit anchor navigation (hashchange, TOC click, wiki-link click)
+		const onHashChange = () => {
+			const hash = window.location.hash.slice(1);
+			if (hash) {
+				const target = findElementByFragment(hash);
+				if (target) flash(target);
+			}
 		};
 
-		const onScroll = () => {
-			if (rafId) return;
-			rafId = requestAnimationFrame(() => {
-				rafId = 0;
-				if (settleTimer) clearTimeout(settleTimer);
-				settleTimer = setTimeout(settle, 140);
-			});
+		const onAnchorFlash = (evt: Event) => {
+			if (evt instanceof CustomEvent && evt.detail?.element instanceof HTMLElement) {
+				flash(evt.detail.element);
+			}
 		};
 
-		container.addEventListener("scroll", onScroll, { passive: true });
+		window.addEventListener("hashchange", onHashChange);
+		document.addEventListener("anchor-navigation", onAnchorFlash);
 
 		return () => {
-			container.removeEventListener("scroll", onScroll);
-			if (rafId) cancelAnimationFrame(rafId);
-			if (settleTimer) clearTimeout(settleTimer);
+			window.removeEventListener("hashchange", onHashChange);
+			document.removeEventListener("anchor-navigation", onAnchorFlash);
 			for (const el of active) clearFlash(el);
 		};
 	}, [scrollContainerRef]);

@@ -68,6 +68,37 @@ async function uploadFile(
 	}
 }
 
+/**
+ * Find an element by fragment identifier, with proper URL-decoding.
+ * Iterates through container's elements comparing element.id for exact match.
+ */
+function findElementByFragment(
+	fragment: string,
+	container: Document | Element = document,
+): HTMLElement | null {
+	let decodedId = fragment;
+	try {
+		decodedId = decodeURIComponent(fragment);
+	} catch {
+		// Invalid encoding; use as-is
+	}
+
+	// First try: direct getElementById (fallback if element has decoded ID in document scope)
+	const direct = document.getElementById(decodedId);
+	if (direct) return direct;
+
+	// Second try: iterate container's headings comparing element.id
+	// This handles edge cases where ID might not match document's global getElementById
+	const headings = container.querySelectorAll("h1, h2, h3, h4, h5, h6");
+	for (const heading of headings) {
+		if (heading.id === decodedId) {
+			return heading as HTMLElement;
+		}
+	}
+
+	return null;
+}
+
 type KBEditorMode = "viewing" | "editing" | "suggesting";
 
 interface KBEditorProps {
@@ -406,9 +437,16 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 						void useEditorStore.getState().loadPage(pagePath);
 						if (anchor) {
 							setTimeout(() => {
-								document
-									.querySelector(`[id="${anchor}"]`)
-									?.scrollIntoView({ behavior: "smooth" });
+								const anchorEl = findElementByFragment(anchor);
+								if (anchorEl) {
+									anchorEl.scrollIntoView({ behavior: "smooth" });
+									// Dispatch custom event for anchor-flash experiment
+									document.dispatchEvent(
+										new CustomEvent("anchor-navigation", {
+											detail: { element: anchorEl },
+										}),
+									);
+								}
 							}, 200);
 						}
 					} else if (isViewingRef.current) {
@@ -433,6 +471,21 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 				event.preventDefault();
 				event.stopPropagation();
 
+				// Check if this is a fragment-only link (e.g., #section)
+				if (href.startsWith("#")) {
+					const fragment = href.slice(1);
+					const anchorEl = findElementByFragment(fragment);
+					if (anchorEl) {
+						anchorEl.scrollIntoView({ behavior: "smooth" });
+						document.dispatchEvent(
+							new CustomEvent("anchor-navigation", {
+								detail: { element: anchorEl },
+							}),
+						);
+					}
+					return true;
+				}
+
 				const activePath = useEditorStore.getState().currentPath;
 				const targetPath = resolveWikiLink(
 					href,
@@ -446,9 +499,15 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 						: "";
 					if (hash) {
 						setTimeout(() => {
-							document
-								.querySelector(`[id="${hash}"]`)
-								?.scrollIntoView({ behavior: "smooth" });
+							const anchorEl = findElementByFragment(hash);
+							if (anchorEl) {
+								anchorEl.scrollIntoView({ behavior: "smooth" });
+								document.dispatchEvent(
+									new CustomEvent("anchor-navigation", {
+										detail: { element: anchorEl },
+									}),
+								);
+							}
 						}, 200);
 					}
 				}
@@ -820,7 +879,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 									)}
 
 									{isViewing && Object.keys(parsedViewingContent.data).length > 0 && (
-										<div className="max-w-[var(--editor-max-w,48rem)] ml-[var(--editor-ml,auto)] mr-auto px-4 sm:px-8 pt-6">
+										<div className="max-w-[var(--editor-max-w,48rem)] ml-[var(--editor-ml,auto)] mr-auto px-4 sm:px-8 pt-3">
 											<FrontmatterHeader
 												data={parsedViewingContent.data as Record<string, never>}
 											/>

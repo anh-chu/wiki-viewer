@@ -168,7 +168,15 @@ export function DocumentOutline({ editor, scrollContainerRef }: DocumentOutlineP
 		(h: Heading) => {
 			if (!editor) return;
 			const el = getHeadingElement(editor, h);
-			el?.scrollIntoView({ behavior: "smooth", block: "start" });
+			if (el) {
+				el.scrollIntoView({ behavior: "smooth", block: "start" });
+				// Dispatch custom event for anchor-flash experiment
+				document.dispatchEvent(
+					new CustomEvent("anchor-navigation", {
+						detail: { element: el },
+					}),
+				);
+			}
 		},
 		[editor],
 	);
