@@ -331,7 +331,7 @@ export default function RootLayout({
 				{/* No-flash fonts script: sets font attributes before paint */}
 				<script
 					dangerouslySetInnerHTML={{
-						__html: `(function(){try{var f=localStorage.getItem('wiki-fonts');if(f){try{var p=JSON.parse(f);var html=document.documentElement;if(p.ui){html.dataset.fontUi=p.ui;}if(p.body){html.dataset.fontBody=p.body;}if(p.heading){html.dataset.fontHeading=p.heading;}if(p.code){html.dataset.fontCode=p.code;}var isScale=function(v){return typeof v==='number'&&v>=0.5&&v<=2;};if(isScale(p.uiScale)){html.style.setProperty('--font-scale-ui',String(p.uiScale));}if(isScale(p.bodyScale)){html.style.setProperty('--font-scale-body',String(p.bodyScale));}if(isScale(p.headingScale)){html.style.setProperty('--font-scale-heading',String(p.headingScale));}}catch(e){}}}catch(e){}})();`,
+						__html: `(function(){try{var f=localStorage.getItem('wiki-fonts');if(f){try{var p=JSON.parse(f);var html=document.documentElement;if(p.ui){html.dataset.fontUi=p.ui;}if(p.body){html.dataset.fontBody=p.body;}if(p.heading){html.dataset.fontHeading=p.heading;}if(p.code){html.dataset.fontCode=p.code;}var isScale=function(v){return typeof v==='number'&&v>=0.5&&v<=2;};if(isScale(p.uiScale)){html.style.setProperty('--font-scale-ui',String(p.uiScale));}if(isScale(p.bodyScale)){html.style.setProperty('--font-scale-body',String(p.bodyScale));}if(isScale(p.headingScale)){html.style.setProperty('--font-scale-heading',String(p.headingScale));}if(isScale(p.codeScale)){html.style.setProperty('--font-scale-code',String(p.codeScale));}}catch(e){}}}catch(e){}})();`,
 					}}
 				/>
 			</head>

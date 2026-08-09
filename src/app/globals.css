@@ -30,6 +30,7 @@
     --font-scale-ui: 1;
     --font-scale-body: 1;
     --font-scale-heading: 1;
+    --font-scale-code: 1;
   }
 
   /* UI font role (sans-only) */

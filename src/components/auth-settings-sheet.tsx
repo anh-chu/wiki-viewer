@@ -145,7 +145,7 @@ function PresetSelector() {
 
 function ScaleSelector({ role }: { role: FontRole }) {
 	const store = useFontStore();
-	const current = role === "ui" ? store.uiScale : role === "body" ? store.bodyScale : store.headingScale;
+	const current = role === "ui" ? store.uiScale : role === "body" ? store.bodyScale : role === "heading" ? store.headingScale : store.codeScale;
 	const setScale = useFontStore((s) => s.setScale);
 
 	return (
@@ -184,10 +184,10 @@ function ScaleSelector({ role }: { role: FontRole }) {
 
 function FontRoleSelector({ role, ids }: { role: FontRole; ids: typeof ALL_FONT_IDS }) {
 	const store = useFontStore();
-	const current = role === "ui" ? store.ui : role === "body" ? store.body : store.heading;
+	const current = role === "ui" ? store.ui : role === "body" ? store.body : role === "heading" ? store.heading : store.code;
 	const setFont = useFontStore((s) => s.setFont);
 
-	const roleLabel = role === "ui" ? "UI font" : role === "body" ? "Body font" : "Heading font";
+	const roleLabel = role === "ui" ? "UI font" : role === "body" ? "Body font" : role === "heading" ? "Heading font" : "Code font";
 
 	return (
 		<div className="space-y-1.5">
@@ -415,7 +415,7 @@ export function AuthSettingsSheet({
 								<FontRoleSelector role="ui" ids={SANS_FONT_IDS} />
 								<FontRoleSelector role="body" ids={ALL_FONT_IDS} />
 								<FontRoleSelector role="heading" ids={ALL_FONT_IDS} />
-						<FontRoleSelector role="code" ids={MONO_FONT_IDS} />
+								<FontRoleSelector role="code" ids={MONO_FONT_IDS} />
 							</div>
 						</section>
 						{/* Lab — experimental reading features */}

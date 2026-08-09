@@ -110,7 +110,7 @@
   padding: 0.75rem 0.9rem;
   border-radius: calc(var(--radius) * 2);
   overflow-x: auto;
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--font-scale-code, 1));
   line-height: 1.55;
   margin: 0.75rem 0;
 }

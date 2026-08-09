@@ -378,7 +378,7 @@ export function SourceViewer({ path }: SourceViewerProps) {
 								Large file ({(byteSize / (1024 * 1024)).toFixed(1)} MB, {highlightedLines.length.toLocaleString()} lines). Syntax highlighting disabled for performance. Use Raw or Download for the full file.
 							</div>
 						)}
-						<div className="text-[13px] leading-relaxed font-mono min-w-max">
+						<div className="leading-relaxed font-mono min-w-max" style={{ fontSize: "calc(13px * var(--font-scale-code, 1))" }}>
 							{shownLines.map((lineHtml, i) => {
 								const hl = threadTarget?.lineAnchor;
 								const active = hl && i + 1 >= hl.lineStart && i + 1 <= hl.lineEnd;

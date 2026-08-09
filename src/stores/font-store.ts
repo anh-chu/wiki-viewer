@@ -17,6 +17,7 @@ interface FontState {
   uiScale: number;
   bodyScale: number;
   headingScale: number;
+  codeScale: number;
   setFont: (role: FontRole, id: FontId) => void;
   setScale: (role: FontRole, scale: number) => void;
   applyPreset: (name: FontPresetId) => void;
@@ -30,6 +31,7 @@ interface FontStorage {
   uiScale: number;
   bodyScale: number;
   headingScale: number;
+  codeScale: number;
 }
 
 const STORAGE_KEY = "wiki-fonts";
@@ -42,6 +44,7 @@ const DEFAULTS: FontStorage = {
   uiScale: DEFAULT_FONT_SCALE,
   bodyScale: DEFAULT_FONT_SCALE,
   headingScale: DEFAULT_FONT_SCALE,
+  codeScale: DEFAULT_FONT_SCALE,
 };
 
 function scaleVarName(role: FontRole): string {
@@ -72,6 +75,7 @@ function loadInitial(): FontStorage {
     uiScale: readScale("ui", DEFAULTS.uiScale),
     bodyScale: readScale("body", DEFAULTS.bodyScale),
     headingScale: readScale("heading", DEFAULTS.headingScale),
+    codeScale: readScale("code", DEFAULTS.codeScale),
   };
 }
 
@@ -85,6 +89,7 @@ export const useFontStore = create<FontState>((set) => {
     uiScale: initial.uiScale,
     bodyScale: initial.bodyScale,
     headingScale: initial.headingScale,
+    codeScale: initial.codeScale,
 
     setFont: (role, id) => {
       if (typeof window !== "undefined") {
@@ -132,6 +137,7 @@ export const useFontStore = create<FontState>((set) => {
           uiScale: role === "ui" ? scale : current.uiScale,
           bodyScale: role === "body" ? scale : current.bodyScale,
           headingScale: role === "heading" ? scale : current.headingScale,
+          codeScale: role === "code" ? scale : current.codeScale,
         };
 
         localStorage.setItem(STORAGE_KEY, JSON.stringify(storage));
@@ -142,6 +148,7 @@ export const useFontStore = create<FontState>((set) => {
         if (role === "ui") return { ...state, uiScale: scale };
         if (role === "body") return { ...state, bodyScale: scale };
         if (role === "heading") return { ...state, headingScale: scale };
+        if (role === "code") return { ...state, codeScale: scale };
         return state;
       });
     },
