@@ -1,7 +1,6 @@
 "use client";
 import type { Editor } from "@tiptap/react";
 
-import { FocusModeExperiment } from "./focus-mode";
 import { ReadTimeExperiment } from "./read-time";
 import { BreadcrumbExperiment } from "./breadcrumb";
 import { AnchorFlashExperiment } from "./anchor-flash";
@@ -13,13 +12,11 @@ export interface ExperimentProps {
 }
 
 /**
- * Mounts every reading-UX feature. Some are always-on (read-time, anchor
- * flash, collapsible, breadcrumb); focus mode still gates on its own lab flag.
+ * Mounts every reading-UX feature. Always-on: read-time, anchor flash, collapsible, breadcrumb.
  */
 export function ReadingExperiments(props: ExperimentProps) {
 	return (
 		<>
-			<FocusModeExperiment {...props} />
 			<ReadTimeExperiment {...props} />
 			<BreadcrumbExperiment {...props} />
 			<AnchorFlashExperiment {...props} />
