@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import type { Editor } from "@tiptap/react";
-import { useExperiment } from "@/stores/experiments-store";
+
 import type { ExperimentProps } from "./index";
 
 interface Heading {
@@ -32,14 +32,13 @@ function extractHeadings(editor: Editor): Heading[] {
 }
 
 export function BreadcrumbExperiment({ editor, scrollContainerRef }: ExperimentProps) {
-	const on = useExperiment("breadcrumb");
 	const [headings, setHeadings] = useState<Heading[]>([]);
 	const [activeUid, setActiveUid] = useState<string | null>(null);
 	const [scrolled, setScrolled] = useState(false);
 	const observerRef = useRef<IntersectionObserver | null>(null);
 
 	useEffect(() => {
-		if (!on || !editor) return;
+		if (!editor) return;
 		let timer: ReturnType<typeof setTimeout> | null = null;
 		const update = () => {
 			if (timer) clearTimeout(timer);
@@ -51,10 +50,9 @@ export function BreadcrumbExperiment({ editor, scrollContainerRef }: ExperimentP
 			if (timer) clearTimeout(timer);
 			editor.off("update", update);
 		};
-	}, [on, editor]);
+	}, [editor]);
 
 	useEffect(() => {
-		if (!on) return;
 		const el = scrollContainerRef.current;
 		if (!el) return;
 		let rafId = 0;
@@ -70,11 +68,10 @@ export function BreadcrumbExperiment({ editor, scrollContainerRef }: ExperimentP
 			el.removeEventListener("scroll", onScroll);
 			cancelAnimationFrame(rafId);
 		};
-	}, [on, scrollContainerRef]);
+	}, [scrollContainerRef]);
 
 	useEffect(() => {
 		observerRef.current?.disconnect();
-		if (!on) return;
 		const container = scrollContainerRef.current;
 		if (!container || !editor || headings.length === 0) return;
 
@@ -110,7 +107,7 @@ export function BreadcrumbExperiment({ editor, scrollContainerRef }: ExperimentP
 		return () => {
 			observer.disconnect();
 		};
-	}, [on, editor, headings, scrollContainerRef]);
+	}, [editor, headings, scrollContainerRef]);
 
 	const scrollToHeading = useCallback(
 		(h: Heading) => {
@@ -143,7 +140,6 @@ export function BreadcrumbExperiment({ editor, scrollContainerRef }: ExperimentP
 		return stack;
 	}, [activeUid, headings]);
 
-	if (!on) return null;
 	if (!scrolled || trail.length === 0) return null;
 
 	return (

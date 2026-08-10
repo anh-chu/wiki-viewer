@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
-import { List } from "lucide-react";
+import { List, Pin, PinOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Heading {
@@ -40,6 +40,8 @@ function getHeadingElement(editor: Editor, h: Heading): HTMLElement | null {
 	}
 }
 
+const OUTLINE_PINNED_KEY = "kb-outline-pinned";
+
 interface DocumentOutlineProps {
 	editor: Editor | null;
 	scrollContainerRef: React.RefObject<HTMLDivElement | null>;
@@ -49,6 +51,14 @@ export function DocumentOutline({ editor, scrollContainerRef }: DocumentOutlineP
 	const [headings, setHeadings] = useState<Heading[]>([]);
 	const [activeUid, setActiveUid] = useState<string | null>(null);
 	const [collapsed, setCollapsed] = useState(false);
+	const [pinned, setPinned] = useState(() => {
+		try {
+			return typeof window !== "undefined" && localStorage.getItem(OUTLINE_PINNED_KEY) === "1";
+		} catch {
+			return false;
+		}
+	});
+	const [hovered, setHovered] = useState(false);
 	const [scrollProgress, setScrollProgress] = useState(0);
 	const [sectionFill, setSectionFill] = useState(0);
 	const headingsRef = useRef<Heading[]>([]);
@@ -62,6 +72,15 @@ export function DocumentOutline({ editor, scrollContainerRef }: DocumentOutlineP
 	useEffect(() => {
 		activeUidRef.current = activeUid;
 	}, [activeUid]);
+
+	// Persist pinned state to localStorage
+	useEffect(() => {
+		try {
+			localStorage.setItem(OUTLINE_PINNED_KEY, pinned ? "1" : "0");
+		} catch {
+			// quota / private-mode errors are non-fatal
+		}
+	}, [pinned]);
 
 	// Extract headings on doc update, debounced. Walking the whole doc + rebuilding
 	// the IntersectionObserver on every keystroke is wasteful; headings change
@@ -164,6 +183,32 @@ export function DocumentOutline({ editor, scrollContainerRef }: DocumentOutlineP
 		};
 	}, [headings, editor, scrollContainerRef]);
 
+	const togglePin = useCallback(() => {
+		setPinned((p) => {
+			const newPinned = !p;
+			if (newPinned) {
+				setCollapsed(false);
+			}
+			return newPinned;
+		});
+	}, []);
+
+	const handleRailMouseEnter = useCallback(() => {
+		setHovered(true);
+	}, []);
+
+	const handleRailMouseLeave = useCallback(() => {
+		setHovered(false);
+	}, []);
+
+	const handleToggleCollapsed = useCallback(() => {
+		setCollapsed((c) => !c);
+		// Unpins when user collapses
+		if (!collapsed) {
+			setPinned(false);
+		}
+	}, [collapsed]);
+
 	const scrollToHeading = useCallback(
 		(h: Heading) => {
 			if (!editor) return;
@@ -232,16 +277,42 @@ export function DocumentOutline({ editor, scrollContainerRef }: DocumentOutlineP
 
 			{/* TOC rail — xl+ screens (enough side gutter to avoid content overlap) */}
 			{showToc && (
-				<div className="absolute right-1 top-4 z-20 hidden xl:block w-40">
-					<button
-						onClick={() => setCollapsed((c) => !c)}
-						className="flex items-center gap-1 mb-1.5 px-1 py-0.5 rounded text-muted-foreground/40 hover:text-muted-foreground hover:bg-accent transition-colors text-[10px]"
-						aria-label={collapsed ? "Expand outline" : "Collapse outline"}
-					>
-						<List className="h-3 w-3" />
-						{!collapsed && <span>Outline</span>}
-					</button>
-					{!collapsed && (
+				<div
+					onMouseEnter={handleRailMouseEnter}
+					onMouseLeave={handleRailMouseLeave}
+					className={cn(
+						"absolute right-1 top-10 z-20 hidden xl:block",
+						(!collapsed || hovered) && "w-40 bg-popover border border-border rounded-lg shadow-lg p-2"
+					)}
+				>
+					<div className="flex items-center justify-between gap-1 mb-1.5">
+						<button
+							onClick={handleToggleCollapsed}
+							className={cn(
+								"flex items-center gap-1 rounded text-muted-foreground/40 hover:text-muted-foreground hover:bg-accent transition-colors text-[10px] px-1 py-0.5"
+							)}
+							aria-label={collapsed ? "Expand outline" : "Collapse outline"}
+						>
+							<List className="h-3 w-3" />
+							{(!collapsed || hovered) && <span>Outline</span>}
+							{collapsed && !hovered && <span className="text-muted-foreground/60 text-xs">Outline</span>}
+						</button>
+						{(!collapsed || hovered) && (
+							<button
+								onClick={togglePin}
+								className="p-0.5 rounded text-muted-foreground/40 hover:text-muted-foreground hover:bg-accent transition-colors"
+								aria-label={pinned ? "Unpin outline" : "Pin outline"}
+								title={pinned ? "Unpin outline" : "Pin outline"}
+							>
+								{pinned ? (
+									<Pin className="h-3 w-3 fill-current" />
+								) : (
+									<PinOff className="h-3 w-3" />
+								)}
+							</button>
+						)}
+					</div>
+					{(!collapsed || hovered) && (
 						<nav
 							aria-label="Document outline"
 							className="flex flex-col gap-px max-h-[50vh] overflow-y-auto pr-1"
@@ -254,7 +325,7 @@ export function DocumentOutline({ editor, scrollContainerRef }: DocumentOutlineP
 
 			{/* Floating toggle + overlay — below xl, where there's no room for a rail */}
 			{showToc && (
-				<div className="absolute right-2 top-2 z-30 xl:hidden">
+				<div className="absolute right-2 top-10 z-30 xl:hidden">
 					<button
 						onClick={() => setOverlayOpen((o) => !o)}
 						className="flex items-center gap-1 px-1.5 py-1 rounded bg-background/80 backdrop-blur border border-border/60 text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors text-[10px] shadow-sm"

@@ -4,18 +4,13 @@ import { create } from "zustand";
 // Lab toggles for reading-UX features still behind a flag. Each is a
 // self-contained component gated on its flag. Persisted to localStorage.
 
-export type ExperimentId = "focusMode" | "breadcrumb";
+export type ExperimentId = "focusMode";
 
 export const EXPERIMENTS: { id: ExperimentId; label: string; description: string }[] = [
 	{
 		id: "focusMode",
 		label: "Focus mode",
 		description: "Dim everything except the block you're reading.",
-	},
-	{
-		id: "breadcrumb",
-		label: "Sticky breadcrumb",
-		description: "Current heading trail pinned to the top while you scroll.",
 	},
 ];
 

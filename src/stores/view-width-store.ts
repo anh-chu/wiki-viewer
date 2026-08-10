@@ -10,14 +10,14 @@ const ALIGN_STORAGE_KEY = "wiki-view-align";
 /** Tailwind max-width class per setting. "wide" removes the cap. */
 export const VIEW_WIDTH_CLASS: Record<ViewWidth, string> = {
 	narrow: "max-w-2xl",
-	normal: "max-w-5xl",
+	normal: "max-w-[60rem]",
 	wide: "max-w-[90rem]",
 };
 
 /** CSS max-width value per setting, for use via the --editor-max-w variable. */
 export const VIEW_WIDTH_CSS: Record<ViewWidth, string> = {
 	narrow: "42rem",
-	normal: "64rem",
+	normal: "60rem",
 	wide: "90rem",
 };
 

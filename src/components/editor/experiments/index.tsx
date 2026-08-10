@@ -14,8 +14,7 @@ export interface ExperimentProps {
 
 /**
  * Mounts every reading-UX feature. Some are always-on (read-time, anchor
- * flash, collapsible); focus mode and breadcrumb still gate on their own
- * lab flag and render null when off.
+ * flash, collapsible, breadcrumb); focus mode still gates on its own lab flag.
  */
 export function ReadingExperiments(props: ExperimentProps) {
 	return (
