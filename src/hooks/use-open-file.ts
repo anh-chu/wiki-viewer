@@ -227,6 +227,12 @@ export function useOpenFile({
 			const siblings = await fetchDir(parentDir);
 			const match = siblings.find((s) => s.path === target);
 			if (!match) return;
+			if (match.type === "dir") {
+				await treeApi.revealPath(target);
+				await treeApi.toggleFolder(match);
+				setOpenFile(null);
+				return;
+			}
 			await treeApi.revealPath(target);
 			void openViewer({
 				path: target,
