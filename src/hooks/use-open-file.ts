@@ -143,6 +143,62 @@ export function useOpenFile({
 		[activeWorkspaceId, resetFileState, loadContent],
 	);
 
+	const openScratchByPath = useCallback(
+		(relPath: string) => {
+			const name = relPath.split("/").pop() ?? relPath;
+			void openViewer({
+				path: relPath,
+				name,
+				type: "file",
+				modifiedAt: "",
+			} as TreeNode);
+		},
+		[openViewer],
+	);
+
+	const openExternalUrl = useCallback(
+		(url: string) => {
+			resetFileState();
+			setOpenFile({
+				path: "",
+				name: url,
+				nodeType: "app",
+				externalUrl: url,
+			});
+		},
+		[resetFileState],
+	);
+
+	const promoteScratch = useCallback(
+		async (destPath: string) => {
+			const from = openFileRef.current?.path;
+			if (!from) return;
+			try {
+				const res = await wsFetch("/api/wiki/move", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ from, to: destPath }),
+				});
+				if (!res.ok) {
+					showError("Could not save scratch to file");
+					return;
+				}
+				showSuccess("Saved to file");
+				const name = destPath.split("/").pop() ?? destPath;
+				await treeApi.revealPath(destPath);
+				void openViewer({
+					path: destPath,
+					name,
+					type: "file",
+					modifiedAt: "",
+				} as TreeNode);
+			} catch {
+				showError("Could not save scratch to file");
+			}
+		},
+		[openViewer, treeApi],
+	);
+
 	const closeFile = useCallback(() => {
 		setOpenFile(null);
 		setFileContent(null);
@@ -244,12 +300,21 @@ export function useOpenFile({
 		[openViewer, rootPath, treeApi],
 	);
 
-	// Persist the open file to the URL (?path=) so reloads restore it.
+	// Persist the open file to the URL so reloads restore it. File-backed views
+	// use ?path=; external-URL scratch views use ?url= (they have no path).
 	useEffect(() => {
 		if (typeof window === "undefined") return;
 		const url = new URL(window.location.href);
-		if (openFile) url.searchParams.set("path", openFile.path);
-		else url.searchParams.delete("path");
+		if (openFile?.externalUrl) {
+			url.searchParams.set("url", openFile.externalUrl);
+			url.searchParams.delete("path");
+		} else if (openFile) {
+			url.searchParams.set("path", openFile.path);
+			url.searchParams.delete("url");
+		} else {
+			url.searchParams.delete("path");
+			url.searchParams.delete("url");
+		}
 		const next = url.toString();
 		if (next === window.location.href) return;
 		window.history.pushState(null, "", next);
@@ -259,12 +324,17 @@ export function useOpenFile({
 	useEffect(() => {
 		if (typeof window === "undefined") return;
 		const onPop = () => {
-			const p = new URLSearchParams(window.location.search).get("path");
-			void navigateToPath(p);
+			const sp = new URLSearchParams(window.location.search);
+			const u = sp.get("url");
+			if (u) {
+				openExternalUrl(u);
+				return;
+			}
+			void navigateToPath(sp.get("path"));
 		};
 		window.addEventListener("popstate", onPop);
 		return () => window.removeEventListener("popstate", onPop);
-	}, [navigateToPath]);
+	}, [navigateToPath, openExternalUrl]);
 
 	// Embed postMessage listener.
 	const [isEmbed, setIsEmbed] = useState(false);
@@ -300,6 +370,11 @@ export function useOpenFile({
 			  new URLSearchParams(window.location.search).get("file")
 			: null,
 	);
+	const initialUrlExternalRef = useRef<string | null>(
+		typeof window !== "undefined"
+			? new URLSearchParams(window.location.search).get("url")
+			: null,
+	);
 	const didRestoreRef = useRef(false);
 	const [rootLoadedTrigger, setRootLoadedTrigger] = useState(false);
 	const markRootLoaded = useCallback(() => setRootLoadedTrigger(true), []);
@@ -307,8 +382,12 @@ export function useOpenFile({
 		if (didRestoreRef.current) return;
 		if (!rootLoadedTrigger) return;
 		didRestoreRef.current = true;
+		if (initialUrlExternalRef.current) {
+			openExternalUrl(initialUrlExternalRef.current);
+			return;
+		}
 		void navigateToPath(initialUrlPathRef.current);
-	}, [rootLoadedTrigger, navigateToPath]);
+	}, [rootLoadedTrigger, navigateToPath, openExternalUrl]);
 
 	// Sync the editor store to the open markdown file.
 	useEffect(() => {
@@ -459,6 +538,9 @@ export function useOpenFile({
 		gateBypassPath,
 		bypassGate: () => setGateBypassPath(openFileRef.current?.path ?? null),
 		openViewer,
+		openScratchByPath,
+		openExternalUrl,
+		promoteScratch,
 		openFromSearch,
 		openFavoriteEntry,
 		navigateToPath,

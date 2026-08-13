@@ -5,6 +5,7 @@ import {
 	Code2,
 	Eye,
 	File,
+	FilePlus2,
 	FileText,
 	Globe,
 	History,
@@ -139,6 +140,7 @@ export interface ViewerPaneProps {
 	onRefresh: () => void;
 	onShare: () => void;
 	onClose: () => void;
+	onPromoteScratch?: () => void;
 	renderCopyMenu: (
 		node: { path: string; name: string },
 		extraItems?: React.ReactNode,
@@ -187,6 +189,7 @@ export function ViewerPane({
 	onRefresh,
 	onShare,
 	onClose,
+	onPromoteScratch,
 	renderCopyMenu,
 	appKey,
 	setAppKey,
@@ -215,7 +218,7 @@ export function ViewerPane({
 	const [scriptsEnabled, setScriptsEnabled] = useState(false);
 	useEffect(() => {
 		setScriptsEnabled(false);
-	}, [openFile.path]);
+	}, [openFile.path, openFile.externalUrl]);
 
 	const viewerKind = viewerKindFor(openFile.name, openFile.nodeType);
 	const showLargeFileGate =
@@ -227,8 +230,11 @@ export function ViewerPane({
 		return <NodeAppViewer path={openFile.path} title={openFile.name} />;
 	}
 
-	const websiteSrc =
-		viewerKind === "html"
+	const isScratch = openFile.path.startsWith(".scratch/");
+
+	const websiteSrc = openFile.externalUrl
+		? openFile.externalUrl
+		: viewerKind === "html"
 			? withWs(`/api/assets/${openFile.path}`)
 			: undefined;
 
@@ -307,6 +313,12 @@ export function ViewerPane({
 									<Share className="mr-2 h-3.5 w-3.5" />
 									Share
 								</DropdownMenuItem>
+								{isScratch && onPromoteScratch && (
+									<DropdownMenuItem onClick={onPromoteScratch}>
+										<FilePlus2 className="mr-2 h-3.5 w-3.5" />
+										Save to file…
+									</DropdownMenuItem>
+								)}
 							</>,
 						)}
 						{viewerKind === "html" && !editing && fileContent !== null && (
@@ -454,6 +466,12 @@ export function ViewerPane({
 								<Share className="mr-2 h-3.5 w-3.5" />
 								Share
 							</DropdownMenuItem>
+							{isScratch && onPromoteScratch && (
+								<DropdownMenuItem onClick={onPromoteScratch}>
+									<FilePlus2 className="mr-2 h-3.5 w-3.5" />
+									Save to file…
+								</DropdownMenuItem>
+							)}
 							{!editing && (
 								<DropdownMenuItem
 									onClick={onRefresh}

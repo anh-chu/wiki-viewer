@@ -12,5 +12,16 @@ export async function register() {
 		// Remove the obsolete SQLite search index (synchronous, never throws).
 		const { deleteLegacySearchDb } = await import("./lib/search/legacy-db-cleanup");
 		deleteLegacySearchDb();
+
+		// Best-effort sweep of stale scratchpad files in the seeded root.
+		try {
+			const root = process.env.ROOT_DIR;
+			if (root) {
+				const { sweepScratch } = await import("./lib/scratch/sweep");
+				await sweepScratch(root);
+			}
+		} catch {
+			/* ignore */
+		}
 	}
 }

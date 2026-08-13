@@ -21,6 +21,8 @@ export interface OpenFile {
 	name: string;
 	nodeType: "file" | "app" | "node-app";
 	size?: number;
+	/** When set, the website viewer renders this external URL instead of a file. */
+	externalUrl?: string;
 }
 
 export type ViewerKind =

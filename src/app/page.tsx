@@ -31,6 +31,9 @@ import { isImage, isMarkdown, isText } from "@/components/wiki/file-tree";
 import { useGitHistory } from "@/hooks/use-git-history";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useOpenFile } from "@/hooks/use-open-file";
+import { useScratchpad } from "@/hooks/use-scratchpad";
+import { ScratchpadCreate } from "@/components/wiki/scratchpad-create";
+import { SaveScratchDialog } from "@/components/wiki/save-scratch-dialog";
 import { useUpload } from "@/hooks/use-upload";
 import { useWorkspaces } from "@/hooks/use-workspaces";
 import { useFileTree } from "@/hooks/use-file-tree";
@@ -92,6 +95,33 @@ export default function Page() {
 
 	const upload = useUpload({ reloadDir: fileTree.reloadDir });
 	const gitHistory = useGitHistory(doc.openFile);
+	const scratchpad = useScratchpad({
+		openScratchByPath: doc.openScratchByPath,
+		openExternalUrl: doc.openExternalUrl,
+		promoteScratch: doc.promoteScratch,
+	});
+
+	// Cmd/Ctrl+Shift+N opens the scratchpad create surface.
+	useEffect(() => {
+		const onKey = (e: KeyboardEvent) => {
+			if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "n") {
+				e.preventDefault();
+				scratchpad.openCreateSurface();
+			}
+		};
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	}, [scratchpad]);
+
+	const [saveScratchOpen, setSaveScratchOpen] = useState(false);
+	const handlePromoteScratch = useCallback(() => {
+		if (!doc.openFile?.path) return;
+		setSaveScratchOpen(true);
+	}, [doc.openFile?.path]);
+	const scratchDefaultName =
+		doc.openFile?.name ??
+		doc.openFile?.path.replace(/^\.scratch\//, "") ??
+		"";
 
 	const favorites = useFavoriteStore((s) => s.favorites);
 	const recents = useRecentStore((s) => s.recents);
@@ -364,7 +394,14 @@ export default function Page() {
 							</div>
 						)}
 
-						{doc.openFile ? (
+						{scratchpad.creating ? (
+							<ScratchpadCreate
+								onText={(t) => void scratchpad.createFromText(t)}
+								onFile={(f) => void scratchpad.createFromFile(f)}
+								onUrl={(u) => scratchpad.openUrl(u)}
+								onCancel={scratchpad.closeCreateSurface}
+							/>
+						) : doc.openFile ? (
 							<ViewerPane
 								openFile={doc.openFile}
 								fileContent={doc.fileContent}
@@ -400,6 +437,7 @@ export default function Page() {
 								onClose={() => {
 									doc.closeFile();
 								}}
+								onPromoteScratch={handlePromoteScratch}
 								renderCopyMenu={renderCopyMenu}
 								appKey={doc.appKey}
 								setAppKey={doc.setAppKey}
@@ -420,16 +458,41 @@ export default function Page() {
 								sidebarCollapsed={sidebarCollapsed}
 							/>
 						) : (
-							<div className="flex-1 flex flex-col items-center justify-center">
-								<div className="flex flex-col items-center gap-2 text-center px-4">
+							<div
+								className="flex-1 flex flex-col items-center justify-center"
+								onDragOver={(e) => e.preventDefault()}
+								onDrop={(e) => {
+									e.preventDefault();
+									const f = e.dataTransfer.files?.[0];
+									if (f) void scratchpad.createFromFile(f);
+								}}
+							>
+								<div className="flex flex-col items-center gap-3 text-center px-4">
 									<FileText className="h-8 w-8 text-muted-foreground" />
 									<p className="text-sm text-muted-foreground">
-										Select a file to view or edit
+										Select a file, or drop one here to scratch it
 									</p>
+									<Button
+										size="sm"
+										variant="outline"
+										onClick={scratchpad.openCreateSurface}
+									>
+										Open scratchpad
+									</Button>
 								</div>
 							</div>
 						)}
 					</div>
+
+					<SaveScratchDialog
+						open={saveScratchOpen}
+						onOpenChange={setSaveScratchOpen}
+						defaultName={scratchDefaultName}
+						onSave={(dest) => {
+							setSaveScratchOpen(false);
+							void doc.promoteScratch(dest);
+						}}
+					/>
 
 					<ShareDialog
 						open={dialogs.shareDialogOpen}
