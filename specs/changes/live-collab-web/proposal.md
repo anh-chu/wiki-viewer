@@ -119,6 +119,17 @@ Every iframe->parent message is hostile input:
   driven by parent control state keyed on `previewId`.
 - No nonce is assumed secret from page JS sharing the frame.
 
+## v1 surface note (post-review)
+
+Web tweak in v1 is offered **only on the opaque-origin static-HTML preview**
+(the `srcDoc` path in `website-viewer`). It is intentionally **not** offered for
+running node-apps: the proxied app is served from the wiki-viewer origin with an
+`allow-same-origin` iframe (required for the app to run), so hostile page JS
+could reach `parent.document` and click Accept, bypassing the postMessage
+boundary. Node-app tweak requires a dedicated isolated proxy origin and is
+deferred. The picker is still injected into proxied HTML (harmless, inert without
+parent postMessage) so the capability is ready once an isolated origin exists.
+
 ## Non-goals (v1)
 
 - No HMR/build-pipeline variant rebuild (DOM patch preview is the mechanism).
