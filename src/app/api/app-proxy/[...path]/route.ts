@@ -14,6 +14,7 @@ import type { Dispatcher } from "undici";
 import { NextResponse } from "next/server";
 import { resolveByPrefix } from "@/lib/app-runner";
 import { resolveWorkspaceForUser } from "@/lib/workspace-context";
+import { pickerScriptTag } from "@/lib/web-tweak/picker";
 
 const HOP_BY_HOP = new Set([
 	"connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
@@ -156,6 +157,12 @@ function rewriteHtml(html: string, proxyBase: string): string {
 })();
 </script>`;
 	out = out.replace(/<\/head>/i, `${patches}\n</head>`);
+	// Inject the web-tweak element picker so the parent overlay can drive it via
+	// postMessage. The script is inert without trusted parent commands.
+	const tweakTag = pickerScriptTag();
+	if (/<\/body>/i.test(out)) out = out.replace(/<\/body>/i, `${tweakTag}</body>`);
+	else if (/<\/head>/i.test(out)) out = out.replace(/<\/head>/i, `${tweakTag}</head>`);
+	else out = out + tweakTag;
 	return out;
 }
 

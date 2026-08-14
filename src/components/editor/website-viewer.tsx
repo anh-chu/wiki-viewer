@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
-import { ArrowLeft, ExternalLink, Play, Ban } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ArrowLeft, ExternalLink, Play, Ban, MousePointerClick } from "lucide-react";
 import { ViewerToolbar } from "@/components/layout/viewer-toolbar";
 import { Button } from "@/components/ui/button";
-import { withWs } from "@/lib/workspace-client";
+import { WebTweakOverlay } from "@/components/editor/web-tweak-overlay";
+import { injectPicker } from "@/lib/web-tweak/picker";
+import { withWs, wsFetch } from "@/lib/workspace-client";
 
 interface WebsiteViewerProps {
 	path: string;
@@ -36,6 +38,39 @@ export function WebsiteViewer({
 	const scriptsEnabled = scriptsEnabledProp ?? scriptsEnabledState;
 	const toggleScripts = onToggleScripts ?? (() => setScriptsEnabledState((s) => !s));
 	const iframeSrc = withWs(src ?? `/api/assets/${path}/index.html`);
+
+	const frameRef = useRef<HTMLIFrameElement | null>(null);
+	const [tweakEnabled, setTweakEnabled] = useState(false);
+	const [tweakHtml, setTweakHtml] = useState<string | null>(null);
+	const [tweakError, setTweakError] = useState<string | null>(null);
+
+	// Fetch the raw HTML and inject the picker when tweak mode turns on.
+	useEffect(() => {
+		if (!tweakEnabled) {
+			setTweakHtml(null);
+			setTweakError(null);
+			return;
+		}
+		let alive = true;
+		void (async () => {
+			try {
+				const res = await wsFetch(src ?? `/api/assets/${path}/index.html`);
+				if (!alive) return;
+				if (!res.ok) {
+					setTweakError("Could not load page for tweaking.");
+					return;
+				}
+				const html = await res.text();
+				if (!alive) return;
+				setTweakHtml(injectPicker(html));
+			} catch {
+				if (alive) setTweakError("Could not load page for tweaking.");
+			}
+		})();
+		return () => {
+			alive = false;
+		};
+	}, [tweakEnabled, src, path]);
 
 	const sandbox = scriptsEnabled
 		? "allow-scripts allow-forms allow-popups allow-top-navigation-by-user-activation"
@@ -98,6 +133,16 @@ export function WebsiteViewer({
 				<Button
 					variant="ghost"
 					size="sm"
+					className={`h-7 gap-1.5 text-xs${tweakEnabled ? " text-primary" : ""}`}
+					onClick={() => setTweakEnabled((t) => !t)}
+					title={tweakEnabled ? "Exit tweak mode" : "Tweak this page"}
+				>
+					<MousePointerClick className="h-3.5 w-3.5" />
+					Tweak
+				</Button>
+				<Button
+					variant="ghost"
+					size="sm"
 					className="h-7 gap-1.5 text-xs"
 					onClick={() => window.open(iframeSrc, "_blank")}
 				>
@@ -106,12 +151,38 @@ export function WebsiteViewer({
 				</Button>
 			</ViewerToolbar>
 
-			<iframe
-				src={iframeSrc}
-				className="flex-1 w-full border-0 bg-card"
-				title={title}
-				sandbox={sandbox}
-			/>
+			<div className="relative flex-1 flex overflow-hidden">
+				{tweakEnabled ? (
+					tweakHtml ? (
+						<iframe
+							ref={frameRef}
+							srcDoc={tweakHtml}
+							className="flex-1 w-full border-0 bg-card"
+							title={title}
+							sandbox="allow-scripts"
+						/>
+					) : (
+						<div className="flex-1 flex items-center justify-center text-xs text-muted-foreground">
+							{tweakError ?? "Loading page for tweaking…"}
+						</div>
+					)
+				) : (
+					<iframe
+						src={iframeSrc}
+						className="flex-1 w-full border-0 bg-card"
+						title={title}
+						sandbox={sandbox}
+					/>
+				)}
+				{tweakEnabled && tweakHtml && (
+					<WebTweakOverlay
+						frameRef={frameRef}
+						path={path}
+						enabled={tweakEnabled}
+						onClose={() => setTweakEnabled(false)}
+					/>
+				)}
+			</div>
 		</div>
 	);
 }
