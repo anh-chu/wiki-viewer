@@ -14,6 +14,8 @@ export const runtime = "nodejs";
 interface Body {
 	previewId?: string;
 	action?: "accept" | "discard";
+	/** For a variants preview: which candidate to commit. Required on accept. */
+	variantId?: string;
 }
 
 /**
@@ -41,7 +43,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 		return NextResponse.json({ error: "INVALID_JSON" }, { status: 400 });
 	}
 
-	const { previewId, action } = body;
+	const { previewId, action, variantId } = body;
 	if (!previewId || (action !== "accept" && action !== "discard")) {
 		return NextResponse.json(
 			{ error: "INVALID_PARAM", message: "previewId and action (accept|discard) required" },
@@ -68,14 +70,36 @@ export async function POST(request: Request): Promise<NextResponse> {
 		return NextResponse.json({ ok: true, status: "discarded" });
 	}
 
+	// Select the candidate to commit. For a variants preview, the human must name
+	// the exact variant by immutable variantId; we commit THAT candidate verbatim,
+	// never an index or a re-synthesis. For single/batch, use the preview's own
+	// candidate.
+	let baseFiles = preview.baseFiles;
+	let candidate = preview.candidateSourcePatch;
+	if (preview.variants) {
+		if (!variantId) {
+			releaseClaim(previewId);
+			return NextResponse.json(
+				{ error: "INVALID_PARAM", message: "variantId required to accept a variants preview" },
+				{ status: 400 },
+			);
+		}
+		const chosen = preview.variants.find((v) => v.variantId === variantId);
+		if (!chosen) {
+			releaseClaim(previewId);
+			return NextResponse.json(
+				{ error: "INVALID_PARAM", message: `unknown variantId: ${variantId}` },
+				{ status: 400 },
+			);
+		}
+		baseFiles = chosen.baseFiles;
+		candidate = chosen.candidateSourcePatch;
+	}
+
 	// Accept: verify base hashes, then write the candidate verbatim.
 	let result: Awaited<ReturnType<typeof commitCandidate>>;
 	try {
-		result = await commitCandidate(
-			ws.rootDir,
-			preview.baseFiles,
-			preview.candidateSourcePatch,
-		);
+		result = await commitCandidate(ws.rootDir, baseFiles, candidate);
 	} catch (e) {
 		// Unexpected I/O failure: release the claim so the human can retry.
 		releaseClaim(previewId);

@@ -5,10 +5,14 @@ import { markState } from "@/lib/proof/live/store";
 import {
 	getPreview,
 	attachPreview,
+	attachVariants,
+	MAX_VARIANTS,
 	type BaseFile,
 	type CandidateSourcePatch,
 	type ItemPreview,
+	type Variant,
 } from "@/lib/web-tweak/preview-store";
+import type { Agent } from "@/lib/proof/registry";
 import type { DomOp } from "@/lib/web-tweak/protocol";
 
 export const runtime = "nodejs";
@@ -21,6 +25,8 @@ interface Body {
 	baseFiles?: BaseFile[];
 	/** Batch: per-instruction preview ops (applied in-frame, keyed to instructionId). */
 	itemPreviews?: ItemPreview[] | null;
+	/** Variants: N candidate options for one target, returned in one reply. */
+	variants?: unknown;
 	status?: "done" | "error";
 }
 
@@ -86,6 +92,40 @@ function validCandidate(v: unknown): v is CandidateSourcePatch {
 			typeof (f as { path: unknown }).path === "string" &&
 			typeof (f as { content: unknown }).content === "string",
 	);
+}
+
+/**
+ * Validate one committable candidate: data-only single-file, every target has a
+ * base hash, and every path is within the agent's mutate scope. Returns an error
+ * message string, or null when valid. A null candidate (visual-only) is valid.
+ */
+function validateCandidate(
+	candidate: CandidateSourcePatch | null,
+	baseFiles: BaseFile[],
+	agent: Agent,
+	workspaceId: string,
+): string | null {
+	if (candidate !== null && !validCandidate(candidate)) return "candidateSourcePatch malformed";
+	if (!validBaseFiles(baseFiles)) return "baseFiles must be {path, sha256}[]";
+	if (candidate) {
+		if (baseFiles.length === 0) return "candidateSourcePatch requires baseFiles";
+		// v1 commits are single-file so "BASE_DRIFT => nothing written" holds without
+		// multi-file rollback/journaling.
+		if (candidate.files.length !== 1) return "v1 candidateSourcePatch must edit exactly one file";
+		const baseset = new Set(baseFiles.map((b) => b.path));
+		const uncovered = candidate.files.find((f) => !baseset.has(f.path));
+		if (uncovered) return `every candidate target needs a baseFiles hash (missing: ${uncovered.path})`;
+	}
+	// Path scope on every candidate + base file the agent proposes.
+	const paths = new Set<string>([
+		...(candidate ? candidate.files.map((f) => f.path) : []),
+		...baseFiles.map((b) => b.path),
+	]);
+	for (const p of paths) {
+		const s = enforceScope(agent, { filePath: p, op: "mutate", workspaceId });
+		if (!s.ok) return s.message ?? "path outside agent scope";
+	}
+	return null;
 }
 
 /**
@@ -155,6 +195,75 @@ export async function POST(req: Request): Promise<NextResponse> {
 	if (body.status === "error") {
 		markState(requestId, "error");
 		return NextResponse.json({ ok: true, status: "error" });
+	}
+
+	// Variants reply: N candidate options for one target, validated per-candidate
+	// with the same data-only/single-file/base-coverage/scope rules as a single
+	// tweak. Accept later commits exactly the selected variant verbatim.
+	if (body.variants !== undefined && body.variants !== null) {
+		if (!Array.isArray(body.variants) || body.variants.length === 0) {
+			return NextResponse.json(
+				{ error: "INVALID_PARAM", message: "variants must be a non-empty array" },
+				{ status: 400 },
+			);
+		}
+		if (body.variants.length > MAX_VARIANTS) {
+			return NextResponse.json(
+				{ error: "INVALID_PARAM", message: `at most ${MAX_VARIANTS} variants allowed` },
+				{ status: 400 },
+			);
+		}
+		const out: Variant[] = [];
+		const ids = new Set<string>();
+		for (const raw of body.variants as unknown[]) {
+			if (!raw || typeof raw !== "object") {
+				return NextResponse.json(
+					{ error: "INVALID_PARAM", message: "each variant must be an object" },
+					{ status: 400 },
+				);
+			}
+			const v = raw as Record<string, unknown>;
+			const variantId = typeof v.variantId === "string" ? v.variantId : "";
+			if (!variantId || ids.has(variantId)) {
+				return NextResponse.json(
+					{ error: "INVALID_PARAM", message: "each variant needs a unique variantId" },
+					{ status: 400 },
+				);
+			}
+			ids.add(variantId);
+			const vOps = (v.domPreviewOps ?? null) as DomOp[] | null;
+			if (vOps !== null && !validOps(vOps)) {
+				return NextResponse.json(
+					{ error: "INVALID_PARAM", message: `variant ${variantId}: domPreviewOps must be data-only DOM ops` },
+					{ status: 400 },
+				);
+			}
+			const vCand = (v.candidateSourcePatch ?? null) as CandidateSourcePatch | null;
+			const vBase = (v.baseFiles ?? []) as BaseFile[];
+			const err = validateCandidate(vCand, vBase, auth.agent, ws.id);
+			if (err) {
+				return NextResponse.json(
+					{ error: "INVALID_PARAM", message: `variant ${variantId}: ${err}` },
+					{ status: err.includes("scope") ? 403 : 400 },
+				);
+			}
+			out.push({
+				variantId,
+				label: typeof v.label === "string" ? v.label.slice(0, 80) : variantId,
+				domPreviewOps: vOps,
+				candidateSourcePatch: vCand,
+				baseFiles: vBase,
+			});
+		}
+		const attachedV = attachVariants(previewId, out);
+		if (!attachedV) {
+			return NextResponse.json(
+				{ error: "INVALID_STATE", message: `preview is ${preview.status}` },
+				{ status: 409 },
+			);
+		}
+		markState(requestId, "resolved");
+		return NextResponse.json({ ok: true, status: "preview-ready", previewId, variants: out.length });
 	}
 
 	const itemPreviews = body.itemPreviews ?? null;

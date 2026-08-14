@@ -553,3 +553,197 @@ test("v1 rejects multi-file candidate patches", async () => {
 	);
 	assert.equal(reply.status, 400);
 });
+
+// ─── Variants (step 2): one target, N candidate options, accept exactly one ────
+
+async function dispatchVariants(
+	ws: string,
+	note = "give me color options",
+): Promise<{ previewId: string; requestId: string }> {
+	const res = await reqPOST(
+		new Request(userUrl("/api/wiki/web-tweak/request", ws), {
+			method: "POST",
+			headers: userHeaders(),
+			body: JSON.stringify({
+				path: "index.html",
+				selector: "h1.title",
+				tag: "h1",
+				snippet: "<h1 class='title'>Hello</h1>",
+				text: "Hello",
+				note,
+				variants: true,
+			}),
+		}),
+	);
+	assert.equal(res.status, 200);
+	const body = (await res.json()) as { previewId: string; requestId: string; variants?: boolean };
+	assert.ok(body.previewId && body.requestId);
+	assert.equal(body.variants, true);
+	return body;
+}
+
+function variantReply(ws: string, previewId: string, requestId: string, variants: unknown[]) {
+	return webPreviewPOST(
+		new Request(agentUrl("/api/agent/live/web-preview", ws), {
+			method: "POST",
+			headers: agentHeaders(),
+			body: JSON.stringify({ previewId, requestId, status: "done", variants }),
+		}),
+	);
+}
+
+test("variants: agent returns N candidates; accept commits the SELECTED one verbatim", async () => {
+	const { previewId, requestId } = await dispatchVariants(wsA);
+	const original = await readFile(path.join(wsARoot, "index.html"), "utf8");
+	const redContent = original.replace("Hello</h1>", "Hello RED</h1>");
+	const blueContent = original.replace("Hello</h1>", "Hello BLUE</h1>");
+	const base = [{ path: "index.html", sha256: sha256(original) }];
+
+	const reply = await variantReply(wsA, previewId, requestId, [
+		{
+			variantId: "v-red",
+			label: "Red",
+			domPreviewOps: [{ type: "setStyle", prop: "color", value: "red" }],
+			candidateSourcePatch: { summary: "red", files: [{ path: "index.html", content: redContent }] },
+			baseFiles: base,
+		},
+		{
+			variantId: "v-blue",
+			label: "Blue",
+			domPreviewOps: [{ type: "setStyle", prop: "color", value: "blue" }],
+			candidateSourcePatch: { summary: "blue", files: [{ path: "index.html", content: blueContent }] },
+			baseFiles: base,
+		},
+	]);
+	assert.equal(reply.status, 200);
+	const p = pstore.getPreview(previewId);
+	assert.equal(p?.status, "preview-ready");
+	assert.equal(p?.variants?.length, 2);
+
+	// Accept the blue variant explicitly.
+	const acc = await resolvePOST(
+		new Request(userUrl("/api/wiki/web-tweak/resolve", wsA), {
+			method: "POST",
+			headers: userHeaders(),
+			body: JSON.stringify({ previewId, action: "accept", variantId: "v-blue" }),
+		}),
+	);
+	assert.equal(acc.status, 200);
+	const written = await readFile(path.join(wsARoot, "index.html"), "utf8");
+	assert.equal(written, blueContent);
+	assert.ok(!written.includes("Hello RED"));
+});
+
+test("variants: accept without variantId is rejected", async () => {
+	const { previewId, requestId } = await dispatchVariants(wsA);
+	const original = await readFile(path.join(wsARoot, "index.html"), "utf8");
+	await variantReply(wsA, previewId, requestId, [
+		{
+			variantId: "v1",
+			label: "One",
+			domPreviewOps: [{ type: "setText", value: "x" }],
+			candidateSourcePatch: { summary: "one", files: [{ path: "index.html", content: `${original}<!--1-->` }] },
+			baseFiles: [{ path: "index.html", sha256: sha256(original) }],
+		},
+	]);
+	const acc = await resolvePOST(
+		new Request(userUrl("/api/wiki/web-tweak/resolve", wsA), {
+			method: "POST",
+			headers: userHeaders(),
+			body: JSON.stringify({ previewId, action: "accept" }),
+		}),
+	);
+	assert.equal(acc.status, 400);
+	// Preview still resolvable after a rejected accept (claim released).
+	assert.equal(pstore.getPreview(previewId)?.status, "preview-ready");
+});
+
+test("variants: unknown variantId is rejected", async () => {
+	const { previewId, requestId } = await dispatchVariants(wsA);
+	const original = await readFile(path.join(wsARoot, "index.html"), "utf8");
+	await variantReply(wsA, previewId, requestId, [
+		{
+			variantId: "real",
+			label: "Real",
+			domPreviewOps: null,
+			candidateSourcePatch: { summary: "r", files: [{ path: "index.html", content: `${original}<!--r-->` }] },
+			baseFiles: [{ path: "index.html", sha256: sha256(original) }],
+		},
+	]);
+	const acc = await resolvePOST(
+		new Request(userUrl("/api/wiki/web-tweak/resolve", wsA), {
+			method: "POST",
+			headers: userHeaders(),
+			body: JSON.stringify({ previewId, action: "accept", variantId: "ghost" }),
+		}),
+	);
+	assert.equal(acc.status, 400);
+});
+
+test("variants: over-cap reply is rejected", async () => {
+	const { previewId, requestId } = await dispatchVariants(wsA);
+	const original = await readFile(path.join(wsARoot, "index.html"), "utf8");
+	const many = Array.from({ length: pstore.MAX_VARIANTS + 1 }, (_, i) => ({
+		variantId: `v${i}`,
+		label: `V${i}`,
+		domPreviewOps: [{ type: "setText", value: String(i) }],
+		candidateSourcePatch: null,
+		baseFiles: [],
+	}));
+	const reply = await variantReply(wsA, previewId, requestId, many);
+	assert.equal(reply.status, 400);
+	assert.equal(pstore.getPreview(previewId)?.status, "requested");
+	// keep original referenced
+	assert.ok(original.length > 0);
+});
+
+test("variants: multi-file candidate in a variant is rejected", async () => {
+	const { previewId, requestId } = await dispatchVariants(wsA);
+	const original = await readFile(path.join(wsARoot, "index.html"), "utf8");
+	const reply = await variantReply(wsA, previewId, requestId, [
+		{
+			variantId: "multi",
+			label: "Multi",
+			domPreviewOps: null,
+			candidateSourcePatch: {
+				summary: "two files",
+				files: [
+					{ path: "index.html", content: original },
+					{ path: "other.html", content: "x" },
+				],
+			},
+			baseFiles: [
+				{ path: "index.html", sha256: sha256(original) },
+				{ path: "other.html", sha256: sha256("") },
+			],
+		},
+	]);
+	assert.equal(reply.status, 400);
+});
+
+test("variants: base drift invalidates accept, nothing written", async () => {
+	const { previewId, requestId } = await dispatchVariants(wsA);
+	const original = await readFile(path.join(wsARoot, "index.html"), "utf8");
+	await variantReply(wsA, previewId, requestId, [
+		{
+			variantId: "d1",
+			label: "Drift",
+			domPreviewOps: null,
+			candidateSourcePatch: { summary: "d", files: [{ path: "index.html", content: `${original}<!--d-->` }] },
+			baseFiles: [{ path: "index.html", sha256: sha256(original) }],
+		},
+	]);
+	// Human edits the file out-of-band after preview.
+	await writeFile(path.join(wsARoot, "index.html"), `${original}<!--human-->`, "utf8");
+	const acc = await resolvePOST(
+		new Request(userUrl("/api/wiki/web-tweak/resolve", wsA), {
+			method: "POST",
+			headers: userHeaders(),
+			body: JSON.stringify({ previewId, action: "accept", variantId: "d1" }),
+		}),
+	);
+	assert.equal(acc.status, 409);
+	const after = await readFile(path.join(wsARoot, "index.html"), "utf8");
+	assert.equal(after, `${original}<!--human-->`);
+	assert.equal(pstore.getPreview(previewId)?.status, "invalidated");
+});

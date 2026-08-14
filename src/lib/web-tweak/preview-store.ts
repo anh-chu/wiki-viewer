@@ -71,6 +71,24 @@ export interface ItemPreview {
 	ops: DomOp[];
 }
 
+/** Hard cap on candidates the agent may return for one variants request. */
+export const MAX_VARIANTS = 5;
+
+/**
+ * One candidate option in a variants run. Each is self-contained: its own
+ * in-frame DOM preview and its own committable source patch + base hashes, all
+ * derived against the same base. Accept commits exactly the selected variant's
+ * candidate verbatim.
+ */
+export interface Variant {
+	variantId: string;
+	/** Short human label for the switcher (e.g. "Bolder", "Blue"). */
+	label: string;
+	domPreviewOps: DomOp[] | null;
+	candidateSourcePatch: CandidateSourcePatch | null;
+	baseFiles: BaseFile[];
+}
+
 export interface PreviewTransaction {
 	id: string;
 	sessionId: string;
@@ -93,6 +111,8 @@ export interface PreviewTransaction {
 	items: WebInstructionItem[] | null;
 	/** Per-instruction preview ops (batch). Null for legacy single tweak (see domPreviewOps). */
 	itemPreviews: ItemPreview[] | null;
+	/** Variants run: the N candidate options. Null for single/batch tweaks. */
+	variants: Variant[] | null;
 }
 
 function dataDir(): string {
@@ -143,6 +163,7 @@ function getDb(): InstanceType<typeof Database> {
 		["run_id", "TEXT"],
 		["items", "TEXT"],
 		["item_previews", "TEXT"],
+		["variants", "TEXT"],
 	] as Array<[string, string]>) {
 		if (have.has(name)) continue;
 		try {
@@ -185,6 +206,7 @@ interface Row {
 	run_id: string | null;
 	items: string | null;
 	item_previews: string | null;
+	variants: string | null;
 }
 
 function toTxn(r: Row): PreviewTransaction {
@@ -212,6 +234,7 @@ function toTxn(r: Row): PreviewTransaction {
 		itemPreviews: r.item_previews
 			? (JSON.parse(r.item_previews) as ItemPreview[])
 			: null,
+		variants: r.variants ? (JSON.parse(r.variants) as Variant[]) : null,
 	};
 }
 
@@ -291,6 +314,66 @@ export function createBatchPreview(input: CreateBatchPreviewInput): PreviewTrans
 		JSON.stringify(input.items),
 	);
 	return getPreview(id)!;
+}
+
+export interface CreateVariantsPreviewInput {
+	sessionId: string;
+	workspaceId: string;
+	path: string;
+	selector: string;
+	tag: string;
+	snippet: string;
+	text: string;
+	note: string;
+}
+
+/**
+ * Create a variants preview transaction in `requested` state. One target, one
+ * instruction; the agent will attach N candidate options. Uses the same single
+ * columns for display; the authoritative candidates live in `variants`.
+ */
+export function createVariantsPreview(input: CreateVariantsPreviewInput): PreviewTransaction {
+	const db = getDb();
+	const id = genId("wp");
+	const now = Date.now();
+	db.prepare(
+		`INSERT INTO web_preview
+		 (id, session_id, workspace_id, request_id, path, selector, tag, snippet, text, note,
+		  dom_preview_ops, candidate_patch, base_files, status, created_at, resolved_at)
+		 VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, NULL, NULL, '[]', 'requested', ?, NULL)`,
+	).run(
+		id,
+		input.sessionId,
+		input.workspaceId,
+		input.path,
+		input.selector,
+		input.tag,
+		input.snippet,
+		input.text,
+		input.note,
+		now,
+	);
+	return getPreview(id)!;
+}
+
+/**
+ * Attach the agent's variants reply and move to `preview-ready`. Only valid from
+ * `requested`. The candidates are stored verbatim; accept later commits exactly
+ * the selected one.
+ */
+export function attachVariants(
+	previewId: string,
+	variants: Variant[],
+): PreviewTransaction | null {
+	const db = getDb();
+	const cur = getPreview(previewId);
+	if (!cur || cur.status !== "requested") return null;
+	db.prepare(
+		`UPDATE web_preview
+		 SET variants = ?, status = 'preview-ready'
+		 WHERE id = ? AND status = 'requested'`,
+	).run(JSON.stringify(variants), previewId);
+	return getPreview(previewId);
 }
 
 /** Link the dispatched live request id to the preview (for correlation). */

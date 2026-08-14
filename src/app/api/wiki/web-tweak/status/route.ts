@@ -47,5 +47,16 @@ export async function GET(request: Request): Promise<NextResponse> {
 		runId: preview.runId,
 		items: preview.items,
 		itemPreviews: preview.itemPreviews,
+		// Variants: expose each candidate's id/label + its in-frame DOM preview so
+		// the switcher can apply them. Source content stays server-side.
+		variants:
+			preview.variants?.map((v) => ({
+				variantId: v.variantId,
+				label: v.label,
+				domPreviewOps: v.domPreviewOps,
+				acceptable: !!v.candidateSourcePatch,
+				patchSummary: v.candidateSourcePatch?.summary ?? null,
+				affectedFiles: v.candidateSourcePatch?.files.map((f) => f.path) ?? [],
+			})) ?? null,
 	});
 }

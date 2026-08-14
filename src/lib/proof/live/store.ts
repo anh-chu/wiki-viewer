@@ -29,6 +29,9 @@ export type RequestKind =
 	// agent to produce a preview transaction (DOM preview ops + candidate source
 	// patch + base hashes). web.accept / web.discard reference a previewId.
 	| "web.tweak"
+	// web.tweak.variants asks the agent to return N candidate options for ONE
+	// target in a single reply; the human switches in-frame and accepts one.
+	| "web.tweak.variants"
 	| "web.accept"
 	| "web.discard";
 export type RequestState =

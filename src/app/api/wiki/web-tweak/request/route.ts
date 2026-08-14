@@ -7,6 +7,7 @@ import type { LiveInstructionItem } from "@/lib/proof/live/store";
 import {
 	createPreview,
 	createBatchPreview,
+	createVariantsPreview,
 	linkRequest,
 	type WebInstructionItem,
 } from "@/lib/web-tweak/preview-store";
@@ -31,6 +32,8 @@ interface Body {
 	note?: string | null;
 	/** Batch dispatch: N pinned instructions sent as one run. */
 	items?: BatchItemInput[];
+	/** Variants: ask the agent for N candidate options for this one target. */
+	variants?: boolean;
 }
 
 function str(v: unknown, max: number): string | null {
@@ -73,6 +76,11 @@ export async function POST(request: Request): Promise<NextResponse> {
 	// Batch path: N instructions dispatched as one run.
 	if (Array.isArray(body.items)) {
 		return handleBatch(request, ws, rel, body.items);
+	}
+
+	// Variants path: one target, N candidate options.
+	if (body.variants === true) {
+		return handleVariants(request, ws, rel, body);
 	}
 
 	const selector = str(body.selector, 2000);
@@ -140,6 +148,81 @@ export async function POST(request: Request): Promise<NextResponse> {
 		requestId: enq.request.id,
 		sessionId: session.id,
 		seq: enq.request.seq,
+	});
+}
+
+/**
+ * Variants dispatch: one target, one instruction, N candidate options requested
+ * in a single web.tweak.variants run. Creates a variants preview transaction and
+ * enqueues the request; the agent replies with variants[] in one shot.
+ */
+async function handleVariants(
+	_request: Request,
+	ws: { id: string },
+	rel: string,
+	body: Body,
+): Promise<NextResponse> {
+	const selector = str(body.selector, 2000);
+	const tag = str(body.tag, 64) ?? "";
+	const snippet = str(body.snippet, 4000) ?? "";
+	const text = str(body.text, 2000) ?? "";
+	const note = str(body.note, 4000);
+	if (!selector) {
+		return NextResponse.json(
+			{ error: "INVALID_PARAM", message: "selector required" },
+			{ status: 400 },
+		);
+	}
+	if (!note || note.trim().length === 0) {
+		return NextResponse.json(
+			{ error: "INVALID_PARAM", message: "note required" },
+			{ status: 400 },
+		);
+	}
+
+	const session = getOrCreateSession(ws.id);
+	const preview = createVariantsPreview({
+		sessionId: session.id,
+		workspaceId: ws.id,
+		path: rel,
+		selector,
+		tag,
+		snippet,
+		text,
+		note,
+	});
+
+	const enq = enqueueRequest({
+		sessionId: session.id,
+		workspaceId: ws.id,
+		path: rel,
+		blockRef: null,
+		baseRevision: null,
+		kind: "web.tweak.variants",
+		instruction: note,
+		selectionText: JSON.stringify({ previewId: preview.id, selector, tag, snippet }),
+		selectionStart: null,
+		selectionEnd: null,
+	});
+	if (!enq.ok) {
+		return NextResponse.json(
+			{
+				error: enq.code,
+				message: "A live request is already outstanding for this session.",
+				outstandingRequestId: enq.request.id,
+			},
+			{ status: 409 },
+		);
+	}
+	linkRequest(preview.id, enq.request.id);
+
+	return NextResponse.json({
+		ok: true,
+		previewId: preview.id,
+		requestId: enq.request.id,
+		sessionId: session.id,
+		seq: enq.request.seq,
+		variants: true,
 	});
 }
 
