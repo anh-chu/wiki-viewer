@@ -1,12 +1,14 @@
 "use client";
 
-import { MessageCircle } from "lucide-react";
+import { MessageCircle, Sparkles } from "lucide-react";
 import { type RefObject, useEffect, useState } from "react";
 
 interface Props {
 	/** The scrollable container that wraps the editor content. */
 	containerRef: RefObject<HTMLElement | null>;
 	onComment: () => void;
+	/** Optional: when provided, an "Ask agent" action appears beside Comment. */
+	onAskAgent?: () => void;
 	/**
 	 * "center": floating above the selection, centered (markdown default).
 	 * "left": pinned to the container's left edge, beside the selected line
@@ -26,6 +28,7 @@ interface Props {
 export function ViewModeCommentButton({
 	containerRef,
 	onComment,
+	onAskAgent,
 	align = "center",
 }: Props) {
 	const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -65,8 +68,7 @@ export function ViewModeCommentButton({
 	if (!pos) return null;
 
 	return (
-		<button
-			type="button"
+		<div
 			style={{
 				position: "fixed",
 				top: pos.top,
@@ -74,17 +76,37 @@ export function ViewModeCommentButton({
 				transform: align === "left" ? undefined : "translateX(-50%)",
 				zIndex: 50,
 			}}
-			className="flex items-center gap-1 px-2 py-1 bg-popover border border-border rounded-sm shadow-lg text-[12px] text-foreground/80 hover:text-foreground hover:bg-accent transition-colors"
+			className="flex items-center gap-0.5 bg-popover border border-border rounded-sm shadow-lg"
 			onMouseDown={(e) => e.preventDefault()}
-			onClick={() => {
-				onComment();
-				setPos(null);
-			}}
-			aria-label="Add comment"
-			title="Add comment"
 		>
-			<MessageCircle className="w-3.5 h-3.5" />
-			<span>Comment</span>
-		</button>
+			<button
+				type="button"
+				className="flex items-center gap-1 px-2 py-1 text-[12px] text-foreground/80 hover:text-foreground hover:bg-accent rounded-sm transition-colors"
+				onClick={() => {
+					onComment();
+					setPos(null);
+				}}
+				aria-label="Add comment"
+				title="Add comment"
+			>
+				<MessageCircle className="w-3.5 h-3.5" />
+				<span>Comment</span>
+			</button>
+			{onAskAgent && (
+				<button
+					type="button"
+					className="flex items-center gap-1 px-2 py-1 text-[12px] text-foreground/80 hover:text-foreground hover:bg-accent rounded-sm border-l border-border transition-colors"
+					onClick={() => {
+						onAskAgent();
+						setPos(null);
+					}}
+					aria-label="Ask agent"
+					title="Ask agent"
+				>
+					<Sparkles className="w-3.5 h-3.5" />
+					<span>Ask agent</span>
+				</button>
+			)}
+		</div>
 	);
 }

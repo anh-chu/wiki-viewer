@@ -13,6 +13,7 @@ import {
 	Link as LinkIcon,
 	MessageCircle,
 	MessageSquarePlus,
+	Sparkles,
 	Strikethrough,
 	Subscript as SubIcon,
 	Superscript as SuperIcon,
@@ -28,6 +29,8 @@ interface Props {
 	onSuggestEdit?: () => void;
 	/** Open a comment thread on the current selection's block. */
 	onComment?: () => void;
+	/** Ask an attached live agent to act on the current selection's block. */
+	onAskAgent?: () => void;
 	/** Hide all formatting controls; show only comment button. */
 	readOnly?: boolean;
 }
@@ -42,7 +45,7 @@ type OpenPopover =
 			anchor: { top: number; left: number };
 	  };
 
-export function EditorBubbleMenu({ editor, onSuggestEdit, onComment, readOnly }: Props) {
+export function EditorBubbleMenu({ editor, onSuggestEdit, onComment, onAskAgent, readOnly }: Props) {
 	const [popover, setPopover] = useState<OpenPopover>(null);
 
 	useEffect(() => {
@@ -215,8 +218,23 @@ export function EditorBubbleMenu({ editor, onSuggestEdit, onComment, readOnly }:
 				>
 					<LinkIcon className="w-3.5 h-3.5" />
 				</button>
-				{(onSuggestEdit || onComment) && (
+				{(onSuggestEdit || onComment || onAskAgent) && (
 					<div className="w-px h-5 bg-border mx-1" />
+				)}
+				{onAskAgent && (
+					<button
+						type="button"
+						className={btn(false)}
+						onMouseDown={(e) => e.preventDefault()}
+						onClick={(e) => {
+							e.preventDefault();
+							onAskAgent();
+						}}
+						aria-label="Ask agent"
+						title="Ask agent (live)"
+					>
+						<Sparkles className="w-3.5 h-3.5" />
+					</button>
 				)}
 				{onComment && (
 					<button

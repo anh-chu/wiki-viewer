@@ -31,6 +31,7 @@ import { CommentThread } from "./comment-thread";
 import { ProofSpanPopover } from "./proof-span-popover";
 import { SuggestionCard } from "./suggestion-card";
 import { SuggestEditPopover } from "./suggest-edit-popover";
+import { AskAgentPopover } from "./ask-agent-popover";
 import { SlashCommands } from "./slash-commands";
 import { DocumentOutline } from "./document-outline";
 import { ReadingExperiments } from "./experiments";
@@ -231,6 +232,16 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	const [suggestTarget, setSuggestTarget] = useState<
 		{ blockRef: string; markdown: string; anchor: { top: number; left: number } } | null
 	>(null);
+	const [askAgentTarget, setAskAgentTarget] = useState<
+		{
+			blockRef: string;
+			markdown: string;
+			anchor: { top: number; left: number };
+			selectionText: string | null;
+			selectionStart: number | null;
+			selectionEnd: number | null;
+		} | null
+	>(null);
 
 	/**
 	 * Resolve the current editor selection to a top-level block.
@@ -246,21 +257,48 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		blockRef: string;
 		blockEl: HTMLElement;
 		markdown: string;
+		selectionText: string | null;
+		selectionStart: number | null;
+		selectionEnd: number | null;
 	} | null => {
 		if (!editorRef.current) return null;
 		const view = editorRef.current.view;
-		const { from } = view.state.selection;
+		const { from, to } = view.state.selection;
 		const path = useEditorStore.getState().currentPath ?? "";
 		const blocks = useProofStore.getState().byPath[path]?.snapshotBlocks ?? [];
-
-		// Find the top-level child index containing the selection head.
-		const $pos = view.state.doc.resolve(from);
-		const topIndex = $pos.depth > 0 ? $pos.index(0) : 0;
 
 		const proseMirror = scrollContainerRef.current?.querySelector(".ProseMirror");
 		const children = proseMirror
 			? (Array.from(proseMirror.children) as HTMLElement[])
 			: [];
+
+		// Resolve the top-level block index. In edit mode ProseMirror owns the
+		// selection. In read-only view mode PM selection stays collapsed/stale, so
+		// the user's native browser selection drives block resolution instead.
+		const nativeSel =
+			typeof window !== "undefined" ? window.getSelection() : null;
+		const nativeActive =
+			!!nativeSel &&
+			!nativeSel.isCollapsed &&
+			nativeSel.rangeCount > 0 &&
+			!!proseMirror &&
+			proseMirror.contains(nativeSel.getRangeAt(0).commonAncestorContainer);
+
+		let topIndex: number;
+		if (nativeActive && from === to) {
+			// View mode: find which top-level child contains the native selection.
+			const anchorNode = nativeSel.getRangeAt(0).commonAncestorContainer;
+			const anchorEl =
+				anchorNode.nodeType === Node.ELEMENT_NODE
+					? (anchorNode as HTMLElement)
+					: anchorNode.parentElement;
+			const idx = children.findIndex((c) => c === anchorEl || c.contains(anchorEl));
+			topIndex = idx >= 0 ? idx : 0;
+		} else {
+			const $pos = view.state.doc.resolve(from);
+			topIndex = $pos.depth > 0 ? $pos.index(0) : 0;
+		}
+
 		const blockEl = children[topIndex] ?? null;
 
 		// Prefer the index-aligned snapshot block; fall back to the DOM attr.
@@ -270,18 +308,44 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		const markdown = block?.markdown ?? "";
 
 		if (!blockRef && blockEl) {
-			// Last-resort: DOM walk from selection anchor.
-			const domAt = view.domAtPos(from);
-			const node: HTMLElement | null =
-				domAt.node.nodeType === Node.ELEMENT_NODE
-					? (domAt.node as HTMLElement)
-					: domAt.node.parentElement;
-			const found = node?.closest<HTMLElement>("[data-block-ref]") ?? null;
+			// Last-resort: DOM walk from the selection anchor.
+			const found = blockEl.closest<HTMLElement>("[data-block-ref]") ?? null;
 			blockRef = found?.getAttribute("data-block-ref") ?? null;
 		}
 
 		if (!blockRef || !blockEl) return null;
-		return { blockRef, blockEl, markdown };
+
+		// Precise-pointing selection capture. PM doc offsets are NOT
+		// markdown-string offsets, so selectionStart/End are best-effort:
+		// we locate the plain selected text inside the block markdown via
+		// indexOf rather than trusting PM positions. Offsets may be null
+		// (text not found / markdown differs) while selectionText is still
+		// populated.
+		let selectionText: string | null = null;
+		let selectionStart: number | null = null;
+		let selectionEnd: number | null = null;
+		if (from !== to && view.state.doc.resolve(to).index(0) === topIndex) {
+			// Edit mode: ProseMirror owns the selection.
+			const raw = view.state.doc.textBetween(from, to, "\n");
+			selectionText = raw.length > 0 ? raw : null;
+		} else if (nativeActive) {
+			// View mode: the native browser selection is authoritative. Keep it
+			// only if it lies within the resolved block element.
+			const range = nativeSel.getRangeAt(0);
+			if (blockEl.contains(range.commonAncestorContainer)) {
+				const raw = nativeSel.toString();
+				selectionText = raw.length > 0 ? raw : null;
+			}
+		}
+		if (selectionText && markdown) {
+			const idx = markdown.indexOf(selectionText);
+			if (idx >= 0) {
+				selectionStart = idx;
+				selectionEnd = idx + selectionText.length;
+			}
+		}
+
+		return { blockRef, blockEl, markdown, selectionText, selectionStart, selectionEnd };
 	}, []);
 
 	const openSuggestForSelection = useCallback(() => {
@@ -299,6 +363,20 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		const resolved = resolveSelectionBlock();
 		if (!resolved) return;
 		setThreadTarget({ blockRef: resolved.blockRef, el: resolved.blockEl });
+	}, [resolveSelectionBlock]);
+
+	const openAskAgentForSelection = useCallback(() => {
+		const resolved = resolveSelectionBlock();
+		if (!resolved) return;
+		const rect = resolved.blockEl.getBoundingClientRect();
+		setAskAgentTarget({
+			blockRef: resolved.blockRef,
+			markdown: resolved.markdown,
+			anchor: { top: rect.bottom + 4, left: rect.left },
+			selectionText: resolved.selectionText,
+			selectionStart: resolved.selectionStart,
+			selectionEnd: resolved.selectionEnd,
+		});
 	}, [resolveSelectionBlock]);
 
 	// Suggesting-mode dirty block tracking, flush, and snapshot refresh.
@@ -878,6 +956,19 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 										/>
 									)}
 
+								{askAgentTarget && currentPath && (
+									<AskAgentPopover
+										path={currentPath}
+										blockRef={askAgentTarget.blockRef}
+										currentMarkdown={askAgentTarget.markdown}
+										anchor={askAgentTarget.anchor}
+										selectionText={askAgentTarget.selectionText}
+										selectionStart={askAgentTarget.selectionStart}
+										selectionEnd={askAgentTarget.selectionEnd}
+										onClose={() => setAskAgentTarget(null)}
+									/>
+								)}
+
 									{isViewing && Object.keys(parsedViewingContent.data).length > 0 && (
 										<div className="max-w-[var(--editor-max-w,48rem)] ml-[var(--editor-ml,auto)] mr-auto px-4 sm:px-8 pt-3">
 											<FrontmatterHeader
@@ -922,6 +1013,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 												editor={editor}
 												onSuggestEdit={openSuggestForSelection}
 												onComment={openCommentForSelection}
+												onAskAgent={openAskAgentForSelection}
 											/>
 											<TableMenu editor={editor} />
 											<SlashCommands editor={editor} />
@@ -935,6 +1027,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 										<ViewModeCommentButton
 											containerRef={scrollContainerRef}
 											onComment={openCommentForSelection}
+											onAskAgent={openAskAgentForSelection}
 										/>
 									)}
 									{/* AI Edit Prompt + slash hint */}
