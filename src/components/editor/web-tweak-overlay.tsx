@@ -94,6 +94,13 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 		function onMessage(e: MessageEvent) {
 			const msg = readPickerMessage(e, frameRef.current);
 			if (!msg) return;
+			if (msg.event === "ready") {
+				// The picker script finished loading inside the frame. The initial
+				// enable command may have been posted before this listener existed
+				// (srcDoc parse race), so (re)enable now that the picker is live.
+				postPickerCommand(frameRef.current, { source: "wv-tweak", cmd: "enable" });
+				return;
+			}
 			if (msg.event === "selected") {
 				// A new selection resets any in-flight preview.
 				stopPolling();
