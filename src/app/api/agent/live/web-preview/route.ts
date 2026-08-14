@@ -201,9 +201,11 @@ export async function POST(req: Request): Promise<NextResponse> {
 	// with the same data-only/single-file/base-coverage/scope rules as a single
 	// tweak. Accept later commits exactly the selected variant verbatim.
 	if (body.variants !== undefined && body.variants !== null) {
-		if (!Array.isArray(body.variants) || body.variants.length === 0) {
+		// Variants means options: at least 2, at most MAX. A single candidate is a
+		// degenerate run and should use the plain web.tweak path instead.
+		if (!Array.isArray(body.variants) || body.variants.length < 2) {
 			return NextResponse.json(
-				{ error: "INVALID_PARAM", message: "variants must be a non-empty array" },
+				{ error: "INVALID_PARAM", message: "variants must contain at least 2 candidates" },
 				{ status: 400 },
 			);
 		}

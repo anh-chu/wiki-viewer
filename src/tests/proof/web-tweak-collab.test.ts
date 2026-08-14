@@ -645,6 +645,7 @@ test("variants: accept without variantId is rejected", async () => {
 			candidateSourcePatch: { summary: "one", files: [{ path: "index.html", content: `${original}<!--1-->` }] },
 			baseFiles: [{ path: "index.html", sha256: sha256(original) }],
 		},
+		{ variantId: "v2", label: "Two", domPreviewOps: null, candidateSourcePatch: null, baseFiles: [] },
 	]);
 	const acc = await resolvePOST(
 		new Request(userUrl("/api/wiki/web-tweak/resolve", wsA), {
@@ -669,6 +670,7 @@ test("variants: unknown variantId is rejected", async () => {
 			candidateSourcePatch: { summary: "r", files: [{ path: "index.html", content: `${original}<!--r-->` }] },
 			baseFiles: [{ path: "index.html", sha256: sha256(original) }],
 		},
+		{ variantId: "real2", label: "Real 2", domPreviewOps: null, candidateSourcePatch: null, baseFiles: [] },
 	]);
 	const acc = await resolvePOST(
 		new Request(userUrl("/api/wiki/web-tweak/resolve", wsA), {
@@ -678,6 +680,15 @@ test("variants: unknown variantId is rejected", async () => {
 		}),
 	);
 	assert.equal(acc.status, 400);
+});
+
+test("variants: single-candidate reply is rejected (needs >= 2)", async () => {
+	const { previewId, requestId } = await dispatchVariants(wsA);
+	const reply = await variantReply(wsA, previewId, requestId, [
+		{ variantId: "only", label: "Only", domPreviewOps: [{ type: "setText", value: "x" }], candidateSourcePatch: null, baseFiles: [] },
+	]);
+	assert.equal(reply.status, 400);
+	assert.equal(pstore.getPreview(previewId)?.status, "requested");
 });
 
 test("variants: over-cap reply is rejected", async () => {
@@ -732,6 +743,7 @@ test("variants: base drift invalidates accept, nothing written", async () => {
 			candidateSourcePatch: { summary: "d", files: [{ path: "index.html", content: `${original}<!--d-->` }] },
 			baseFiles: [{ path: "index.html", sha256: sha256(original) }],
 		},
+		{ variantId: "d2", label: "Drift 2", domPreviewOps: null, candidateSourcePatch: null, baseFiles: [] },
 	]);
 	// Human edits the file out-of-band after preview.
 	await writeFile(path.join(wsARoot, "index.html"), `${original}<!--human-->`, "utf8");

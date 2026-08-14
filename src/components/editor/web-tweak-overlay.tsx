@@ -436,7 +436,9 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 	/** Dispatch the current single element for N variant options. */
 	async function handleGetOptions() {
 		if (!pick || note.trim().length === 0) return;
-		const targetId = pick.id || `pin_${Date.now().toString(36)}`;
+		// The picker always assigns a non-empty id to a selected element, and the
+		// in-frame apply/revert commands target that exact id.
+		const targetId = pick.id;
 		variantsTargetIdRef.current = targetId;
 		setPhase({ kind: "sending" });
 		try {
