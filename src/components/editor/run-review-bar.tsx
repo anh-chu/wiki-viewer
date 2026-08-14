@@ -55,6 +55,7 @@ export function RunReviewBar({ path, sent, scrollContainer }: Props) {
 			const spans = Array.from(
 				root.querySelectorAll<HTMLElement>("proof-span[basis-detail], .proof-span[basis-detail]"),
 			).filter((el) => (el.getAttribute("basis-detail") ?? "").includes(tag));
+			let spanError = false;
 			for (const span of spans) {
 				const spanId = span.getAttribute("id");
 				if (!spanId) continue;
@@ -70,7 +71,38 @@ export function RunReviewBar({ path, sent, scrollContainer }: Props) {
 				});
 				// Fail-stop: do not keep resolving the rest of the run on error, which
 				// would leave partial state without any signal.
-				if (!res.ok) break;
+				if (!res.ok) {
+					spanError = true;
+					break;
+				}
+			}
+			// Retire the run's instruction comments so this review bar clears. The
+			// bar is driven by comments with instructionState==='sent'; without this
+			// they stay 'sent' forever and the bar never disappears (and re-clicking
+			// finds no spans, so nothing visibly happens). This runs even when there
+			// were zero spans (e.g. spans already resolved on a prior click) so a
+			// stuck bar can always be cleared. Skip only on a mid-run span error.
+			if (!spanError) {
+				const runComments = runs.get(runId) ?? [];
+				const ops = runComments.map((c) => ({
+					type: "comment.mark" as const,
+					commentId: c.id,
+					instructionState: "answered" as const,
+					runId,
+				}));
+				if (ops.length > 0) {
+					const encoded = encodeURIComponent(path).replace(/%2F/g, "/");
+					const rev = useProofStore.getState().byPath[path]?.snapshotRevision ?? 0;
+					await wsFetch(`/api/agent/files/${encoded}`, {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							"Idempotency-Key": clientId(),
+							...authHeaders(),
+						},
+						body: JSON.stringify({ baseRevision: rev, by: "human", ops }),
+					});
+				}
 			}
 			await useProofStore.getState().loadSidecar(path);
 			await useProofStore.getState().loadSnapshot(path);
