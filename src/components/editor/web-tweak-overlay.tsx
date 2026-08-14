@@ -108,6 +108,9 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 		name: null,
 	});
 	const [copied, setCopied] = useState(false);
+	// The prompt text shown in a fallback modal when the clipboard API is
+	// unavailable (non-secure context / http remote) or the user asks to see it.
+	const [promptModal, setPromptModal] = useState<string | null>(null);
 
 	const previewIdRef = useRef<string | null>(null);
 	const appliedIdsRef = useRef<string[]>([]);
@@ -362,13 +365,30 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 		return lines.join("\n");
 	}
 
+	/** True when the async clipboard API can actually write (needs a secure ctx). */
+	function canUseClipboard(): boolean {
+		return (
+			typeof navigator !== "undefined" &&
+			!!navigator.clipboard &&
+			typeof navigator.clipboard.writeText === "function" &&
+			window.isSecureContext
+		);
+	}
+
 	async function handleCopyPrompt() {
+		const text = buildPrompt();
+		// On http remotes the clipboard API is blocked; fall back to a modal the
+		// user can select and copy manually instead of failing silently.
+		if (!canUseClipboard()) {
+			setPromptModal(text);
+			return;
+		}
 		try {
-			await navigator.clipboard.writeText(buildPrompt());
+			await navigator.clipboard.writeText(text);
 			setCopied(true);
 			setTimeout(() => setCopied(false), 1500);
 		} catch {
-			setPhase({ kind: "message", text: "Could not access clipboard." });
+			setPromptModal(text);
 		}
 	}
 
@@ -612,13 +632,23 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 					<span className="font-medium text-foreground">
 						{queue.length} instruction{queue.length === 1 ? "" : "s"} ready
 					</span>
-					<button
-						type="button"
-						onClick={() => void handleCopyPrompt()}
-						className="rounded-md border border-border px-2.5 py-1 text-[11px] font-medium transition-colors hover:bg-accent"
-					>
-						{copied ? "Copied" : "Copy as prompt"}
-					</button>
+					<div className="flex items-center overflow-hidden rounded-md border border-border">
+						<button
+							type="button"
+							onClick={() => void handleCopyPrompt()}
+							className="px-2.5 py-1 text-[11px] font-medium transition-colors hover:bg-accent"
+						>
+							{copied ? "Copied" : "Copy as prompt"}
+						</button>
+						<button
+							type="button"
+							title="Show the prompt to copy manually"
+							onClick={() => setPromptModal(buildPrompt())}
+							className="border-l border-border px-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent"
+						>
+							Show
+						</button>
+					</div>
 					{agent.attached ? (
 						<button
 							type="button"
@@ -637,6 +667,36 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 							Connect an agent
 						</button>
 					)}
+				</div>
+			)}
+
+			{/* Prompt fallback: shown when the clipboard API is unavailable (http
+			    remote) or the user clicks Show. Read-only, auto-selected for manual copy. */}
+			{promptModal !== null && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+					<div className="w-[min(34rem,calc(100vw-2rem))] space-y-2 rounded-lg border border-border bg-popover p-4 text-[12px] shadow-xl">
+						<div className="font-medium text-foreground">Prompt</div>
+						<p className="text-[11px] text-muted-foreground/70">
+							Copy this and run it in your agent. (Clipboard access needs an https
+							connection, so copy manually here.)
+						</p>
+						<textarea
+							readOnly
+							value={promptModal}
+							rows={8}
+							ref={(el) => el?.select()}
+							className="w-full resize-y rounded-md border border-border bg-background px-2 py-1.5 font-mono text-[11px] focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+						/>
+						<div className="flex items-center justify-end gap-2 pt-1">
+							<button
+								type="button"
+								onClick={() => setPromptModal(null)}
+								className="rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+							>
+								Done
+							</button>
+						</div>
+					</div>
 				</div>
 			)}
 
@@ -913,6 +973,15 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 								{phase.text}
 							</p>
 							<div className="flex items-center justify-end gap-2 pt-0.5">
+								{(pick || queue.length > 0) && (
+									<button
+										type="button"
+										onClick={() => void handleCopyPrompt()}
+										className="rounded-md border border-border px-2.5 py-1 text-[11px] font-medium transition-colors hover:bg-accent"
+									>
+										{copied ? "Copied" : "Copy as prompt"}
+									</button>
+								)}
 								<button
 									type="button"
 									onClick={() => void handleDiscardRun()}
