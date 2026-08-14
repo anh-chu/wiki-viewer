@@ -217,6 +217,89 @@ test("runLiveLoop: attach → deliver → edit → reply done, then abort on tim
   assert.ok(events.includes("done"));
 });
 
+test("runLiveLoop: batch items produce N ops in one correlated commit + one done", async () => {
+  const controller = new AbortController();
+  const replies: string[] = [];
+  let sentBody: Record<string, unknown> | undefined;
+  let sentKey: string | undefined;
+  const handlerReqs: LiveRequest[] = [];
+  let polls = 0;
+  const { fetch } = makeFetch([
+    {
+      match: (u, i) => u.endsWith("/api/agent/live/attach") && i?.method === "POST",
+      respond: () => ({ status: 200, body: { sessionId: "ls_1" } }),
+    },
+    {
+      match: (u) => u.includes("/api/agent/live/poll"),
+      respond: () => {
+        polls += 1;
+        if (polls === 1)
+          return {
+            status: 200,
+            body: {
+              type: "generate",
+              request: liveRequest({
+                runId: "run:abc123",
+                items: [
+                  { instructionId: "i1", blockRef: "b1", baseRevision: 4, instruction: "one" },
+                  { instructionId: "i2", blockRef: "b2", baseRevision: 4, instruction: "two" },
+                  { instructionId: "i3", blockRef: null, baseRevision: 4, instruction: "three" },
+                ],
+              }),
+            },
+          };
+        controller.abort();
+        return { status: 200, body: { type: "timeout" } };
+      },
+    },
+    {
+      match: (u) => u.endsWith("/api/agent/live/reply"),
+      respond: (_u, i) => {
+        replies.push((JSON.parse(String(i?.body)) as { status: string }).status);
+        return { status: 200, body: { ok: true } };
+      },
+    },
+    {
+      match: (u, i) => u.includes("/api/agent/files/") && (i?.method ?? "GET") === "GET",
+      respond: () => ({ status: 200, body: { path: "notes/doc.md", revision: 4, blocks: [], lastEventId: 0 } }),
+    },
+    {
+      match: (u, i) => u.includes("/api/agent/files/") && i?.method === "POST",
+      respond: (_u, i) => {
+        sentBody = JSON.parse(String(i?.body)) as Record<string, unknown>;
+        sentKey = ((i?.headers ?? {}) as Record<string, string>)["Idempotency-Key"];
+        return { status: 200, body: { path: "notes/doc.md", revision: 5, blocks: [], lastEventId: 1 } };
+      },
+    },
+  ]);
+
+  const client = new LiveClient(cfg(fetch));
+  await runLiveLoop(
+    client,
+    async (req) => {
+      handlerReqs.push(req);
+      return req.blockRef
+        ? [{ type: "block.replace", ref: req.blockRef, markdown: req.instruction ?? "" }]
+        : [{ type: "block.append", markdown: req.instruction ?? "" }];
+    },
+    { signal: controller.signal },
+  );
+
+  // Handler called once per item with the item's own fields.
+  assert.equal(handlerReqs.length, 3);
+  assert.deepEqual(handlerReqs.map((r) => r.instruction), ["one", "two", "three"]);
+  assert.equal(handlerReqs[2].blockRef, null);
+  // One commit carrying all 3 ops, single correlation key.
+  const ops = sentBody?.ops as Array<Record<string, unknown>>;
+  assert.equal(ops.length, 3);
+  assert.equal(sentKey, "live:lr_1");
+  for (const op of ops) assert.equal(op.inResponseTo, "live:lr_1");
+  // runId stamped into provenance for run grouping.
+  assert.ok(String(ops[0].basisDetail).includes("run:abc123"));
+  // One lifecycle: working then done for the whole run.
+  assert.deepEqual(replies, ["working", "done"]);
+});
+
 test("runLiveLoop: handler receives precise-pointing fields on req", async () => {
   const controller = new AbortController();
   let seen: LiveRequest | undefined;

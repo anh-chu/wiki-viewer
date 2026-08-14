@@ -362,6 +362,169 @@ test("candidate target without a base hash is rejected at reply time", async () 
 	assert.equal(pstore.getPreview(previewId)?.status, "requested");
 });
 
+test("batch run: N instructions -> one preview run -> accept commits / discard invalidates", async () => {
+	const original = await readFile(path.join(wsARoot, "index.html"), "utf8");
+
+	// Send TWO pinned instructions as ONE run.
+	const res = await reqPOST(
+		new Request(userUrl("/api/wiki/web-tweak/request", wsA), {
+			method: "POST",
+			headers: userHeaders(),
+			body: JSON.stringify({
+				path: "index.html",
+				items: [
+					{
+						instructionId: "p1",
+						selector: "h1.title",
+						tag: "h1",
+						snippet: "<h1 class='title'>Hello</h1>",
+						text: "Hello",
+						instruction: "make the title red",
+					},
+					{
+						instructionId: "p2",
+						selector: "body",
+						tag: "body",
+						snippet: "<body>…</body>",
+						text: "",
+						instruction: "add a subtitle",
+					},
+				],
+			}),
+		}),
+	);
+	assert.equal(res.status, 200);
+	const body = (await res.json()) as { previewId: string; runId: string; requestId: string };
+	assert.ok(body.previewId && body.runId && body.requestId);
+	assert.match(body.runId, /^run:/);
+
+	// The run is stored as a single batch preview transaction carrying both items.
+	const p = pstore.getPreview(body.previewId);
+	assert.equal(p?.status, "requested");
+	assert.equal(p?.runId, body.runId);
+	assert.equal(p?.items?.length, 2);
+
+	// Agent replies once for the whole run: per-instruction preview ops + a single
+	// candidate patch (single-file v1 constraint).
+	const newContent = original.replace(
+		"<h1 class='title'>Hello</h1>",
+		"<h1 class='title' style='color:red'>Hello</h1><p>subtitle</p>",
+	);
+	const reply = await webPreviewPOST(
+		new Request(agentUrl("/api/agent/live/web-preview", wsA), {
+			method: "POST",
+			headers: agentHeaders(),
+			body: JSON.stringify({
+				previewId: body.previewId,
+				requestId: body.requestId,
+				itemPreviews: [
+					{ instructionId: "p1", ops: [{ type: "setStyle", prop: "color", value: "red" }] },
+					{ instructionId: "p2", ops: [{ type: "setText", value: "subtitle" }] },
+				],
+				candidateSourcePatch: {
+					summary: "apply 2 instructions",
+					files: [{ path: "index.html", content: newContent }],
+				},
+				baseFiles: [{ path: "index.html", sha256: sha256(original) }],
+				status: "done",
+			}),
+		}),
+	);
+	assert.equal(reply.status, 200);
+
+	// Source clean until accept.
+	assert.equal(await readFile(path.join(wsARoot, "index.html"), "utf8"), original);
+
+	// Status surfaces the batch (runId + items + per-instruction previews).
+	const st = await statusGET(
+		new Request(userUrl("/api/wiki/web-tweak/status", wsA, { previewId: body.previewId })),
+	);
+	const stBody = (await st.json()) as {
+		acceptable: boolean;
+		runId: string;
+		items: unknown[];
+		itemPreviews: unknown[];
+	};
+	assert.equal(stBody.acceptable, true);
+	assert.equal(stBody.runId, body.runId);
+	assert.equal(stBody.items.length, 2);
+	assert.equal(stBody.itemPreviews.length, 2);
+
+	// Accept commits the whole run in one write.
+	const acc = await resolvePOST(
+		new Request(userUrl("/api/wiki/web-tweak/resolve", wsA), {
+			method: "POST",
+			headers: userHeaders(),
+			body: JSON.stringify({ previewId: body.previewId, action: "accept" }),
+		}),
+	);
+	assert.equal(acc.status, 200);
+	assert.equal(await readFile(path.join(wsARoot, "index.html"), "utf8"), newContent);
+	assert.equal(pstore.getPreview(body.previewId)?.status, "accepted");
+	// restore for other tests
+	await writeFile(path.join(wsARoot, "index.html"), original, "utf8");
+});
+
+test("batch run: discard invalidates the run without writing source", async () => {
+	const original = await readFile(path.join(wsARoot, "index.html"), "utf8");
+	const res = await reqPOST(
+		new Request(userUrl("/api/wiki/web-tweak/request", wsA), {
+			method: "POST",
+			headers: userHeaders(),
+			body: JSON.stringify({
+				path: "index.html",
+				items: [
+					{
+						instructionId: "p1",
+						selector: "h1.title",
+						tag: "h1",
+						snippet: "<h1>Hello</h1>",
+						text: "Hello",
+						instruction: "make it blue",
+					},
+				],
+			}),
+		}),
+	);
+	assert.equal(res.status, 200);
+	const body = (await res.json()) as { previewId: string; requestId: string };
+	await webPreviewPOST(
+		new Request(agentUrl("/api/agent/live/web-preview", wsA), {
+			method: "POST",
+			headers: agentHeaders(),
+			body: JSON.stringify({
+				previewId: body.previewId,
+				requestId: body.requestId,
+				itemPreviews: [{ instructionId: "p1", ops: [{ type: "setStyle", prop: "color", value: "blue" }] }],
+				candidateSourcePatch: { summary: "x", files: [{ path: "index.html", content: `${original}<!-- x -->` }] },
+				baseFiles: [{ path: "index.html", sha256: sha256(original) }],
+				status: "done",
+			}),
+		}),
+	);
+	const disc = await resolvePOST(
+		new Request(userUrl("/api/wiki/web-tweak/resolve", wsA), {
+			method: "POST",
+			headers: userHeaders(),
+			body: JSON.stringify({ previewId: body.previewId, action: "discard" }),
+		}),
+	);
+	assert.equal(disc.status, 200);
+	assert.equal(await readFile(path.join(wsARoot, "index.html"), "utf8"), original);
+	assert.equal(pstore.getPreview(body.previewId)?.status, "discarded");
+});
+
+test("batch run: empty items[] is rejected", async () => {
+	const res = await reqPOST(
+		new Request(userUrl("/api/wiki/web-tweak/request", wsA), {
+			method: "POST",
+			headers: userHeaders(),
+			body: JSON.stringify({ path: "index.html", items: [] }),
+		}),
+	);
+	assert.equal(res.status, 400);
+});
+
 test("v1 rejects multi-file candidate patches", async () => {
 	const { previewId, requestId } = await dispatchTweak(wsA);
 	const cur = await readFile(path.join(wsARoot, "index.html"), "utf8");

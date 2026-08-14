@@ -26,6 +26,15 @@ export interface LiveConfig {
   fetch?: typeof fetch;
 }
 
+/** One instruction in a batch run (collective agent review). */
+export interface LiveInstructionItem {
+  instructionId: string;
+  blockRef: string | null;
+  baseRevision: number | null;
+  instruction: string;
+  selectionText?: string | null;
+}
+
 /** A generate/steer request pushed to the agent. */
 export interface LiveRequest {
   requestId: string;
@@ -41,6 +50,10 @@ export interface LiveRequest {
   selectionStart?: number | null;
   /** Best-effort end char offset (exclusive) within block markdown (may be null). */
   selectionEnd?: number | null;
+  /** Batch payload: N instruction items dispatched as one run. Null/absent for legacy single requests. */
+  items?: LiveInstructionItem[] | null;
+  /** Correlation id for the batch run (e.g. "run:<hex>"); null for legacy single requests. */
+  runId?: string | null;
   seq: number;
   /** "live:<requestId>" — pass verbatim as the Idempotency-Key on the edit. */
   idempotencyKey: string;
@@ -253,7 +266,15 @@ export class LiveClient {
     // crash dedupe and provenance linkage can't be broken by a mutated request.
     // Op spread comes first, then the stamp overrides.
     const correlation = `live:${req.requestId}`;
-    const stampedOps = ops.map((op) => ({ ...op, inResponseTo: correlation }));
+    // For a batch run, also stamp the runId into provenance so the editor can
+    // group proof-spans by run (Accept run / Discard run). BlockOp has no
+    // dedicated run field, so it rides in basisDetail.
+    const runTag = req.runId ? ` [run:${req.runId}]` : "";
+    const stampedOps = ops.map((op) => ({
+      ...op,
+      inResponseTo: correlation,
+      ...(runTag ? { basisDetail: `${op.basisDetail ?? ""}${runTag}` } : {}),
+    }));
     const res = await this._fetch(`${this.baseUrl}/api/agent/files/${encodeFilePath(req.path)}`, {
       method: "POST",
       headers: this.headers({
@@ -434,7 +455,27 @@ export async function runLiveLoop(
           snapshot = undefined;
         }
       }
-      const ops = await handler(req, { client, snapshot });
+      // Batch run: call the handler once per item, collecting all block-ops, then
+      // commit them in one write correlated to the single request/run. The
+      // single-instruction path (no items) is unchanged for backward compat.
+      let ops: BlockOp[] | null;
+      if (req.items && req.items.length > 0) {
+        const collected: BlockOp[] = [];
+        for (const item of req.items) {
+          const itemReq: LiveRequest = {
+            ...req,
+            blockRef: item.blockRef,
+            baseRevision: item.baseRevision,
+            instruction: item.instruction,
+            selectionText: item.selectionText ?? null,
+          };
+          const itemOps = await handler(itemReq, { client, snapshot });
+          if (itemOps) collected.push(...itemOps);
+        }
+        ops = collected;
+      } else {
+        ops = await handler(req, { client, snapshot });
+      }
       if (ops && ops.length > 0) {
         await client.applyTier2Ops(req, ops);
       }

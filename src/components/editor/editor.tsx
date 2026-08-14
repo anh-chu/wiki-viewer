@@ -3,7 +3,7 @@
 import { cellAround, isInTable } from "@tiptap/pm/tables";
 import { EditorContent, useEditor } from "@tiptap/react";
 import type { Editor } from "@tiptap/core";
-import { AlertCircle, Check, Code2, FilePlus, Loader2, Sparkles } from "lucide-react";
+import { AlertCircle, Check, Code2, FilePlus, ListChecks, Loader2, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { markdownToHtml } from "@/lib/markdown/to-html";
 import { htmlToMarkdown } from "@/lib/markdown/to-markdown";
@@ -31,7 +31,9 @@ import { CommentThread } from "./comment-thread";
 import { ProofSpanPopover } from "./proof-span-popover";
 import { SuggestionCard } from "./suggestion-card";
 import { SuggestEditPopover } from "./suggest-edit-popover";
-import { AskAgentPopover } from "./ask-agent-popover";
+import { InstructionPopover } from "./instruction-popover";
+import { InstructionQueueBar } from "./instruction-queue-bar";
+import { RunReviewBar } from "./run-review-bar";
 import { SlashCommands } from "./slash-commands";
 import { DocumentOutline } from "./document-outline";
 import { ReadingExperiments } from "./experiments";
@@ -215,32 +217,51 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		[suggestionsRaw],
 	);
 
-	/** Group comments by block ref for pip rendering. */
+	/** Group human comments by block ref for pip rendering (excludes instructions). */
 	const commentsByRef = useMemo(() => {
 		const map: Record<string, typeof comments> = {};
 		for (const c of comments) {
-			if (!c.ref) continue;
+			if (!c.ref || c.kind === "instruction") continue;
 			(map[c.ref] ??= []).push(c);
 		}
 		return map;
 	}, [comments]);
 
+	/** Group instructions by block ref for pip rendering (distinct from comments). */
+	const instructionsByRef = useMemo(() => {
+		const map: Record<string, typeof comments> = {};
+		for (const c of comments) {
+			if (!c.ref || c.kind !== "instruction") continue;
+			(map[c.ref] ??= []).push(c);
+		}
+		return map;
+	}, [comments]);
+
+	/** Draft (unsent) instructions for the current file, driving the queue bar. */
+	const draftInstructions = useMemo(
+		() =>
+			comments.filter(
+				(c) => c.kind === "instruction" && (c.instructionState ?? "draft") === "draft",
+			),
+		[comments],
+	);
+
+	const sentInstructions = useMemo(
+		() =>
+			comments.filter(
+				(c) => c.kind === "instruction" && c.instructionState === "sent" && !!c.runId,
+			),
+		[comments],
+	);
+
 	/** Tracks which block's comment thread is open and its anchor element. */
-	const [threadTarget, setThreadTarget] = useState<{ blockRef: string; el: HTMLElement } | null>(null);
+	const [threadTarget, setThreadTarget] = useState<
+		{ blockRef: string; el: HTMLElement; mode?: "comment" | "instruction" } | null
+	>(null);
 
 	/** Tracks the open human "suggest edit" popover (block + anchor + content). */
 	const [suggestTarget, setSuggestTarget] = useState<
 		{ blockRef: string; markdown: string; anchor: { top: number; left: number } } | null
-	>(null);
-	const [askAgentTarget, setAskAgentTarget] = useState<
-		{
-			blockRef: string;
-			markdown: string;
-			anchor: { top: number; left: number };
-			selectionText: string | null;
-			selectionStart: number | null;
-			selectionEnd: number | null;
-		} | null
 	>(null);
 
 	/**
@@ -359,25 +380,33 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		});
 	}, [resolveSelectionBlock]);
 
+	const [instructTarget, setInstructTarget] = useState<
+		{
+			blockRef: string;
+			markdown: string;
+			anchor: { top: number; left: number };
+			selectionText: string | null;
+		} | null
+	>(null);
+
+	const openInstructForSelection = useCallback(() => {
+		const resolved = resolveSelectionBlock();
+		if (!resolved) return;
+		const rect = resolved.blockEl.getBoundingClientRect();
+		setInstructTarget({
+			blockRef: resolved.blockRef,
+			markdown: resolved.markdown,
+			anchor: { top: rect.bottom + 4, left: rect.left },
+			selectionText: resolved.selectionText,
+		});
+	}, [resolveSelectionBlock]);
+
 	const openCommentForSelection = useCallback(() => {
 		const resolved = resolveSelectionBlock();
 		if (!resolved) return;
 		setThreadTarget({ blockRef: resolved.blockRef, el: resolved.blockEl });
 	}, [resolveSelectionBlock]);
 
-	const openAskAgentForSelection = useCallback(() => {
-		const resolved = resolveSelectionBlock();
-		if (!resolved) return;
-		const rect = resolved.blockEl.getBoundingClientRect();
-		setAskAgentTarget({
-			blockRef: resolved.blockRef,
-			markdown: resolved.markdown,
-			anchor: { top: rect.bottom + 4, left: rect.left },
-			selectionText: resolved.selectionText,
-			selectionStart: resolved.selectionStart,
-			selectionEnd: resolved.selectionEnd,
-		});
-	}, [resolveSelectionBlock]);
 
 	// Suggesting-mode dirty block tracking, flush, and snapshot refresh.
 	const { markDirty, flush: flushSuggestions, onSelectionUpdate } =
@@ -898,6 +927,40 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 											);
 										})}
 
+										{/* Instruction pips — distinct icon/color from comments */}
+										{Object.entries(instructionsByRef).map(([blockRef, blockInstr]) => {
+											const pos = blockRefPositions.get(blockRef);
+											if (!pos) return null;
+											const pending = blockInstr.some(
+												(c) => (c.instructionState ?? "draft") === "draft",
+											);
+											return (
+												<div key={`instr-${blockRef}`} style={{ pointerEvents: "auto" }}>
+													<button
+														type="button"
+														style={{
+															position: "absolute",
+															top: pos.top + 4,
+															left: Math.max(0, pos.left - 38),
+															transform: "translateY(2px)",
+														}}
+														className="z-10 p-2 sm:p-0.5 -m-1.5 sm:m-0 rounded transition-colors hover:bg-accent focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+													aria-label={`Instruction on ${blockRef}`}
+													onClick={() => {
+														const el = scrollContainerRef.current?.querySelector(
+															`[data-block-ref="${blockRef}"]`,
+														) as HTMLElement | null;
+														if (el) setThreadTarget({ blockRef, el, mode: "instruction" });
+													}}
+												>
+													<ListChecks
+														className={`h-3.5 w-3.5 ${pending ? "text-amber-600" : "text-amber-600/40"}`}
+													/>
+												</button>
+											</div>
+											);
+										})}
+
 										{/* Suggestion cards — one per pending suggestion */}
 										{currentPath && pendingSuggestions.map((sg) => {
 											const pos = blockRefPositions.get(sg.ref);
@@ -938,7 +1001,11 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 							anchorKey={threadTarget.blockRef}
 							anchorRef={threadTarget.blockRef}
 							anchorLabel={threadTarget.blockRef}
-							comments={commentsByRef[threadTarget.blockRef] ?? []}
+							comments={
+								(threadTarget.mode === "instruction"
+									? instructionsByRef[threadTarget.blockRef]
+									: commentsByRef[threadTarget.blockRef]) ?? []
+							}
 							anchorEl={threadTarget.el}
 							onClose={() => setThreadTarget(null)}
 							readOnly={isViewing}
@@ -956,16 +1023,24 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 										/>
 									)}
 
-								{askAgentTarget && currentPath && (
-									<AskAgentPopover
+								{instructTarget && currentPath && (
+									<InstructionPopover
 										path={currentPath}
-										blockRef={askAgentTarget.blockRef}
-										currentMarkdown={askAgentTarget.markdown}
-										anchor={askAgentTarget.anchor}
-										selectionText={askAgentTarget.selectionText}
-										selectionStart={askAgentTarget.selectionStart}
-										selectionEnd={askAgentTarget.selectionEnd}
-										onClose={() => setAskAgentTarget(null)}
+										blockRef={instructTarget.blockRef}
+										currentMarkdown={instructTarget.markdown}
+										anchor={instructTarget.anchor}
+										selectionText={instructTarget.selectionText}
+										onClose={() => setInstructTarget(null)}
+									/>
+								)}
+								{currentPath && (
+									<InstructionQueueBar path={currentPath} drafts={draftInstructions} />
+								)}
+								{currentPath && (
+									<RunReviewBar
+										path={currentPath}
+										sent={sentInstructions}
+										scrollContainer={scrollContainerRef.current}
 									/>
 								)}
 
@@ -1013,7 +1088,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 												editor={editor}
 												onSuggestEdit={openSuggestForSelection}
 												onComment={openCommentForSelection}
-												onAskAgent={openAskAgentForSelection}
+												onInstruct={openInstructForSelection}
 											/>
 											<TableMenu editor={editor} />
 											<SlashCommands editor={editor} />
@@ -1027,7 +1102,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 										<ViewModeCommentButton
 											containerRef={scrollContainerRef}
 											onComment={openCommentForSelection}
-											onAskAgent={openAskAgentForSelection}
+											onInstruct={openInstructForSelection}
 										/>
 									)}
 									{/* AI Edit Prompt + slash hint */}

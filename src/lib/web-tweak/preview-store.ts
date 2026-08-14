@@ -55,6 +55,22 @@ export interface CandidateSourcePatch {
 	summary: string;
 }
 
+/** One instruction pinned to an element in a batch run (collected before send). */
+export interface WebInstructionItem {
+	instructionId: string;
+	selector: string;
+	tag: string;
+	snippet: string;
+	text: string;
+	instruction: string;
+}
+
+/** Per-instruction DOM preview ops the agent returns, keyed to its instruction. */
+export interface ItemPreview {
+	instructionId: string;
+	ops: DomOp[];
+}
+
 export interface PreviewTransaction {
 	id: string;
 	sessionId: string;
@@ -72,6 +88,11 @@ export interface PreviewTransaction {
 	status: PreviewStatus;
 	createdAt: number;
 	resolvedAt: number | null;
+	/** Batch run: the pinned instructions dispatched together. Null for legacy single tweak. */
+	runId: string | null;
+	items: WebInstructionItem[] | null;
+	/** Per-instruction preview ops (batch). Null for legacy single tweak (see domPreviewOps). */
+	itemPreviews: ItemPreview[] | null;
 }
 
 function dataDir(): string {
@@ -104,11 +125,32 @@ function getDb(): InstanceType<typeof Database> {
 			base_files       TEXT NOT NULL,
 			status           TEXT NOT NULL,
 			created_at       INTEGER NOT NULL,
-			resolved_at      INTEGER
+			resolved_at      INTEGER,
+			run_id           TEXT,
+			items            TEXT,
+			item_previews    TEXT
 		);
 		CREATE INDEX IF NOT EXISTS web_preview_ws_idx ON web_preview(workspace_id, status);
 		CREATE INDEX IF NOT EXISTS web_preview_session_idx ON web_preview(session_id, created_at);
 	`);
+	// Additive migration for pre-existing databases (CREATE TABLE IF NOT EXISTS
+	// won't add columns to an existing table).
+	const cols = _db
+		.prepare(`PRAGMA table_info(web_preview)`)
+		.all() as Array<{ name: string }>;
+	const have = new Set(cols.map((c) => c.name));
+	for (const [name, type] of [
+		["run_id", "TEXT"],
+		["items", "TEXT"],
+		["item_previews", "TEXT"],
+	] as Array<[string, string]>) {
+		if (have.has(name)) continue;
+		try {
+			_db.exec(`ALTER TABLE web_preview ADD COLUMN ${name} ${type}`);
+		} catch {
+			/* column added concurrently; harmless */
+		}
+	}
 	return _db;
 }
 
@@ -140,6 +182,9 @@ interface Row {
 	status: string;
 	created_at: number;
 	resolved_at: number | null;
+	run_id: string | null;
+	items: string | null;
+	item_previews: string | null;
 }
 
 function toTxn(r: Row): PreviewTransaction {
@@ -162,6 +207,11 @@ function toTxn(r: Row): PreviewTransaction {
 		status: r.status as PreviewStatus,
 		createdAt: r.created_at,
 		resolvedAt: r.resolved_at,
+		runId: r.run_id,
+		items: r.items ? (JSON.parse(r.items) as WebInstructionItem[]) : null,
+		itemPreviews: r.item_previews
+			? (JSON.parse(r.item_previews) as ItemPreview[])
+			: null,
 	};
 }
 
@@ -201,6 +251,48 @@ export function createPreview(input: CreatePreviewInput): PreviewTransaction {
 	return getPreview(id)!;
 }
 
+export interface CreateBatchPreviewInput {
+	sessionId: string;
+	workspaceId: string;
+	path: string;
+	runId: string;
+	items: WebInstructionItem[];
+}
+
+/**
+ * Create a batch preview transaction (a run) in `requested` state carrying N
+ * pinned instructions. The legacy single-tweak columns (selector/tag/snippet/
+ * text/note) are filled from the first item for display/back-compat; the
+ * authoritative set lives in `items`.
+ */
+export function createBatchPreview(input: CreateBatchPreviewInput): PreviewTransaction {
+	const db = getDb();
+	const id = genId("wp");
+	const now = Date.now();
+	const first = input.items[0];
+	db.prepare(
+		`INSERT INTO web_preview
+		 (id, session_id, workspace_id, request_id, path, selector, tag, snippet, text, note,
+		  dom_preview_ops, candidate_patch, base_files, status, created_at, resolved_at,
+		  run_id, items, item_previews)
+		 VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, NULL, NULL, '[]', 'requested', ?, NULL, ?, ?, NULL)`,
+	).run(
+		id,
+		input.sessionId,
+		input.workspaceId,
+		input.path,
+		first?.selector ?? "",
+		first?.tag ?? "",
+		first?.snippet ?? "",
+		first?.text ?? "",
+		first?.instruction ?? null,
+		now,
+		input.runId,
+		JSON.stringify(input.items),
+	);
+	return getPreview(id)!;
+}
+
 /** Link the dispatched live request id to the preview (for correlation). */
 export function linkRequest(previewId: string, requestId: string): void {
 	getDb()
@@ -219,6 +311,8 @@ export interface AttachPreviewInput {
 	domPreviewOps: DomOp[] | null;
 	candidateSourcePatch: CandidateSourcePatch | null;
 	baseFiles: BaseFile[];
+	/** Batch: per-instruction preview ops to apply in-frame. */
+	itemPreviews?: ItemPreview[] | null;
 }
 
 /**
@@ -234,12 +328,13 @@ export function attachPreview(
 	if (!cur || cur.status !== "requested") return null;
 	db.prepare(
 		`UPDATE web_preview
-		 SET dom_preview_ops = ?, candidate_patch = ?, base_files = ?, status = 'preview-ready'
+		 SET dom_preview_ops = ?, candidate_patch = ?, base_files = ?, item_previews = ?, status = 'preview-ready'
 		 WHERE id = ? AND status = 'requested'`,
 	).run(
 		input.domPreviewOps ? JSON.stringify(input.domPreviewOps) : null,
 		input.candidateSourcePatch ? JSON.stringify(input.candidateSourcePatch) : null,
 		JSON.stringify(input.baseFiles ?? []),
+		input.itemPreviews ? JSON.stringify(input.itemPreviews) : null,
 		previewId,
 	);
 	return getPreview(previewId);

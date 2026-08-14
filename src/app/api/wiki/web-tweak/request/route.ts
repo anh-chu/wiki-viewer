@@ -1,10 +1,26 @@
 import { NextResponse } from "next/server";
 import { checkOrigin } from "@/lib/auth/csrf";
 import { resolveWorkspaceForUser } from "@/lib/workspace-context";
+import { randomBytes } from "node:crypto";
 import { getOrCreateSession, enqueueRequest } from "@/lib/proof/live/store";
-import { createPreview, linkRequest } from "@/lib/web-tweak/preview-store";
+import type { LiveInstructionItem } from "@/lib/proof/live/store";
+import {
+	createPreview,
+	createBatchPreview,
+	linkRequest,
+	type WebInstructionItem,
+} from "@/lib/web-tweak/preview-store";
 
 export const runtime = "nodejs";
+
+interface BatchItemInput {
+	instructionId?: string;
+	selector?: string;
+	tag?: string;
+	snippet?: string;
+	text?: string;
+	instruction?: string;
+}
 
 interface Body {
 	path?: string;
@@ -13,6 +29,8 @@ interface Body {
 	snippet?: string;
 	text?: string;
 	note?: string | null;
+	/** Batch dispatch: N pinned instructions sent as one run. */
+	items?: BatchItemInput[];
 }
 
 function str(v: unknown, max: number): string | null {
@@ -45,18 +63,24 @@ export async function POST(request: Request): Promise<NextResponse> {
 	}
 
 	const rel = str(body.path, 4096);
-	const selector = str(body.selector, 2000);
-	const tag = str(body.tag, 64) ?? "";
-	const snippet = str(body.snippet, 4000) ?? "";
-	const text = str(body.text, 2000) ?? "";
-	const note = str(body.note, 4000);
-
 	if (!rel) {
 		return NextResponse.json(
 			{ error: "INVALID_PARAM", message: "path required" },
 			{ status: 400 },
 		);
 	}
+
+	// Batch path: N instructions dispatched as one run.
+	if (Array.isArray(body.items)) {
+		return handleBatch(request, ws, rel, body.items);
+	}
+
+	const selector = str(body.selector, 2000);
+	const tag = str(body.tag, 64) ?? "";
+	const snippet = str(body.snippet, 4000) ?? "";
+	const text = str(body.text, 2000) ?? "";
+	const note = str(body.note, 4000);
+
 	if (!selector) {
 		return NextResponse.json(
 			{ error: "INVALID_PARAM", message: "selector required" },
@@ -113,6 +137,109 @@ export async function POST(request: Request): Promise<NextResponse> {
 	return NextResponse.json({
 		ok: true,
 		previewId: preview.id,
+		requestId: enq.request.id,
+		sessionId: session.id,
+		seq: enq.request.seq,
+	});
+}
+
+/**
+ * Batch dispatch: N instructions pinned to elements sent as ONE run. Creates a
+ * single batch preview transaction + one live request carrying the items[] and
+ * a generated runId. Same one-outstanding-per-session invariant applies.
+ */
+async function handleBatch(
+	_request: Request,
+	ws: { id: string },
+	rel: string,
+	rawItems: BatchItemInput[],
+): Promise<NextResponse> {
+	if (rawItems.length === 0) {
+		return NextResponse.json(
+			{ error: "INVALID_PARAM", message: "items must be non-empty" },
+			{ status: 400 },
+		);
+	}
+	const items: WebInstructionItem[] = [];
+	for (const raw of rawItems) {
+		const selector = str(raw.selector, 2000);
+		const instruction = str(raw.instruction, 4000);
+		if (!selector) {
+			return NextResponse.json(
+				{ error: "INVALID_PARAM", message: "each item needs a selector" },
+				{ status: 400 },
+			);
+		}
+		if (!instruction || instruction.trim().length === 0) {
+			return NextResponse.json(
+				{ error: "INVALID_PARAM", message: "each item needs an instruction" },
+				{ status: 400 },
+			);
+		}
+		items.push({
+			instructionId: str(raw.instructionId, 64) ?? randomBytes(6).toString("hex"),
+			selector,
+			tag: str(raw.tag, 64) ?? "",
+			snippet: str(raw.snippet, 4000) ?? "",
+			text: str(raw.text, 2000) ?? "",
+			instruction,
+		});
+	}
+
+	const runId = `run:${randomBytes(4).toString("hex")}`;
+	const session = getOrCreateSession(ws.id);
+
+	const preview = createBatchPreview({
+		sessionId: session.id,
+		workspaceId: ws.id,
+		path: rel,
+		runId,
+		items,
+	});
+
+	const liveItems: LiveInstructionItem[] = items.map((it) => ({
+		instructionId: it.instructionId,
+		blockRef: it.selector,
+		baseRevision: null,
+		instruction: it.instruction,
+		selectionText: JSON.stringify({
+			selector: it.selector,
+			tag: it.tag,
+			snippet: it.snippet,
+		}),
+	}));
+
+	const enq = enqueueRequest({
+		sessionId: session.id,
+		workspaceId: ws.id,
+		path: rel,
+		blockRef: null,
+		baseRevision: null,
+		kind: "web.tweak",
+		instruction: null,
+		// Carry the previewId so the agent can correlate its batch reply.
+		selectionText: JSON.stringify({ previewId: preview.id }),
+		selectionStart: null,
+		selectionEnd: null,
+		items: liveItems,
+		runId,
+	});
+	if (!enq.ok) {
+		return NextResponse.json(
+			{
+				error: enq.code,
+				message: "A live request is already outstanding for this session.",
+				outstandingRequestId: enq.request.id,
+			},
+			{ status: 409 },
+		);
+	}
+	linkRequest(preview.id, enq.request.id);
+
+	return NextResponse.json({
+		ok: true,
+		previewId: preview.id,
+		runId,
 		requestId: enq.request.id,
 		sessionId: session.id,
 		seq: enq.request.seq,

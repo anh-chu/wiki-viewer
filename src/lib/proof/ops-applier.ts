@@ -396,6 +396,11 @@ async function applyTextCommentOps(args: {
 						createdAt: at,
 						turns: [{ by, text: op.text, at }],
 					};
+					if (op.kind === "instruction") {
+						comment.kind = "instruction";
+						comment.instructionState = "draft";
+						if (op.fromCommentId) comment.fromCommentId = op.fromCommentId;
+					}
 					workingSidecar.comments.push(comment);
 					workingEvents.push({
 						type: "comment.added",
@@ -404,6 +409,30 @@ async function applyTextCommentOps(args: {
 						commentId: comment.id,
 						text: op.text,
 						lineAnchor: comment.lineAnchor,
+						kind: comment.kind,
+					});
+					break;
+				}
+				case "comment.mark": {
+					const comment = workingSidecar.comments.find((c) => c.id === op.commentId);
+					if (!comment) {
+						return {
+							ok: false,
+							status: 409,
+							code: "COMMENT_NOT_FOUND",
+							message: `Comment "${op.commentId}" not found.`,
+							snapshot: buildSnapshot(mdPath, [], workingSidecar),
+						};
+					}
+					comment.instructionState = op.instructionState;
+					if (op.runId !== undefined) comment.runId = op.runId;
+					workingEvents.push({
+						type: "comment.marked",
+						at,
+						by,
+						commentId: op.commentId,
+						instructionState: op.instructionState,
+						runId: op.runId,
 					});
 					break;
 				}
@@ -741,8 +770,45 @@ export async function applyOps(args: {
 						createdAt: at,
 						turns: [{ by, text: op.text, at }],
 					};
+					if (op.kind === "instruction") {
+						comment.kind = "instruction";
+						comment.instructionState = "draft";
+						if (op.fromCommentId) comment.fromCommentId = op.fromCommentId;
+					}
 					workingSidecar.comments.push(comment);
-					workingEvents.push({ type: "comment.added", at, by, commentId: comment.id, ref: resolved, text: op.text });
+					workingEvents.push({
+						type: "comment.added",
+						at,
+						by,
+						commentId: comment.id,
+						ref: resolved,
+						text: op.text,
+						kind: comment.kind,
+					});
+					break;
+				}
+
+				case "comment.mark": {
+					const comment = workingSidecar.comments.find((c) => c.id === op.commentId);
+					if (!comment) {
+						return {
+							ok: false,
+							status: 409,
+							code: "COMMENT_NOT_FOUND",
+							message: `Comment "${op.commentId}" not found.`,
+							snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar),
+						};
+					}
+					comment.instructionState = op.instructionState;
+					if (op.runId !== undefined) comment.runId = op.runId;
+					workingEvents.push({
+						type: "comment.marked",
+						at,
+						by,
+						commentId: op.commentId,
+						instructionState: op.instructionState,
+						runId: op.runId,
+					});
 					break;
 				}
 

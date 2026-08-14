@@ -44,5 +44,8 @@ export async function GET(request: Request): Promise<NextResponse> {
 		acceptable: !!preview.candidateSourcePatch,
 		patchSummary: preview.candidateSourcePatch?.summary ?? null,
 		affectedFiles: preview.candidateSourcePatch?.files.map((f) => f.path) ?? [],
+		runId: preview.runId,
+		items: preview.items,
+		itemPreviews: preview.itemPreviews,
 	});
 }

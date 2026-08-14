@@ -7,6 +7,7 @@ import {
 	attachPreview,
 	type BaseFile,
 	type CandidateSourcePatch,
+	type ItemPreview,
 } from "@/lib/web-tweak/preview-store";
 import type { DomOp } from "@/lib/web-tweak/protocol";
 
@@ -18,6 +19,8 @@ interface Body {
 	domPreviewOps?: DomOp[] | null;
 	candidateSourcePatch?: CandidateSourcePatch | null;
 	baseFiles?: BaseFile[];
+	/** Batch: per-instruction preview ops (applied in-frame, keyed to instructionId). */
+	itemPreviews?: ItemPreview[] | null;
 	status?: "done" | "error";
 }
 
@@ -154,6 +157,24 @@ export async function POST(req: Request): Promise<NextResponse> {
 		return NextResponse.json({ ok: true, status: "error" });
 	}
 
+	const itemPreviews = body.itemPreviews ?? null;
+	if (itemPreviews !== null) {
+		const ok =
+			Array.isArray(itemPreviews) &&
+			itemPreviews.every(
+				(ip) =>
+					!!ip &&
+					typeof ip === "object" &&
+					typeof (ip as ItemPreview).instructionId === "string" &&
+					validOps((ip as ItemPreview).ops),
+			);
+		if (!ok) {
+			return NextResponse.json(
+				{ error: "INVALID_PARAM", message: "itemPreviews must be {instructionId, ops[]}[]" },
+				{ status: 400 },
+			);
+		}
+	}
 	const ops = body.domPreviewOps ?? null;
 	if (ops !== null && !validOps(ops)) {
 		return NextResponse.json(
@@ -233,6 +254,7 @@ export async function POST(req: Request): Promise<NextResponse> {
 		domPreviewOps: ops,
 		candidateSourcePatch: candidate,
 		baseFiles,
+		itemPreviews,
 	});
 	if (!attached) {
 		return NextResponse.json(

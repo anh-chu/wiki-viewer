@@ -173,3 +173,123 @@ test("comment.reply to nonexistent commentId → 409 COMMENT_NOT_FOUND", async (
 	assert.equal(result.ok ? "" : result.code, "COMMENT_NOT_FOUND");
 	assert.equal(result.ok ? 0 : result.status, 409);
 });
+
+test("comment.add kind=instruction — persists as draft instruction", async () => {
+	await writeDoc("cinstr.md", "# Title\n\nA paragraph.\n");
+	const snap = await readSnapshot(tmpRoot, "cinstr.md");
+	const paraRef = snap!.blocks[1].ref;
+
+	const result = await applyOps({
+		rootDir: tmpRoot,
+		mdPath: "cinstr.md",
+		baseRevision: 0,
+		by: "human",
+		ops: [
+			{
+				type: "comment.add",
+				ref: paraRef,
+				text: "Tighten this to one sentence.",
+				kind: "instruction",
+			},
+		],
+	});
+	assert.ok(result.ok, `expected ok: ${JSON.stringify(result)}`);
+	const c = result.ok ? result.snapshot.comments[0] : null;
+	assert.ok(c !== null);
+	assert.equal(c!.kind, "instruction");
+	assert.equal(c!.instructionState, "draft");
+});
+
+test("comment.add — legacy (no kind) stays a plain comment", async () => {
+	await writeDoc("clegacy.md", "# Title\n\nA paragraph.\n");
+	const snap = await readSnapshot(tmpRoot, "clegacy.md");
+	const paraRef = snap!.blocks[1].ref;
+	const result = await applyOps({
+		rootDir: tmpRoot,
+		mdPath: "clegacy.md",
+		baseRevision: 0,
+		by: "human",
+		ops: [{ type: "comment.add", ref: paraRef, text: "just a note" }],
+	});
+	assert.ok(result.ok);
+	const c = result.ok ? result.snapshot.comments[0] : null;
+	assert.equal(c?.kind, undefined);
+	assert.equal(c?.instructionState, undefined);
+});
+
+test("comment.add — escalation carries fromCommentId, original unchanged", async () => {
+	await writeDoc("cesc.md", "# Title\n\nA paragraph.\n");
+	const snap = await readSnapshot(tmpRoot, "cesc.md");
+	const paraRef = snap!.blocks[1].ref;
+
+	const add = await applyOps({
+		rootDir: tmpRoot,
+		mdPath: "cesc.md",
+		baseRevision: 0,
+		by: "human",
+		ops: [{ type: "comment.add", ref: paraRef, text: "This is weak." }],
+	});
+	assert.ok(add.ok);
+	const original = add.ok ? add.snapshot.comments[0] : null;
+	assert.ok(original);
+
+	const esc = await applyOps({
+		rootDir: tmpRoot,
+		mdPath: "cesc.md",
+		baseRevision: add.ok ? add.snapshot.revision : 0,
+		by: "human",
+		ops: [
+			{
+				type: "comment.add",
+				ref: paraRef,
+				text: "This is weak.",
+				kind: "instruction",
+				fromCommentId: original!.id,
+			},
+		],
+	});
+	assert.ok(esc.ok);
+	const comments = esc.ok ? esc.snapshot.comments : [];
+	const instr = comments.find((c) => c.kind === "instruction");
+	const orig = comments.find((c) => c.id === original!.id);
+	assert.ok(instr, "instruction created");
+	assert.equal(instr!.fromCommentId, original!.id);
+	assert.equal(orig?.kind, undefined, "original comment untouched");
+});
+
+test("comment.mark — stamps instructionState + runId on send", async () => {
+	await writeDoc("cmark.md", "# Title\n\nA paragraph.\n");
+	const snap = await readSnapshot(tmpRoot, "cmark.md");
+	const paraRef = snap!.blocks[1].ref;
+
+	const add = await applyOps({
+		rootDir: tmpRoot,
+		mdPath: "cmark.md",
+		baseRevision: 0,
+		by: "human",
+		ops: [
+			{ type: "comment.add", ref: paraRef, text: "do X", kind: "instruction" },
+		],
+	});
+	assert.ok(add.ok);
+	const id = add.ok ? add.snapshot.comments[0].id : "";
+
+	const mark = await applyOps({
+		rootDir: tmpRoot,
+		mdPath: "cmark.md",
+		baseRevision: add.ok ? add.snapshot.revision : 0,
+		by: "human",
+		ops: [
+			{
+				type: "comment.mark",
+				commentId: id,
+				instructionState: "sent",
+				runId: "run_abc123",
+			},
+		],
+	});
+	assert.ok(mark.ok, `expected ok: ${JSON.stringify(mark)}`);
+	const c = mark.ok ? mark.snapshot.comments.find((x) => x.id === id) : null;
+	assert.equal(c?.instructionState, "sent");
+	assert.equal(c?.runId, "run_abc123");
+});

@@ -171,10 +171,10 @@ export function WebsiteViewer({
 					size="sm"
 					className={`h-7 gap-1.5 text-xs${tweakEnabled ? " text-primary" : ""}`}
 					onClick={handleTweakClick}
-					title={tweakEnabled ? "Exit tweak mode" : "Tweak this page"}
+					title={tweakEnabled ? "Exit instruct mode" : "Instruct changes on this page"}
 				>
 					<MousePointerClick className="h-3.5 w-3.5" />
-					Tweak
+					Instruct
 				</Button>
 				<Button
 					variant="ghost"

@@ -134,6 +134,37 @@ export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnc
 		}
 	}
 
+	async function handleEscalate() {
+		// Turn an existing comment into a NEW instruction on the same block, carrying
+		// the comment text + a backlink. The original comment is left unchanged (R3).
+		if (!activeComment || busy) return;
+		const text = activeComment.turns.map((t) => t.text).join("\n\n").trim();
+		if (!text) return;
+		setBusy(true);
+		try {
+			const op = {
+				type: "comment.add",
+				ref: activeComment.ref ?? anchorRef ?? anchorKey,
+				text,
+				kind: "instruction",
+				fromCommentId: activeComment.id,
+			};
+			let rev = getRevision();
+			let result = await postOp(path, rev, "human", [op]);
+			if (!result.ok && result.stale && result.newRevision !== undefined) {
+				await useProofStore.getState().loadSidecar(path);
+				rev = result.newRevision;
+				result = await postOp(path, rev, "human", [op]);
+			}
+			if (result.ok) {
+				await useProofStore.getState().loadSidecar(path);
+				onClose();
+			}
+		} finally {
+			setBusy(false);
+		}
+	}
+
 	async function handleResolveToggle() {
 		if (!activeComment || busy) return;
 		setBusy(true);
@@ -190,18 +221,38 @@ export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnc
 				>
 					{/* Header */}
 					<div className="flex items-center justify-between">
-						<span className="text-[11px] font-mono text-muted-foreground/60 truncate">
-							{anchorLabel ?? anchorKey}
+						<span className="flex items-center gap-1.5 min-w-0">
+							{activeComment?.kind === "instruction" && (
+								<span className="shrink-0 text-[9.5px] font-medium uppercase tracking-wide px-1 py-0.5 rounded bg-amber-500/15 text-amber-700">
+									Instruction
+								</span>
+							)}
+							<span className="text-[11px] font-mono text-muted-foreground/60 truncate">
+								{anchorLabel ?? anchorKey}
+							</span>
 						</span>
 						{activeComment && !readOnly && (
-							<button
-								type="button"
-								disabled={busy}
-								onClick={() => void handleResolveToggle()}
-								className="ml-2 shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-border hover:bg-accent disabled:opacity-50 transition-colors"
-							>
-								{activeComment.resolved ? "Reopen" : "Resolve"}
-							</button>
+							<span className="ml-2 shrink-0 flex items-center gap-1">
+								{activeComment.kind !== "instruction" && (
+									<button
+										type="button"
+										disabled={busy}
+										onClick={() => void handleEscalate()}
+										className="text-[10px] px-1.5 py-0.5 rounded border border-amber-500/40 text-amber-700 hover:bg-amber-500/10 disabled:opacity-50 transition-colors"
+										title="Turn into an instruction"
+									>
+										Turn into an instruction
+									</button>
+								)}
+								<button
+									type="button"
+									disabled={busy}
+									onClick={() => void handleResolveToggle()}
+									className="text-[10px] px-1.5 py-0.5 rounded border border-border hover:bg-accent disabled:opacity-50 transition-colors"
+								>
+									{activeComment.resolved ? "Reopen" : "Resolve"}
+								</button>
+							</span>
 						)}
 					</div>
 

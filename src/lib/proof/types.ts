@@ -178,8 +178,23 @@ export type Op =
 			basisDetail?: string;
 			inResponseTo?: string;
 	  }
-	| { type: "comment.add"; ref?: string; lineAnchor?: LineAnchor; text: string }
+	| {
+			type: "comment.add";
+			ref?: string;
+			lineAnchor?: LineAnchor;
+			text: string;
+			/** Absent => "comment" (legacy). "instruction" creates a draft work order. */
+			kind?: AnnotationKind;
+			/** Backlink when escalated from an existing comment. */
+			fromCommentId?: string;
+	  }
 	| { type: "comment.reply"; commentId: string; text: string }
+	| {
+			type: "comment.mark";
+			commentId: string;
+			instructionState: InstructionState;
+			runId?: string;
+	  }
 	| { type: "comment.resolve"; commentId: string }
 	| { type: "comment.reopen"; commentId: string }
 	| {
