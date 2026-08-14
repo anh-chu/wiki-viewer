@@ -2,6 +2,7 @@
 
 import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
 import { wsFetch } from "@/lib/workspace-client";
+import { useAIPanelStore } from "@/stores/ai-panel-store";
 import {
 	type DomOp,
 	type PickerRect,
@@ -405,14 +406,6 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 									<span className="text-amber-600">No agent attached</span>
 								)}
 							</div>
-							{!agent.attached && (
-								<p className="text-[10px] text-muted-foreground/70">
-									Start one from the{" "}
-									<span className="font-medium text-foreground/70">Agents</span> panel
-									(“Live collaboration”), or use Copy as prompt to run it in your own
-									agent.
-								</p>
-							)}
 							<div className="flex items-center justify-between pt-0.5">
 								<span className="text-[10px] text-muted-foreground/40">⌘↵ send</span>
 								<div className="flex items-center gap-2">
@@ -431,19 +424,26 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 									>
 										{copied ? "Copied" : "Copy as prompt"}
 									</button>
-									<button
-										type="button"
-										disabled={
-											phase.kind === "sending" ||
-										note.trim().length === 0 ||
-										!agent.attached
-									}
-										title={agent.attached ? "Send to the attached agent" : "No agent attached"}
-										onClick={() => void handleSend()}
-										className="rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
-									>
-										{phase.kind === "sending" ? "Sending…" : "Send"}
-									</button>
+									{agent.attached ? (
+										<button
+											type="button"
+											disabled={phase.kind === "sending" || note.trim().length === 0}
+											title="Send to the attached agent"
+											onClick={() => void handleSend()}
+											className="rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+										>
+											{phase.kind === "sending" ? "Sending…" : "Send"}
+										</button>
+									) : (
+										<button
+											type="button"
+											title="No agent is on the line yet — set one up to send"
+											onClick={() => useAIPanelStore.getState().open()}
+											className="rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+										>
+											Connect an agent
+										</button>
+									)}
 								</div>
 							</div>
 						</>

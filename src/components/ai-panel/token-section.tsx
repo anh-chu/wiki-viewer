@@ -251,8 +251,8 @@ export function TokenSection() {
 	return (
 		<section className="space-y-2">
 			<div className="flex items-center justify-between">
-				<h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-					Agents · approve &amp; manage access
+				<h3 className="text-sm font-semibold text-foreground">
+					2 · Approve access
 				</h3>
 				<Button
 					size="sm"

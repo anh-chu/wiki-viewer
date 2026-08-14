@@ -177,56 +177,40 @@ export function AIPanel({ currentPath }: { currentPath?: string | null }) {
 
 				{/* Scrollable body */}
 				<div className="flex-1 overflow-y-auto space-y-5 px-4 py-4">
-					{/* What this does — one line */}
-					<section className="rounded-md border border-border bg-muted/30 p-3">
-						<p className="text-sm font-medium text-foreground">
-							Work with this wiki using AI
-						</p>
-						<p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-							Connect Claude, Cursor, ChatGPT, and more. Pick by what you want —
-							each option gives a copy-paste setup. You approve every assistant
-							in <span className="font-medium text-foreground/80">Agents</span> below before it gets access.
-						</p>
-					</section>
-
-					{/* Choose by goal */}
+					{/* Step 1 — pick a setup */}
 					<section className="space-y-3">
-						{/* Goal 1: collaborate (one-off instructions + permanent skill) */}
-						<div className="rounded-md border border-border bg-muted/40 p-3 space-y-1.5">
-							<p className="text-xs font-semibold text-foreground">
-								Co-write docs with you
+						<div className="space-y-0.5">
+							<p className="text-sm font-semibold text-foreground">
+								1 · Set up an assistant
 							</p>
+							<p className="text-xs leading-relaxed text-muted-foreground">
+								Pick one way to connect. You approve it in step 2 before it can touch
+								anything.
+							</p>
+						</div>
+
+						{/* Option A — no install, paste into a chatbot */}
+						<div className="rounded-md border border-border bg-muted/40 p-3 space-y-1.5">
+							<p className="text-xs font-semibold text-foreground">Paste into a chatbot</p>
 							<p className="text-[10px] text-muted-foreground/70">
-								Edits arrive as suggestions with comments you accept or revert.
-								No MCP needed.
+								Quickest. Copy a prompt into ChatGPT, Claude, etc. Edits come back as
+								suggestions you accept or revert. No install.
 							</p>
 							<Button size="sm" variant="outline" className="h-7 w-full text-xs gap-1.5" onClick={() => void bootstrapCopy.copy()} disabled={!bootstrapPrompt}>
 								{bootstrapCopy.copied
 									? <><Check className="h-3.5 w-3.5 text-green-500" /> Copied!</>
-									: <><Copy className="h-3.5 w-3.5" /> Paste into any chatbot</>}
+									: <><Copy className="h-3.5 w-3.5" /> Copy prompt</>}
 							</Button>
-							<p className="text-[10px] text-muted-foreground/50 pt-1">
-								Or install once so it sticks{" "}
-								<span className="text-muted-foreground/40">· Claude, OpenCode</span>:
-							</p>
-							<div className="flex items-center gap-2">
-								<code className="flex-1 text-[10px] font-mono text-foreground/80 truncate bg-muted rounded px-1 py-0.5">
-									{SKILL_CLI}
-								</code>
-								<Button size="sm" variant="ghost" className="h-6 w-6 p-0 shrink-0" title="Copy this command" onClick={() => void skillCli.copy()}>
-									{skillCli.copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
-								</Button>
-							</div>
 						</div>
 
-						{/* Goal 2: raw filework */}
+						{/* Option B — MCP tools */}
 						<div className="rounded-md border border-border bg-muted/40 p-3 space-y-1.5">
 							<p className="text-xs font-semibold text-foreground">
-								Edit files directly{" "}
-								<span className="font-normal text-muted-foreground/60">· Claude Code, Cursor, Codex</span>
+								Connect a coding tool
 							</p>
 							<p className="text-[10px] text-muted-foreground/70">
-								Native read / search / edit tools over MCP. Run to request access:
+								Claude Code, Cursor, Codex, etc. get native read/edit tools over MCP.
+								Run this to request access, then copy the config:
 							</p>
 							<div className="flex items-center gap-2">
 								<code className="flex-1 text-[10px] font-mono text-foreground/80 truncate bg-muted rounded px-1 py-0.5">
@@ -236,7 +220,6 @@ export function AIPanel({ currentPath }: { currentPath?: string | null }) {
 									{mcpRegister.copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
 								</Button>
 							</div>
-							<p className="text-[10px] text-muted-foreground/50">Approve in <span className="font-medium text-foreground/70">Agents</span>, then add to your tool:</p>
 							<Button size="sm" variant="outline" className="h-7 w-full text-xs gap-1.5" onClick={() => void mcpJson.copy()}>
 								{mcpJson.copied
 									? <><Check className="h-3.5 w-3.5 text-green-500" /> Copied!</>
@@ -244,61 +227,55 @@ export function AIPanel({ currentPath }: { currentPath?: string | null }) {
 							</Button>
 						</div>
 
-						{/* Goal 3: live collaboration (attend the live channel) */}
+						{/* Option C — live (attach) */}
 						<div className="rounded-md border border-border bg-muted/40 p-3 space-y-1.5">
 							<p className="text-xs font-semibold text-foreground">
-								Live collaboration{" "}
-								<span className="font-normal text-muted-foreground/60">
-									· Ask-agent &amp; Tweak
-								</span>
+								Attend live (for Ask agent &amp; Tweak)
 							</p>
 							<p className="text-[10px] text-muted-foreground/70">
-								To answer “Ask agent” / “Tweak” requests, an agent must{" "}
-								<span className="font-medium text-foreground/70">attach</span> to the
-								live channel. Register &amp; approve first (above), then run with your
-								token:
+								Only needed for the in-page “Ask agent” and “Tweak” buttons. After
+								approving (step 2), run this with your token so an agent waits on the
+								line:
 							</p>
 							<div className="flex items-center gap-2">
 								<code className="flex-1 text-[10px] font-mono text-foreground/80 truncate bg-muted rounded px-1 py-0.5">
 									{getLiveAttach()}
 								</code>
-								<Button
-									size="sm"
-									variant="ghost"
-									className="h-6 w-6 p-0 shrink-0"
-									title="Copy this command"
-									onClick={() => void liveAttach.copy()}
-								>
-									{liveAttach.copied ? (
-										<Check className="h-3.5 w-3.5 text-green-500" />
-									) : (
-										<Copy className="h-3.5 w-3.5" />
-									)}
+								<Button size="sm" variant="ghost" className="h-6 w-6 p-0 shrink-0" title="Copy this command" onClick={() => void liveAttach.copy()}>
+									{liveAttach.copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
 								</Button>
 							</div>
-							<p className="text-[10px] text-muted-foreground/50">
-								The bundled runner echoes instructions (a smoke test). A real LLM
-								agent supplies its own handler via{" "}
-								<code className="font-mono">runLiveLoop</code>.
-							</p>
 						</div>
 
-						<div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-							<span className="text-[10px] text-muted-foreground/50">For developers:</span>
-							<button type="button" onClick={() => void copy()} className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline">
-								{copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />} curl example
-							</button>
-							<a href={apiUrl("/api/agents/skill")} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline">
-								<ExternalLink className="h-3 w-3" /> skill
-							</a>
-							<a href={apiUrl("/api/agents/install")} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline">
-								<ExternalLink className="h-3 w-3" /> install JSON
-							</a>
-						</div>
+						<details className="text-[10px] text-muted-foreground/60">
+							<summary className="cursor-pointer select-none text-muted-foreground/50">For developers</summary>
+							<div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+								<span>Install skill:</span>
+								<code className="font-mono text-foreground/70 bg-muted rounded px-1 py-0.5">{SKILL_CLI}</code>
+								<button type="button" onClick={() => void skillCli.copy()} className="inline-flex items-center gap-1 text-primary hover:underline">
+									{skillCli.copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />} copy
+								</button>
+								<button type="button" onClick={() => void copy()} className="inline-flex items-center gap-1 text-primary hover:underline">
+									{copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />} curl example
+								</button>
+								<a href={apiUrl("/api/agents/skill")} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
+									<ExternalLink className="h-3 w-3" /> skill
+								</a>
+								<a href={apiUrl("/api/agents/install")} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
+									<ExternalLink className="h-3 w-3" /> install JSON
+								</a>
+							</div>
+						</details>
 					</section>
 
 					{/* Token / Agents */}
 					<TokenSection />
+
+					{/* Step 3 — monitor */}
+					<div className="space-y-0.5">
+						<p className="text-sm font-semibold text-foreground">3 · Watch what they do</p>
+						<p className="text-xs text-muted-foreground">Who is connected and every edit they make.</p>
+					</div>
 
 					{/* Active connections */}
 					<section className="space-y-2">
