@@ -211,6 +211,30 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	);
 
 	const snapshotBlocks = useMemo(() => snapshotBlocksRaw ?? [], [snapshotBlocksRaw]);
+	// Tier-2 snapshots include leading frontmatter blocks, while the viewing
+	// editor renders parsedViewingContent.body. Find the first body block in the
+	// snapshot; prefix matching handles body content containing later blocks too.
+	const snapshotBlockOffset = useMemo(() => {
+		if (!isViewing || Object.keys(parsedViewingContent.data).length === 0) return 0;
+		const body = parsedViewingContent.body.trim();
+		if (!body) return 0;
+		// Count blocks that consume the parsed frontmatter prefix first. This
+		// disambiguates a body thematic break (`---`) from the opening fence.
+		let frontmatterOffset = 0;
+		let prefix = content.slice(0, content.length - parsedViewingContent.body.length).trimStart();
+		for (const block of snapshotBlocks) {
+			const markdown = block.markdown.trim();
+			if (!markdown || !prefix.startsWith(markdown)) break;
+			frontmatterOffset += 1;
+			prefix = prefix.slice(markdown.length).trimStart();
+		}
+		const firstBodyIndex = snapshotBlocks.findIndex((block, index) => {
+			if (index < frontmatterOffset) return false;
+			const markdown = block.markdown.trim();
+			return markdown !== "" && (body === markdown || body.startsWith(`${markdown}\n`));
+		});
+		return firstBodyIndex >= 0 ? firstBodyIndex : frontmatterOffset;
+	}, [content, isViewing, parsedViewingContent.body, parsedViewingContent.data, snapshotBlocks]);
 	const comments = useMemo(() => commentsRaw ?? [], [commentsRaw]);
 	const pendingSuggestions = useMemo(
 		() => suggestionsRaw?.filter((sg) => sg.status === "pending") ?? [],
@@ -268,11 +292,10 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	 * Resolve the current editor selection to a top-level block.
 	 *
 	 * Primary strategy: map the selection to its top-level ProseMirror child
-	 * INDEX, then look up snapshotBlocks[index] — the same index-based mapping
-	 * used by the position-tracker effect. This is robust even when the DOM
-	 * `data-block-ref` annotation has not been applied yet (e.g. snapshot still
-	 * loading), which previously made the suggest/comment buttons silently
-	 * no-op. Falls back to walking the DOM for an existing [data-block-ref].
+	 * INDEX, then look up the corresponding snapshot block after skipping
+	 * frontmatter blocks. This is robust even when the DOM `data-block-ref`
+	 * annotation has not been applied yet (e.g. snapshot still loading). Falls
+	 * back to walking the DOM for an existing [data-block-ref].
 	 */
 	const resolveSelectionBlock = useCallback((): {
 		blockRef: string;
@@ -314,7 +337,8 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 					? (anchorNode as HTMLElement)
 					: anchorNode.parentElement;
 			const idx = children.findIndex((c) => c === anchorEl || c.contains(anchorEl));
-			topIndex = idx >= 0 ? idx : 0;
+			if (idx < 0) return null;
+			topIndex = idx;
 		} else {
 			const $pos = view.state.doc.resolve(from);
 			topIndex = $pos.depth > 0 ? $pos.index(0) : 0;
@@ -322,8 +346,8 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 
 		const blockEl = children[topIndex] ?? null;
 
-		// Prefer the index-aligned snapshot block; fall back to the DOM attr.
-		const block = blocks[topIndex];
+		// Prefer the offset-aligned snapshot block; fall back to the DOM attr.
+		const block = blocks[topIndex + snapshotBlockOffset];
 		let blockRef: string | null =
 			block?.ref ?? blockEl?.getAttribute("data-block-ref") ?? null;
 		const markdown = block?.markdown ?? "";
@@ -367,7 +391,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		}
 
 		return { blockRef, blockEl, markdown, selectionText, selectionStart, selectionEnd };
-	}, []);
+	}, [snapshotBlockOffset]);
 
 	const openSuggestForSelection = useCallback(() => {
 		const resolved = resolveSelectionBlock();
@@ -430,7 +454,8 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 
 	/**
 	 * After content renders, walk `.ProseMirror > *` to build ref→position map.
-	 * Matches by index: the i-th ProseMirror child = snapshotBlocks[i].
+	 * Skip snapshot blocks belonging to frontmatter, which is rendered outside
+	 * ProseMirror in viewing mode.
 	 *
 	 * Phase D coordination: this effect also annotates each child element with
 	 * data-block-ref for any consumer that needs CSS/query-based lookup.
@@ -443,9 +468,9 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		const children = Array.from(proseMirror.children) as HTMLElement[];
 		const containerRect = container.getBoundingClientRect();
 		const next = new Map<string, { top: number; left: number; width: number; bottom: number }>();
-		for (let i = 0; i < Math.min(children.length, snapshotBlocks.length); i++) {
+		for (let i = 0; i < Math.min(children.length, snapshotBlocks.length - snapshotBlockOffset); i++) {
 			const el = children[i];
-			const block = snapshotBlocks[i];
+			const block = snapshotBlocks[i + snapshotBlockOffset];
 			// Annotate DOM element — Phase D comment-pip and other consumers read this
 			el.setAttribute("data-block-ref", block.ref);
 			const rect = el.getBoundingClientRect();
@@ -457,7 +482,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 			});
 		}
 		setBlockRefPositions(next);
-	}, [currentPath, snapshotBlocks]);
+	}, [currentPath, snapshotBlockOffset, snapshotBlocks]);
 
 	const handleUpdate = useCallback(
 		({ editor }: { editor: ReturnType<typeof useEditor> }) => {
