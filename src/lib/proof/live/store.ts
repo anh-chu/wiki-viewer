@@ -41,7 +41,10 @@ export type RequestState =
 	| "resolved"
 	| "stale"
 	| "error";
-export type RequestOutcome = "accepted" | "reverted";
+// "completed" = agent finished the turn (channel freed); the proof-span is left
+// in the doc for optional human review. "accepted"/"reverted" record an explicit
+// human review decision on that produced content.
+export type RequestOutcome = "completed" | "accepted" | "reverted";
 
 export interface LiveSession {
 	id: string;
