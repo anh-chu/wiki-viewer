@@ -6,13 +6,11 @@ import {
 	ExternalLink,
 	Loader2,
 	Play,
-	MousePointerClick,
 	RefreshCw,
 	Square,
 	Terminal,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { WebTweakOverlay } from "@/components/editor/web-tweak-overlay";
 import { ViewerToolbar } from "@/components/layout/viewer-toolbar";
 import { Button } from "@/components/ui/button";
 import {
@@ -59,8 +57,6 @@ export function NodeAppViewer({ path, title }: Props) {
 	const [defaultScript, setDefaultScript] = useState<string | null>(null);
 	const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 	const logsEndRef = useRef<HTMLDivElement>(null);
-	const frameRef = useRef<HTMLIFrameElement | null>(null);
-	const [tweakEnabled, setTweakEnabled] = useState(false);
 
 	// Proxy URL — all traffic flows through wiki-viewer (works remotely)
 	const proxyUrl = withWs(`/api/app-proxy/${path}/`);
@@ -199,18 +195,13 @@ export function NodeAppViewer({ path, title }: Props) {
 						</Button>
 					</>
 				)}
-				{status === "running" && (
-					<Button
-						variant="ghost"
-						size="sm"
-						className={`h-7 gap-1.5 text-xs${tweakEnabled ? " text-primary" : ""}`}
-						onClick={() => setTweakEnabled((t) => !t)}
-						title={tweakEnabled ? "Exit tweak mode" : "Tweak this app"}
-					>
-						<MousePointerClick className="h-3.5 w-3.5" />
-						Tweak
-					</Button>
-				)}
+				{/* Web tweak is intentionally NOT offered for node-apps in v1. The
+				    proxied app is served from the wiki-viewer origin and its iframe
+				    keeps allow-same-origin (required for the app to work), so hostile
+				    page JS could reach parent.document and click the Accept button,
+				    bypassing the postMessage boundary. Tweak requires an opaque/
+				    cross-origin preview; only the static-HTML path provides that today.
+				    Enabling it here needs a dedicated isolated proxy origin. */}
 				<Button
 					variant="ghost"
 					size="sm"
@@ -338,24 +329,13 @@ export function NodeAppViewer({ path, title }: Props) {
 				)}
 
 				{status === "running" && (
-					<div className="relative flex-1 flex overflow-hidden">
-						<iframe
-							ref={frameRef}
-							key={iframeKey}
-							src={proxyUrl}
-							className="flex-1 w-full border-0 bg-card"
-							title={title}
-							sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-top-navigation-by-user-activation"
-						/>
-						{tweakEnabled && (
-							<WebTweakOverlay
-								frameRef={frameRef}
-								path={path}
-								enabled={tweakEnabled}
-								onClose={() => setTweakEnabled(false)}
-							/>
-						)}
-					</div>
+					<iframe
+						key={iframeKey}
+						src={proxyUrl}
+						className="flex-1 w-full border-0 bg-card"
+						title={title}
+						sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-top-navigation-by-user-activation"
+					/>
 				)}
 			</div>
 		</div>

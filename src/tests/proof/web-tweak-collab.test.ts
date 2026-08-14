@@ -318,3 +318,46 @@ test("agent reply for a foreign-workspace preview is rejected", async () => {
 	);
 	assert.equal(reply.status, 404);
 });
+
+test("agent reply requires requestId matching the preview's dispatched request", async () => {
+	const { previewId } = await dispatchTweak(wsA);
+	const reply = await webPreviewPOST(
+		new Request(agentUrl("/api/agent/live/web-preview", wsA), {
+			method: "POST",
+			headers: agentHeaders(),
+			body: JSON.stringify({
+				previewId,
+				requestId: "lr_wrong",
+				domPreviewOps: null,
+				candidateSourcePatch: null,
+				baseFiles: [],
+				status: "done",
+			}),
+		}),
+	);
+	assert.equal(reply.status, 400);
+	assert.equal(((await reply.json()) as { error: string }).error, "REQUEST_MISMATCH");
+});
+
+test("candidate target without a base hash is rejected at reply time", async () => {
+	const { previewId, requestId } = await dispatchTweak(wsA);
+	const reply = await webPreviewPOST(
+		new Request(agentUrl("/api/agent/live/web-preview", wsA), {
+			method: "POST",
+			headers: agentHeaders(),
+			body: JSON.stringify({
+				previewId,
+				requestId,
+				domPreviewOps: [{ type: "setText", value: "x" }],
+				// candidate writes index.html but base only covers other.txt
+				candidateSourcePatch: { summary: "x", files: [{ path: "index.html", content: "ZZZ" }] },
+				baseFiles: [{ path: "other.txt", sha256: sha256("") }],
+				status: "done",
+			}),
+		}),
+	);
+	assert.equal(reply.status, 400);
+	assert.equal(((await reply.json()) as { error: string }).error, "INVALID_PARAM");
+	// preview stays requested (not attached)
+	assert.equal(pstore.getPreview(previewId)?.status, "requested");
+});

@@ -133,9 +133,16 @@ export function WebsiteViewer({
 				<Button
 					variant="ghost"
 					size="sm"
+					disabled={!scriptsEnabled && !tweakEnabled}
 					className={`h-7 gap-1.5 text-xs${tweakEnabled ? " text-primary" : ""}`}
 					onClick={() => setTweakEnabled((t) => !t)}
-					title={tweakEnabled ? "Exit tweak mode" : "Tweak this page"}
+					title={
+						!scriptsEnabled && !tweakEnabled
+							? "Enable scripts first to tweak (the picker needs scripts)"
+							: tweakEnabled
+								? "Exit tweak mode"
+								: "Tweak this page"
+					}
 				>
 					<MousePointerClick className="h-3.5 w-3.5" />
 					Tweak

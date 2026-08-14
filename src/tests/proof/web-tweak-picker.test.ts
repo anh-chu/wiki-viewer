@@ -46,9 +46,12 @@ test("picker script exposes apply/revert with data-only ops and denylist", () =>
 	// data-only: never sets innerHTML/outerHTML from a message
 	assert.doesNotMatch(WEB_TWEAK_PICKER_JS, /\.innerHTML\s*=/);
 	assert.doesNotMatch(WEB_TWEAK_PICKER_JS, /\.outerHTML\s*=/);
-	// attribute + style denylists present
-	assert.match(WEB_TWEAK_PICKER_JS, /ATTR_DENY/);
-	assert.match(WEB_TWEAK_PICKER_JS, /STYLE_DENY/);
+	// attribute + style ALLOWLISTS present (inert-only), plus text tag denylist
+	assert.match(WEB_TWEAK_PICKER_JS, /ATTR_ALLOW/);
+	assert.match(WEB_TWEAK_PICKER_JS, /STYLE_ALLOW/);
+	assert.match(WEB_TWEAK_PICKER_JS, /TEXT_DENY_TAG/);
+	// no URL/nav-bearing attributes in the allowlist
+	assert.doesNotMatch(WEB_TWEAK_PICKER_JS, /ATTR_ALLOW[\s\S]{0,400}'(src|href|data|srcset|action|formaction)'/);
 	// applied/reverted acknowledgements are posted back
 	assert.match(WEB_TWEAK_PICKER_JS, /event: 'applied'/);
 	assert.match(WEB_TWEAK_PICKER_JS, /event: 'reverted'/);

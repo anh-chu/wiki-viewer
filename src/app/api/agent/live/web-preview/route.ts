@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { checkAuth, enforceScope } from "@/lib/proof/auth";
 import { resolveWorkspaceForAgent } from "@/lib/workspace-context";
-import { getRequest, markState } from "@/lib/proof/live/store";
+import { markState } from "@/lib/proof/live/store";
 import {
 	getPreview,
 	attachPreview,
@@ -30,14 +30,32 @@ const OP_TYPES = new Set([
 	"removeClass",
 ]);
 
-/** Validate DOM ops are data-only and well-typed. Reject anything unexpected. */
+/** Validate DOM ops are data-only and well-typed, per union member. */
+function validOp(op: Record<string, unknown>): boolean {
+	const t = op.type;
+	if (typeof t !== "string" || !OP_TYPES.has(t)) return false;
+	switch (t) {
+		case "setText":
+			return typeof op.value === "string";
+		case "setStyle":
+			return typeof op.prop === "string" && typeof op.value === "string";
+		case "setAttr":
+			return typeof op.name === "string" && typeof op.value === "string";
+		case "removeAttr":
+			return typeof op.name === "string";
+		case "addClass":
+		case "removeClass":
+			return typeof op.value === "string";
+		default:
+			return false;
+	}
+}
+
 function validOps(ops: unknown): ops is DomOp[] {
 	if (!Array.isArray(ops)) return false;
-	return ops.every((o) => {
-		if (!o || typeof o !== "object") return false;
-		const op = o as Record<string, unknown>;
-		return typeof op.type === "string" && OP_TYPES.has(op.type);
-	});
+	return ops.every(
+		(o) => !!o && typeof o === "object" && validOp(o as Record<string, unknown>),
+	);
 }
 
 function validBaseFiles(v: unknown): v is BaseFile[] {
@@ -119,13 +137,20 @@ export async function POST(req: Request): Promise<NextResponse> {
 	if (!preview || preview.workspaceId !== ws.id) {
 		return NextResponse.json({ error: "PREVIEW_NOT_FOUND" }, { status: 404 });
 	}
+	// Bind the reply to the exact live request that dispatched this preview, so a
+	// malformed/hostile reply cannot attach to one preview while mutating another
+	// request's lifecycle.
+	if (!requestId || requestId !== preview.requestId) {
+		return NextResponse.json(
+			{ error: "REQUEST_MISMATCH", message: "requestId must match the preview's dispatched request" },
+			{ status: 400 },
+		);
+	}
 
-	// Agent reports failure to produce a preview.
+	// Agent reports failure to produce a preview. requestId is bound to this
+	// workspace's preview above, so marking it is safe.
 	if (body.status === "error") {
-		if (requestId) {
-			const lr = getRequest(requestId);
-			if (lr && lr.workspaceId === ws.id) markState(requestId, "error");
-		}
+		markState(requestId, "error");
 		return NextResponse.json({ ok: true, status: "error" });
 	}
 
@@ -150,12 +175,27 @@ export async function POST(req: Request): Promise<NextResponse> {
 			{ status: 400 },
 		);
 	}
-	// A committable candidate must declare the base files it was derived against.
-	if (candidate && baseFiles.length === 0) {
-		return NextResponse.json(
-			{ error: "INVALID_PARAM", message: "candidateSourcePatch requires baseFiles" },
-			{ status: 400 },
-		);
+	// A committable candidate must declare a base hash for EVERY file it writes,
+	// otherwise accept could write an unverified target while only checking an
+	// unrelated base file. Extra base entries (dependencies) are allowed.
+	if (candidate) {
+		if (baseFiles.length === 0) {
+			return NextResponse.json(
+				{ error: "INVALID_PARAM", message: "candidateSourcePatch requires baseFiles" },
+				{ status: 400 },
+			);
+		}
+		const baseset = new Set(baseFiles.map((b) => b.path));
+		const uncovered = candidate.files.find((f) => !baseset.has(f.path));
+		if (uncovered) {
+			return NextResponse.json(
+				{
+					error: "INVALID_PARAM",
+					message: `every candidate target needs a baseFiles hash (missing: ${uncovered.path})`,
+				},
+				{ status: 400 },
+			);
+		}
 	}
 
 	const attached = attachPreview(previewId, {
@@ -172,10 +212,7 @@ export async function POST(req: Request): Promise<NextResponse> {
 
 	// The live request moves to resolved (the agent's turn is done); the human now
 	// reviews the preview and accepts/discards.
-	if (requestId) {
-		const lr = getRequest(requestId);
-		if (lr && lr.workspaceId === ws.id) markState(requestId, "resolved");
-	}
+	markState(requestId, "resolved");
 
 	return NextResponse.json({ ok: true, status: "preview-ready", previewId });
 }

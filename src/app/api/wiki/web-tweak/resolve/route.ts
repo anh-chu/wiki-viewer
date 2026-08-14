@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { checkOrigin } from "@/lib/auth/csrf";
 import { resolveWorkspaceForUser } from "@/lib/workspace-context";
-import { getPreview, resolvePreview } from "@/lib/web-tweak/preview-store";
+import {
+	getPreview,
+	resolvePreview,
+	claimForResolve,
+	releaseClaim,
+} from "@/lib/web-tweak/preview-store";
 import { commitCandidate } from "@/lib/web-tweak/accept";
 
 export const runtime = "nodejs";
@@ -49,7 +54,9 @@ export async function POST(request: Request): Promise<NextResponse> {
 	if (!preview || preview.workspaceId !== ws.id) {
 		return NextResponse.json({ error: "PREVIEW_NOT_FOUND" }, { status: 404 });
 	}
-	if (preview.status !== "preview-ready") {
+	// Atomically claim the transaction (preview-ready -> resolving) so concurrent
+	// accept/discard cannot both proceed. Only the winner continues.
+	if (!claimForResolve(previewId)) {
 		return NextResponse.json(
 			{ error: "INVALID_STATE", message: `preview is ${preview.status}` },
 			{ status: 409 },
@@ -62,11 +69,21 @@ export async function POST(request: Request): Promise<NextResponse> {
 	}
 
 	// Accept: verify base hashes, then write the candidate verbatim.
-	const result = await commitCandidate(
-		ws.rootDir,
-		preview.baseFiles,
-		preview.candidateSourcePatch,
-	);
+	let result: Awaited<ReturnType<typeof commitCandidate>>;
+	try {
+		result = await commitCandidate(
+			ws.rootDir,
+			preview.baseFiles,
+			preview.candidateSourcePatch,
+		);
+	} catch (e) {
+		// Unexpected I/O failure: release the claim so the human can retry.
+		releaseClaim(previewId);
+		return NextResponse.json(
+			{ error: "WRITE_FAILED", message: (e as Error).message },
+			{ status: 500 },
+		);
+	}
 	if (!result.ok) {
 		if (result.code === "BASE_DRIFT") {
 			resolvePreview(previewId, "invalidated");
@@ -76,11 +93,13 @@ export async function POST(request: Request): Promise<NextResponse> {
 			);
 		}
 		if (result.code === "NO_CANDIDATE") {
+			resolvePreview(previewId, "invalidated");
 			return NextResponse.json(
 				{ error: "NO_CANDIDATE", message: "This preview is visual only and cannot be accepted." },
 				{ status: 422 },
 			);
 		}
+		resolvePreview(previewId, "invalidated");
 		return NextResponse.json(
 			{ error: result.code, detail: result.detail },
 			{ status: 400 },

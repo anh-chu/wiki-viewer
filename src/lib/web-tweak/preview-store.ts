@@ -33,6 +33,7 @@ import type { DomOp } from "./protocol";
 export type PreviewStatus =
 	| "requested"
 	| "preview-ready"
+	| "resolving"
 	| "accepted"
 	| "discarded"
 	| "invalidated";
@@ -252,6 +253,32 @@ export function resolvePreview(
 	getDb()
 		.prepare(`UPDATE web_preview SET status = ?, resolved_at = ? WHERE id = ?`)
 		.run(status, Date.now(), previewId);
+}
+
+/**
+ * Atomically claim a `preview-ready` transaction for resolution, moving it to a
+ * transient `resolving` state. Returns true only for the single caller that wins
+ * the race; concurrent accept/discard attempts get false and must abort. This
+ * closes the check-then-act window between reading status and committing.
+ */
+export function claimForResolve(previewId: string): boolean {
+	const res = getDb()
+		.prepare(
+			`UPDATE web_preview SET status = 'resolving'
+			 WHERE id = ? AND status = 'preview-ready'`,
+		)
+		.run(previewId);
+	return res.changes === 1;
+}
+
+/** Release a claimed transaction back to `preview-ready` (on recoverable abort). */
+export function releaseClaim(previewId: string): void {
+	getDb()
+		.prepare(
+			`UPDATE web_preview SET status = 'preview-ready'
+			 WHERE id = ? AND status = 'resolving'`,
+		)
+		.run(previewId);
 }
 
 /** Most recent preview for a session (for status display). */

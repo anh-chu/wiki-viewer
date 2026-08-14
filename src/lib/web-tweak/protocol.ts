@@ -59,11 +59,14 @@ export type PickerEvent =
 function isRect(v: unknown): v is PickerRect {
 	if (!v || typeof v !== "object") return false;
 	const r = v as Record<string, unknown>;
+	const num = (x: unknown): boolean => typeof x === "number" && Number.isFinite(x);
 	return (
-		typeof r.top === "number" &&
-		typeof r.left === "number" &&
-		typeof r.width === "number" &&
-		typeof r.height === "number"
+		num(r.top) &&
+		num(r.left) &&
+		num(r.width) &&
+		num(r.height) &&
+		num(r.bottom) &&
+		num(r.right)
 	);
 }
 

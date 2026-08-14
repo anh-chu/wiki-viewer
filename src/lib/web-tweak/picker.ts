@@ -167,13 +167,44 @@ export const WEB_TWEAK_PICKER_JS = String.raw`(function () {
   }
 
   // Data-only preview patch application. No HTML/script injection: we never set
-  // innerHTML/outerHTML and we denylist dangerous attributes/style, so a
-  // compromised parent message still cannot inject executable content here.
-  var ATTR_DENY = /^(on|srcdoc$|src$|href$|xlink:href$|formaction$|action$|target$|data-)/i;
-  var STYLE_DENY = /(expression|url\s*\(|javascript:|@import|behavior)/i;
+  // innerHTML/outerHTML. "Data-only" here also means "non-executable / no active
+  // content": we use ALLOWLISTS (not denylists) for attributes and style
+  // properties, and we refuse setText on raw-text/active elements (SCRIPT,
+  // STYLE, etc.) where text becomes code/CSS. A compromised parent message
+  // therefore still cannot introduce executable content or external loads.
+  //
+  // Attribute allowlist: purely presentational / inert. No URL/network/nav/form
+  // bearing attributes (src, href, data, srcset, poster, ping, action, target,
+  // formaction, background, xlink:href, on*), which could load or navigate.
+  var ATTR_ALLOW = {
+    'title': 1, 'alt': 1, 'aria-label': 1, 'aria-hidden': 1, 'role': 1,
+    'class': 1, 'style': 1, 'placeholder': 1, 'value': 1, 'disabled': 1,
+    'dir': 1, 'lang': 1, 'tabindex': 1
+  };
+  // Style property allowlist: presentation only. url()/expression/etc. can't
+  // appear because values are additionally screened by STYLE_DENY.
+  var STYLE_ALLOW = {
+    'color': 1, 'background-color': 1, 'background': 1, 'font-size': 1,
+    'font-weight': 1, 'font-style': 1, 'font-family': 1, 'text-align': 1,
+    'text-decoration': 1, 'line-height': 1, 'letter-spacing': 1, 'opacity': 1,
+    'display': 1, 'visibility': 1, 'margin': 1, 'padding': 1, 'border': 1,
+    'border-color': 1, 'border-radius': 1, 'width': 1, 'height': 1,
+    'max-width': 1, 'max-height': 1, 'min-width': 1, 'min-height': 1
+  };
+  var STYLE_DENY = /(expression|url\s*\(|javascript:|@import|behavior|[<>])/i;
+  // Elements where textContent is executable/raw-text or otherwise unsafe to set.
+  var TEXT_DENY_TAG = { 'SCRIPT': 1, 'STYLE': 1, 'IFRAME': 1, 'OBJECT': 1,
+    'EMBED': 1, 'TEMPLATE': 1, 'LINK': 1, 'META': 1, 'BASE': 1, 'TITLE': 1,
+    'NOSCRIPT': 1 };
 
   function safeAttrName(n) {
-    return typeof n === 'string' && n.length < 200 && !ATTR_DENY.test(n);
+    return typeof n === 'string' && Object.prototype.hasOwnProperty.call(ATTR_ALLOW, n.toLowerCase());
+  }
+  function safeStyleProp(p) {
+    return typeof p === 'string' && Object.prototype.hasOwnProperty.call(STYLE_ALLOW, p.toLowerCase());
+  }
+  function textEditable(el) {
+    return el && el.tagName && !TEXT_DENY_TAG[el.tagName];
   }
 
   function applyOps(p, ops) {
@@ -186,9 +217,10 @@ export const WEB_TWEAK_PICKER_JS = String.raw`(function () {
       if (!op || typeof op.type !== 'string') continue;
       try {
         if (op.type === 'setText') {
+          if (!textEditable(el)) continue;
           undo.push({ type: 'setText', value: el.textContent });
           el.textContent = String(op.value == null ? '' : op.value);
-        } else if (op.type === 'setStyle' && typeof op.prop === 'string') {
+        } else if (op.type === 'setStyle' && safeStyleProp(op.prop)) {
           if (STYLE_DENY.test(String(op.value))) continue;
           undo.push({ type: 'setStyle', prop: op.prop, value: el.style.getPropertyValue(op.prop) });
           el.style.setProperty(op.prop, String(op.value == null ? '' : op.value));
