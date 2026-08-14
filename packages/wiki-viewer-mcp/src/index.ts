@@ -33,6 +33,8 @@ export type {
   ReplyStatus,
   WebTweakHandler,
   WebTweakContext,
+  WebTweakItem,
+  WebItemPreview,
   WebTweakResult,
   DomOp,
   BaseFile,

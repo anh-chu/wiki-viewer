@@ -59,7 +59,7 @@ export function InstructionQueueBar({ path, drafts }: Props) {
 		return useProofStore.getState().byPath[path]?.snapshotRevision ?? 0;
 	}
 
-	async function markSent(runId: string) {
+	async function markSent(runId: string): Promise<boolean> {
 		const encoded = encodeURIComponent(path).replace(/%2F/g, "/");
 		const ops = drafts.map((c) => ({
 			type: "comment.mark",
@@ -91,6 +91,7 @@ export function InstructionQueueBar({ path, drafts }: Props) {
 			}
 		}
 		await useProofStore.getState().loadSidecar(path);
+		return res.ok;
 	}
 
 	async function handleSend() {
@@ -117,7 +118,18 @@ export function InstructionQueueBar({ path, drafts }: Props) {
 				return;
 			}
 			const body = (await res.json()) as { runId?: string | null };
-			if (body.runId) await markSent(body.runId);
+			// The run is enqueued server-side. If we cannot mark the drafts sent, warn
+			// the user rather than claim success: unmarked drafts would otherwise be
+			// re-sent as a duplicate run once this one resolves.
+			const marked = body.runId ? await markSent(body.runId) : false;
+			if (!marked) {
+				setPhase({
+					kind: "error",
+					message:
+						"Sent, but could not update the queue. Reload before sending again to avoid duplicates.",
+				});
+				return;
+			}
 			setPhase({ kind: "sent", detached: attached === false });
 			setTimeout(() => setPhase({ kind: "idle" }), attached === false ? 2200 : 1400);
 		} catch (e) {

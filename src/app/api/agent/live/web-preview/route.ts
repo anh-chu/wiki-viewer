@@ -174,6 +174,23 @@ export async function POST(req: Request): Promise<NextResponse> {
 				{ status: 400 },
 			);
 		}
+		// Each itemPreview must correlate to an instruction the run actually
+		// dispatched, and no instruction may be previewed twice. Prevents an agent
+		// reply from mislabeling or fabricating item correlation.
+		const known = new Set((preview.items ?? []).map((it) => it.instructionId));
+		const seen = new Set<string>();
+		for (const ip of itemPreviews as ItemPreview[]) {
+			if (!known.has(ip.instructionId) || seen.has(ip.instructionId)) {
+				return NextResponse.json(
+					{
+						error: "INVALID_PARAM",
+						message: `itemPreviews instructionId must be a unique member of the run (bad: ${ip.instructionId})`,
+					},
+					{ status: 400 },
+				);
+			}
+			seen.add(ip.instructionId);
+		}
 	}
 	const ops = body.domPreviewOps ?? null;
 	if (ops !== null && !validOps(ops)) {

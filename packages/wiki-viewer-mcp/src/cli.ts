@@ -169,14 +169,34 @@ export const passthroughHandler: LiveHandler = async (req) => {
  * Never writes source directly: it only returns the candidate + base hashes; the
  * server commits verbatim on human accept.
  */
-export const passthroughWebHandler: WebTweakHandler = async (ctx, { client }) => {
-  const note = (ctx.note ?? "").trim();
+/** Map one note to a data-only DOM preview op (color -> setStyle, else setText). */
+function noteToDomOp(note: string): DomOp {
   const colorMatch = note.match(
     /\b(red|green|blue|black|white|orange|purple|yellow|pink|gray|grey|#[0-9a-fA-F]{3,8})\b/,
   );
-  const domPreviewOps: DomOp[] = colorMatch
-    ? [{ type: "setStyle", prop: "color", value: colorMatch[1] }]
-    : [{ type: "setText", value: note }];
+  return colorMatch
+    ? { type: "setStyle", prop: "color", value: colorMatch[1] }
+    : { type: "setText", value: note };
+}
+
+export const passthroughWebHandler: WebTweakHandler = async (ctx, { client }) => {
+  const note = (ctx.note ?? "").trim();
+
+  // Batch run: one preview per pinned instruction, correlated by instructionId.
+  // Visual-only (no source candidate) — the passthrough agent is a smoke test.
+  if (ctx.items && ctx.items.length > 0) {
+    return {
+      domPreviewOps: null,
+      candidateSourcePatch: null,
+      baseFiles: [],
+      itemPreviews: ctx.items.map((it) => ({
+        instructionId: it.instructionId,
+        ops: [noteToDomOp((it.note ?? "").trim())],
+      })),
+    };
+  }
+
+  const domPreviewOps: DomOp[] = [noteToDomOp(note)];
 
   const commit = note.toLowerCase().startsWith("commit:");
   if (!commit) {

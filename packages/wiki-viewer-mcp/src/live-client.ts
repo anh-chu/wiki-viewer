@@ -119,6 +119,15 @@ export interface CandidateSourcePatch {
 }
 
 /** Parsed selection facts carried in a web.tweak request's selectionText. */
+/** One pinned element in a batch web.tweak run. */
+export interface WebTweakItem {
+  instructionId: string;
+  selector: string;
+  tag: string;
+  snippet: string;
+  note: string;
+}
+
 export interface WebTweakContext {
   previewId: string;
   selector: string;
@@ -126,6 +135,14 @@ export interface WebTweakContext {
   snippet: string;
   note: string;
   path: string;
+  /** Present for a batch run: the N pinned instructions dispatched together. */
+  items?: WebTweakItem[];
+}
+
+/** Per-instruction DOM preview ops for a batch run. */
+export interface WebItemPreview {
+  instructionId: string;
+  ops: DomOp[];
 }
 
 /** The agent's reply to a web.tweak request. */
@@ -133,6 +150,8 @@ export interface WebTweakResult {
   domPreviewOps: DomOp[] | null;
   candidateSourcePatch: CandidateSourcePatch | null;
   baseFiles: BaseFile[];
+  /** Batch runs may return per-instruction preview ops for correlation. */
+  itemPreviews?: WebItemPreview[] | null;
 }
 
 export interface Snapshot {
@@ -332,6 +351,7 @@ export class LiveClient {
     candidateSourcePatch: CandidateSourcePatch | null;
     baseFiles: BaseFile[];
     status: "done" | "error";
+    itemPreviews?: WebItemPreview[] | null;
   }): Promise<void> {
     const u = new URL(`${this.baseUrl}/api/agent/live/web-preview`);
     if (this.workspace) u.searchParams.set("ws", this.workspace);
@@ -345,6 +365,7 @@ export class LiveClient {
         candidateSourcePatch: input.candidateSourcePatch,
         baseFiles: input.baseFiles,
         status: input.status,
+        itemPreviews: input.itemPreviews ?? null,
       }),
     });
     if (!res.ok) await this.parseError(res);
@@ -508,13 +529,37 @@ function parseWebTweakContext(req: LiveRequest): WebTweakContext | null {
     return null;
   }
   if (typeof parsed.previewId !== "string") return null;
+  // Batch run: the pinned instructions ride in req.items. Each item's
+  // selectionText carries {selector, tag, snippet}; note is the item instruction.
+  const items: WebTweakItem[] | undefined = req.items?.map((it) => {
+    let facts: Record<string, unknown> = {};
+    if (it.selectionText) {
+      try {
+        facts = JSON.parse(it.selectionText) as Record<string, unknown>;
+      } catch {
+        facts = {};
+      }
+    }
+    return {
+      instructionId: it.instructionId,
+      selector:
+        typeof facts.selector === "string" ? facts.selector : it.blockRef ?? "",
+      tag: typeof facts.tag === "string" ? facts.tag : "",
+      snippet: typeof facts.snippet === "string" ? facts.snippet : "",
+      note: it.instruction,
+    };
+  });
+  // For a single (non-batch) tweak, selection facts sit at the top level.
+  const first = items?.[0];
   return {
     previewId: parsed.previewId,
-    selector: typeof parsed.selector === "string" ? parsed.selector : "",
-    tag: typeof parsed.tag === "string" ? parsed.tag : "",
-    snippet: typeof parsed.snippet === "string" ? parsed.snippet : "",
-    note: req.instruction ?? "",
+    selector:
+      typeof parsed.selector === "string" ? parsed.selector : first?.selector ?? "",
+    tag: typeof parsed.tag === "string" ? parsed.tag : first?.tag ?? "",
+    snippet: typeof parsed.snippet === "string" ? parsed.snippet : first?.snippet ?? "",
+    note: req.instruction ?? first?.note ?? "",
     path: req.path,
+    items,
   };
 }
 
@@ -557,6 +602,7 @@ async function handleWebTweak(
       candidateSourcePatch: result.candidateSourcePatch,
       baseFiles: result.baseFiles,
       status: "done",
+      itemPreviews: result.itemPreviews ?? null,
     });
     log("done", { requestId: req.requestId, previewId: ctx.previewId });
   } catch (e) {

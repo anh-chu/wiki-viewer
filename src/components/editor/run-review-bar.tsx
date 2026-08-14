@@ -23,6 +23,11 @@ interface Props {
  * "[run:<runId>]" (BlockOp has no dedicated run field). We therefore scope a
  * run's spans by matching that "[run:<runId>]" tag in the rendered span's
  * basis-detail attribute. Spans without the tag are left untouched.
+ *
+ * v1 all-or-nothing is best-effort: proof-spans commit one at a time (there is
+ * no multi-span transaction), so on the first failure we STOP and reload rather
+ * than continue and scatter partial state. True atomic rollback across spans is
+ * a documented non-goal for v1.
  */
 export function RunReviewBar({ path, sent, scrollContainer }: Props) {
 	const [busy, setBusy] = useState(false);
@@ -52,7 +57,7 @@ export function RunReviewBar({ path, sent, scrollContainer }: Props) {
 			for (const span of spans) {
 				const spanId = span.getAttribute("id");
 				if (!spanId) continue;
-				await wsFetch("/api/agent/internal/span", {
+				const res = await wsFetch("/api/agent/internal/span", {
 					method: "POST",
 					headers: { "Content-Type": "application/json", ...authHeaders() },
 					body: JSON.stringify({
@@ -62,6 +67,9 @@ export function RunReviewBar({ path, sent, scrollContainer }: Props) {
 						idempotencyKey: crypto.randomUUID(),
 					}),
 				});
+				// Fail-stop: do not keep resolving the rest of the run on error, which
+				// would leave partial state without any signal.
+				if (!res.ok) break;
 			}
 			await useProofStore.getState().loadSidecar(path);
 			await useProofStore.getState().loadSnapshot(path);
