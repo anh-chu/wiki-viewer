@@ -539,6 +539,10 @@ export async function runLiveLoop(
       // commit them in one write correlated to the single request/run. The
       // single-instruction path (no items) is unchanged for backward compat.
       let ops: BlockOp[] | null;
+      // The request used for the single commit. For a batch the top-level
+      // baseRevision is null (each item carries its own, all against the current
+      // file revision), so derive the commit baseRevision from the items.
+      let commitReq = req;
       if (req.items && req.items.length > 0) {
         const collected: BlockOp[] = [];
         for (const item of req.items) {
@@ -553,11 +557,13 @@ export async function runLiveLoop(
           if (itemOps) collected.push(...itemOps);
         }
         ops = collected;
+        const itemBase = req.items.find((it) => it.baseRevision !== null)?.baseRevision ?? null;
+        commitReq = { ...req, baseRevision: itemBase };
       } else {
         ops = await handler(req, { client, snapshot });
       }
       if (ops && ops.length > 0) {
-        await client.applyTier2Ops(req, ops);
+        await client.applyTier2Ops(commitReq, ops);
       }
       await client.reply(req.requestId, "done");
       log("done", { requestId: req.requestId });
