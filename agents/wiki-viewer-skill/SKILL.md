@@ -384,6 +384,34 @@ await runLiveLoop(client, markdownHandler, {
 });
 ```
 
+**Variants (`web.tweak.variants`).** The human can ask for *options* on one element. This
+kind carries the same `selectionText` (`{ previewId, selector, tag, snippet }`) and `note`,
+but you return **N candidates in one reply** (max 5). Each candidate is self-contained and
+follows the same rules as a single tweak (data-only DOM ops, single-file candidate, every
+file hashed in `baseFiles`, paths in scope). The human switches between them in-frame and
+Accepts exactly one; that one commits verbatim iff its `baseFiles` still match. Supply a
+`webVariantsHandler` to `runLiveLoop`:
+
+```ts
+await runLiveLoop(client, markdownHandler, {
+  webVariantsHandler: async (ctx, { client }) => {
+    const { content, sha256 } = await client.fetchFileForHash(ctx.path);
+    return {
+      variants: [
+        { variantId: "red",  label: "Red",  domPreviewOps: [{ type: "setStyle", prop: "color", value: "red" }],
+          candidateSourcePatch: { summary: "red",  files: [{ path: ctx.path, content: red(content) }] },  baseFiles: [{ path: ctx.path, sha256 }] },
+        { variantId: "blue", label: "Blue", domPreviewOps: [{ type: "setStyle", prop: "color", value: "blue" }],
+          candidateSourcePatch: { summary: "blue", files: [{ path: ctx.path, content: blue(content) }] }, baseFiles: [{ path: ctx.path, sha256 }] },
+      ],
+    };
+  },
+});
+```
+
+Each `variantId` must be unique and non-empty. A `null` candidate makes that option
+visual-only (no Accept). Derive every variant against the *same* base content so all their
+`baseFiles` hashes agree.
+
 ## Error codes
 
 | Status | Code                   | Meaning                                                                                 |

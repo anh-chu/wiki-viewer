@@ -14,6 +14,8 @@ import {
   type LiveHandler,
   type BlockOp,
   type WebTweakHandler,
+  type WebVariantsHandler,
+  type WebVariant,
   type DomOp,
 } from "./live-client.js";
 import {
@@ -217,6 +219,60 @@ export const passthroughWebHandler: WebTweakHandler = async (ctx, { client }) =>
   };
 };
 
+/**
+ * Built-in passthrough variants handler: a functional reference agent for smoke
+ * tests. It derives 2-3 visual-only candidate options from the human note by
+ * reusing noteToDomOp for a couple of color/text variations. Each variant is
+ * visual-only (null candidateSourcePatch) unless the note starts with "commit:",
+ * in which case the first variant carries a real whole-file replacement candidate
+ * pinned via client.fetchFileForHash so accept can re-check the hash.
+ */
+export const passthroughVariantsHandler: WebVariantsHandler = async (ctx, { client }) => {
+  const note = (ctx.note ?? "").trim();
+
+  // A small spread of visual-only options derived from the note.
+  const variants: WebVariant[] = [
+    {
+      variantId: "v1",
+      label: note || "option 1",
+      domPreviewOps: [noteToDomOp(note)],
+      candidateSourcePatch: null,
+      baseFiles: [],
+    },
+    {
+      variantId: "v2",
+      label: `${note || "option"} (bold)`,
+      domPreviewOps: [{ type: "setStyle", prop: "font-weight", value: "bold" }],
+      candidateSourcePatch: null,
+      baseFiles: [],
+    },
+    {
+      variantId: "v3",
+      label: `${note || "option"} (emphasis)`,
+      domPreviewOps: [{ type: "setStyle", prop: "text-decoration", value: "underline" }],
+      candidateSourcePatch: null,
+      baseFiles: [],
+    },
+  ];
+
+  const commit = note.toLowerCase().startsWith("commit:");
+  if (commit) {
+    // Make the first variant committable: a whole-file replacement candidate.
+    const { content, sha256 } = await client.fetchFileForHash(ctx.path);
+    const newContent = `${content}\n<!-- ${note} -->\n`;
+    variants[0] = {
+      ...variants[0],
+      candidateSourcePatch: {
+        files: [{ path: ctx.path, content: newContent }],
+        summary: note,
+      },
+      baseFiles: [{ path: ctx.path, sha256 }],
+    };
+  }
+
+  return { variants };
+};
+
 async function runLive(): Promise<void> {
   await enableKeepAlive();
   const client = createLiveClient();
@@ -229,6 +285,7 @@ async function runLive(): Promise<void> {
   await runLiveLoop(client, passthroughHandler, {
     signal: controller.signal,
     webHandler: passthroughWebHandler,
+    webVariantsHandler: passthroughVariantsHandler,
     onEvent: (event, detail) => {
       const suffix = detail ? ` ${JSON.stringify(detail)}` : "";
       console.error(`[live] ${event}${suffix}`);

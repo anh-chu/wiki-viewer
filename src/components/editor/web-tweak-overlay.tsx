@@ -44,6 +44,8 @@ type Phase =
 	| { kind: "waiting" }
 	| { kind: "ready" }
 	| { kind: "resolving" }
+	| { kind: "variantsWaiting" } // single-element variants dispatched, awaiting options
+	| { kind: "variants"; items: VariantView[]; selected: string }
 	| { kind: "message"; text: string; visualOnly?: boolean };
 
 interface WebInstructionItem {
@@ -59,6 +61,15 @@ interface ItemPreview {
 	ops: DomOp[];
 }
 
+interface VariantView {
+	variantId: string;
+	label: string;
+	domPreviewOps: DomOp[] | null;
+	acceptable: boolean;
+	patchSummary: string | null;
+	affectedFiles: string[];
+}
+
 interface StatusResponse {
 	status: "requested" | "preview-ready" | "accepted" | "discarded" | "invalidated";
 	selector: string;
@@ -69,6 +80,7 @@ interface StatusResponse {
 	runId: string | null;
 	items: WebInstructionItem[] | null;
 	itemPreviews: ItemPreview[] | null;
+	variants: VariantView[] | null;
 }
 
 /**
@@ -99,6 +111,7 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 
 	const previewIdRef = useRef<string | null>(null);
 	const appliedIdsRef = useRef<string[]>([]);
+	const variantsTargetIdRef = useRef<string | null>(null);
 	const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 	const noteRef = useRef<HTMLTextAreaElement>(null);
 
@@ -123,6 +136,7 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 			postPickerCommand(frameRef.current, { source: "wv-tweak", cmd: "revert", id });
 		}
 		appliedIdsRef.current = [];
+		variantsTargetIdRef.current = null;
 		previewIdRef.current = null;
 		setQueue([]);
 		setPick(null);
@@ -261,12 +275,90 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 		[frameRef, stopPolling],
 	);
 
+	/** Apply one variant's preview ops in-frame, targeting the picked element. */
+	const applyVariant = useCallback(
+		(targetId: string, ops: DomOp[] | null) => {
+			if (!ops || ops.length === 0) return;
+			postPickerCommand(frameRef.current, {
+				source: "wv-tweak",
+				cmd: "apply",
+				id: targetId,
+				ops,
+			});
+			appliedIdsRef.current = [targetId];
+		},
+		[frameRef],
+	);
+
+	/** Revert whatever variant ops are currently applied to the target element. */
+	const revertVariant = useCallback(
+		(targetId: string) => {
+			postPickerCommand(frameRef.current, {
+				source: "wv-tweak",
+				cmd: "revert",
+				id: targetId,
+			});
+			appliedIdsRef.current = [];
+		},
+		[frameRef],
+	);
+
+	/** Poll status for a single-element variants request. */
+	const startVariantsPolling = useCallback(
+		(previewId: string, targetId: string) => {
+			stopPolling();
+			const startedAt = Date.now();
+			const TIMEOUT_MS = 90_000;
+			pollRef.current = setInterval(async () => {
+				if (Date.now() - startedAt > TIMEOUT_MS) {
+					stopPolling();
+					setPhase({
+						kind: "message",
+						text: "No response from the agent yet. You can keep waiting, or copy the prompt and run it elsewhere.",
+					});
+					return;
+				}
+				try {
+					const res = await wsFetch(
+						`/api/wiki/web-tweak/status?previewId=${encodeURIComponent(previewId)}`,
+					);
+					if (!res.ok) return;
+					const data = (await res.json()) as StatusResponse;
+					if (data.status === "preview-ready") {
+						const variants = data.variants ?? [];
+						if (variants.length === 0) return;
+						stopPolling();
+						const first = variants[0];
+						applyVariant(targetId, first.domPreviewOps);
+						setPhase({
+							kind: "variants",
+							items: variants,
+							selected: first.variantId,
+						});
+					} else if (
+						data.status === "discarded" ||
+						data.status === "invalidated" ||
+						data.status === "accepted"
+					) {
+						stopPolling();
+						setPhase({ kind: "message", text: `Run ${data.status}.` });
+					}
+				} catch {}
+			}, 1000);
+		},
+		[stopPolling, applyVariant],
+	);
+
 	/** Build a self-contained prompt a human can paste into any agent/chat. */
 	function buildPrompt(): string {
 		const lines = [`Edit the file \`${path}\` (an HTML page). Apply these changes:`, ""];
-		queue.forEach((q, i) => {
-			lines.push(`${i + 1}. Element \`${q.selector}\` (<${q.tag}>): ${q.instruction}`);
-		});
+		if (queue.length === 0 && pick) {
+			lines.push(`1. Element \`${pick.selector}\` (<${pick.tag}>): ${note.trim()}`);
+		} else {
+			queue.forEach((q, i) => {
+				lines.push(`${i + 1}. Element \`${q.selector}\` (<${q.tag}>): ${q.instruction}`);
+			});
+		}
 		return lines.join("\n");
 	}
 
@@ -336,6 +428,98 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 			previewIdRef.current = body.previewId;
 			setPhase({ kind: "waiting" });
 			startPolling(body.previewId);
+		} catch (e) {
+			setPhase({ kind: "message", text: (e as Error).message });
+		}
+	}
+
+	/** Dispatch the current single element for N variant options. */
+	async function handleGetOptions() {
+		if (!pick || note.trim().length === 0) return;
+		const targetId = pick.id || `pin_${Date.now().toString(36)}`;
+		variantsTargetIdRef.current = targetId;
+		setPhase({ kind: "sending" });
+		try {
+			const res = await wsFetch("/api/wiki/web-tweak/request", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					path,
+					selector: pick.selector,
+					tag: pick.tag,
+					snippet: pick.snippet,
+					text: pick.text,
+					note: note.trim(),
+					variants: true,
+				}),
+			});
+			if (res.status === 409) {
+				setPhase({
+					kind: "message",
+					text: "A run is already outstanding. Resolve it first.",
+				});
+				return;
+			}
+			if (!res.ok) {
+				const body = (await res.json().catch(() => ({}))) as { message?: string };
+				setPhase({ kind: "message", text: body.message ?? "Request failed." });
+				return;
+			}
+			const body = (await res.json()) as { previewId: string };
+			previewIdRef.current = body.previewId;
+			setPhase({ kind: "variantsWaiting" });
+			startVariantsPolling(body.previewId, targetId);
+		} catch (e) {
+			setPhase({ kind: "message", text: (e as Error).message });
+		}
+	}
+
+	/** Switch selected variant: revert previous ops, then apply new ones. */
+	function handleSelectVariant(variantId: string) {
+		const targetId = variantsTargetIdRef.current;
+		if (!targetId) return;
+		setPhase((prev) => {
+			if (prev.kind !== "variants" || prev.selected === variantId) return prev;
+			const next = prev.items.find((v) => v.variantId === variantId);
+			if (!next) return prev;
+			revertVariant(targetId);
+			applyVariant(targetId, next.domPreviewOps);
+			return { ...prev, selected: variantId };
+		});
+	}
+
+	async function handleAcceptVariant() {
+		const previewId = previewIdRef.current;
+		if (!previewId || phase.kind !== "variants") return;
+		const variantId = phase.selected;
+		setPhase({ kind: "resolving" });
+		try {
+			const res = await wsFetch("/api/wiki/web-tweak/resolve", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ previewId, action: "accept", variantId }),
+			});
+			if (res.ok) {
+				postPickerCommand(frameRef.current, { source: "wv-tweak", cmd: "clear" });
+				appliedIdsRef.current = [];
+				resetRun();
+				return;
+			}
+			if (res.status === 409) {
+				resetRun();
+				setPhase({ kind: "message", text: "Source changed since preview. Re-instruct." });
+				return;
+			}
+			if (res.status === 422) {
+				setPhase({
+					kind: "message",
+					text: "This variant is visual only and cannot be accepted.",
+					visualOnly: true,
+				});
+				return;
+			}
+			const body = (await res.json().catch(() => ({}))) as { message?: string };
+			setPhase({ kind: "message", text: body.message ?? "Accept failed." });
 		} catch (e) {
 			setPhase({ kind: "message", text: (e as Error).message });
 		}
@@ -536,6 +720,19 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 							</button>
 							<button
 								type="button"
+								disabled={note.trim().length === 0 || !agent.attached}
+								title={
+									agent.attached
+										? "Ask the agent for several options"
+										: "No agent is on the line yet"
+								}
+								onClick={() => void handleGetOptions()}
+								className="rounded-md border border-border px-2.5 py-1 text-[11px] font-medium transition-colors hover:bg-accent disabled:opacity-50"
+							>
+								Get options
+							</button>
+							<button
+								type="button"
 								disabled={note.trim().length === 0}
 								onClick={handleAddInstruction}
 								className="rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
@@ -570,9 +767,16 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 			)}
 
 			{/* Run lifecycle panel (waiting / ready / resolving / message). */}
-			{runInFlight || phase.kind === "message" ? (
+			{renderRunPanel(phase)}
+		</>
+	);
+
+	function renderRunPanel(phase: Phase) {
+		return runInFlight || phase.kind === "message" ? (
 				<div className="fixed bottom-4 left-1/2 z-50 w-[min(24rem,calc(100vw-1rem))] -translate-x-1/2 space-y-2.5 rounded-lg border border-border bg-popover p-3 text-[12px] shadow-xl">
-					{(phase.kind === "sending" || phase.kind === "waiting") && (
+					{(phase.kind === "sending" ||
+						phase.kind === "waiting" ||
+						phase.kind === "variantsWaiting") && (
 						<div className="space-y-2">
 							<p className="text-[11px] text-muted-foreground">
 								Sent to{" "}
@@ -636,6 +840,63 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 						</>
 					)}
 
+					{phase.kind === "variants" &&
+						(() => {
+							const sel =
+								phase.items.find((v) => v.variantId === phase.selected) ??
+								phase.items[0];
+							return (
+								<>
+									<p className="text-[11px] font-medium text-foreground">
+										{phase.items.length} option
+										{phase.items.length === 1 ? "" : "s"}
+									</p>
+									<div className="flex flex-wrap gap-1.5">
+										{phase.items.map((v) => (
+											<button
+												key={v.variantId}
+												type="button"
+												onClick={() => handleSelectVariant(v.variantId)}
+												className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
+													v.variantId === phase.selected
+														? "bg-primary text-primary-foreground"
+														: "border border-border hover:bg-accent"
+												}`}
+											>
+												{v.label}
+											</button>
+										))}
+									</div>
+									{sel?.patchSummary && (
+										<p className="text-[11px] text-foreground">
+											{sel.patchSummary}
+										</p>
+									)}
+									{sel && !sel.acceptable && (
+										<p className="text-[11px] text-amber-600">visual only</p>
+									)}
+									<div className="flex items-center justify-end gap-2 pt-0.5">
+										<button
+											type="button"
+											onClick={() => void handleDiscardRun()}
+											className="rounded-md border border-border px-2.5 py-1 text-[11px] font-medium transition-colors hover:bg-accent"
+										>
+											Discard
+										</button>
+										{sel?.acceptable && (
+											<button
+												type="button"
+												onClick={() => void handleAcceptVariant()}
+												className="rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+											>
+												Accept
+											</button>
+										)}
+									</div>
+								</>
+							);
+						})()}
+
 					{phase.kind === "resolving" && (
 						<p className="text-[11px] text-muted-foreground">Working…</p>
 					)}
@@ -661,7 +922,6 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 						</>
 					)}
 				</div>
-			) : null}
-		</>
-	);
+		) : null;
+	}
 }

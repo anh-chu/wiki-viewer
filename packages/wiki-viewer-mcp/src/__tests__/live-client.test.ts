@@ -652,6 +652,119 @@ test("runLiveLoop: web.tweak with no webHandler submits status error", async () 
   assert.equal(submitted?.status, "error");
 });
 
+// ─── web.tweak.variants: submitWebVariants + runLiveLoop dispatch ────────────────
+
+function webVariantsRequest(overrides: Partial<LiveRequest> = {}): LiveRequest {
+  return webTweakRequest({ kind: "web.tweak.variants", ...overrides });
+}
+
+test("runLiveLoop: web.tweak.variants invokes handler and submits N variants done", async () => {
+  const controller = new AbortController();
+  const replies: string[] = [];
+  let submitted: Record<string, unknown> | undefined;
+  let polls = 0;
+  const { fetch } = makeFetch([
+    {
+      match: (u, i) => u.endsWith("/api/agent/live/attach") && i?.method === "POST",
+      respond: () => ({ status: 200, body: { sessionId: "ls_1" } }),
+    },
+    {
+      match: (u) => u.includes("/api/agent/live/poll"),
+      respond: () => {
+        polls += 1;
+        if (polls === 1)
+          return { status: 200, body: { type: "web.tweak.variants", request: webVariantsRequest() } };
+        controller.abort();
+        return { status: 200, body: { type: "timeout" } };
+      },
+    },
+    {
+      match: (u) => u.endsWith("/api/agent/live/reply"),
+      respond: (_u, i) => {
+        replies.push((JSON.parse(String(i?.body)) as { status: string }).status);
+        return { status: 200, body: { ok: true } };
+      },
+    },
+    {
+      match: (u, i) => u.includes("/api/agent/live/web-preview") && i?.method === "POST",
+      respond: (_u, i) => {
+        submitted = JSON.parse(String(i?.body)) as Record<string, unknown>;
+        return { status: 200, body: { ok: true, status: "preview-ready" } };
+      },
+    },
+  ]);
+
+  const client = new LiveClient(cfg(fetch));
+  let seenCtx: unknown;
+  await runLiveLoop(client, async () => null, {
+    signal: controller.signal,
+    webVariantsHandler: async (ctx) => {
+      seenCtx = ctx;
+      return {
+        variants: [
+          {
+            variantId: "v1",
+            label: "red",
+            domPreviewOps: [{ type: "setStyle", prop: "color", value: "red" }],
+            candidateSourcePatch: null,
+            baseFiles: [],
+          },
+          {
+            variantId: "v2",
+            label: "blue",
+            domPreviewOps: [{ type: "setStyle", prop: "color", value: "blue" }],
+            candidateSourcePatch: null,
+            baseFiles: [],
+          },
+        ],
+      };
+    },
+  });
+
+  assert.deepEqual(replies, ["working"]);
+  assert.equal((seenCtx as { previewId: string }).previewId, "wp_1");
+  assert.equal(submitted?.status, "done");
+  assert.equal(submitted?.previewId, "wp_1");
+  assert.equal(submitted?.requestId, "lr_1");
+  const variants = submitted?.variants as Array<Record<string, unknown>>;
+  assert.equal(variants.length, 2);
+  assert.equal(variants[0].variantId, "v1");
+  assert.equal(variants[1].variantId, "v2");
+});
+
+test("runLiveLoop: web.tweak.variants with no handler submits status error", async () => {
+  const controller = new AbortController();
+  let submitted: Record<string, unknown> | undefined;
+  let polls = 0;
+  const { fetch } = makeFetch([
+    {
+      match: (u, i) => u.endsWith("/api/agent/live/attach") && i?.method === "POST",
+      respond: () => ({ status: 200, body: { sessionId: "ls_1" } }),
+    },
+    {
+      match: (u) => u.includes("/api/agent/live/poll"),
+      respond: () => {
+        polls += 1;
+        if (polls === 1)
+          return { status: 200, body: { type: "web.tweak.variants", request: webVariantsRequest() } };
+        controller.abort();
+        return { status: 200, body: { type: "timeout" } };
+      },
+    },
+    {
+      match: (u, i) => u.includes("/api/agent/live/web-preview") && i?.method === "POST",
+      respond: (_u, i) => {
+        submitted = JSON.parse(String(i?.body)) as Record<string, unknown>;
+        return { status: 200, body: { ok: true } };
+      },
+    },
+  ]);
+
+  const client = new LiveClient(cfg(fetch));
+  await runLiveLoop(client, async () => null, { signal: controller.signal });
+  assert.equal(submitted?.status, "error");
+});
+
 test("passthroughWebHandler real-candidate path computes baseFiles via fetchFileForHash", async () => {
   const fileContent = "# Title\n\nbody text\n";
   const { fetch } = makeFetch([

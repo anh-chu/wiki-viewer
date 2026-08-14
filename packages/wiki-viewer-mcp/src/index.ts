@@ -15,6 +15,7 @@ export {
   createLiveClient,
   passthroughHandler,
   passthroughWebHandler,
+  passthroughVariantsHandler,
 } from "./cli.js";
 export {
   LiveClient,
@@ -36,6 +37,9 @@ export type {
   WebTweakItem,
   WebItemPreview,
   WebTweakResult,
+  WebVariant,
+  WebVariantsResult,
+  WebVariantsHandler,
   DomOp,
   BaseFile,
   CandidateSourcePatch,

@@ -42,7 +42,7 @@ export interface LiveRequest {
   path: string;
   blockRef: string | null;
   baseRevision: number | null;
-  kind: "generate" | "steer" | "accept" | "discard" | "exit" | "web.tweak";
+  kind: "generate" | "steer" | "accept" | "discard" | "exit" | "web.tweak" | "web.tweak.variants";
   instruction: string | null;
   /** Exact substring the human highlighted within the block (context only). */
   selectionText?: string | null;
@@ -152,6 +152,20 @@ export interface WebTweakResult {
   baseFiles: BaseFile[];
   /** Batch runs may return per-instruction preview ops for correlation. */
   itemPreviews?: WebItemPreview[] | null;
+}
+
+/** One candidate option in a web.tweak.variants reply. */
+export interface WebVariant {
+  variantId: string;
+  label: string;
+  domPreviewOps: DomOp[] | null;
+  candidateSourcePatch: CandidateSourcePatch | null;
+  baseFiles: BaseFile[];
+}
+
+/** The agent's reply to a web.tweak.variants request: N candidate options. */
+export interface WebVariantsResult {
+  variants: WebVariant[];
 }
 
 export interface Snapshot {
@@ -370,6 +384,33 @@ export class LiveClient {
     });
     if (!res.ok) await this.parseError(res);
   }
+
+  /**
+   * Submit the agent's reply to a web.tweak.variants request: N candidate options
+   * for one target, in a single request. Each variant carries its own DOM preview
+   * ops, immutable candidate source patch, and base file hashes. The server
+   * validates variant count/uniqueness and single-file scope; nothing is applied
+   * here — the human picks one and the server commits it on accept.
+   */
+  async submitWebVariants(input: {
+    previewId: string;
+    requestId: string;
+    variants: WebVariant[];
+  }): Promise<void> {
+    const u = new URL(`${this.baseUrl}/api/agent/live/web-preview`);
+    if (this.workspace) u.searchParams.set("ws", this.workspace);
+    const res = await this._fetch(u.toString(), {
+      method: "POST",
+      headers: this.headers({ "Content-Type": "application/json" }),
+      body: JSON.stringify({
+        previewId: input.previewId,
+        requestId: input.requestId,
+        status: "done",
+        variants: input.variants,
+      }),
+    });
+    if (!res.ok) await this.parseError(res);
+  }
 }
 
 // ─── Runtime loop ─────────────────────────────────────────────────────────────
@@ -399,6 +440,16 @@ export type WebTweakHandler = (
   api: { client: LiveClient },
 ) => Promise<WebTweakResult>;
 
+/**
+ * Decides what to do with one delivered web.tweak.variants request. Returns N
+ * candidate options for the single target. Like WebTweakHandler, the agent never
+ * writes source directly; the server commits the chosen variant on human accept.
+ */
+export type WebVariantsHandler = (
+  ctx: WebTweakContext,
+  api: { client: LiveClient },
+) => Promise<WebVariantsResult>;
+
 export interface RunLiveLoopOptions {
   signal?: AbortSignal;
   /** Called on each accepted request lifecycle transition (for logging). */
@@ -407,6 +458,8 @@ export interface RunLiveLoopOptions {
   prefetchSnapshot?: boolean;
   /** Handler for web.tweak requests. Without it, web.tweak replies status error. */
   webHandler?: WebTweakHandler;
+  /** Handler for web.tweak.variants requests. Without it, replies status error. */
+  webVariantsHandler?: WebVariantsHandler;
 }
 
 /**
@@ -456,6 +509,12 @@ export async function runLiveLoop(
     // patch), never a direct source write. Handled on its own path.
     if (req.kind === "web.tweak") {
       await handleWebTweak(client, req, opts, log);
+      continue;
+    }
+
+    // Web-tweak variants: one target, N candidate options in a single reply.
+    if (req.kind === "web.tweak.variants") {
+      await handleWebVariants(client, req, opts, log);
       continue;
     }
 
@@ -603,6 +662,59 @@ async function handleWebTweak(
       baseFiles: result.baseFiles,
       status: "done",
       itemPreviews: result.itemPreviews ?? null,
+    });
+    log("done", { requestId: req.requestId, previewId: ctx.previewId });
+  } catch (e) {
+    await client
+      .submitWebPreview({
+        previewId: ctx.previewId,
+        requestId: req.requestId,
+        domPreviewOps: null,
+        candidateSourcePatch: null,
+        baseFiles: [],
+        status: "error",
+      })
+      .catch(() => {});
+    log("error", { requestId: req.requestId, error: (e as Error).message });
+  }
+}
+
+/** Handle one delivered web.tweak.variants request. */
+async function handleWebVariants(
+  client: LiveClient,
+  req: LiveRequest,
+  opts: RunLiveLoopOptions,
+  log: (event: string, detail?: unknown) => void,
+): Promise<void> {
+  const ctx = parseWebTweakContext(req);
+  if (!ctx) {
+    log("error", { requestId: req.requestId, error: "invalid web.tweak.variants selectionText" });
+    return;
+  }
+  log("request", { kind: req.kind, requestId: req.requestId, previewId: ctx.previewId });
+
+  if (!opts.webVariantsHandler) {
+    await client
+      .submitWebPreview({
+        previewId: ctx.previewId,
+        requestId: req.requestId,
+        domPreviewOps: null,
+        candidateSourcePatch: null,
+        baseFiles: [],
+        status: "error",
+      })
+      .catch(() => {});
+    log("error", { requestId: req.requestId, error: "no webVariantsHandler configured" });
+    return;
+  }
+
+  try {
+    await client.reply(req.requestId, "working");
+    const result = await opts.webVariantsHandler(ctx, { client });
+    await client.submitWebVariants({
+      previewId: ctx.previewId,
+      requestId: req.requestId,
+      variants: result.variants,
     });
     log("done", { requestId: req.requestId, previewId: ctx.previewId });
   } catch (e) {
