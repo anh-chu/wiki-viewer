@@ -218,8 +218,18 @@ export const llmHandler: LiveHandler = async (req, { snapshot }) => {
     "---",
   ].join("\n");
 
-  const rewritten = await claudePrompt(prompt);
-  if (!rewritten) return null;
+  let rewritten = "";
+  try {
+    rewritten = await claudePrompt(prompt);
+  } catch (e) {
+    console.error(`[live] llm error: ${(e as Error).message}`);
+    throw e; // surface as reply status error, not a silent no-op
+  }
+  if (!rewritten) {
+    console.error("[live] llm returned empty output; skipping edit");
+    return null;
+  }
+  console.error(`[live] llm rewrote block ${req.blockRef} (${rewritten.length} chars)`);
 
   return [
     {
