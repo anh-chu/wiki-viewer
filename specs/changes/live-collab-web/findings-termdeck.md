@@ -1,3 +1,9 @@
+> SUPERSEDED for the v1 shape. TermDeck is retained here as *ideation reference
+> only*. The actual build target is impeccable-grade (variant preview bound to an
+> immutable candidate source patch, write-on-accept). See `proposal.md`. Do not
+> implement the shallow "prose to agent, reload" model described at the bottom of
+> this file.
+
 # Gap 2 research: TermDeck's "Tweak mode" and what it means for wiki-viewer
 
 Source studied: `huytieu/termdeck-localterm` (a fork of `localterm`, whose wiki
