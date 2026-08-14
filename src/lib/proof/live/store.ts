@@ -19,7 +19,18 @@ import { randomBytes } from "node:crypto";
 /** An agent counts as attached if it polled within this window (ms). */
 export const PRESENCE_TTL_MS = 45_000;
 
-export type RequestKind = "generate" | "steer" | "accept" | "discard" | "exit";
+export type RequestKind =
+	| "generate"
+	| "steer"
+	| "accept"
+	| "discard"
+	| "exit"
+	// Web-tweak kinds (impeccable-grade web live collab). web.tweak asks the
+	// agent to produce a preview transaction (DOM preview ops + candidate source
+	// patch + base hashes). web.accept / web.discard reference a previewId.
+	| "web.tweak"
+	| "web.accept"
+	| "web.discard";
 export type RequestState =
 	| "pending"
 	| "delivered"
