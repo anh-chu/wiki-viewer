@@ -9,9 +9,26 @@
  * sandboxed null-origin iframe (no allow-same-origin, matching the wiki-viewer
  * security model: never combine allow-scripts with allow-same-origin).
  *
- * Protocol:
- *   parent -> iframe : { source:'wv-tweak', cmd:'enable'|'disable'|'remove'|'clear', id? }
- *   iframe -> parent : { source:'wv-tweak', event:'ready'|'selected', id, selector, tag, snippet, text, rect }
+ * Protocol (parent -> iframe):
+ *   { source:'wv-tweak', cmd:'enable'|'disable'|'remove'|'clear', id? }
+ *   { source:'wv-tweak', cmd:'apply', id, ops:DomOp[] }   apply an ephemeral
+ *       preview patch to the picked element; the prior state is retained so it
+ *       can be reverted. Ops are DATA-ONLY (no HTML/script injection):
+ *         { type:'setText', value }
+ *         { type:'setStyle', prop, value }
+ *         { type:'setAttr', name, value }   (name/value denylisted below)
+ *         { type:'removeAttr', name }
+ *         { type:'addClass', value } | { type:'removeClass', value }
+ *   { source:'wv-tweak', cmd:'revert', id }   undo the applied preview patch.
+ *
+ * Protocol (iframe -> parent):
+ *   { source:'wv-tweak', event:'ready'|'selected', id, selector, tag, snippet, text, rect }
+ *
+ * SECURITY: iframe->parent messages carry SELECTION FACTS ONLY. They can never
+ * trigger a filesystem write or an accept; accept/discard are driven by trusted
+ * parent control state. The parent additionally verifies event.source identity
+ * (see readPickerMessage below) because a sandboxed null-origin iframe has an
+ * opaque origin that makes event.origin checks insufficient on their own.
  *
  * This module exports the script as a string so it can be (a) served at a
  * stable URL and referenced with <script src>, or (b) inlined into proxied HTML.
@@ -144,15 +161,84 @@ export const WEB_TWEAK_PICKER_JS = String.raw`(function () {
     picks.forEach(badgePlace);
   }
 
+  function findPick(id) {
+    for (var i = 0; i < picks.length; i++) { if (picks[i].id === id) return picks[i]; }
+    return null;
+  }
+
+  // Data-only preview patch application. No HTML/script injection: we never set
+  // innerHTML/outerHTML and we denylist dangerous attributes/style, so a
+  // compromised parent message still cannot inject executable content here.
+  var ATTR_DENY = /^(on|srcdoc$|src$|href$|xlink:href$|formaction$|action$|target$|data-)/i;
+  var STYLE_DENY = /(expression|url\s*\(|javascript:|@import|behavior)/i;
+
+  function safeAttrName(n) {
+    return typeof n === 'string' && n.length < 200 && !ATTR_DENY.test(n);
+  }
+
+  function applyOps(p, ops) {
+    if (!p || !Array.isArray(ops)) return;
+    if (p.undo) revertOps(p); // re-applying replaces the prior preview
+    var undo = [];
+    var el = p.el;
+    for (var i = 0; i < ops.length; i++) {
+      var op = ops[i];
+      if (!op || typeof op.type !== 'string') continue;
+      try {
+        if (op.type === 'setText') {
+          undo.push({ type: 'setText', value: el.textContent });
+          el.textContent = String(op.value == null ? '' : op.value);
+        } else if (op.type === 'setStyle' && typeof op.prop === 'string') {
+          if (STYLE_DENY.test(String(op.value))) continue;
+          undo.push({ type: 'setStyle', prop: op.prop, value: el.style.getPropertyValue(op.prop) });
+          el.style.setProperty(op.prop, String(op.value == null ? '' : op.value));
+        } else if (op.type === 'setAttr' && safeAttrName(op.name)) {
+          if (STYLE_DENY.test(String(op.value))) continue;
+          undo.push({ type: 'setAttr', name: op.name, value: el.getAttribute(op.name), had: el.hasAttribute(op.name) });
+          el.setAttribute(op.name, String(op.value == null ? '' : op.value));
+        } else if (op.type === 'removeAttr' && safeAttrName(op.name)) {
+          undo.push({ type: 'setAttr', name: op.name, value: el.getAttribute(op.name), had: el.hasAttribute(op.name) });
+          el.removeAttribute(op.name);
+        } else if (op.type === 'addClass' && typeof op.value === 'string') {
+          if (!el.classList.contains(op.value)) { undo.push({ type: 'removeClass', value: op.value }); el.classList.add(op.value); }
+        } else if (op.type === 'removeClass' && typeof op.value === 'string') {
+          if (el.classList.contains(op.value)) { undo.push({ type: 'addClass', value: op.value }); el.classList.remove(op.value); }
+        }
+      } catch (err) { /* ignore a single bad op */ }
+    }
+    p.undo = undo;
+    reflow();
+    post({ event: 'applied', id: p.id });
+  }
+
+  function revertOps(p) {
+    if (!p || !p.undo) return;
+    var el = p.el;
+    // Undo in reverse order.
+    for (var i = p.undo.length - 1; i >= 0; i--) {
+      var u = p.undo[i];
+      try {
+        if (u.type === 'setText') el.textContent = u.value;
+        else if (u.type === 'setStyle') { if (u.value) el.style.setProperty(u.prop, u.value); else el.style.removeProperty(u.prop); }
+        else if (u.type === 'setAttr') { if (u.had) el.setAttribute(u.name, u.value); else el.removeAttribute(u.name); }
+        else if (u.type === 'addClass') el.classList.add(u.value);
+        else if (u.type === 'removeClass') el.classList.remove(u.value);
+      } catch (err) {}
+    }
+    p.undo = null;
+    reflow();
+    post({ event: 'reverted', id: p.id });
+  }
+
   function removePick(id) {
     for (var i = 0; i < picks.length; i++) {
-      if (picks[i].id === id) { picks[i].mark.remove(); picks[i].badge.remove(); picks.splice(i, 1); break; }
+      if (picks[i].id === id) { revertOps(picks[i]); picks[i].mark.remove(); picks[i].badge.remove(); picks.splice(i, 1); break; }
     }
     picks.forEach(badgePlace);
   }
 
   function clearPicks() {
-    picks.forEach(function (p) { p.mark.remove(); p.badge.remove(); });
+    picks.forEach(function (p) { revertOps(p); p.mark.remove(); p.badge.remove(); });
     picks = [];
   }
 
@@ -175,6 +261,8 @@ export const WEB_TWEAK_PICKER_JS = String.raw`(function () {
     else if (d.cmd === 'disable') setEnabled(false);
     else if (d.cmd === 'remove') removePick(d.id);
     else if (d.cmd === 'clear') clearPicks();
+    else if (d.cmd === 'apply') applyOps(findPick(d.id), d.ops);
+    else if (d.cmd === 'revert') revertOps(findPick(d.id));
   });
   document.addEventListener('click', onClick, true);
   window.addEventListener('scroll', reflow, true);

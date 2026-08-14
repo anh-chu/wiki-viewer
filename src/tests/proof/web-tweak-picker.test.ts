@@ -5,6 +5,7 @@ import {
 	injectPicker,
 	pickerScriptTag,
 } from "../../lib/web-tweak/picker.js";
+import { readPickerMessage } from "../../lib/web-tweak/protocol.js";
 
 test("picker script is self-contained and postMessage-only (no same-origin needs)", () => {
 	// Guards against reintroducing same-origin coupling: the picker must only
@@ -36,4 +37,81 @@ test("injectPicker appends when no </body>", () => {
 	const out = injectPicker("<div>fragment</div>");
 	assert.ok(out.startsWith("<div>fragment</div>"));
 	assert.match(out, /data-wv-tweak/);
+});
+
+test("picker script exposes apply/revert with data-only ops and denylist", () => {
+	// apply/revert wired into the message handler
+	assert.match(WEB_TWEAK_PICKER_JS, /d\.cmd === 'apply'/);
+	assert.match(WEB_TWEAK_PICKER_JS, /d\.cmd === 'revert'/);
+	// data-only: never sets innerHTML/outerHTML from a message
+	assert.doesNotMatch(WEB_TWEAK_PICKER_JS, /\.innerHTML\s*=/);
+	assert.doesNotMatch(WEB_TWEAK_PICKER_JS, /\.outerHTML\s*=/);
+	// attribute + style denylists present
+	assert.match(WEB_TWEAK_PICKER_JS, /ATTR_DENY/);
+	assert.match(WEB_TWEAK_PICKER_JS, /STYLE_DENY/);
+	// applied/reverted acknowledgements are posted back
+	assert.match(WEB_TWEAK_PICKER_JS, /event: 'applied'/);
+	assert.match(WEB_TWEAK_PICKER_JS, /event: 'reverted'/);
+});
+
+function frameStub(win: unknown): HTMLIFrameElement {
+	return { contentWindow: win } as unknown as HTMLIFrameElement;
+}
+
+test("readPickerMessage rejects messages from the wrong source window", () => {
+	const win = {};
+	const frame = frameStub(win);
+	const good = {
+		source: win,
+		data: { source: "wv-tweak", event: "ready" },
+	} as unknown as MessageEvent;
+	const wrong = {
+		source: {},
+		data: { source: "wv-tweak", event: "ready" },
+	} as unknown as MessageEvent;
+	assert.deepEqual(readPickerMessage(good, frame), { source: "wv-tweak", event: "ready" });
+	assert.equal(readPickerMessage(wrong, frame), null);
+	assert.equal(readPickerMessage(good, null), null);
+});
+
+test("readPickerMessage validates + bounds a selected event", () => {
+	const win = {};
+	const frame = frameStub(win);
+	const ev = {
+		source: win,
+		data: {
+			source: "wv-tweak",
+			event: "selected",
+			id: "p1",
+			selector: "div.card",
+			tag: "div",
+			snippet: "<div>x</div>",
+			text: "x".repeat(5000),
+			rect: { top: 1, left: 2, width: 3, height: 4, bottom: 5, right: 6 },
+		},
+	} as unknown as MessageEvent;
+	const out = readPickerMessage(ev, frame);
+	assert.ok(out && out.event === "selected");
+	if (out && out.event === "selected") {
+		assert.equal(out.selector, "div.card");
+		assert.equal(out.text.length, 2000); // bounded
+	}
+	// missing rect -> rejected
+	const bad = {
+		source: win,
+		data: { source: "wv-tweak", event: "selected", id: "p1", selector: "d", tag: "d", snippet: "", text: "" },
+	} as unknown as MessageEvent;
+	assert.equal(readPickerMessage(bad, frame), null);
+});
+
+test("readPickerMessage cannot yield a write/accept command shape", () => {
+	// The event union has no field that could carry a source-write instruction;
+	// an attacker sending {event:'accept'} is simply dropped.
+	const win = {};
+	const frame = frameStub(win);
+	const attack = {
+		source: win,
+		data: { source: "wv-tweak", event: "accept", path: "/etc/passwd" },
+	} as unknown as MessageEvent;
+	assert.equal(readPickerMessage(attack, frame), null);
 });
