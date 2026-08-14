@@ -239,6 +239,93 @@ POST /api/agent/events/<path>.md
 
 Acks are advisory; events are never deleted.
 
+## Live collaboration (human-in-the-loop, attended)
+
+Live mode is the attended counterpart to the pull-based flow above. Instead of you
+deciding when to edit, a human selects a block in the editor and pushes a request to
+you while you wait on a held-open poll. You respond in seconds; they steer or accept.
+
+The live channel is a **control plane only**. It carries the human's intent to you; the
+actual edit still goes through the ordinary Tier-2 `POST /api/agent/files/<path>.md`.
+There is no separate live write path.
+
+### Loop
+
+```
+1. POST /api/agent/live/attach            -> { sessionId }
+2. GET  /api/agent/live/poll?sessionId=<id>&afterSeq=<seq>   (long-poll, hold ~25s)
+     -> { type: "timeout" }                      re-poll
+     -> { type: "generate"|"steer", request }    handle it (below)
+3. handle a generate/steer request:
+     a. POST /api/agent/live/reply { requestId, status: "working" }   (optional)
+     b. POST /api/agent/files/<request.path>          (the real edit)
+            Idempotency-Key: <request.idempotencyKey>   // "live:<requestId>"
+            body.baseRevision = request.baseRevision     // use the REQUEST's revision
+            op.inResponseTo   = request.inResponseTo     // "live:<requestId>"
+            op.ref            = request.blockRef
+     c. POST /api/agent/live/reply { requestId, status: "done" }
+4. re-poll with afterSeq = request.seq
+```
+
+### Rules
+
+- **Use `request.baseRevision`, never a fresh read.** If the human edited the block
+  meanwhile, the Tier-2 POST returns `409 STALE_REVISION`. Do **not** re-read and
+  re-interpret against the new revision. Reply `{ status: "stale" }` and stop; the human
+  re-selects. Silent re-interpretation of stale intent is a bug.
+- **Reuse `request.idempotencyKey` on retry.** If you crash after the edit committed but
+  before replying, reconnect and re-POST the identical body with the same
+  `live:<requestId>` key: the cached result returns, no duplicate edit.
+- **One outstanding request per session.** Finish (`done`/`error`/`stale`) before the
+  human can send another `generate`.
+- The held poll IS your presence signal. Re-poll promptly; if you stop, the editor shows
+  "no agent" after ~45s.
+- Accept/revert happen in the human's editor UI; you don't apply them. The proof-span you
+  wrote (correlated via `inResponseTo`) is what they act on.
+- **Precise-pointing context (optional).** A generate/steer request may carry
+  `selectionText`, `selectionStart`, and `selectionEnd`. `selectionText` is the exact
+  substring the human highlighted inside the block; `selectionStart`/`selectionEnd` are
+  best-effort character offsets within the block markdown (end exclusive). All three are
+  nullable and may be absent, and the offsets may be null even when `selectionText` is
+  present because editor offsets are approximate. They tell you *what the human pointed at*
+  for context only. The committed edit is still block-level (`block.replace` on
+  `request.blockRef`); do not treat the offsets as an authoritative sub-block range.
+
+Requires `mutate` scope. Live requests are workspace-scoped: a poll only returns requests
+for the workspace you attached in (`X-Workspace` / `?ws=`).
+
+### Ready-made runtime (`wiki-viewer-mcp`)
+
+The `wiki-viewer-mcp` package ships the client + loop so you don't hand-roll the poll cycle:
+
+```
+WIKI_VIEWER_URL=... WIKI_VIEWER_TOKEN=... WIKI_VIEWER_AGENT_ID=ai:me \
+  npx wiki-viewer-mcp live
+```
+
+The bundled `live` subcommand runs a passthrough agent (the human's instruction becomes the
+new markdown of the selected block) — handy for smoke tests. For a real agent, import the
+loop and supply your own handler:
+
+```ts
+import { createLiveClient, runLiveLoop } from "wiki-viewer-mcp";
+
+const client = createLiveClient();
+await runLiveLoop(client, async (req, { snapshot }) => {
+  // req: { path, blockRef, baseRevision, instruction, selectionText, selectionStart, selectionEnd, idempotencyKey, inResponseTo, ... }
+  // snapshot: the file's blocks at req.baseRevision (prefetched)
+  const newText = await yourModel(req.instruction, snapshot);
+  return [{ type: "block.replace", ref: req.blockRef!, markdown: newText,
+            basis: "described", basisDetail: req.instruction ?? undefined }];
+});
+```
+
+The loop attaches, holds the poll, calls your handler on each generate/steer, applies the
+returned block-ops through the canonical Tier-2 path (with the request's own `baseRevision`,
+`Idempotency-Key`, and `inResponseTo`), and reports `working`/`done`/`stale`/`error`. A
+`STALE_REVISION` from the edit surfaces as `StaleRequestError` and is reported `stale` — it
+never silently re-interprets against changed content. Return `null` to skip the edit.
+
 ## Error codes
 
 | Status | Code                   | Meaning                                                                                 |

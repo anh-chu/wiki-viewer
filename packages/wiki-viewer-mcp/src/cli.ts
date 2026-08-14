@@ -9,6 +9,12 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { WikiViewerClient } from "./http-client.js";
 import { createServer } from "./server.js";
 import {
+  LiveClient,
+  runLiveLoop,
+  type LiveHandler,
+  type BlockOp,
+} from "./live-client.js";
+import {
   register,
   type RegisterScope,
   RegistrationDeniedError,
@@ -95,9 +101,78 @@ export async function runCli(): Promise<void> {
 
   if (subcommand === "register") {
     await runRegister();
+  } else if (subcommand === "live") {
+    await runLive();
   } else {
     await main();
   }
+}
+
+/**
+ * Create a LiveClient from env (same vars as the MCP client).
+ */
+export function createLiveClient(overrides?: {
+  baseUrl?: string;
+  token?: string;
+  agentId?: string;
+  workspace?: string;
+  fetch?: typeof fetch;
+}): LiveClient {
+  return new LiveClient({
+    baseUrl: overrides?.baseUrl ?? requireEnv("WIKI_VIEWER_URL"),
+    token: overrides?.token ?? requireEnv("WIKI_VIEWER_TOKEN"),
+    agentId: overrides?.agentId ?? requireEnv("WIKI_VIEWER_AGENT_ID"),
+    workspace: overrides?.workspace ?? process.env.WIKI_VIEWER_WORKSPACE,
+    fetch: overrides?.fetch,
+  });
+}
+
+/**
+ * Built-in passthrough handler: treats the human's instruction as the literal
+ * new markdown for the selected block. This is a functional reference agent
+ * (useful for smoke tests and scripting); real LLM agents should import
+ * runLiveLoop and supply their own handler.
+ */
+export const passthroughHandler: LiveHandler = async (req) => {
+  const instruction = (req.instruction ?? "").trim();
+  if (!instruction) return null;
+  if (!req.blockRef) {
+    // No target block — append as a new block at the end.
+    const op: BlockOp = {
+      type: "block.append",
+      markdown: instruction,
+      basis: "described",
+      basisDetail: "live instruction (passthrough)",
+    };
+    return [op];
+  }
+  const op: BlockOp = {
+    type: "block.replace",
+    ref: req.blockRef,
+    markdown: instruction,
+    basis: "described",
+    basisDetail: "live instruction (passthrough)",
+  };
+  return [op];
+};
+
+async function runLive(): Promise<void> {
+  await enableKeepAlive();
+  const client = createLiveClient();
+  const controller = new AbortController();
+  const stop = () => controller.abort();
+  process.on("SIGINT", stop);
+  process.on("SIGTERM", stop);
+
+  console.error("[live] attaching — waiting for block-scoped requests. Ctrl-C to stop.");
+  await runLiveLoop(client, passthroughHandler, {
+    signal: controller.signal,
+    onEvent: (event, detail) => {
+      const suffix = detail ? ` ${JSON.stringify(detail)}` : "";
+      console.error(`[live] ${event}${suffix}`);
+    },
+  });
+  console.error("[live] stopped.");
 }
 
 async function runRegister(): Promise<void> {
