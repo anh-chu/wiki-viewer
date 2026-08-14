@@ -45,6 +45,8 @@ export async function GET(request: Request): Promise<NextResponse> {
 					outcome: lastRequest.outcome,
 					path: lastRequest.path,
 					blockRef: lastRequest.blockRef,
+					runId: lastRequest.runId,
+					itemCount: lastRequest.items?.length ?? null,
 				}
 			: null,
 	});

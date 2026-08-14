@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { checkOrigin } from "@/lib/auth/csrf";
 import { resolveWorkspaceForUser } from "@/lib/workspace-context";
+import { randomBytes } from "node:crypto";
 import {
 	getOrCreateSession,
 	enqueueRequest,
 	getRequest,
 	markState,
+	type LiveInstructionItem,
 	type RequestKind,
 	type RequestOutcome,
 } from "@/lib/proof/live/store";
@@ -27,6 +29,33 @@ interface Body {
 	// For accept/discard notifications: the request being resolved.
 	requestId?: string;
 	outcome?: RequestOutcome;
+	// Batch "Send to agent": N instruction items dispatched as one run.
+	items?: unknown;
+}
+
+/** Validate + coerce untrusted batch items; returns null if any item is malformed. */
+function parseItems(raw: unknown): LiveInstructionItem[] | null {
+	if (!Array.isArray(raw) || raw.length === 0) return null;
+	const out: LiveInstructionItem[] = [];
+	for (const it of raw) {
+		if (typeof it !== "object" || it === null) return null;
+		const o = it as Record<string, unknown>;
+		if (typeof o.instruction !== "string" || o.instruction.trim().length === 0)
+			return null;
+		if (typeof o.instructionId !== "string" || o.instructionId.length === 0)
+			return null;
+		if (o.blockRef != null && typeof o.blockRef !== "string") return null;
+		if (o.baseRevision != null && typeof o.baseRevision !== "number") return null;
+		out.push({
+			instructionId: o.instructionId,
+			blockRef: (o.blockRef as string | undefined) ?? null,
+			baseRevision: (o.baseRevision as number | undefined) ?? null,
+			instruction: o.instruction,
+			selectionText:
+				typeof o.selectionText === "string" ? o.selectionText : null,
+		});
+	}
+	return out;
 }
 
 /**
@@ -78,8 +107,13 @@ export async function POST(request: Request): Promise<NextResponse> {
 			{ status: 400 },
 		);
 	}
+	const hasBatch = kind === "generate" && body.items !== undefined;
 	if (kind === "generate" || kind === "steer") {
-		if (typeof instruction !== "string" || instruction.trim().length === 0) {
+		// A batch run carries per-item instructions instead of a top-level one.
+		if (
+			!hasBatch &&
+			(typeof instruction !== "string" || instruction.trim().length === 0)
+		) {
 			return NextResponse.json(
 				{ error: "INVALID_PARAM", message: "instruction required for generate/steer" },
 				{ status: 400 },
@@ -124,6 +158,16 @@ export async function POST(request: Request): Promise<NextResponse> {
 	// has not attached yet; the request waits until an agent attaches and polls.
 	const session = getOrCreateSession(ws.id);
 
+	// Batch run: one dispatch carrying N instruction items. Only on generate.
+	const items = kind === "generate" ? parseItems(body.items) : null;
+	if (kind === "generate" && body.items !== undefined && items === null) {
+		return NextResponse.json(
+			{ error: "INVALID_PARAM", message: "items must be a non-empty array of instructions" },
+			{ status: 400 },
+		);
+	}
+	const runId = items ? `run_${randomBytes(6).toString("hex")}` : null;
+
 	const enq = enqueueRequest({
 		sessionId: session.id,
 		workspaceId: ws.id,
@@ -135,6 +179,8 @@ export async function POST(request: Request): Promise<NextResponse> {
 		selectionText,
 		selectionStart,
 		selectionEnd,
+		items,
+		runId,
 	});
 	if (!enq.ok) {
 		return NextResponse.json(
@@ -152,5 +198,6 @@ export async function POST(request: Request): Promise<NextResponse> {
 		requestId: enq.request.id,
 		sessionId: session.id,
 		seq: enq.request.seq,
+		runId: enq.request.runId,
 	});
 }

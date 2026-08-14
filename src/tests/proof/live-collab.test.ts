@@ -423,6 +423,77 @@ test("R9 — presence timeout reports detached", () => {
 	assert.equal(store.isAttached(stale), false);
 });
 
+test("R5-batch — collective 'Send to agent' dispatches one run with N items", async () => {
+	const session = store.attachAgent(wsB, "ai:live-agent");
+	const prior = store.latestRequest(session.id);
+	if (prior && ["pending", "delivered", "working"].includes(prior.state)) {
+		store.markState(prior.id, "resolved", "accepted");
+	}
+
+	const dispatch = await reqPOST(
+		new Request(userUrl("/api/wiki/live/request", wsB), {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				path: "doc.md",
+				kind: "generate",
+				items: [
+					{ instructionId: "c001", blockRef: "bA", baseRevision: 0, instruction: "tighten intro" },
+					{ instructionId: "c002", blockRef: "bB", baseRevision: 0, instruction: "add example" },
+				],
+			}),
+		}),
+	);
+	assert.equal(dispatch.status, 200);
+	const body = (await dispatch.json()) as { requestId: string; runId: string | null };
+	assert.ok(body.runId, "batch dispatch returns a runId");
+
+	const pollRes = await pollGET(
+		new Request(
+			agentUrl("/api/agent/live/poll", wsB, {
+				sessionId: session.id,
+				afterSeq: "0",
+				holdMs: "500",
+			}),
+			{ headers: agentHeaders() },
+		),
+	);
+	const event = (await pollRes.json()) as {
+		type: string;
+		request: {
+			runId: string | null;
+			items: Array<{ instructionId: string; instruction: string; blockRef: string | null }> | null;
+		};
+	};
+	assert.equal(event.type, "generate");
+	assert.equal(event.request.runId, body.runId);
+	assert.ok(event.request.items && event.request.items.length === 2);
+	assert.equal(event.request.items?.[0].instructionId, "c001");
+	assert.equal(event.request.items?.[1].blockRef, "bB");
+
+	store.markState(body.requestId, "resolved", "accepted");
+});
+
+test("R5-batch — malformed items rejected 400", async () => {
+	const session = store.attachAgent(wsB, "ai:live-agent");
+	const prior = store.latestRequest(session.id);
+	if (prior && ["pending", "delivered", "working"].includes(prior.state)) {
+		store.markState(prior.id, "resolved", "accepted");
+	}
+	const res = await reqPOST(
+		new Request(userUrl("/api/wiki/live/request", wsB), {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				path: "doc.md",
+				kind: "generate",
+				items: [{ instructionId: "x", blockRef: "b" }],
+			}),
+		}),
+	);
+	assert.equal(res.status, 400);
+});
+
 // Helper: the current open session id for a workspace.
 function currentSession(ws: string): string {
 	const s = store.latestOpenSession(ws);

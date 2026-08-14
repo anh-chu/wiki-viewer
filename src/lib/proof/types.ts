@@ -40,6 +40,16 @@ export interface LineAnchor {
 	textHash: string; // sha256 first 12 hex of anchored lines
 }
 
+/**
+ * A block-anchored annotation is either a human `comment` or an agent
+ * `instruction` (a work order queued for a batch "Send to agent" run). Absent
+ * `kind` means legacy `comment`.
+ */
+export type AnnotationKind = "comment" | "instruction";
+
+/** Lifecycle of an instruction annotation before/after a batch send. */
+export type InstructionState = "draft" | "queued" | "sent" | "answered";
+
 export interface Comment {
 	id: string; // "c" + 4-hex
 	ref?: string; // block ref it's attached to (markdown only)
@@ -49,6 +59,14 @@ export interface Comment {
 	turns: CommentTurn[];
 	/** Set true when a raw .md overwrite orphans the anchor ref (R2 collab-anchor safety). */
 	stale?: boolean;
+	/** Annotation kind. Absent => "comment" (legacy). "instruction" = agent work order. */
+	kind?: AnnotationKind;
+	/** Instruction lifecycle. Only meaningful when kind === "instruction". */
+	instructionState?: InstructionState;
+	/** The batch send run this instruction went out in (correlates results). */
+	runId?: string;
+	/** Backlink to the comment this instruction was escalated from, if any. */
+	fromCommentId?: string;
 }
 
 export type SuggestionKind =
