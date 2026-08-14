@@ -244,7 +244,7 @@ test("comment.add and comment.reply ops", async () => {
 	const replyResult = await applyOps({
 		rootDir: tmpRoot,
 		mdPath: "comment.md",
-		baseRevision: 1,
+		baseRevision: 0,
 		by: "ai:claude",
 		ops: [{ type: "comment.reply", commentId: commentId!, text: "Because of X." }],
 	});
@@ -301,7 +301,7 @@ test("suggestion.add and suggestion.accept", async () => {
 	const acceptResult = await applyOps({
 		rootDir: tmpRoot,
 		mdPath: "suggest.md",
-		baseRevision: 1,
+		baseRevision: 0,
 		by: "human",
 		ops: [{ type: "suggestion.accept", suggestionId: sugId! }],
 	});
@@ -337,7 +337,7 @@ test("suggestion.reject moves to archive", async () => {
 	const rejectResult = await applyOps({
 		rootDir: tmpRoot,
 		mdPath: "reject.md",
-		baseRevision: 1,
+		baseRevision: 0,
 		by: "human",
 		ops: [{ type: "suggestion.reject", suggestionId: sugId! }],
 	});
@@ -387,4 +387,59 @@ test("idempotency: same key returns cached response", async () => {
 
 	// Different key should not be cached
 	assert.equal(idempotency.get("other-key"), null);
+});
+
+// ── revision = content clock (annotation ops must not bump) ──────────────────
+
+test("annotation ops do not bump revision; content ops do", async () => {
+	await writeDoc("revclock.md", "# Title\n\nParagraph.\n");
+	const snap = await readSnapshot(tmpRoot, "revclock.md");
+	const paraRef = snap!.blocks[1].ref;
+	assert.equal(snap!.revision, 0, "fresh doc at revision 0");
+
+	// comment.add — annotation only, revision must stay 0
+	const add = await applyOps({
+		rootDir: tmpRoot,
+		mdPath: "revclock.md",
+		baseRevision: 0,
+		by: "human",
+		ops: [{ type: "comment.add", ref: paraRef, text: "note", kind: "instruction" }],
+	});
+	assert.ok(add.ok);
+	assert.equal(add.ok ? add.snapshot.revision : -1, 0, "comment.add must not bump revision");
+	const commentId = add.ok ? add.snapshot.comments[0]?.id : null;
+
+	// comment.mark sent — annotation only, revision must stay 0
+	const mark = await applyOps({
+		rootDir: tmpRoot,
+		mdPath: "revclock.md",
+		baseRevision: 0,
+		by: "human",
+		ops: [{ type: "comment.mark", commentId: commentId!, instructionState: "sent", runId: "run_test" }],
+	});
+	assert.ok(mark.ok);
+	assert.equal(mark.ok ? mark.snapshot.revision : -1, 0, "comment.mark must not bump revision");
+
+	// Agent block.replace at the ORIGINAL baseRevision 0 must still succeed —
+	// this is the live-dispatch flow that used to fail closed as STALE.
+	const edit = await applyOps({
+		rootDir: tmpRoot,
+		mdPath: "revclock.md",
+		baseRevision: 0,
+		by: "ai:claude",
+		ops: [{ type: "block.replace", ref: paraRef, markdown: "New paragraph." }],
+	});
+	assert.ok(edit.ok, `block.replace after annotations should succeed: ${JSON.stringify(edit)}`);
+	assert.equal(edit.ok ? edit.snapshot.revision : -1, 1, "content edit bumps revision to 1");
+
+	// A second write at the now-stale baseRevision 0 must 409.
+	const stale = await applyOps({
+		rootDir: tmpRoot,
+		mdPath: "revclock.md",
+		baseRevision: 0,
+		by: "ai:claude",
+		ops: [{ type: "block.replace", ref: paraRef, markdown: "Another." }],
+	});
+	assert.ok(!stale.ok, "stale write must be rejected");
+	assert.equal(stale.ok ? "" : stale.code, "STALE_REVISION", "rejects with STALE_REVISION");
 });

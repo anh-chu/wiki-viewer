@@ -128,7 +128,7 @@ test("suggestion.accept → pending becomes accepted, block edit applied, event 
 	const acceptResult = await applyOps({
 		rootDir: tmpRoot,
 		mdPath: "sug-accept.md",
-		baseRevision: 1,
+		baseRevision: 0,
 		by: "human",
 		ops: [{ type: "suggestion.accept", suggestionId: sugId! }],
 	});
@@ -177,7 +177,7 @@ test("suggestion.reject → moved to archivedSuggestions + event, file unchanged
 	const rejectResult = await applyOps({
 		rootDir: tmpRoot,
 		mdPath: "sug-reject.md",
-		baseRevision: 1,
+		baseRevision: 0,
 		by: "human",
 		ops: [{ type: "suggestion.reject", suggestionId: sugId! }],
 	});
@@ -223,7 +223,7 @@ test("two pending suggestions on same ref: accept one → other auto-rejected (r
 	const add2 = await applyOps({
 		rootDir: tmpRoot,
 		mdPath: "sug-conflict.md",
-		baseRevision: 1,
+		baseRevision: 0,
 		by: "ai:cursor",
 		ops: [{ type: "suggestion.add", ref: paraRef, kind: "replace", markdown: "Suggestion B." }],
 	});
@@ -238,7 +238,7 @@ test("two pending suggestions on same ref: accept one → other auto-rejected (r
 	const acceptResult = await applyOps({
 		rootDir: tmpRoot,
 		mdPath: "sug-conflict.md",
-		baseRevision: 2,
+		baseRevision: 0,
 		by: "human",
 		ops: [{ type: "suggestion.accept", suggestionId: sugId1! }],
 	});

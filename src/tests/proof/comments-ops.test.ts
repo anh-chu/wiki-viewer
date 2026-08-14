@@ -63,7 +63,7 @@ test("comment.reply — existing comment gains second turn", async () => {
 	const replyResult = await applyOps({
 		rootDir: tmpRoot,
 		mdPath: "creply.md",
-		baseRevision: 1,
+		baseRevision: 0,
 		by: "ai:claude",
 		ops: [{ type: "comment.reply", commentId: commentId!, text: "Because reasons." }],
 	});
@@ -96,7 +96,7 @@ test("comment.resolve — resolved=true + event emitted", async () => {
 	const resolveResult = await applyOps({
 		rootDir: tmpRoot,
 		mdPath: "cresolve.md",
-		baseRevision: 1,
+		baseRevision: 0,
 		by: "human",
 		ops: [{ type: "comment.resolve", commentId: commentId! }],
 	});
@@ -134,7 +134,7 @@ test("comment.reopen — resolved=false + event emitted", async () => {
 	const resolveResult = await applyOps({
 		rootDir: tmpRoot,
 		mdPath: "creopen.md",
-		baseRevision: 1,
+		baseRevision: 0,
 		by: "human",
 		ops: [{ type: "comment.resolve", commentId: commentId! }],
 	});
@@ -143,7 +143,7 @@ test("comment.reopen — resolved=false + event emitted", async () => {
 	const reopenResult = await applyOps({
 		rootDir: tmpRoot,
 		mdPath: "creopen.md",
-		baseRevision: 2,
+		baseRevision: 0,
 		by: "human",
 		ops: [{ type: "comment.reopen", commentId: commentId! }],
 	});

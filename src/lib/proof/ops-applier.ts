@@ -491,7 +491,8 @@ async function applyTextCommentOps(args: {
 			}
 		}
 
-		workingSidecar.revision += 1;
+		// Comment ops on text files never change document content, so the content
+		// revision must not move (see applyOps for why bumping it breaks agent edits).
 		workingSidecar.updatedAt = nowIso();
 		workingSidecar.fingerprint = fingerprint;
 
@@ -1002,7 +1003,13 @@ export async function applyOps(args: {
 		const { refAliases } = computeRefDelta(workingSidecar.refMap, oldHashToRef, finalBlocks);
 		Object.assign(collectedAliases, refAliases);
 
-		workingSidecar.revision += 1;
+		// The revision is a CONTENT baseline. Annotation-only ops (comment.add /
+		// comment.mark / resolve / reopen) leave the document text unchanged, so they
+		// must not bump it — otherwise dispatching an instruction (which writes a
+		// comment then marks it sent) invalidates the very baseRevision the agent was
+		// handed, and every follow-up block edit fails closed as STALE_REVISION.
+		const contentChanged = newFingerprint !== fingerprint;
+		if (contentChanged) workingSidecar.revision += 1;
 		workingSidecar.updatedAt = nowIso();
 		workingSidecar.fingerprint = newFingerprint;
 		workingSidecar.refMap = finalRefMap;
