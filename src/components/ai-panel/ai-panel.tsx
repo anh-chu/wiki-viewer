@@ -93,10 +93,16 @@ export function AIPanel({ currentPath }: { currentPath?: string | null }) {
 			),
 		[origin]
 	);
+	const getLiveAttach = useCallback(
+		() =>
+			`WIKI_VIEWER_URL=${origin} WIKI_VIEWER_TOKEN=<token> WIKI_VIEWER_AGENT_ID=ai:myagent npx wiki-viewer-mcp live`,
+		[origin]
+	);
 	const skillCli = useCopyButton(getSkillCli);
 	const bootstrapCopy = useCopyButton(getBootstrapPrompt);
 	const mcpRegister = useCopyButton(getMcpRegister);
 	const mcpJson = useCopyButton(getMcpJson);
+	const liveAttach = useCopyButton(getLiveAttach);
 
 	// Keyboard: Esc closes
 	useEffect(() => {
@@ -236,6 +242,45 @@ export function AIPanel({ currentPath }: { currentPath?: string | null }) {
 									? <><Check className="h-3.5 w-3.5 text-green-500" /> Copied!</>
 									: <><Copy className="h-3.5 w-3.5" /> Copy config (mcp.json)</>}
 							</Button>
+						</div>
+
+						{/* Goal 3: live collaboration (attend the live channel) */}
+						<div className="rounded-md border border-border bg-muted/40 p-3 space-y-1.5">
+							<p className="text-xs font-semibold text-foreground">
+								Live collaboration{" "}
+								<span className="font-normal text-muted-foreground/60">
+									· Ask-agent &amp; Tweak
+								</span>
+							</p>
+							<p className="text-[10px] text-muted-foreground/70">
+								To answer “Ask agent” / “Tweak” requests, an agent must{" "}
+								<span className="font-medium text-foreground/70">attach</span> to the
+								live channel. Register &amp; approve first (above), then run with your
+								token:
+							</p>
+							<div className="flex items-center gap-2">
+								<code className="flex-1 text-[10px] font-mono text-foreground/80 truncate bg-muted rounded px-1 py-0.5">
+									{getLiveAttach()}
+								</code>
+								<Button
+									size="sm"
+									variant="ghost"
+									className="h-6 w-6 p-0 shrink-0"
+									title="Copy this command"
+									onClick={() => void liveAttach.copy()}
+								>
+									{liveAttach.copied ? (
+										<Check className="h-3.5 w-3.5 text-green-500" />
+									) : (
+										<Copy className="h-3.5 w-3.5" />
+									)}
+								</Button>
+							</div>
+							<p className="text-[10px] text-muted-foreground/50">
+								The bundled runner echoes instructions (a smoke test). A real LLM
+								agent supplies its own handler via{" "}
+								<code className="font-mono">runLiveLoop</code>.
+							</p>
 						</div>
 
 						<div className="flex flex-wrap items-center gap-x-3 gap-y-1">

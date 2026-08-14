@@ -402,11 +402,17 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 										Sends to <span className="font-medium text-foreground">{agent.name ?? "agent"}</span>
 									</span>
 								) : (
-									<span className="text-amber-600">
-										No agent attached — use Copy as prompt
-									</span>
+									<span className="text-amber-600">No agent attached</span>
 								)}
 							</div>
+							{!agent.attached && (
+								<p className="text-[10px] text-muted-foreground/70">
+									Start one from the{" "}
+									<span className="font-medium text-foreground/70">Agents</span> panel
+									(“Live collaboration”), or use Copy as prompt to run it in your own
+									agent.
+								</p>
+							)}
 							<div className="flex items-center justify-between pt-0.5">
 								<span className="text-[10px] text-muted-foreground/40">⌘↵ send</span>
 								<div className="flex items-center gap-2">
