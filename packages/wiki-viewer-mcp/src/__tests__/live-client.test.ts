@@ -6,6 +6,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 
 import {
   LiveClient,
@@ -14,6 +15,7 @@ import {
   LiveError,
   type LiveRequest,
 } from "../live-client.js";
+import { passthroughWebHandler } from "../cli.js";
 
 // ─── Mock transport ────────────────────────────────────────────────────────────
 
@@ -355,4 +357,245 @@ test("runLiveLoop: control-kind notification (accept) does not edit or reply", a
 
   assert.equal(edits, 0);
   assert.ok(events.includes("notification"));
+});
+
+// ─── web.tweak: submitWebPreview + runLiveLoop dispatch ──────────────────────────
+
+function webTweakRequest(overrides: Partial<LiveRequest> = {}): LiveRequest {
+  return liveRequest({
+    kind: "web.tweak",
+    baseRevision: null,
+    blockRef: null,
+    instruction: "make it red",
+    selectionText: JSON.stringify({
+      previewId: "wp_1",
+      selector: "#hero",
+      tag: "div",
+      snippet: "<div id=hero>",
+    }),
+    ...overrides,
+  });
+}
+
+test("submitWebPreview posts body+headers to /web-preview and stamps status", async () => {
+  let sentBody: Record<string, unknown> | undefined;
+  let sentUrl = "";
+  let sentHeaders: Record<string, string> = {};
+  const { fetch } = makeFetch([
+    {
+      match: (u, i) => u.includes("/api/agent/live/web-preview") && i?.method === "POST",
+      respond: (u, i) => {
+        sentUrl = u;
+        sentBody = JSON.parse(String(i?.body)) as Record<string, unknown>;
+        sentHeaders = (i?.headers ?? {}) as Record<string, string>;
+        return { status: 200, body: { ok: true, status: "preview-ready", previewId: "wp_1" } };
+      },
+    },
+  ]);
+  const client = new LiveClient(cfg(fetch));
+  await client.submitWebPreview({
+    previewId: "wp_1",
+    requestId: "lr_1",
+    domPreviewOps: [{ type: "setText", value: "hi" }],
+    candidateSourcePatch: null,
+    baseFiles: [],
+    status: "done",
+  });
+  assert.ok(sentUrl.includes("ws=ws1"));
+  assert.equal(sentHeaders["X-Workspace"], "ws1");
+  assert.equal(sentHeaders["Authorization"], "Bearer tok");
+  assert.equal(sentBody?.previewId, "wp_1");
+  assert.equal(sentBody?.requestId, "lr_1");
+  assert.equal(sentBody?.status, "done");
+  const ops = sentBody?.domPreviewOps as Array<Record<string, unknown>>;
+  assert.equal(ops[0].type, "setText");
+});
+
+test("submitWebPreview throws LiveError with parsed code on non-2xx", async () => {
+  const { fetch } = makeFetch([
+    {
+      match: (u, i) => u.includes("/api/agent/live/web-preview") && i?.method === "POST",
+      respond: () => ({ status: 404, body: { error: "PREVIEW_NOT_FOUND" } }),
+    },
+  ]);
+  const client = new LiveClient(cfg(fetch));
+  await assert.rejects(
+    () =>
+      client.submitWebPreview({
+        previewId: "wp_x",
+        requestId: "lr_1",
+        domPreviewOps: null,
+        candidateSourcePatch: null,
+        baseFiles: [],
+        status: "done",
+      }),
+    (e: unknown) => e instanceof LiveError && e.code === "PREVIEW_NOT_FOUND",
+  );
+});
+
+test("runLiveLoop: web.tweak invokes webHandler and submits its result done", async () => {
+  const controller = new AbortController();
+  const replies: string[] = [];
+  let submitted: Record<string, unknown> | undefined;
+  let polls = 0;
+  const { fetch } = makeFetch([
+    {
+      match: (u, i) => u.endsWith("/api/agent/live/attach") && i?.method === "POST",
+      respond: () => ({ status: 200, body: { sessionId: "ls_1" } }),
+    },
+    {
+      match: (u) => u.includes("/api/agent/live/poll"),
+      respond: () => {
+        polls += 1;
+        if (polls === 1)
+          return { status: 200, body: { type: "web.tweak", request: webTweakRequest() } };
+        controller.abort();
+        return { status: 200, body: { type: "timeout" } };
+      },
+    },
+    {
+      match: (u) => u.endsWith("/api/agent/live/reply"),
+      respond: (_u, i) => {
+        replies.push((JSON.parse(String(i?.body)) as { status: string }).status);
+        return { status: 200, body: { ok: true } };
+      },
+    },
+    {
+      match: (u, i) => u.includes("/api/agent/live/web-preview") && i?.method === "POST",
+      respond: (_u, i) => {
+        submitted = JSON.parse(String(i?.body)) as Record<string, unknown>;
+        return { status: 200, body: { ok: true, status: "preview-ready" } };
+      },
+    },
+  ]);
+
+  const client = new LiveClient(cfg(fetch));
+  let seenCtx: unknown;
+  await runLiveLoop(client, async () => null, {
+    signal: controller.signal,
+    webHandler: async (ctx) => {
+      seenCtx = ctx;
+      return {
+        domPreviewOps: [{ type: "setStyle", prop: "color", value: "red" }],
+        candidateSourcePatch: null,
+        baseFiles: [],
+      };
+    },
+  });
+
+  assert.deepEqual(replies, ["working"]);
+  assert.equal((seenCtx as { previewId: string }).previewId, "wp_1");
+  assert.equal((seenCtx as { note: string }).note, "make it red");
+  assert.equal(submitted?.status, "done");
+  assert.equal(submitted?.previewId, "wp_1");
+  const ops = submitted?.domPreviewOps as Array<Record<string, unknown>>;
+  assert.equal(ops[0].type, "setStyle");
+});
+
+test("runLiveLoop: web.tweak handler throw submits status error", async () => {
+  const controller = new AbortController();
+  let submitted: Record<string, unknown> | undefined;
+  let polls = 0;
+  const { fetch } = makeFetch([
+    {
+      match: (u, i) => u.endsWith("/api/agent/live/attach") && i?.method === "POST",
+      respond: () => ({ status: 200, body: { sessionId: "ls_1" } }),
+    },
+    {
+      match: (u) => u.includes("/api/agent/live/poll"),
+      respond: () => {
+        polls += 1;
+        if (polls === 1)
+          return { status: 200, body: { type: "web.tweak", request: webTweakRequest() } };
+        controller.abort();
+        return { status: 200, body: { type: "timeout" } };
+      },
+    },
+    {
+      match: (u) => u.endsWith("/api/agent/live/reply"),
+      respond: () => ({ status: 200, body: { ok: true } }),
+    },
+    {
+      match: (u, i) => u.includes("/api/agent/live/web-preview") && i?.method === "POST",
+      respond: (_u, i) => {
+        submitted = JSON.parse(String(i?.body)) as Record<string, unknown>;
+        return { status: 200, body: { ok: true } };
+      },
+    },
+  ]);
+
+  const client = new LiveClient(cfg(fetch));
+  await runLiveLoop(client, async () => null, {
+    signal: controller.signal,
+    webHandler: async () => {
+      throw new Error("boom");
+    },
+  });
+
+  assert.equal(submitted?.status, "error");
+  assert.equal(submitted?.candidateSourcePatch, null);
+});
+
+test("runLiveLoop: web.tweak with no webHandler submits status error", async () => {
+  const controller = new AbortController();
+  let submitted: Record<string, unknown> | undefined;
+  let polls = 0;
+  const { fetch } = makeFetch([
+    {
+      match: (u, i) => u.endsWith("/api/agent/live/attach") && i?.method === "POST",
+      respond: () => ({ status: 200, body: { sessionId: "ls_1" } }),
+    },
+    {
+      match: (u) => u.includes("/api/agent/live/poll"),
+      respond: () => {
+        polls += 1;
+        if (polls === 1)
+          return { status: 200, body: { type: "web.tweak", request: webTweakRequest() } };
+        controller.abort();
+        return { status: 200, body: { type: "timeout" } };
+      },
+    },
+    {
+      match: (u, i) => u.includes("/api/agent/live/web-preview") && i?.method === "POST",
+      respond: (_u, i) => {
+        submitted = JSON.parse(String(i?.body)) as Record<string, unknown>;
+        return { status: 200, body: { ok: true } };
+      },
+    },
+  ]);
+
+  const client = new LiveClient(cfg(fetch));
+  await runLiveLoop(client, async () => null, { signal: controller.signal });
+  assert.equal(submitted?.status, "error");
+});
+
+test("passthroughWebHandler real-candidate path computes baseFiles via fetchFileForHash", async () => {
+  const fileContent = "# Title\n\nbody text\n";
+  const { fetch } = makeFetch([
+    {
+      match: (u, i) => u.includes("/api/agent/fs/file/") && (i?.method ?? "GET") === "GET",
+      respond: () => ({ status: 200, body: fileContent }),
+    },
+  ]);
+  const client = new LiveClient(cfg(fetch));
+  const result = await passthroughWebHandler(
+    {
+      previewId: "wp_1",
+      selector: "#hero",
+      tag: "div",
+      snippet: "<div>",
+      note: "commit: add footnote",
+      path: "page.html",
+    },
+    { client },
+  );
+  assert.ok(result.candidateSourcePatch);
+  assert.equal(result.candidateSourcePatch?.files[0].path, "page.html");
+  assert.equal(result.baseFiles.length, 1);
+  assert.equal(result.baseFiles[0].path, "page.html");
+  // sha256 of the exact fetched content.
+  const expected = createHash("sha256").update(JSON.stringify(fileContent), "utf8").digest("hex");
+  // The mock serializes the string body as JSON; fetchFileForHash reads res.text()
+  // which is the JSON-encoded string. Assert hash matches that exact text.
+  assert.equal(result.baseFiles[0].sha256, expected);
 });

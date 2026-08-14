@@ -13,6 +13,8 @@
  * the canonical commit path.
  */
 
+import { createHash } from "node:crypto";
+
 // ─── Wire shapes ──────────────────────────────────────────────────────────────
 
 export interface LiveConfig {
@@ -31,7 +33,7 @@ export interface LiveRequest {
   path: string;
   blockRef: string | null;
   baseRevision: number | null;
-  kind: "generate" | "steer" | "accept" | "discard" | "exit";
+  kind: "generate" | "steer" | "accept" | "discard" | "exit" | "web.tweak";
   instruction: string | null;
   /** Exact substring the human highlighted within the block (context only). */
   selectionText?: string | null;
@@ -73,6 +75,51 @@ export interface SnapshotBlock {
   ref: string;
   type: string;
   markdown: string;
+}
+
+// ─── Web-tweak wire shapes (copied locally; mcp is standalone) ──────────────────
+// These mirror src/lib/web-tweak/protocol.ts + preview-store.ts. They are copied
+// intentionally: the published mcp package must not import from the app's src/lib.
+
+/** Data-only DOM preview operation. No HTML/script injection is representable. */
+export type DomOp =
+  | { type: "setText"; value: string }
+  | { type: "setStyle"; prop: string; value: string }
+  | { type: "setAttr"; name: string; value: string }
+  | { type: "removeAttr"; name: string }
+  | { type: "addClass"; value: string }
+  | { type: "removeClass"; value: string };
+
+/** One file the candidate patch was derived against, pinned by content hash. */
+export interface BaseFile {
+  path: string;
+  sha256: string;
+}
+
+/**
+ * The immutable source edit accept will commit: whole-file replacements. `null`
+ * candidate means "visual only, not acceptable".
+ */
+export interface CandidateSourcePatch {
+  files: Array<{ path: string; content: string }>;
+  summary: string;
+}
+
+/** Parsed selection facts carried in a web.tweak request's selectionText. */
+export interface WebTweakContext {
+  previewId: string;
+  selector: string;
+  tag: string;
+  snippet: string;
+  note: string;
+  path: string;
+}
+
+/** The agent's reply to a web.tweak request. */
+export interface WebTweakResult {
+  domPreviewOps: DomOp[] | null;
+  candidateSourcePatch: CandidateSourcePatch | null;
+  baseFiles: BaseFile[];
 }
 
 export interface Snapshot {
@@ -235,6 +282,52 @@ export class LiveClient {
     if (!res.ok) await this.parseError(res);
     return (await res.json()) as Snapshot;
   }
+
+  /**
+   * Read a workspace file via the Tier-1 raw-fs path and return its content plus
+   * the sha256 hex of that exact content. Used to pin baseFiles for a candidate
+   * source patch (the hashes accept re-checks before committing).
+   */
+  async fetchFileForHash(path: string): Promise<{ content: string; sha256: string }> {
+    const res = await this._fetch(`${this.baseUrl}/api/agent/fs/file/${encodeFilePath(path)}`, {
+      headers: this.headers(),
+    });
+    if (!res.ok) await this.parseError(res);
+    const content = await res.text();
+    const sha256 = createHash("sha256").update(content, "utf8").digest("hex");
+    return { content, sha256 };
+  }
+
+  /**
+   * Submit the agent's reply to a web.tweak request: DOM preview ops (applied
+   * in-frame), the immutable candidate source patch, and the base file hashes it
+   * was derived against. The candidate is stored, never applied here; the server
+   * commits it later on human accept iff the base hashes still match.
+   */
+  async submitWebPreview(input: {
+    previewId: string;
+    requestId: string;
+    domPreviewOps: DomOp[] | null;
+    candidateSourcePatch: CandidateSourcePatch | null;
+    baseFiles: BaseFile[];
+    status: "done" | "error";
+  }): Promise<void> {
+    const u = new URL(`${this.baseUrl}/api/agent/live/web-preview`);
+    if (this.workspace) u.searchParams.set("ws", this.workspace);
+    const res = await this._fetch(u.toString(), {
+      method: "POST",
+      headers: this.headers({ "Content-Type": "application/json" }),
+      body: JSON.stringify({
+        previewId: input.previewId,
+        requestId: input.requestId,
+        domPreviewOps: input.domPreviewOps,
+        candidateSourcePatch: input.candidateSourcePatch,
+        baseFiles: input.baseFiles,
+        status: input.status,
+      }),
+    });
+    if (!res.ok) await this.parseError(res);
+  }
 }
 
 // ─── Runtime loop ─────────────────────────────────────────────────────────────
@@ -253,12 +346,25 @@ export type LiveHandler = (
   ctx: { client: LiveClient; snapshot?: Snapshot },
 ) => Promise<BlockOp[] | null>;
 
+/**
+ * Decides what to do with one delivered web.tweak request. Returns the DOM
+ * preview ops + candidate source patch + base file hashes for the previewId.
+ * The agent never writes source directly here; the server commits the candidate
+ * on human accept iff the base hashes still match.
+ */
+export type WebTweakHandler = (
+  ctx: WebTweakContext,
+  api: { client: LiveClient },
+) => Promise<WebTweakResult>;
+
 export interface RunLiveLoopOptions {
   signal?: AbortSignal;
   /** Called on each accepted request lifecycle transition (for logging). */
   onEvent?: (event: string, detail?: unknown) => void;
   /** Prefetch the snapshot before invoking the handler. Default true. */
   prefetchSnapshot?: boolean;
+  /** Handler for web.tweak requests. Without it, web.tweak replies status error. */
+  webHandler?: WebTweakHandler;
 }
 
 /**
@@ -304,6 +410,13 @@ export async function runLiveLoop(
     const req = res.request;
     afterSeq = req.seq;
 
+    // Web-tweak requests produce a preview transaction (DOM ops + candidate
+    // patch), never a direct source write. Handled on its own path.
+    if (req.kind === "web.tweak") {
+      await handleWebTweak(client, req, opts, log);
+      continue;
+    }
+
     // Control-only kinds (accept/discard/exit) are notifications; no edit.
     if (req.kind !== "generate" && req.kind !== "steer") {
       log("notification", { kind: req.kind, requestId: req.requestId });
@@ -341,7 +454,86 @@ export async function runLiveLoop(
   log("stopped");
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+/**
+ * Parse a web.tweak request's selectionText into typed selection facts. Returns
+ * null if the payload is missing or malformed.
+ */
+function parseWebTweakContext(req: LiveRequest): WebTweakContext | null {
+  if (!req.selectionText) return null;
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(req.selectionText) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  if (typeof parsed.previewId !== "string") return null;
+  return {
+    previewId: parsed.previewId,
+    selector: typeof parsed.selector === "string" ? parsed.selector : "",
+    tag: typeof parsed.tag === "string" ? parsed.tag : "",
+    snippet: typeof parsed.snippet === "string" ? parsed.snippet : "",
+    note: req.instruction ?? "",
+    path: req.path,
+  };
+}
+
+/** Handle one delivered web.tweak request. */
+async function handleWebTweak(
+  client: LiveClient,
+  req: LiveRequest,
+  opts: RunLiveLoopOptions,
+  log: (event: string, detail?: unknown) => void,
+): Promise<void> {
+  const ctx = parseWebTweakContext(req);
+  if (!ctx) {
+    log("error", { requestId: req.requestId, error: "invalid web.tweak selectionText" });
+    return;
+  }
+  log("request", { kind: req.kind, requestId: req.requestId, previewId: ctx.previewId });
+
+  if (!opts.webHandler) {
+    await client
+      .submitWebPreview({
+        previewId: ctx.previewId,
+        requestId: req.requestId,
+        domPreviewOps: null,
+        candidateSourcePatch: null,
+        baseFiles: [],
+        status: "error",
+      })
+      .catch(() => {});
+    log("error", { requestId: req.requestId, error: "no webHandler configured" });
+    return;
+  }
+
+  try {
+    await client.reply(req.requestId, "working");
+    const result = await opts.webHandler(ctx, { client });
+    await client.submitWebPreview({
+      previewId: ctx.previewId,
+      requestId: req.requestId,
+      domPreviewOps: result.domPreviewOps,
+      candidateSourcePatch: result.candidateSourcePatch,
+      baseFiles: result.baseFiles,
+      status: "done",
+    });
+    log("done", { requestId: req.requestId, previewId: ctx.previewId });
+  } catch (e) {
+    await client
+      .submitWebPreview({
+        previewId: ctx.previewId,
+        requestId: req.requestId,
+        domPreviewOps: null,
+        candidateSourcePatch: null,
+        baseFiles: [],
+        status: "error",
+      })
+      .catch(() => {});
+    log("error", { requestId: req.requestId, error: (e as Error).message });
+  }
+}
+
+// ─── Helpers ───────────────────────────────────────────────────────
 
 function encodeFilePath(path: string): string {
   return path

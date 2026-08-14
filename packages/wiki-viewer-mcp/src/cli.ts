@@ -13,6 +13,8 @@ import {
   runLiveLoop,
   type LiveHandler,
   type BlockOp,
+  type WebTweakHandler,
+  type DomOp,
 } from "./live-client.js";
 import {
   register,
@@ -156,6 +158,45 @@ export const passthroughHandler: LiveHandler = async (req) => {
   return [op];
 };
 
+/**
+ * Built-in passthrough web-tweak handler: a functional reference agent for smoke
+ * tests. It turns the human note into a trivial data-only DOM preview op (a color
+ * mention becomes a setStyle color; otherwise the note becomes setText). By
+ * default it produces a visual-only preview (null candidate). If the note starts
+ * with "commit:" it also emits a real whole-file replacement candidate, pinning
+ * baseFiles via client.fetchFileForHash so accept can re-check the hash.
+ *
+ * Never writes source directly: it only returns the candidate + base hashes; the
+ * server commits verbatim on human accept.
+ */
+export const passthroughWebHandler: WebTweakHandler = async (ctx, { client }) => {
+  const note = (ctx.note ?? "").trim();
+  const colorMatch = note.match(
+    /\b(red|green|blue|black|white|orange|purple|yellow|pink|gray|grey|#[0-9a-fA-F]{3,8})\b/,
+  );
+  const domPreviewOps: DomOp[] = colorMatch
+    ? [{ type: "setStyle", prop: "color", value: colorMatch[1] }]
+    : [{ type: "setText", value: note }];
+
+  const commit = note.toLowerCase().startsWith("commit:");
+  if (!commit) {
+    // Visual-only preview: not acceptable as a source change.
+    return { domPreviewOps, candidateSourcePatch: null, baseFiles: [] };
+  }
+
+  // Real candidate: derive a whole-file replacement against the current file.
+  const { content, sha256 } = await client.fetchFileForHash(ctx.path);
+  const newContent = `${content}\n<!-- ${note} -->\n`;
+  return {
+    domPreviewOps,
+    candidateSourcePatch: {
+      files: [{ path: ctx.path, content: newContent }],
+      summary: note,
+    },
+    baseFiles: [{ path: ctx.path, sha256 }],
+  };
+};
+
 async function runLive(): Promise<void> {
   await enableKeepAlive();
   const client = createLiveClient();
@@ -167,6 +208,7 @@ async function runLive(): Promise<void> {
   console.error("[live] attaching — waiting for block-scoped requests. Ctrl-C to stop.");
   await runLiveLoop(client, passthroughHandler, {
     signal: controller.signal,
+    webHandler: passthroughWebHandler,
     onEvent: (event, detail) => {
       const suffix = detail ? ` ${JSON.stringify(detail)}` : "";
       console.error(`[live] ${event}${suffix}`);

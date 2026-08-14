@@ -10,7 +10,12 @@
 import { fileURLToPath } from "node:url";
 
 export { createServer } from "./server.js";
-export { createClient, createLiveClient, passthroughHandler } from "./cli.js";
+export {
+  createClient,
+  createLiveClient,
+  passthroughHandler,
+  passthroughWebHandler,
+} from "./cli.js";
 export {
   LiveClient,
   runLiveLoop,
@@ -26,6 +31,12 @@ export type {
   Snapshot,
   SnapshotBlock,
   ReplyStatus,
+  WebTweakHandler,
+  WebTweakContext,
+  WebTweakResult,
+  DomOp,
+  BaseFile,
+  CandidateSourcePatch,
 } from "./live-client.js";
 export type { CreateServerOptions } from "./server.js";
 
