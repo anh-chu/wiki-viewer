@@ -4,6 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ExternalLink, Play, Ban, MousePointerClick } from "lucide-react";
 import { ViewerToolbar } from "@/components/layout/viewer-toolbar";
 import { Button } from "@/components/ui/button";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
 import { WebTweakOverlay } from "@/components/editor/web-tweak-overlay";
 import { injectPicker } from "@/lib/web-tweak/picker";
 import { withWs, wsFetch } from "@/lib/workspace-client";
@@ -43,6 +51,27 @@ export function WebsiteViewer({
 	const [tweakEnabled, setTweakEnabled] = useState(false);
 	const [tweakHtml, setTweakHtml] = useState<string | null>(null);
 	const [tweakError, setTweakError] = useState<string | null>(null);
+	const [confirmScripts, setConfirmScripts] = useState(false);
+
+	// Tweak needs scripts (the picker runs in-page). If scripts are off, ask
+	// before enabling them, then enter tweak mode.
+	function handleTweakClick() {
+		if (tweakEnabled) {
+			setTweakEnabled(false);
+			return;
+		}
+		if (!scriptsEnabled) {
+			setConfirmScripts(true);
+			return;
+		}
+		setTweakEnabled(true);
+	}
+
+	function confirmEnableScriptsAndTweak() {
+		setConfirmScripts(false);
+		if (!scriptsEnabled) toggleScripts();
+		setTweakEnabled(true);
+	}
 
 	// If the user disables scripts while tweaking, exit tweak mode: the tweak
 	// preview runs with allow-scripts, and we must not keep executing page scripts
@@ -140,16 +169,9 @@ export function WebsiteViewer({
 				<Button
 					variant="ghost"
 					size="sm"
-					disabled={!scriptsEnabled && !tweakEnabled}
 					className={`h-7 gap-1.5 text-xs${tweakEnabled ? " text-primary" : ""}`}
-					onClick={() => setTweakEnabled((t) => !t)}
-					title={
-						!scriptsEnabled && !tweakEnabled
-							? "Enable scripts first to tweak (the picker needs scripts)"
-							: tweakEnabled
-								? "Exit tweak mode"
-								: "Tweak this page"
-					}
+					onClick={handleTweakClick}
+					title={tweakEnabled ? "Exit tweak mode" : "Tweak this page"}
 				>
 					<MousePointerClick className="h-3.5 w-3.5" />
 					Tweak
@@ -197,6 +219,27 @@ export function WebsiteViewer({
 					/>
 				)}
 			</div>
+
+			<Dialog open={confirmScripts} onOpenChange={setConfirmScripts}>
+				<DialogContent className="max-w-sm">
+					<DialogHeader>
+						<DialogTitle>Enable scripts to tweak?</DialogTitle>
+						<DialogDescription>
+							Tweak mode needs to run this page’s scripts so you can point at
+							elements. Only do this for pages you trust. You can turn scripts
+							back off anytime, which also exits tweak mode.
+						</DialogDescription>
+					</DialogHeader>
+					<DialogFooter>
+						<Button variant="ghost" size="sm" onClick={() => setConfirmScripts(false)}>
+							Cancel
+						</Button>
+						<Button size="sm" onClick={confirmEnableScriptsAndTweak}>
+							Enable scripts &amp; tweak
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 		</div>
 	);
 }
