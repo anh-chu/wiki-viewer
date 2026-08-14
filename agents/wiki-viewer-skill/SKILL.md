@@ -326,6 +326,64 @@ returned block-ops through the canonical Tier-2 path (with the request's own `ba
 `STALE_REVISION` from the edit surfaces as `StaleRequestError` and is reported `stale` — it
 never silently re-interprets against changed content. Return `null` to skip the edit.
 
+### Web tweak (live collaboration on rendered web pages)
+
+When the human is looking at a **rendered web surface** (a local `.html` preview or a
+running node-app), they can point at a DOM element and describe a change. You receive a
+`web.tweak` request and produce a **preview transaction**, not a direct edit. This is
+deliberately different from markdown, which writes first and reviews after. Web tweaks are
+**write-on-accept**: the source stays untouched until the human accepts a previewed variant.
+
+A `web.tweak` request carries the human note as `instruction` and, in `selectionText`, a
+JSON string `{ previewId, selector, tag, snippet }` identifying the element they clicked.
+Your reply (POST `/api/agent/live/web-preview`) must contain **both**:
+
+- `domPreviewOps`: data-only DOM operations applied *inside the iframe* so the human sees
+  the change live. Allowed ops: `setText`, `setStyle {prop,value}`, `setAttr {name,value}`,
+  `removeAttr {name}`, `addClass {value}`, `removeClass {value}`. No HTML/script injection.
+- `candidateSourcePatch`: the **immutable** source edit that Accept will commit, as
+  `{ summary, files: [{ path, content }] }` (whole-file replacements). Plus `baseFiles:
+  [{ path, sha256 }]` — the SHA-256 of each file's content **as you read it**.
+
+Accept commits `candidateSourcePatch` **verbatim, iff every `baseFiles` hash still matches
+disk**. If a human/watcher/other agent changed those files since your reply, Accept fails
+closed (`BASE_DRIFT`) and the human re-tweaks. You are **not** asked to re-synthesize on
+accept — the candidate you returned is the exact thing that lands. Produce the DOM preview
+and the source candidate from the *same* analysis so what the human sees is what gets
+written.
+
+If you can render a visual preview but cannot confidently map it to a source edit, return
+`candidateSourcePatch: null` (with `baseFiles: []`). The UI shows it as **visual only** and
+offers no Accept. Never fake a candidate.
+
+Hard rules:
+
+- Web tweaks **never write source directly**. You only submit the candidate + base hashes;
+  the server writes on human accept. (Markdown `generate`/`steer` still write via Tier-2 —
+  do not confuse the two.)
+- `domPreviewOps` must be data-only; the picker rejects HTML/script and dangerous attributes.
+- `baseFiles` hashes must be sha256 hex of the exact content the candidate was derived from,
+  or drift detection cannot protect the human.
+
+The `wiki-viewer-mcp` `live` subcommand handles `web.tweak` too, via a passthrough web
+handler (reference/demo). Real agents supply a `webHandler` to `runLiveLoop`:
+
+```ts
+import { createLiveClient, runLiveLoop, passthroughWebHandler } from "wiki-viewer-mcp";
+await runLiveLoop(client, markdownHandler, {
+  webHandler: async (ctx, { client }) => {
+    // ctx: { previewId, selector, tag, snippet, note, path }
+    const { content, sha256 } = await client.fetchFileForHash(ctx.path);
+    const next = yourEdit(content, ctx);           // produce new file content
+    return {
+      domPreviewOps: [{ type: "setStyle", prop: "color", value: "red" }],
+      candidateSourcePatch: { summary: ctx.note, files: [{ path: ctx.path, content: next }] },
+      baseFiles: [{ path: ctx.path, sha256 }],
+    };
+  },
+});
+```
+
 ## Error codes
 
 | Status | Code                   | Meaning                                                                                 |
