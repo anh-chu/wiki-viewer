@@ -417,6 +417,7 @@
 }
 
 /* Proof-span provenance marks */
+proof-span,
 proof-span.proof-span,
 .proof-span {
   background: linear-gradient(
@@ -430,6 +431,7 @@ proof-span.proof-span,
   cursor: pointer;
   transition: background 120ms ease;
 }
+proof-span[origin="human"],
 proof-span.proof-span[origin="human"],
 .proof-span[origin="human"] {
   border-left-color: rgb(110, 231, 183);
@@ -439,6 +441,7 @@ proof-span.proof-span[origin="human"],
     rgba(110, 231, 183, 0)
   );
 }
+proof-span:hover,
 proof-span.proof-span:hover,
 .proof-span:hover {
   background: linear-gradient(
@@ -447,6 +450,7 @@ proof-span.proof-span:hover,
     rgba(165, 180, 252, 0.04)
   );
 }
+.dark proof-span,
 .dark proof-span.proof-span,
 .dark .proof-span {
   background: linear-gradient(
