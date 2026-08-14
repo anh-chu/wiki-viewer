@@ -14,6 +14,7 @@ export {
   createClient,
   createLiveClient,
   passthroughHandler,
+  llmHandler,
   passthroughWebHandler,
   passthroughVariantsHandler,
 } from "./cli.js";

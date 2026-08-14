@@ -4,6 +4,7 @@
 
 import { parseArgs } from "node:util";
 import { createRequire } from "node:module";
+import { spawn } from "node:child_process";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
 import { WikiViewerClient } from "./http-client.js";
@@ -161,6 +162,77 @@ export const passthroughHandler: LiveHandler = async (req) => {
 };
 
 /**
+ * Run a prompt through the local `claude -p` CLI (uses the host's existing
+ * Claude auth; no API key needed). Returns stdout trimmed. Rejects on non-zero
+ * exit. Kept dependency-free so the published package stays SDK-light.
+ */
+function claudePrompt(prompt: string, signal?: AbortSignal): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const bin = process.env.WIKI_VIEWER_LLM_BIN ?? "claude";
+    const child = spawn(bin, ["-p"], { stdio: ["pipe", "pipe", "pipe"], signal });
+    let out = "";
+    let err = "";
+    child.stdout.on("data", (d) => (out += d));
+    child.stderr.on("data", (d) => (err += d));
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) resolve(out.trim());
+      else reject(new Error(`claude exited ${code}: ${err.slice(0, 500)}`));
+    });
+    child.stdin.write(prompt);
+    child.stdin.end();
+  });
+}
+
+/**
+ * Real LLM live handler: transforms the selected block's current markdown per
+ * the human's instruction using the local `claude -p` CLI. Unlike passthrough
+ * (which pastes the instruction verbatim), this actually applies the edit --
+ * "remove em-dashes" removes them instead of replacing the block with that text.
+ *
+ * Edits exactly one block (req.blockRef) and returns block.replace with the
+ * transformed markdown. Block content comes from the pre-fetched snapshot; if
+ * the block is gone it returns null (loop replies done with no change, and the
+ * server's ref check fails closed anyway).
+ */
+export const llmHandler: LiveHandler = async (req, { snapshot }) => {
+  const instruction = (req.instruction ?? "").trim();
+  if (!instruction || !req.blockRef) return null;
+  const block = snapshot?.blocks.find((b) => b.ref === req.blockRef);
+  if (!block) return null;
+
+  const selection = req.selectionText?.trim();
+  const prompt = [
+    "You are editing one block of a Markdown document. Apply the instruction to",
+    "the block below and return ONLY the rewritten Markdown for that block.",
+    "Rules: return raw Markdown, no code fence, no commentary, no preamble.",
+    "Preserve meaning and formatting except where the instruction changes it.",
+    "Do not add or remove blocks; return a single block's Markdown.",
+    "",
+    `Instruction: ${instruction}`,
+    selection ? `\nThe human highlighted this text within the block: ${selection}` : "",
+    "",
+    "Current block Markdown:",
+    "---",
+    block.markdown,
+    "---",
+  ].join("\n");
+
+  const rewritten = await claudePrompt(prompt);
+  if (!rewritten) return null;
+
+  return [
+    {
+      type: "block.replace",
+      ref: req.blockRef,
+      markdown: rewritten,
+      basis: "described",
+      basisDetail: "live instruction (claude)",
+    },
+  ];
+};
+
+/**
  * Built-in passthrough web-tweak handler: a functional reference agent for smoke
  * tests. It turns the human note into a trivial data-only DOM preview op (a color
  * mention becomes a setStyle color; otherwise the note becomes setText). By
@@ -281,8 +353,14 @@ async function runLive(): Promise<void> {
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
 
-  console.error("[live] attaching — waiting for block-scoped requests. Ctrl-C to stop.");
-  await runLiveLoop(client, passthroughHandler, {
+  // Default to the real LLM handler (claude -p) so instructions are actually
+  // applied; set WIKI_VIEWER_LLM=passthrough for the deterministic smoke agent.
+  const mode = process.env.WIKI_VIEWER_LLM ?? "claude";
+  const handler = mode === "passthrough" ? passthroughHandler : llmHandler;
+  console.error(
+    `[live] attaching (${mode} handler) — waiting for block-scoped requests. Ctrl-C to stop.`,
+  );
+  await runLiveLoop(client, handler, {
     signal: controller.signal,
     webHandler: passthroughWebHandler,
     webVariantsHandler: passthroughVariantsHandler,
