@@ -56,7 +56,25 @@ export function InstructionQueueBar({ path, drafts }: Props) {
 
 	if (drafts.length === 0) return null;
 
-	function getRevision(): number {
+	/**
+	 * Resolve the file's current revision at send time. The proof store may not be
+	 * hydrated yet (e.g. view mode opened moments ago), so fetch the live snapshot
+	 * and fall back to the store only if the network read fails. Sending a stale 0
+	 * would make every batch fail closed with STALE_REVISION.
+	 */
+	async function getRevision(): Promise<number> {
+		const encoded = encodeURIComponent(path).replace(/%2F/g, "/");
+		try {
+			const res = await wsFetch(`/api/agent/files/${encoded}`, {
+				headers: authHeaders(),
+			});
+			if (res.ok) {
+				const snap = (await res.json()) as { revision?: number };
+				if (typeof snap.revision === "number") return snap.revision;
+			}
+		} catch {
+			/* fall through to store */
+		}
 		return useProofStore.getState().byPath[path]?.snapshotRevision ?? 0;
 	}
 
@@ -68,7 +86,7 @@ export function InstructionQueueBar({ path, drafts }: Props) {
 			instructionState: "sent",
 			runId,
 		}));
-		let rev = getRevision();
+		let rev = await getRevision();
 		const send = () =>
 			wsFetch(`/api/agent/files/${encoded}`, {
 				method: "POST",
@@ -98,10 +116,11 @@ export function InstructionQueueBar({ path, drafts }: Props) {
 	async function handleSend() {
 		setPhase({ kind: "sending" });
 		try {
+			const rev = await getRevision();
 			const items = drafts.map((c) => ({
 				instructionId: c.id,
 				blockRef: c.ref ?? null,
-				baseRevision: getRevision(),
+				baseRevision: rev,
 				instruction: instructionText(c),
 			}));
 			const res = await wsFetch("/api/wiki/live/request", {

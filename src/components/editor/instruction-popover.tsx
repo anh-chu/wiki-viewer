@@ -53,7 +53,22 @@ export function InstructionPopover({
 		return () => window.removeEventListener("keydown", onKey);
 	}, [onClose]);
 
-	function getRevision(): number {
+	/**
+	 * Resolve the file's current revision at write time; the proof store may be
+	 * unhydrated (view mode just opened), so fetch the live snapshot and fall back
+	 * to the store only on network failure. A stale 0 fails closed on the server.
+	 */
+	async function getRevision(): Promise<number> {
+		const enc = encodeURIComponent(path).replace(/%2F/g, "/");
+		try {
+			const res = await wsFetch(`/api/agent/files/${enc}`, { headers: authHeaders() });
+			if (res.ok) {
+				const snap = (await res.json()) as { revision?: number };
+				if (typeof snap.revision === "number") return snap.revision;
+			}
+		} catch {
+			/* fall through to store */
+		}
 		return useProofStore.getState().byPath[path]?.snapshotRevision ?? 0;
 	}
 
@@ -70,7 +85,7 @@ export function InstructionPopover({
 				text: instruction.trim(),
 				kind: "instruction",
 			};
-			let rev = getRevision();
+			let rev = await getRevision();
 			const send = () =>
 				wsFetch(`/api/agent/files/${encoded}`, {
 					method: "POST",
