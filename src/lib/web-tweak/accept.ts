@@ -7,13 +7,17 @@
  * the candidate patch VERBATIM; it never re-localizes, re-synthesizes, or rebases.
  *
  * Hardening against TOCTOU / partial commits:
- *  - Writes are serialized per workspace (in-process mutex) so two accepts don't
- *    interleave. The route additionally claims the preview atomically in the DB
- *    before calling here, so only one accept runs per transaction.
+ *  - Web-tweak accepts are serialized per workspace (in-process mutex) so two
+ *    tweak accepts don't interleave. This lock covers web-tweak commits only;
+ *    other wiki-viewer write paths are not on this lock and are detected only
+ *    best-effort by the hash checks below. The route additionally claims the
+ *    preview atomically in the DB before calling here, so only one accept runs
+ *    per transaction.
  *  - Each target is re-checked immediately before writing: the resolved path must
  *    not be a symlink (lstat) and, if it exists, must still hash to its declared
- *    base. This shrinks the TOCTOU window to the gap between the final re-hash and
- *    the atomic rename. It is not a filesystem CAS: an external writer that races
+ *    base. This only shrinks (does not close) the TOCTOU window: it narrows to
+ *    the gap between the final re-hash and the atomic rename. It is not a
+ *    filesystem CAS: an external writer that races
  *    inside that gap, or that swaps an ancestor directory for a symlink, is not
  *    fully prevented here. Single-host WAL + the per-workspace lock make this
  *    adequate for wiki-viewer's own writers; a hostile concurrent external writer
@@ -24,7 +28,8 @@
  *    nothing written" holds without multi-file rollback.
  *
  * Note: base hashes are verified twice — once up front (fail fast before any
- * write) and once per file right before its write (closes the TOCTOU window).
+ * write) and once per file right before its write (shrinks, does not fully
+ * close, the TOCTOU window; see the per-target note above).
  */
 import { readFile, writeFile, lstat, rename, unlink } from "node:fs/promises";
 import path from "node:path";
