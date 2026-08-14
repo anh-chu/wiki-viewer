@@ -1,5 +1,6 @@
 "use client";
 
+import { clientId } from "@/lib/client-id";
 import { ListChecks, Loader2, Send, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { authHeaders } from "@/lib/proof/client-auth";
@@ -73,7 +74,7 @@ export function InstructionQueueBar({ path, drafts }: Props) {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"Idempotency-Key": crypto.randomUUID(),
+					"Idempotency-Key": clientId(),
 					...authHeaders(),
 				},
 				body: JSON.stringify({ baseRevision: rev, by: "human", ops }),

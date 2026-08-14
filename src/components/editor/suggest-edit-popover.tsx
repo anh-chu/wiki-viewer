@@ -1,5 +1,6 @@
 "use client";
 
+import { clientId } from "@/lib/client-id";
 import * as Popover from "@radix-ui/react-popover";
 import { useEffect, useRef, useState } from "react";
 import { authHeaders } from "@/lib/proof/client-auth";
@@ -17,7 +18,7 @@ async function postOp(
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
-			"Idempotency-Key": crypto.randomUUID(),
+			"Idempotency-Key": clientId(),
 			...authHeaders(),
 		},
 		body: JSON.stringify({ baseRevision, by: "human", ops }),

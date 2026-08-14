@@ -607,7 +607,9 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 		phase.kind === "waiting" ||
 		phase.kind === "ready" ||
 		phase.kind === "resolving" ||
-		phase.kind === "sending";
+		phase.kind === "sending" ||
+		phase.kind === "variantsWaiting" ||
+		phase.kind === "variants";
 
 	return (
 		<>

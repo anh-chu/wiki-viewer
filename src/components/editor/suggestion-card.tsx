@@ -1,5 +1,6 @@
 "use client";
 
+import { clientId } from "@/lib/client-id";
 import { useState } from "react";
 import { authHeaders } from "@/lib/proof/client-auth";
 import { wsFetch } from "@/lib/workspace-client";
@@ -39,7 +40,7 @@ async function postOp(
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
-			"Idempotency-Key": crypto.randomUUID(),
+			"Idempotency-Key": clientId(),
 			...authHeaders(),
 		},
 		body: JSON.stringify({

@@ -1,3 +1,4 @@
+import { clientId } from "@/lib/client-id";
 import { authHeaders } from "./client-auth";
 import type { SuggestionKind } from "./types";
 import { apiUrl } from "@/lib/url-prefix";
@@ -18,7 +19,7 @@ async function postSuggestionOp(
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
-			"Idempotency-Key": crypto.randomUUID(),
+			"Idempotency-Key": clientId(),
 			...authHeaders(),
 		},
 		body: JSON.stringify({ baseRevision, by: "human", ops: [op] }),

@@ -1,5 +1,6 @@
 "use client";
 
+import { clientId } from "@/lib/client-id";
 import * as Popover from "@radix-ui/react-popover";
 import { useEffect, useState } from "react";
 import { authHeaders } from "@/lib/proof/client-auth";
@@ -82,7 +83,7 @@ export function ProofSpanPopover({ targetEl, path, onClose, onComment }: Props) 
 					path,
 					spanId: meta.spanId,
 					action,
-					idempotencyKey: crypto.randomUUID(),
+					idempotencyKey: clientId(),
 				}),
 			});
 		} finally {

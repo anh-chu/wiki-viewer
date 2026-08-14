@@ -1,5 +1,6 @@
 "use client";
 
+import { clientId } from "@/lib/client-id";
 import { Check, X } from "lucide-react";
 import { useState } from "react";
 import { authHeaders } from "@/lib/proof/client-auth";
@@ -64,7 +65,7 @@ export function RunReviewBar({ path, sent, scrollContainer }: Props) {
 						path,
 						spanId,
 						action,
-						idempotencyKey: crypto.randomUUID(),
+						idempotencyKey: clientId(),
 					}),
 				});
 				// Fail-stop: do not keep resolving the rest of the run on error, which
