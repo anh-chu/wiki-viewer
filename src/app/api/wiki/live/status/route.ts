@@ -5,6 +5,7 @@ import {
 	latestRequest,
 	isAttached,
 } from "@/lib/proof/live/store";
+import { lookupAgentById } from "@/lib/proof/registry";
 
 export const runtime = "nodejs";
 
@@ -23,10 +24,18 @@ export async function GET(request: Request): Promise<NextResponse> {
 	const attached = isAttached(session);
 	const lastRequest = session ? latestRequest(session.id) : null;
 
+	// Resolve a human-readable name for the attached agent so the UI can say
+	// exactly who a request would go to.
+	let agentName: string | null = null;
+	if (attached && session?.agentId) {
+		const agent = await lookupAgentById(session.agentId);
+		agentName = agent?.displayName ?? session.agentId;
+	}
+
 	return NextResponse.json({
 		attached,
 		session: session
-			? { id: session.id, agentId: session.agentId, state: session.state }
+			? { id: session.id, agentId: session.agentId, agentName, state: session.state }
 			: null,
 		lastRequest: lastRequest
 			? {

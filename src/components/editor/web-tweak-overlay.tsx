@@ -57,6 +57,11 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 	const [acceptable, setAcceptable] = useState(false);
 	const [patchSummary, setPatchSummary] = useState<string | null>(null);
 	const [affectedFiles, setAffectedFiles] = useState<string[]>([]);
+	const [agent, setAgent] = useState<{ attached: boolean; name: string | null }>({
+		attached: false,
+		name: null,
+	});
+	const [copied, setCopied] = useState(false);
 
 	const previewIdRef = useRef<string | null>(null);
 	const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -79,6 +84,30 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 		setAffectedFiles([]);
 		setPhase({ kind: "idle" });
 	}, [stopPolling]);
+
+	// Presence poll: who (if anyone) is on the live channel for this workspace.
+	useEffect(() => {
+		if (!enabled) return;
+		let alive = true;
+		const check = async () => {
+			try {
+				const res = await wsFetch("/api/wiki/live/status");
+				if (!res.ok || !alive) return;
+				const data = (await res.json()) as {
+					attached: boolean;
+					session: { agentName: string | null } | null;
+				};
+				if (alive)
+					setAgent({ attached: data.attached, name: data.session?.agentName ?? null });
+			} catch {}
+		};
+		void check();
+		const t = setInterval(check, 3000);
+		return () => {
+			alive = false;
+			clearInterval(t);
+		};
+	}, [enabled]);
 
 	// Enable/disable the picker inside the frame.
 	useEffect(() => {
@@ -133,7 +162,17 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 	const startPolling = useCallback(
 		(previewId: string, pickId: string) => {
 			stopPolling();
+			const startedAt = Date.now();
+			const TIMEOUT_MS = 90_000;
 			pollRef.current = setInterval(async () => {
+				if (Date.now() - startedAt > TIMEOUT_MS) {
+					stopPolling();
+					setPhase({
+						kind: "message",
+						text: "No response from the agent yet. You can keep waiting by re-sending, or copy the prompt and run it elsewhere.",
+					});
+					return;
+				}
 				try {
 					const res = await wsFetch(
 						`/api/wiki/web-tweak/status?previewId=${encodeURIComponent(previewId)}`,
@@ -167,6 +206,37 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 		},
 		[frameRef, stopPolling],
 	);
+
+	/** Build a self-contained prompt a human can paste into any agent/chat. */
+	function buildPrompt(): string {
+		if (!pick) return "";
+		return [
+			`Edit the file \`${path}\` (an HTML page).`,
+			"",
+			`Target element (CSS selector): ${pick.selector}`,
+			`Tag: <${pick.tag}>`,
+			pick.text ? `Current text: ${pick.text}` : "",
+			"",
+			"Current markup:",
+			"```html",
+			pick.snippet || "(unavailable)",
+			"```",
+			"",
+			`Requested change: ${note.trim() || "(describe the change)"}`,
+		]
+			.filter((l) => l !== "")
+			.join("\n");
+	}
+
+	async function handleCopyPrompt() {
+		try {
+			await navigator.clipboard.writeText(buildPrompt());
+			setCopied(true);
+			setTimeout(() => setCopied(false), 1500);
+		} catch {
+			setPhase({ kind: "message", text: "Could not access clipboard." });
+		}
+	}
 
 	async function handleSend() {
 		if (!pick || note.trim().length === 0) return;
@@ -320,6 +390,23 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 								placeholder="What should change?"
 								className="w-full resize-y rounded-md border border-border bg-background px-2 py-1.5 text-[12px] focus:outline-none focus-visible:ring-1 focus-visible:ring-ring placeholder:text-muted-foreground/40"
 							/>
+							{/* Who a Send would reach. */}
+							<div className="flex items-center gap-1.5 text-[10.5px]">
+								<span
+									className={`inline-block h-1.5 w-1.5 rounded-full ${
+										agent.attached ? "bg-emerald-500" : "bg-muted-foreground/40"
+									}`}
+								/>
+								{agent.attached ? (
+									<span className="text-muted-foreground">
+										Sends to <span className="font-medium text-foreground">{agent.name ?? "agent"}</span>
+									</span>
+								) : (
+									<span className="text-amber-600">
+										No agent attached — use Copy as prompt
+									</span>
+								)}
+							</div>
 							<div className="flex items-center justify-between pt-0.5">
 								<span className="text-[10px] text-muted-foreground/40">⌘↵ send</span>
 								<div className="flex items-center gap-2">
@@ -332,7 +419,20 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 									</button>
 									<button
 										type="button"
-										disabled={phase.kind === "sending" || note.trim().length === 0}
+										onClick={() => void handleCopyPrompt()}
+										title="Copy a self-contained prompt to paste into any agent"
+										className="rounded-md border border-border px-2.5 py-1 text-[11px] font-medium transition-colors hover:bg-accent"
+									>
+										{copied ? "Copied" : "Copy as prompt"}
+									</button>
+									<button
+										type="button"
+										disabled={
+											phase.kind === "sending" ||
+										note.trim().length === 0 ||
+										!agent.attached
+									}
+										title={agent.attached ? "Send to the attached agent" : "No agent attached"}
 										onClick={() => void handleSend()}
 										className="rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
 									>
@@ -344,7 +444,37 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 					)}
 
 					{phase.kind === "waiting" && (
-						<p className="text-[11px] text-muted-foreground">Waiting for agent…</p>
+						<div className="space-y-2">
+							<p className="text-[11px] text-muted-foreground">
+								Sent to{" "}
+								<span className="font-medium text-foreground">
+									{agent.name ?? "the agent"}
+								</span>
+								. Waiting for it to produce a preview…
+							</p>
+							{!agent.attached && (
+								<p className="text-[11px] text-amber-600">
+									The agent went offline. It may not respond — you can cancel and
+									copy the prompt instead.
+								</p>
+							)}
+							<div className="flex items-center justify-end gap-2">
+								<button
+									type="button"
+									onClick={() => void handleCopyPrompt()}
+									className="rounded-md border border-border px-2.5 py-1 text-[11px] font-medium transition-colors hover:bg-accent"
+								>
+									{copied ? "Copied" : "Copy as prompt"}
+								</button>
+								<button
+									type="button"
+									onClick={() => void handleDiscard()}
+									className="rounded-md border border-border px-2.5 py-1 text-[11px] font-medium transition-colors hover:bg-accent"
+								>
+									Cancel
+								</button>
+							</div>
+						</div>
 					)}
 
 					{phase.kind === "ready" && (
@@ -401,6 +531,13 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 								{phase.text}
 							</p>
 							<div className="flex items-center justify-end gap-2 pt-0.5">
+								<button
+									type="button"
+									onClick={() => void handleCopyPrompt()}
+									className="rounded-md border border-border px-2.5 py-1 text-[11px] font-medium transition-colors hover:bg-accent"
+								>
+									{copied ? "Copied" : "Copy as prompt"}
+								</button>
 								<button
 									type="button"
 									onClick={() => void handleDiscard()}
