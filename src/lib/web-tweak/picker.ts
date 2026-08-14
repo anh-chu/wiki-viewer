@@ -176,9 +176,12 @@ export const WEB_TWEAK_PICKER_JS = String.raw`(function () {
   // Attribute allowlist: purely presentational / inert. No URL/network/nav/form
   // bearing attributes (src, href, data, srcset, poster, ping, action, target,
   // formaction, background, xlink:href, on*), which could load or navigate.
+  // 'style' is deliberately NOT allowed here: all style changes must go through
+  // setStyle so the STYLE_ALLOW property allowlist stays authoritative (a raw
+  // style= string would only be value-screened, not property-restricted).
   var ATTR_ALLOW = {
     'title': 1, 'alt': 1, 'aria-label': 1, 'aria-hidden': 1, 'role': 1,
-    'class': 1, 'style': 1, 'placeholder': 1, 'value': 1, 'disabled': 1,
+    'class': 1, 'placeholder': 1, 'value': 1, 'disabled': 1,
     'dir': 1, 'lang': 1, 'tabindex': 1
   };
   // Style property allowlist: presentation only. url()/expression/etc. can't

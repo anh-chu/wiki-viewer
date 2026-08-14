@@ -361,3 +361,32 @@ test("candidate target without a base hash is rejected at reply time", async () 
 	// preview stays requested (not attached)
 	assert.equal(pstore.getPreview(previewId)?.status, "requested");
 });
+
+test("v1 rejects multi-file candidate patches", async () => {
+	const { previewId, requestId } = await dispatchTweak(wsA);
+	const cur = await readFile(path.join(wsARoot, "index.html"), "utf8");
+	const reply = await webPreviewPOST(
+		new Request(agentUrl("/api/agent/live/web-preview", wsA), {
+			method: "POST",
+			headers: agentHeaders(),
+			body: JSON.stringify({
+				previewId,
+				requestId,
+				domPreviewOps: [{ type: "setText", value: "x" }],
+				candidateSourcePatch: {
+					summary: "two files",
+					files: [
+						{ path: "index.html", content: cur },
+						{ path: "other.html", content: "x" },
+					],
+				},
+				baseFiles: [
+					{ path: "index.html", sha256: sha256(cur) },
+					{ path: "other.html", sha256: sha256("") },
+				],
+				status: "done",
+			}),
+		}),
+	);
+	assert.equal(reply.status, 400);
+});

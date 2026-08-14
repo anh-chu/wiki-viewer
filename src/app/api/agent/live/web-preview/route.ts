@@ -185,6 +185,15 @@ export async function POST(req: Request): Promise<NextResponse> {
 				{ status: 400 },
 			);
 		}
+		// v1 commits are single-file so the "BASE_DRIFT => nothing written" invariant
+		// holds without multi-file rollback/journaling. Multi-file needs a real
+		// transaction; deferred.
+		if (candidate.files.length !== 1) {
+			return NextResponse.json(
+				{ error: "INVALID_PARAM", message: "v1 candidateSourcePatch must edit exactly one file" },
+				{ status: 400 },
+			);
+		}
 		const baseset = new Set(baseFiles.map((b) => b.path));
 		const uncovered = candidate.files.find((f) => !baseset.has(f.path));
 		if (uncovered) {
@@ -195,6 +204,28 @@ export async function POST(req: Request): Promise<NextResponse> {
 				},
 				{ status: 400 },
 			);
+		}
+	}
+
+	// Enforce the agent's path scope on every candidate + base file it proposes,
+	// so a mutate-scoped agent cannot stage a write to a path outside its scope.
+	if (candidate) {
+		const paths = new Set<string>([
+			...candidate.files.map((f) => f.path),
+			...baseFiles.map((b) => b.path),
+		]);
+		for (const p of paths) {
+			const s = enforceScope(auth.agent, {
+				filePath: p,
+				op: "mutate",
+				workspaceId: ws.id,
+			});
+			if (!s.ok) {
+				return NextResponse.json(
+					{ error: s.code, message: s.message },
+					{ status: 403 },
+				);
+			}
 		}
 	}
 

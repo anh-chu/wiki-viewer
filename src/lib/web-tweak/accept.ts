@@ -12,9 +12,16 @@
  *    before calling here, so only one accept runs per transaction.
  *  - Each target is re-checked immediately before writing: the resolved path must
  *    not be a symlink (lstat) and, if it exists, must still hash to its declared
- *    base. This makes the guarantee "hash matched at commit", not merely earlier.
+ *    base. This shrinks the TOCTOU window to the gap between the final re-hash and
+ *    the atomic rename. It is not a filesystem CAS: an external writer that races
+ *    inside that gap, or that swaps an ancestor directory for a symlink, is not
+ *    fully prevented here. Single-host WAL + the per-workspace lock make this
+ *    adequate for wiki-viewer's own writers; a hostile concurrent external writer
+ *    is out of scope for v1.
  *  - Each file is written to a temp file in the same directory and atomically
  *    renamed into place, so a crash mid-write cannot leave a half-written file.
+ *  - v1 candidates are single-file (enforced at reply time), so "BASE_DRIFT =>
+ *    nothing written" holds without multi-file rollback.
  *
  * Note: base hashes are verified twice — once up front (fail fast before any
  * write) and once per file right before its write (closes the TOCTOU window).
@@ -39,14 +46,17 @@ async function withWorkspaceLock<T>(rootDir: string, fn: () => Promise<T>): Prom
 	const next = new Promise<void>((r) => {
 		release = r;
 	});
-	workspaceLocks.set(rootDir, prev.then(() => next));
+	// Chain this commit after any in-flight one for the same workspace.
+	const chained = prev.then(() => next);
+	workspaceLocks.set(rootDir, chained);
 	await prev.catch(() => {});
 	try {
 		return await fn();
 	} finally {
 		release();
-		if (workspaceLocks.get(rootDir) === prev.then(() => next)) {
-			// best-effort cleanup; harmless if a newer waiter replaced it
+		// Drop the map entry only if we are still the tail (no later waiter chained).
+		if (workspaceLocks.get(rootDir) === chained) {
+			workspaceLocks.delete(rootDir);
 		}
 	}
 }

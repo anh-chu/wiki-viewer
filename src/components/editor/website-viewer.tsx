@@ -44,6 +44,13 @@ export function WebsiteViewer({
 	const [tweakHtml, setTweakHtml] = useState<string | null>(null);
 	const [tweakError, setTweakError] = useState<string | null>(null);
 
+	// If the user disables scripts while tweaking, exit tweak mode: the tweak
+	// preview runs with allow-scripts, and we must not keep executing page scripts
+	// the user just turned off.
+	useEffect(() => {
+		if (!scriptsEnabled && tweakEnabled) setTweakEnabled(false);
+	}, [scriptsEnabled, tweakEnabled]);
+
 	// Fetch the raw HTML and inject the picker when tweak mode turns on.
 	useEffect(() => {
 		if (!tweakEnabled) {
