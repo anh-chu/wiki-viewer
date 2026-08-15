@@ -113,6 +113,7 @@ export async function GET(req: Request): Promise<NextResponse> {
 					selectionStart: pending.selectionStart,
 					selectionEnd: pending.selectionEnd,
 					items: pending.items,
+					previewId: pending.previewId ?? null,
 					runId: pending.runId,
 					seq: pending.seq,
 					idempotencyKey: `live:${pending.id}`,

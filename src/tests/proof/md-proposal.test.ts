@@ -1,12 +1,13 @@
 import { test, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { createTestWorkspace, makeFile } from "./helpers/workspace.js";
 import { readSnapshot } from "../../lib/proof/ops-applier.js";
+import { ensureRegistry, addAgent, hashToken } from "../../lib/proof/registry.js";
 import {
 	_resetForTests,
 	attachVariants,
@@ -21,11 +22,27 @@ let rootA: string;
 let wsB: string;
 let resolvePOST: (req: Request) => Promise<Response>;
 let statusGET: (req: Request) => Promise<Response>;
+let mdRequestPOST: (req: Request) => Promise<Response>;
+let attachPOST: (req: Request) => Promise<Response>;
+let pollGET: (req: Request) => Promise<Response>;
+let mdPreviewPOST: (req: Request) => Promise<Response>;
+let mutateToken: string;
 
 const filePath = "proposal.md";
 const original = "# Title\n\nOriginal paragraph.\n";
 
 function url(route: string, ws: string, params: Record<string, string> = {}): string {
+	const u = new URL(`http://localhost:3000${route}`);
+	u.searchParams.set("ws", ws);
+	for (const [key, value] of Object.entries(params)) u.searchParams.set(key, value);
+	return u.toString();
+}
+
+function agentHeaders(): Record<string, string> {
+	return { Authorization: `Bearer ${mutateToken}`, "X-Agent-Id": "ai:md-proposal-agent", "Content-Type": "application/json" };
+}
+
+function agentUrl(route: string, ws: string, params: Record<string, string> = {}): string {
 	const u = new URL(`http://localhost:3000${route}`);
 	u.searchParams.set("ws", ws);
 	for (const [key, value] of Object.entries(params)) u.searchParams.set(key, value);
@@ -85,8 +102,15 @@ before(async () => {
 	rootA = a.rootDir;
 	wsB = b.workspace.id;
 	await makeFile(rootA, filePath, original);
+	await ensureRegistry();
+	mutateToken = randomBytes(32).toString("hex");
+	await addAgent({ id: "ai:md-proposal-agent", displayName: "MD Proposal Agent", tokenHash: hashToken(mutateToken), scope: { paths: ["**/*"], ops: ["read", "mutate"] }, createdAt: new Date().toISOString(), lastSeen: new Date().toISOString() });
 	resolvePOST = (await import("../../app/api/wiki/live/md-resolve/route.js")).POST;
 	statusGET = (await import("../../app/api/wiki/live/md-status/route.js")).GET;
+	mdRequestPOST = (await import("../../app/api/wiki/live/md-request/route.js")).POST;
+	attachPOST = (await import("../../app/api/agent/live/attach/route.js")).POST;
+	pollGET = (await import("../../app/api/agent/live/poll/route.js")).GET;
+	mdPreviewPOST = (await import("../../app/api/agent/live/md-preview/route.js")).POST;
 	_resetForTests();
 });
 
@@ -115,6 +139,39 @@ test("lifecycle: requested proposal attaches 2-5 variants and derives IDs", asyn
 	const status = await statusGET(new Request(url("/api/wiki/live/md-status", wsA, { previewId: p.previewId })));
 	assert.equal(status.status, 200);
 	assert.equal(((await status.json()) as { state: string }).state, "ready");
+});
+
+test("md-request computes canonical hash and md-preview proposal accepts unchanged block", async () => {
+	const { snapshot, block } = await target();
+	const attached = await attachPOST(new Request(agentUrl("/api/agent/live/attach", wsA), { method: "POST", headers: agentHeaders() }));
+	assert.equal(attached.status, 200);
+	const { sessionId } = (await attached.json()) as { sessionId: string };
+	const requested = await mdRequestPOST(new Request(url("/api/wiki/live/md-request", wsA), {
+		method: "POST", headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ path: filePath, blockRef: block.ref, baseRevision: snapshot.revision, instruction: "Rewrite paragraph" }),
+	}));
+	assert.equal(requested.status, 200);
+	const requestedBody = (await requested.json()) as { previewId: string; requestId: string };
+	const polled = await pollGET(new Request(agentUrl("/api/agent/live/poll", wsA, { sessionId, afterSeq: "0", holdMs: "1000" }), { headers: agentHeaders() }));
+	assert.equal(polled.status, 200);
+	const pollBody = (await polled.json()) as { type: string; request: { requestId: string; previewId: string | null } };
+	assert.equal(pollBody.type, "generate");
+	assert.equal(pollBody.request.requestId, requestedBody.requestId);
+	assert.equal(pollBody.request.previewId, requestedBody.previewId);
+	const submitted = await mdPreviewPOST(new Request(agentUrl("/api/agent/live/md-preview", wsA), {
+		method: "POST", headers: agentHeaders(),
+		body: JSON.stringify({ previewId: requestedBody.previewId, requestId: requestedBody.requestId, variants: [{ label: "One", markdown: "First." }, { label: "Two", markdown: "Second." }] }),
+	}));
+	assert.equal(submitted.status, 200);
+	const stored = getProposal(requestedBody.previewId);
+	assert.equal(stored?.baseBlockHash, canonicalHash(block.markdown));
+	assert.equal(stored?.state, "ready");
+	const accepted = await resolvePOST(new Request(url("/api/wiki/live/md-resolve", wsA), {
+		method: "POST", headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ previewId: requestedBody.previewId, action: "accept", variantId: stored!.variants[0].variantId }),
+	}));
+	assert.equal(accepted.status, 200);
+	assert.equal(await readFile(path.join(rootA, filePath), "utf8"), "# Title\n\nFirst.\n");
 });
 
 test("accept commits selected variant markdown verbatim and marks accepted", async () => {

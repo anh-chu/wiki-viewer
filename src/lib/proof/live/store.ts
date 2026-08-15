@@ -86,6 +86,8 @@ export interface LiveRequest {
 	items: LiveInstructionItem[] | null;
 	/** Correlation id stamped on results produced by this run. */
 	runId: string | null;
+	/** Markdown proposal preview id, when request came from md-request. */
+	previewId?: string | null;
 	state: RequestState;
 	outcome: RequestOutcome | null;
 	seq: number;
@@ -134,6 +136,7 @@ function getDb(): InstanceType<typeof Database> {
 			selection_end   INTEGER,
 			items         TEXT,
 			run_id        TEXT,
+			preview_id    TEXT,
 			state         TEXT NOT NULL,
 			outcome       TEXT,
 			seq           INTEGER NOT NULL,
@@ -156,6 +159,7 @@ function getDb(): InstanceType<typeof Database> {
 		["selection_end", "INTEGER"],
 		["items", "TEXT"],
 		["run_id", "TEXT"],
+		["preview_id", "TEXT"],
 	];
 	for (const [name, type] of additive) {
 		if (have.has(name)) continue;
@@ -203,6 +207,7 @@ interface RequestRow {
 	selection_end: number | null;
 	items: string | null;
 	run_id: string | null;
+	preview_id: string | null;
 	state: string;
 	outcome: string | null;
 	seq: number;
@@ -237,6 +242,7 @@ function toRequest(r: RequestRow): LiveRequest {
 		selectionEnd: r.selection_end,
 		items: r.items ? (JSON.parse(r.items) as LiveInstructionItem[]) : null,
 		runId: r.run_id,
+		previewId: r.preview_id,
 		state: r.state as RequestState,
 		outcome: (r.outcome as RequestOutcome | null) ?? null,
 		seq: r.seq,
@@ -362,6 +368,7 @@ export interface EnqueueInput {
 	/** Batch payload for a run. When set, `runId` should also be provided. */
 	items?: LiveInstructionItem[] | null;
 	runId?: string | null;
+	previewId?: string | null;
 }
 
 export interface EnqueueResult {
@@ -423,8 +430,8 @@ export function enqueueRequest(
 
 		db.prepare(
 			`INSERT INTO live_request
-			 (id, session_id, workspace_id, path, block_ref, base_revision, kind, instruction, selection_text, selection_start, selection_end, items, run_id, state, outcome, seq, created_at, delivered_at, resolved_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, ?, ?, NULL, NULL)`,
+			 (id, session_id, workspace_id, path, block_ref, base_revision, kind, instruction, selection_text, selection_start, selection_end, items, run_id, preview_id, state, outcome, seq, created_at, delivered_at, resolved_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, ?, ?, NULL, NULL)`,
 		).run(
 			id,
 			input.sessionId,
@@ -439,6 +446,7 @@ export function enqueueRequest(
 			input.selectionEnd ?? null,
 			input.items ? JSON.stringify(input.items) : null,
 			input.runId ?? null,
+			input.previewId ?? null,
 			seq,
 			now,
 		);

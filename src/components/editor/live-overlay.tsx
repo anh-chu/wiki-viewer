@@ -11,12 +11,6 @@ type Variant = { variantId: string; label: string; markdown: string };
 interface Props { path: string; target: Target | null; onClose: () => void; positions: Map<string, { top: number; left: number; width: number; bottom: number }>; scrollRef: RefObject<HTMLDivElement | null>; isViewing: boolean; baseRevision: number; }
 type Phase = "targeted" | "waiting" | "generating" | "preview" | "resolving" | "message";
 
-async function hashBlock(value: string): Promise<string> {
-	const bytes = new TextEncoder().encode(value);
-	const digest = await crypto.subtle.digest("SHA-256", bytes);
-	return `sha256:${Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("")}`;
-}
-
 export function LiveOverlay({ path, target, onClose, positions, scrollRef, isViewing, baseRevision }: Props) {
 	const attached = useLiveAttached();
 	const [instruction, setInstruction] = useState("");
@@ -27,7 +21,6 @@ export function LiveOverlay({ path, target, onClose, positions, scrollRef, isVie
 	const [message, setMessage] = useState("");
 	const previewRef = useRef<string | null>(null);
 	const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-	const targetMarkdown = target?.markdown ?? "";
 	const pos = target ? positions.get(target.blockRef) : undefined;
 	const stop = useCallback(() => { if (pollRef.current) clearInterval(pollRef.current); pollRef.current = null; }, []);
 	useEffect(() => () => stop(), [stop]);
@@ -50,8 +43,7 @@ export function LiveOverlay({ path, target, onClose, positions, scrollRef, isVie
 		if (!target || !instruction.trim() || !attached) return;
 		setPhase("generating");
 		try {
-			const baseBlockHash = await hashBlock(targetMarkdown);
-			const res = await wsFetch("/api/wiki/live/md-request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path, blockRef: target.blockRef, baseRevision, baseBlockHash, instruction: instruction.trim(), selectionText: target.selectionText ?? undefined, selectionStart: target.selectionStart ?? undefined, selectionEnd: target.selectionEnd ?? undefined }) });
+			const res = await wsFetch("/api/wiki/live/md-request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path, blockRef: target.blockRef, baseRevision, instruction: instruction.trim(), selectionText: target.selectionText ?? undefined, selectionStart: target.selectionStart ?? undefined, selectionEnd: target.selectionEnd ?? undefined }) });
 			if (!res.ok) throw new Error("Request failed.");
 			const body = await res.json() as { previewId: string };
 			previewRef.current = body.previewId; setPhase("waiting");
