@@ -125,6 +125,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 		baseRevision: null,
 		kind: "web.tweak",
 		instruction: note,
+		previewId: preview.id,
 		// Carry the previewId + selector so the agent can correlate its reply.
 		selectionText: JSON.stringify({ previewId: preview.id, selector, tag, snippet }),
 		selectionStart: null,
@@ -200,6 +201,7 @@ async function handleVariants(
 		baseRevision: null,
 		kind: "web.tweak.variants",
 		instruction: note,
+		previewId: preview.id,
 		selectionText: JSON.stringify({ previewId: preview.id, selector, tag, snippet }),
 		selectionStart: null,
 		selectionEnd: null,
@@ -300,6 +302,7 @@ async function handleBatch(
 		baseRevision: null,
 		kind: "web.tweak",
 		instruction: null,
+		previewId: preview.id,
 		// Carry the previewId so the agent can correlate its batch reply.
 		selectionText: JSON.stringify({ previewId: preview.id }),
 		selectionStart: null,

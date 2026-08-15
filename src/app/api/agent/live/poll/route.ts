@@ -101,6 +101,7 @@ export async function GET(req: Request): Promise<NextResponse> {
 			markDelivered(pending.id);
 			return NextResponse.json({
 				type: pending.kind,
+				afterSeq,
 				request: {
 					requestId: pending.id,
 					sessionId: pending.sessionId,
@@ -123,5 +124,5 @@ export async function GET(req: Request): Promise<NextResponse> {
 		}
 		await sleep(TICK_MS);
 	}
-	return NextResponse.json({ type: "timeout" });
+	return NextResponse.json({ type: "timeout", afterSeq });
 }

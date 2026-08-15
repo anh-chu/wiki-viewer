@@ -191,7 +191,8 @@ export class LiveClient {
     }
     const code =
       (body as Record<string, unknown> | undefined)?.error?.toString() ?? `HTTP_${res.status}`;
-    throw new LiveError(res.status, code, `live ${res.status}: ${code}`, body);
+    const msg = typeof (body as any)?.message === "string" ? (body as any).message : "";
+    throw new LiveError(res.status, code, `live ${res.status}: ${code}${msg ? ` — ${msg}` : ""}`, body);
   }
 
   /** Attach (idempotent per agent+workspace). Returns the session id. */
