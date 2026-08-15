@@ -189,6 +189,10 @@ async function runRegister(): Promise<void> {
 
     console.log();
     console.log("✅ Approved!");
+    if (result.warning) {
+      console.log();
+      console.log(`⚠️  ${result.warning}`);
+    }
     console.log();
     console.log(`Agent ID : ${result.agentId}`);
     console.log(`Token    : ${result.token}`);

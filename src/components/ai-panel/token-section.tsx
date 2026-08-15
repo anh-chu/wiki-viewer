@@ -207,7 +207,12 @@ export function TokenSection() {
 				body: "{}",
 			});
 			if (r.ok) {
-				toast.success("Agent approved");
+				const body = (await r.json().catch(() => ({}))) as { warning?: string };
+				if (body.warning) {
+					toast.warning(body.warning);
+				} else {
+					toast.success("Agent approved");
+				}
 				await Promise.all([fetchPending(), fetchAgents()]);
 			} else {
 				toast.error("Failed to approve agent");

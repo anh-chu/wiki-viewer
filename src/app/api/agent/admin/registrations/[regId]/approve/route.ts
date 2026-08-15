@@ -10,7 +10,7 @@ import { randomBytes } from "node:crypto";
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/server";
 import { getRegistration, approveRegistration } from "@/lib/proof/pending";
-import { addAgent, hashToken } from "@/lib/proof/registry";
+import { addAgent, hashToken, lookupAgentById } from "@/lib/proof/registry";
 import type { AgentScope } from "@/lib/proof/registry";
 import { validateScope } from "@/app/api/agent/register/route";
 
@@ -61,6 +61,11 @@ export async function POST(
 		// No body or invalid JSON — use requestedScope
 	}
 
+	const replacedAgent = await lookupAgentById(reg.agentId);
+	const rotationWarning = replacedAgent
+		? `Approving replaced the existing token for ${reg.agentId}; the previous token is now invalid.`
+		: undefined;
+
 	// Mint token
 	const tokenPlaintext = randomBytes(32).toString("hex");
 	const tokenHash = hashToken(tokenPlaintext);
@@ -76,8 +81,13 @@ export async function POST(
 		ownerUserId: owner.user.id,
 	});
 
-	// Mark as approved with one-shot pickup token
-	approveRegistration(regId, tokenPlaintext);
+	// Mark as approved with one-shot pickup token; carry the rotation warning so
+	// the agent operator sees it at pickup (CLI), same message the approver sees.
+	approveRegistration(regId, tokenPlaintext, rotationWarning);
 
-	return NextResponse.json({ ok: true, agentId: reg.agentId });
+	return NextResponse.json({
+		ok: true,
+		agentId: reg.agentId,
+		...(rotationWarning ? { rotated: true, warning: rotationWarning } : {}),
+	});
 }

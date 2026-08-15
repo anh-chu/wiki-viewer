@@ -24,6 +24,8 @@ export interface PendingRegistration {
 	tokenPlaintext?: string;
 	/** ISO-8601 timestamp of approval/denial */
 	resolvedAt?: string;
+	/** Human-facing note surfaced at pickup, e.g. token rotation. Survives consume. */
+	warning?: string;
 }
 
 // Module-level singleton (survives Next.js HMR via globalThis)
@@ -65,12 +67,17 @@ export function listPendingRegistrations(): PendingRegistration[] {
 }
 
 /** Mark as approved and stash one-shot token. */
-export function approveRegistration(id: string, tokenPlaintext: string): boolean {
+export function approveRegistration(
+	id: string,
+	tokenPlaintext: string,
+	warning?: string,
+): boolean {
 	const reg = store.get(id);
 	if (!reg || reg.status !== "pending") return false;
 	reg.status = "approved";
 	reg.tokenPlaintext = tokenPlaintext;
 	reg.resolvedAt = new Date().toISOString();
+	if (warning) reg.warning = warning;
 	return true;
 }
 

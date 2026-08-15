@@ -34,6 +34,8 @@ export interface RegisterOptions {
 export interface RegisterResult {
   token: string;
   agentId: string;
+  /** Human-facing note from the operator's approval, e.g. token rotation. */
+  warning?: string;
 }
 
 export async function register(opts: RegisterOptions): Promise<RegisterResult> {
@@ -84,9 +86,10 @@ export async function register(opts: RegisterOptions): Promise<RegisterResult> {
         status: string;
         agentId?: string;
         token?: string;
+        warning?: string;
       };
       if (body.status === "approved" && body.agentId && body.token) {
-        return { token: body.token, agentId: body.agentId };
+        return { token: body.token, agentId: body.agentId, warning: body.warning };
       }
       if (body.status === "denied") {
         throw new RegistrationDeniedError("Registration denied by the operator.");

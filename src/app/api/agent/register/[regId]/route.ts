@@ -5,7 +5,7 @@
  *
  * Responses:
  *   202 { status: "pending" }
- *   200 { status: "approved", agentId, token }  — one-shot pickup, deletes token
+ *   200 { status: "approved", agentId, token, warning? }  — one-shot pickup, deletes token
  *   410 { status: "consumed" | "denied" }
  *   404 { status: "not_found" }
  */
@@ -36,7 +36,12 @@ export async function GET(
 				return NextResponse.json({ status: "consumed" }, { status: 410 });
 			}
 			return NextResponse.json(
-				{ status: "approved", agentId: reg.agentId, token },
+				{
+					status: "approved",
+					agentId: reg.agentId,
+					token,
+					...(reg.warning ? { warning: reg.warning } : {}),
+				},
 				{ status: 200 },
 			);
 		}
