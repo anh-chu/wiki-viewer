@@ -108,12 +108,25 @@ src/hooks/             Page-shell controllers (file tree, workspaces, open file)
 src/components/wiki/   Extracted wiki-shell components
 src/middleware.ts      Cookie-presence gate for UI routes; API auth delegated to handlers
 packages/wiki-viewer-mcp/   Standalone MCP adapter (pnpm workspace package, npm-published)
-docs/                  agent-collab-plan.md (tier-2 spec), agent-fs-plan.md (tier-1 spec),
+docs/                  ux-contracts.md (user-facing behavior inventory), agent-collab-plan.md
+                       (tier-2 spec), agent-fs-plan.md (tier-1 spec),
                        file-vs-collab-authority.md; docs/archive/ for completed plans
 agents/                Installable Agent Skill + bootstrap prompt
 ```
 
 Import alias: `@/*` → `./src/*`.
+
+## UX Contracts
+
+`docs/ux-contracts.md` is the ground-truth inventory of user-facing behavior
+(triggers, edge cases, exact constants, keyboard shortcuts). It currently covers
+the Live collaboration surface; the rest of the app is listed under Known gaps.
+
+- **Read the relevant section(s) before implementing anything user-facing.**
+- **Update the doc in the same change**, not later.
+- If code and the doc disagree, code is ground truth; fix the doc as part of the change.
+- Read the file in full (or via `offset`/`limit`) before editing; never rewrite it
+  from a possibly-truncated read. Edit via targeted string replacement.
 
 ## Agent API model (the core domain)
 
