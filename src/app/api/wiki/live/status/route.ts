@@ -4,6 +4,7 @@ import {
 	latestOpenSession,
 	latestRequest,
 	isAttached,
+	hasActiveRequest,
 } from "@/lib/proof/live/store";
 import { lookupAgentById } from "@/lib/proof/registry";
 
@@ -21,7 +22,7 @@ export async function GET(request: Request): Promise<NextResponse> {
 	const { ws } = ctx;
 
 	const session = latestOpenSession(ws.id);
-	const attached = isAttached(session);
+	const attached = isAttached(session) || (session ? hasActiveRequest(session.id) : false);
 	const lastRequest = session ? latestRequest(session.id) : null;
 
 	// Resolve a human-readable name for the attached agent so the UI can say

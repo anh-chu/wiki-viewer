@@ -354,6 +354,34 @@ export function isAttached(session: LiveSession | null): boolean {
 	return Date.now() - session.agentLastSeen <= PRESENCE_TTL_MS;
 }
 
+/**
+ * How long a `working` request keeps presence solid without any fresh agent
+ * activity (poll tick or reply). Covers a legitimate long generation where the
+ * attending agent goes silent while producing variants; after this the presence
+ * mark must fall back to amber so a crashed/abandoned agent never shows solid
+ * forever (Go would otherwise queue into the void).
+ */
+export const WORKING_PRESENCE_GRACE_MS = 90_000;
+
+/**
+ * True when the session has a `working` request picked up recently enough to
+ * treat as live. Bounded by WORKING_PRESENCE_GRACE_MS from delivery so a stuck
+ * `working` row cannot fake presence indefinitely. Only `working` counts: a
+ * merely `pending` request with no agent polling is honestly "no agent".
+ */
+export function hasActiveRequest(sessionId: string): boolean {
+	const cutoff = Date.now() - WORKING_PRESENCE_GRACE_MS;
+	const row = getDb()
+		.prepare(
+			`SELECT 1 FROM live_request
+			 WHERE session_id = ? AND state = 'working'
+			   AND COALESCE(delivered_at, created_at) >= ?
+			 LIMIT 1`,
+		)
+		.get(sessionId, cutoff) as { 1: number } | undefined;
+	return row !== undefined;
+}
+
 export interface EnqueueInput {
 	sessionId: string;
 	workspaceId: string;

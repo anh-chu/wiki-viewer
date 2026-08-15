@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { checkAuth, enforceScope } from "@/lib/proof/auth";
 import { resolveWorkspaceForAgent } from "@/lib/workspace-context";
-import { markState } from "@/lib/proof/live/store";
+import { markState, touchAgent } from "@/lib/proof/live/store";
 import {
 	getPreview,
 	attachPreview,
@@ -189,6 +189,7 @@ export async function POST(req: Request): Promise<NextResponse> {
 			{ status: 400 },
 		);
 	}
+	touchAgent(preview.sessionId);
 
 	// Agent reports failure to produce a preview. requestId is bound to this
 	// workspace's preview above, so marking it is safe.

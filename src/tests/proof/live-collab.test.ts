@@ -423,6 +423,37 @@ test("R9 — presence timeout reports detached", () => {
 	assert.equal(store.isAttached(stale), false);
 });
 
+test("R9b — hasActiveRequest counts only a fresh 'working' request (presence honesty)", () => {
+	const session = store.attachAgent(wsB, "ai:live-agent");
+	const prior = store.latestRequest(session.id);
+	if (prior && ["pending", "delivered", "working"].includes(prior.state)) {
+		store.markState(prior.id, "resolved", "accepted");
+	}
+
+	const enq = store.enqueueRequest({
+		sessionId: session.id,
+		workspaceId: wsB,
+		path: "doc.md",
+		blockRef: "bA",
+		baseRevision: 0,
+		kind: "generate",
+		instruction: "tighten",
+	});
+	assert.ok(enq.ok);
+	if (!enq.ok) return;
+
+	// pending (nobody polling yet) must NOT fake presence.
+	assert.equal(store.hasActiveRequest(session.id), false);
+
+	// working (agent actively handling) counts as present.
+	store.markState(enq.request.id, "working");
+	assert.equal(store.hasActiveRequest(session.id), true);
+
+	// resolved (turn ended) must NOT count.
+	store.markState(enq.request.id, "resolved", "completed");
+	assert.equal(store.hasActiveRequest(session.id), false);
+});
+
 test("R5-batch — collective 'Send to agent' dispatches one run with N items", async () => {
 	const session = store.attachAgent(wsB, "ai:live-agent");
 	const prior = store.latestRequest(session.id);

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { checkAuth, enforceScope } from "@/lib/proof/auth";
 import { resolveWorkspaceForAgent } from "@/lib/workspace-context";
-import { getRequest, getSession, markState } from "@/lib/proof/live/store";
+import { getRequest, getSession, markState, touchAgent } from "@/lib/proof/live/store";
 
 export const runtime = "nodejs";
 
@@ -68,6 +68,7 @@ export async function POST(req: Request): Promise<NextResponse> {
 	if (!session || session.agentId !== auth.agent.id) {
 		return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
 	}
+	touchAgent(request.sessionId);
 
 	// Map agent status to request state. "done" ENDS the agent's turn and frees
 	// the channel: the proof-span is left in the document for optional human
