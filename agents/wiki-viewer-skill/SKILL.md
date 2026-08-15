@@ -262,7 +262,7 @@ Call these tools exactly as follows:
    b. produce 2–5 candidate rewrites for request.blockRef
    c. live_submit_markdown {
         previewId, requestId,
-        variants: [{ variantId?, label, markdown }, ...]
+        variants: [{ variantId, label, markdown }, ...]
       }
    d. live_reply { requestId, status: "done" }
 4. Re-poll with afterSeq from the returned request.
@@ -270,8 +270,8 @@ Call these tools exactly as follows:
 
 `live_reply` status accepts only `working`, `done`, or `error` (use these exact enum
 values). `live_submit_markdown` requires **2–5** variants; a single-candidate reply
-is rejected. `variantId` is optional; `label` and `markdown` are strings. The server
-may derive an omitted id. These are data-only candidates.
+is rejected. Every variant MUST have a unique `variantId`; `label` and `markdown` are
+strings. These are data-only candidates.
 
 Markdown is **write-on-accept**. `live_submit_markdown` posts candidates to
 `/api/agent/live/md-preview`; it does not touch the file. The human cycles variants
@@ -302,11 +302,14 @@ input is:
 {
   previewId, requestId,
   variants?,
-  domPreviewOps?, candidateSourcePatch?, baseFiles?
+  domPreviewOps?, candidateSourcePatch?, baseFiles?,
+  itemPreviews?: [{ instructionId, ops: [...] }, ...]
 }
 ```
 
 For one web tweak, submit `domPreviewOps`, `candidateSourcePatch`, and `baseFiles`.
+For a batch run, the reply carries `itemPreviews: [{ instructionId, ops: [...] }]`,
+an array with one entry per instruction item; each entry contains that item's DOM ops.
 For web variants, submit `variants` (up to 5 candidates). Each candidate is
 self-contained. All candidates derive from the same source base and carry SHA-256
 `baseFiles` hashes. The MCP tool requires at least one of `variants`,
