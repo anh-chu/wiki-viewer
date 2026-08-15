@@ -154,7 +154,7 @@ async function fetchReviewCount(path: string): Promise<number> {
 			if (typeof data.pendingCount === "number") return data.pendingCount;
 			if (typeof data.count === "number") return data.count;
 			if (typeof data.total === "number") return data.total;
-			if (Array.isArray(data.suggestions) || Array.isArray(data.comments) || data.blockProvenance) {
+			if (Array.isArray(data.suggestions) || Array.isArray(data.comments)) {
 				const suggestions = Array.isArray(data.suggestions)
 					? data.suggestions.filter(
 						(item) => item && typeof item === "object" && (item as { status?: string }).status === "pending",
@@ -165,10 +165,7 @@ async function fetchReviewCount(path: string): Promise<number> {
 						(item) => item && typeof item === "object" && !(item as { resolved?: boolean }).resolved,
 					).length
 					: 0;
-				const proofSpans = data.blockProvenance && typeof data.blockProvenance === "object"
-					? Object.keys(data.blockProvenance as Record<string, unknown>).length
-					: 0;
-				return suggestions + comments + proofSpans;
+				return suggestions + comments;
 			}
 		} catch {
 			// Ignore fetch errors; review badge stays hidden.

@@ -88,8 +88,8 @@ request row.
 - On send, generate `runId` (e.g. `run:<8hex>`) and stamp it on the request and on each
   queued instruction (`instruction.runId`).
 - Markdown: the agent's tier-2 ops already carry `inResponseTo`. Extend the request's
-  idempotency/correlation so proof-spans produced for this run carry the `runId` (via the
-  existing `SpanAttrs` provenance). The editor groups proof-spans by `runId` to offer
+  idempotency/correlation so activity-log provenance produced for this run carry the `runId` (via the
+  existing `ActivityAttrs` provenance). The editor groups activity-log provenance by `runId` to offer
   "Accept run / Discard run".
 - Web: the preview transaction already binds a `previewId`; associate `previewId` with
   `runId` so the overlay reviews the whole run.
@@ -98,7 +98,7 @@ request row.
 
 - **Markdown**: agent applies ops through existing `POST /api/agent/files` → `applyOps`
   (`ops-applier.ts:457`). Each op keeps baseRevision preflight and STALE_REVISION semantics.
-  Batch accept = accept all proof-spans tagged with `runId`; batch discard = revert them.
+  Batch accept = accept all activity-log provenance tagged with `runId`; batch discard = revert them.
   All-or-nothing is enforced at the review layer (accept each tagged span; if any fails,
   surface and stop — v1 keeps the simple path).
 - **Web**: agent replies via existing `web-preview` route with the candidate patch bound to
@@ -144,8 +144,8 @@ by the sidecar (Markdown) or the web instruction list; only **send** hits the li
   `fromCommentId`).
 - A file-level **queue bar**: "N instructions ready · Send to agent" → enumerated confirm
   dialog → dispatch run.
-- After a run returns, proof-spans tagged with `runId` are grouped with **Accept run /
-  Discard run** controls, alongside existing per-span accept/revert.
+- After a run returns, activity-log provenance tagged with `runId` are grouped with **Accept run /
+  Discard run** controls, alongside existing per-span activity tracking.
 
 ### Web tweak overlay
 

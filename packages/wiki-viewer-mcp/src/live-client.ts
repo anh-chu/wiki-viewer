@@ -7,7 +7,7 @@
  * instruction to an attached agent that holds a long-poll. The actual document
  * edit still flows through the ordinary Tier-2 path
  * (POST /api/agent/files/<path>.md) with the request's own baseRevision,
- * Idempotency-Key = live:<requestId>, and op.inResponseTo = live:<requestId>.
+ * Idempotency-Key = live:<requestId>. Correlation is recorded in activity only.
  *
  * This module never writes files itself except through applyTier2Ops, which is
  * the canonical commit path.
@@ -44,7 +44,7 @@ export interface LiveRequest {
   seq: number;
   /** "live:<requestId>" — pass verbatim as the Idempotency-Key on the edit. */
   idempotencyKey: string;
-  /** "live:<requestId>" — pass verbatim as op.inResponseTo for correlation. */
+  /** @deprecated Accepted but ignored by the server; retained for wire compatibility. */
   inResponseTo: string;
 }
 
@@ -66,8 +66,11 @@ export interface BlockOp {
     | "block.prepend";
   ref?: string;
   markdown?: string;
+  /** @deprecated Accepted but ignored by the server; retained for wire compatibility. */
   basis?: "described" | "inferred" | "suggested";
+  /** @deprecated Accepted but ignored by the server; retained for wire compatibility. */
   basisDetail?: string;
+  /** @deprecated Accepted but ignored by the server; retained for wire compatibility. */
   inResponseTo?: string;
 }
 
@@ -253,15 +256,10 @@ export class LiveClient {
     if (req.baseRevision === null) {
       throw new LiveError(400, "NO_BASE_REVISION", `request ${req.requestId} has no baseRevision`);
     }
-    // Derive correlation + idempotency from the request id at commit time — never
-    // trust handler-supplied op.inResponseTo or the wire idempotencyKey field, so
-    // crash dedupe and provenance linkage can't be broken by a mutated request.
-    // Op spread comes first, then the stamp overrides.
+    // Preserve idempotency from request id. Correlation recorded in activity feed
+    // only, not document bytes; legacy provenance fields are accepted and ignored.
     const correlation = `live:${req.requestId}`;
-    const stampedOps = ops.map((op) => ({
-      ...op,
-      inResponseTo: correlation,
-    }));
+    const cleanOps = ops.map(({ basis: _basis, basisDetail: _basisDetail, inResponseTo: _inResponseTo, ...op }) => op);
     const res = await this._fetch(`${this.baseUrl}/api/agent/files/${encodeFilePath(req.path)}`, {
       method: "POST",
       headers: this.headers({
@@ -271,7 +269,7 @@ export class LiveClient {
       body: JSON.stringify({
         baseRevision: req.baseRevision,
         by: this.agentId,
-        ops: stampedOps,
+        ops: cleanOps,
       }),
     });
     if (res.status === 409) {

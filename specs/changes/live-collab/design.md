@@ -8,8 +8,8 @@ IS the `exact` preflight policy for the parts that matter:
 - It compares `baseRevision` to `sidecar.revision` and returns `409 STALE_REVISION` on mismatch
   (`ops-applier.ts:509-523`).
 - It resolves the target `blockRef` via `resolveRef`; a vanished ref fails the op.
-- AI writers (`by: "ai:<id>"`) already get `<proof-span>` wrapping (`wrapForAi`,
-  `ops-applier.ts:94-160`) with a `SpanAttrs` that already carries `inResponseTo`.
+- AI writers (`by: "ai:<id>"`) already get `activity record` wrapping (`cleanMarkdownCommit`,
+  `ops-applier.ts:94-160`) with a `ActivityAttrs` that already carries `inResponseTo`.
 - The HTTP route `POST /api/agent/files/[...path]` already enforces `Idempotency-Key`
   (route.ts:96-132): same key + same payload returns the cached response; same key + different
   payload returns `409 IDEMPOTENCY_KEY_REUSED`.
@@ -23,7 +23,7 @@ engine**. It is a control plane that:
 while the agent performs the edit through the existing `POST /api/agent/files/[...path]` with:
 
 - `Idempotency-Key: live:<requestId>` (deterministic replay safety), and
-- op `inResponseTo: "live:<requestId>"` (provenance correlation into `SpanAttrs.inResponseTo`).
+- op `inResponseTo: "live:<requestId>"` (provenance correlation into `ActivityAttrs.inResponseTo`).
 
 The editor already reloads snapshot+sidecar via the browser SSE filesystem watch
 (`use-document-watch.ts:55-77`) when `applyOps` writes the `.md`, so the live channel does
@@ -106,7 +106,7 @@ Session-authed (Better Auth), CSRF-checked like other `/api/wiki/*` mutations.
   so the editor can show whether an agent is on the line and the current turn state.
 
 Accept/revert are dispatched here too (`kind: 'accept' | 'discard'`) purely as notifications
-to the session; the actual accept/revert of the proof-span happens through the existing editor
+to the session; the actual activity tracking of the activity/audit provenance happens through the existing editor
 suggestion/proof UI and its normal API.
 
 ### 4. Editor UI — `src/components/editor/`
@@ -118,7 +118,7 @@ suggestion/proof UI and its normal API.
   `POST /api/wiki/live/request { kind: 'generate', path, blockRef, baseRevision, instruction }`.
 - A minimal "Live" status indicator (attached / waiting / working) driven by
   `GET /api/wiki/live/status`. Steer = same popover again while a turn is open.
-- Proof-span appears through the existing SSE-watch reload; accept/revert use existing UI.
+- Proof-span appears through the existing SSE-watch reload; activity tracking use existing UI.
 
 ## Correctness
 

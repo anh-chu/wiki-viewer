@@ -198,7 +198,7 @@ test("FILE_NOT_FOUND for missing file", async () => {
 	assert.equal(result.ok ? 0 : result.status, 404);
 });
 
-test("AI insertAfter wraps text in proof-span", async () => {
+test("AI insertAfter writes exact markdown without proof-span", async () => {
 	await writeDoc("ai-wrap.md", "# Title\n\nParagraph.\n");
 	const snap = await readSnapshot(tmpRoot, "ai-wrap.md");
 	const titleRef = snap!.blocks[0].ref;
@@ -219,9 +219,7 @@ test("AI insertAfter wraps text in proof-span", async () => {
 
 	assert.ok(result.ok, `expected ok: ${JSON.stringify(result)}`);
 	const content = await readDoc("ai-wrap.md");
-	assert.ok(content.includes("<proof-span"), `proof-span missing: ${content}`);
-	assert.ok(content.includes('origin="ai"'), `origin missing: ${content}`);
-	assert.ok(content.includes('by="ai:claude"'), `by missing: ${content}`);
+	assert.ok(!content.includes("<proof-span"), `unexpected proof-span: ${content}`);
 	assert.ok(content.includes("AI wrote this content."), `content missing: ${content}`);
 });
 

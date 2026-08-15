@@ -6,7 +6,7 @@
 
 ## Source of truth
 
-The `.md` file on disk is the canonical document. The `.proof/<path>.json` sidecar holds provenance metadata (comments, suggestions, proof-span refs, fingerprint) but is never the source of truth for content. If the sidecar is lost the document is intact; if the document is lost the sidecar is orphaned.
+The `.md` file on disk is the canonical document. The `.proof/<path>.json` sidecar holds provenance metadata (comments, suggestions, activity/audit provenance refs, fingerprint) but is never the source of truth for content. If the sidecar is lost the document is intact; if the document is lost the sidecar is orphaned.
 
 ---
 
@@ -19,15 +19,15 @@ The `.md` file on disk is the canonical document. The `.proof/<path>.json` sidec
 - Writes are **atomic** (temp-file + rename in same directory).
 - **Audit:** every mutation records a row in the `agent_fs_audit` SQLite table (`path`, `op`, `agentId`, `oldSha`, `newSha`, `forced`, `at`).
 - **Event:** `file.rawWritten` emitted with `{ by: "ai:<id>", path, oldSha, newSha }`. Distinct from `file.externallyEdited` (chokidar, writer unknown).
-- No `<proof-span>` marks. No accept/revert UI. Audit log is the paper trail.
+- No `activity record` marks. No activity tracking UI. Audit log is the paper trail.
 
 ### Tier 2 — Collab
 
 - Routes: `GET/POST /api/agent/files/<path>.md`, `GET/POST /api/agent/events/<path>.md`.
 - Markdown only.
-- Edits are wrapped in `<proof-span>` marks inline in the `.md` file.
+- Edits are written as clean markdown marks inline in the `.md` file.
 - Provenance (suggestions, comments, block refs) stored in `.proof/<path>.json` sidecar.
-- Human can accept or revert individual spans in the editor UI.
+- Human can track individual spans in the editor UI.
 - Mandatory `baseRevision` optimistic concurrency + `Idempotency-Key` per request.
 
 ---
@@ -63,7 +63,7 @@ X-Collab-Snapshot: /api/agent/files/<path>.md   # present when not not-markdown
 
 **`active`** is set by two independent sources (OR'd):
 
-1. **Artifacts** — sidecar has `pendingSuggestions > 0` OR `unresolvedComments > 0` OR `proofSpanCount > 0`. Cheap: always in memory when sidecar is loaded.
+1. **Artifacts** — sidecar has `pendingSuggestions > 0` OR `unresolvedComments > 0` OR `activityCount > 0`. Cheap: always in memory when sidecar is loaded.
 2. **Human edit lease** — a short-TTL presence marker (default 90 s, heartbeat ~30 s) set via `POST /api/wiki/presence { path, action: "open" | "heartbeat" | "close" }`. Closes the false-negative: a human who opens a doc but hasn't typed a suggestion yet still reads `active`.
 
 `X-Collab-Revision` bumps on any sidecar write OR lease open/close. Used by R6.
@@ -84,7 +84,7 @@ X-Collab-Snapshot: /api/agent/files/<path>.md   # present when not not-markdown
 
 After a raw `PUT` to a tracked/active `.md`, the sidecar must be reconciled **synchronously, inside the same mutex**, before the lock is released:
 
-1. Re-scan the new file bytes for surviving `<proof-span>` marks.
+1. Re-scan the new file bytes for surviving `activity record` marks.
 2. Re-bind each proof ref to its new block offset; mark unresolvable refs `stale: true`.
 3. Set `sidecar.fingerprint = newSha` (so the lazy mismatch-trigger in `readSnapshot` does NOT re-fire — the reconcile already ran).
 4. Emit `file.rawWritten` event.
@@ -97,7 +97,7 @@ After a raw `PUT` to a tracked/active `.md`, the sidecar must be reconciled **sy
 
 ### (a) Editor does not call `/api/wiki/presence` yet
 
-The front-end editor does **not** currently issue `POST /api/wiki/presence` on open/heartbeat/close. Consequence: lease-based `active` never fires. Only artifact-based `active` works (pending suggestions, unresolved comments, proof-spans in sidecar).
+The front-end editor does **not** currently issue `POST /api/wiki/presence` on open/heartbeat/close. Consequence: lease-based `active` never fires. Only artifact-based `active` works (pending suggestions, unresolved comments, activity-log provenance in sidecar).
 
 **Impact:** a human who opens a doc but has no pending review artifacts will see `X-Collab-State: tracked` (or `untracked`), not `active`. An agent raw-writing that doc won't be blocked. This is a safety gap — not a correctness bug (no data loss), but the intended "lock out while human is live-editing" experience is incomplete until the editor heartbeat is wired.
 

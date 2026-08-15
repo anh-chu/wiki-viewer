@@ -31,7 +31,7 @@ that candidate's source patch verbatim; the rest are discarded.
 
 ## Non-goals
 
-- Markdown variants (N proof-span candidates per block).
+- Markdown variants (N activity/audit provenance candidates per block).
 - Multi-element variants (variants over a batch run).
 - Multi-file candidates per variant (v1 keeps the single-file commit invariant).
 - Incremental / streaming candidate delivery.

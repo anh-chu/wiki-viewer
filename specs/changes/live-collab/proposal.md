@@ -21,7 +21,7 @@ real render surface is TipTap over the true file).
 
 A human editing a Markdown file can select a top-level block, ask an attached agent to act
 on it with a freeform instruction, and see the agent's proposal appear as a normal
-`<proof-span>` in TipTap within seconds, then accept or revert it. The agent stays attached
+`activity record` in TipTap within seconds, then track it. The agent stays attached
 across the turn so the human can steer and iterate. This is the day-to-day primary mode of
 agent collaboration.
 
@@ -117,11 +117,11 @@ much more useful day-to-day. Therefore:
 1. An agent can attach to a workspace live session over a held-open long-poll and receive a
    `generate` event pushed by a human editor action within ~1s of the action.
 2. Selecting a top-level Markdown block in TipTap and submitting an instruction produces a
-   tier-2 proof-span edit committed through the existing commit path, correlated with the live
+   tier-2 activity/audit provenance edit committed through the existing commit path, correlated with the live
    request id in provenance.
 3. The human can steer (send a follow-up instruction in the same session) and the agent
    receives it on its next held poll.
-4. Accept and revert of the resulting proof-span work through the existing editor UI and are
+4. Accept and revert of the resulting activity/audit provenance work through the existing editor UI and are
    reported back to the live session as `resolved{accepted|reverted}`.
 5. A manual edit that changes the target block's revision before the agent commits causes the
    live request to fail closed as `stale`, not a silent re-interpretation.

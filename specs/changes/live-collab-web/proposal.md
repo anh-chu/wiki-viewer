@@ -3,7 +3,7 @@
 ## Problem
 
 Live collaboration (markdown) shipped: point at a rendered block, an attached
-agent edits it in-session, the change lands as a reviewable proof-span. That
+agent edits it in-session, the change lands as a reviewable activity/audit provenance. That
 covers `.md`. It does **not** cover the web surfaces wiki-viewer renders in an
 iframe: local `.html` previews (`website-viewer`) and running node-apps behind
 `app-proxy` (`node-app-viewer`).
@@ -52,13 +52,13 @@ already have a **postMessage element picker** (`src/lib/web-tweak/picker.ts`):
 
 Web live is **write-on-accept**: source is untouched until the user accepts a
 previewed variant. This is the *opposite* of markdown live (write-first, then
-review the proof-span). That divergence is intentional and is *why* the claim
+review the activity/audit provenance). That divergence is intentional and is *why* the claim
 holds. Each surface uses the persistence model that is impeccable-grade for it:
 
 | | Markdown live | Web live (this) |
 |---|---|---|
-| Preview | proof-span in TipTap over real file | DOM patch in iframe, source clean |
-| Persistence | write-first, accept/revert span | write-on-accept to real source |
+| Preview | activity/audit provenance in TipTap over real file | DOM patch in iframe, source clean |
+| Persistence | write-first, activity tracking span | write-on-accept to real source |
 | Write path | tier-2 block-ops | tier-1 raw FS |
 | Identity | block-ref → source region | CSS selector (agent localizes source) |
 

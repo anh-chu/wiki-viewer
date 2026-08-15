@@ -5,7 +5,6 @@ import type { RootContent } from "mdast";
 import type { Op, Block, Snapshot, Sidecar, ProofEvent, Comment, Suggestion } from "./types";
 import { parseBlocks, blockToMarkdown, blocksToMarkdown } from "./blocks";
 import { assignRefs, resolveRef, computeRefDelta, textHash } from "./block-refs";
-import { wrapAsProofSpan, newSpanId } from "./proof-span";
 import { readSidecar, writeSidecar, emptySidecar } from "./sidecar";
 import { withFileMutex, workspaceLockKey } from "./mutex";
 import { emitEvents, trimEvents } from "./event-bus";
@@ -88,50 +87,10 @@ export async function reconcileTextCommentAnchors(rootDir: string, mdPath: strin
 	return changed;
 }
 
-/**
- * Wrap op markdown for AI agents: inserts proof-span marks on text-bearing blocks.
- * Returns { wrappedMarkdown, blockProvenance }.
- */
-function wrapForAi(
-	markdown: string,
-	by: string,
-	basis: string | undefined,
-	basisDetail: string | undefined,
-	inResponseTo: string | undefined,
-	sidecar: Sidecar,
-	blockRef: string,
-): string {
-	const attrs = {
-		spanId: newSpanId(),
-		origin: "ai" as const,
-		basis: basis ?? "inferred",
-		basisDetail,
-		by,
-		at: nowIso(),
-		inResponseTo,
-	};
-	const wrapped = wrapAsProofSpan(markdown, attrs);
-	if (wrapped === null) {
-		// Non-wrappable block type. Record in sidecar.blockProvenance instead.
-		if (!sidecar.blockProvenance) sidecar.blockProvenance = {};
-		sidecar.blockProvenance[blockRef] = attrs;
-		return markdown;
-	}
-	return wrapped;
-}
-
-/**
- * Parse op markdown into mdast nodes, assign refs, and wrap for AI if needed.
- */
+/** Parse op markdown into mdast nodes and assign refs. */
 function opMarkdownToBlocks(
 	markdown: string,
-	by: string,
-	basis: string | undefined,
-	basisDetail: string | undefined,
-	inResponseTo: string | undefined,
-	isAi: boolean,
 	workingBlocks: Block[],
-	workingSidecar: Sidecar,
 ): { nodes: RootContent[]; refs: string[] } {
 	const nodes = parseBlocks(markdown);
 	const usedRefs = new Set(workingBlocks.map((b) => b.ref));
@@ -151,14 +110,6 @@ function opMarkdownToBlocks(
 		usedRefs.add(ref);
 		refs.push(ref);
 
-		if (isAi) {
-			md = wrapForAi(md, by, basis, basisDetail, inResponseTo, workingSidecar, ref);
-			// Reparse the wrapped markdown to get the updated node
-			const reparsed = parseBlocks(md);
-			if (reparsed.length > 0) {
-				nodes[i] = reparsed[0];
-			}
-		}
 	}
 
 	return { nodes, refs };
@@ -541,8 +492,6 @@ export async function applyOps(args: {
 		const fingerprint = sha256file(content);
 		let sidecar = (await readSidecar(rootDir, mdPath)) ?? emptySidecar(mdPath);
 
-		const isAi = by.startsWith("ai:");
-
 		// Detect external edits — reconcile eagerly inside the mutex (R2: do not let lazy reconcile miss)
 		if (sidecar.fingerprint && sidecar.fingerprint !== fingerprint) {
 			const { snapshot: freshSnapshot } = await reconcileSidecar({
@@ -618,8 +567,7 @@ export async function applyOps(args: {
 					const oldRef = workingBlocks[idx].ref;
 
 					const { nodes: newNodes, refs: newRefs } = opMarkdownToBlocks(
-						op.markdown, by, op.basis, op.basisDetail, op.inResponseTo,
-						isAi, workingBlocks.filter((_, i) => i !== idx), workingSidecar,
+						op.markdown, workingBlocks.filter((_, i) => i !== idx),
 					);
 
 					workingNodes.splice(idx, 1, ...newNodes);
@@ -658,8 +606,7 @@ export async function applyOps(args: {
 						};
 					}
 					const { nodes: newNodes, refs: newRefs } = opMarkdownToBlocks(
-						op.markdown, by, op.basis, op.basisDetail, op.inResponseTo,
-						isAi, workingBlocks, workingSidecar,
+						op.markdown, workingBlocks,
 					);
 					const newBlockList = newNodes.map((n, ni) => {
 						const reparse = assignRefs([n], null);
@@ -683,8 +630,7 @@ export async function applyOps(args: {
 						};
 					}
 					const { nodes: newNodes, refs: newRefs } = opMarkdownToBlocks(
-						op.markdown, by, op.basis, op.basisDetail, op.inResponseTo,
-						isAi, workingBlocks, workingSidecar,
+						op.markdown, workingBlocks,
 					);
 					const newBlockList = newNodes.map((n, ni) => {
 						const reparse = assignRefs([n], null);
@@ -715,8 +661,7 @@ export async function applyOps(args: {
 
 				case "block.append": {
 					const { nodes: newNodes, refs: newRefs } = opMarkdownToBlocks(
-						op.markdown, by, op.basis, op.basisDetail, op.inResponseTo,
-						isAi, workingBlocks, workingSidecar,
+						op.markdown, workingBlocks,
 					);
 					const newBlockList = newNodes.map((n, ni) => {
 						const reparse = assignRefs([n], null);
@@ -730,8 +675,7 @@ export async function applyOps(args: {
 
 				case "block.prepend": {
 					const { nodes: newNodes, refs: newRefs } = opMarkdownToBlocks(
-						op.markdown, by, op.basis, op.basisDetail, op.inResponseTo,
-						isAi, workingBlocks, workingSidecar,
+						op.markdown, workingBlocks,
 					);
 					const newBlockList = newNodes.map((n, ni) => {
 						const reparse = assignRefs([n], null);

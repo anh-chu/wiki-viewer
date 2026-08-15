@@ -134,7 +134,7 @@ Add to your `mcp.json` (or equivalent):
 wiki-viewer has two tiers for `.md` files:
 
 - **Tier 1 (raw fs)** — fast, all file types, light audit. Use for code, config, non-prose, or whole-file rewrites.
-- **Tier 2 (collab)** — block-ops + proof-spans, review/accept/revert by humans. Use for prose that a human is co-editing.
+- **Tier 2 (collab)** — block-ops with revision checks, idempotency, and activity-log provenance. Use for block-scoped concurrency-safe writes.
 
 The shim enforces this automatically in three layers:
 
@@ -150,7 +150,7 @@ X-Collab-Snapshot: /api/agent/files/<path>.md
 
 | State          | Meaning                                                      | You should                             |
 | -------------- | ------------------------------------------------------------ | -------------------------------------- |
-| `active`       | Human has the doc open OR there are pending review artifacts | **Use Tier-2 block-ops**               |
+| `active`       | Human has the doc open OR there are pending comments/suggestions | **Use Tier-2 block-ops**               |
 | `tracked`      | Sidecar exists, no active review                             | Prefer Tier-2 for prose/semantic edits |
 | `untracked`    | Plain `.md`, no collaboration history                        | Raw ok                                 |
 | `not-markdown` | Not a `.md` file                                             | Raw only                               |

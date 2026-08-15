@@ -128,7 +128,7 @@ parent and commit unguarded writes.
 request at a time; a second dispatch while one is outstanding returns `409` with
 the outstanding request id. Accept/discard/exit are always allowed. An agent
 reply of `done` resolves the request with outcome `completed` and immediately
-frees the channel (the proof-span, if any, remains for optional later review and
+frees the channel (the activity/audit provenance, if any, remains for optional later review and
 does not hold the slot). A delivered-but-unreplied request is redelivered on
 reconnect (idempotency-key replay).
 
@@ -206,7 +206,7 @@ Deliberate v1 absences (each is a contract; do not re-add without a decision):
   single-block variants-in-place preview model.
 - **Batch instruction queue + run-review UI** — removed from the Live path in
   favor of write-on-accept variants.
-- **Write-first proof-span review in the Live path** — proof-spans remain only
+- **Write-first activity/audit provenance review in the Live path** — activity-log provenance remain only
   as optional accepted-provenance, not a pending-review workflow.
 - **Node-app / dynamic HTML web-tweak** — static-HTML opaque-origin only; a
   same-origin app iframe would let hostile page JS click Accept.
@@ -219,7 +219,7 @@ This document currently covers **only the Live collaboration surface**. The rest
 of wiki-viewer is not yet inventoried here and must not be assumed documented:
 
 - File browser / wiki shell (tree, open, edit, save gate, `409 STALE_REVISION`)
-- TipTap editor behaviors outside Live (comments, suggestions, proof-span popover)
+- TipTap editor behaviors outside Live (comments, suggestions, activity/audit provenance popover)
 - Auth / sign-in / allowlist / CSRF behaviors
 - Public share links (`/api/share`) and password-protected unlock
 - Git-aware features (branch, history, diff, read-only repo workspaces)

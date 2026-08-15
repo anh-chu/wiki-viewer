@@ -31,7 +31,7 @@ Ordered, checkable. Mark complete only after verification.
 - [ ] T10. Comment card: **"Turn into an instruction"** action (sets `fromCommentId`).
 - [ ] T11. File-level queue bar: "N instructions ready · Send to agent" + enumerated confirm
   dialog → POST run.
-- [ ] T12. Group proof-spans by `runId`; add **Accept run / Discard run** controls (all-or-
+- [ ] T12. Group activity-log provenance by `runId`; add **Accept run / Discard run** controls (all-or-
   nothing) alongside existing per-span controls.
 
 ## Phase 5 — Web tweak parity
@@ -45,7 +45,7 @@ Ordered, checkable. Mark complete only after verification.
 
 - [ ] T16. Retire "Ask agent"/"Tweak" verbs in user-facing UI → **Instruct / Send to agent**;
   matching review vocabulary both surfaces.
-- [ ] T17. Thread `runId` into proof-span provenance (SpanAttrs) so results correlate to the
+- [ ] T17. Thread `runId` into activity/audit provenance provenance (ActivityAttrs) so results correlate to the
   run and to each instruction item.
 
 ## Phase 7 — Agent runtime

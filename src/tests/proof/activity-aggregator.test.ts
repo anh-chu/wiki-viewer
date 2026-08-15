@@ -36,7 +36,6 @@ function makeSidecar(filePath: string, eventCount: number, byPrefix = "agent"): 
 		nextEventId: eventCount + 1,
 		lastAck: {},
 		fingerprint: "",
-		blockProvenance: {},
 	};
 }
 

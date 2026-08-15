@@ -2,23 +2,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseBlocks, blockToMarkdown, blocksToMarkdown, blockType } from "../../lib/proof/blocks.js";
 
-test("roundtrip preserves <proof-span> exactly", () => {
-	const md = `<proof-span id="p001" origin="ai" by="ai:claude" at="2026-01-01T00:00:00Z">The AI wrote this.</proof-span>`;
+test("roundtrip preserves clean markdown", () => {
+	const md = "The AI wrote this.";
 	const nodes = parseBlocks(md);
 	assert.equal(nodes.length, 1, "should parse as 1 block");
-	const roundtripped = blockToMarkdown(nodes[0]);
-	assert.ok(
-		roundtripped.includes('<proof-span id="p001"'),
-		`proof-span not preserved: ${roundtripped}`,
-	);
-	assert.ok(
-		roundtripped.includes("The AI wrote this."),
-		`content not preserved: ${roundtripped}`,
-	);
-	assert.ok(
-		roundtripped.includes("</proof-span>"),
-		`closing tag not preserved: ${roundtripped}`,
-	);
+	assert.equal(blockToMarkdown(nodes[0]), md);
 });
 
 test("list with checkboxes detected as taskList", () => {

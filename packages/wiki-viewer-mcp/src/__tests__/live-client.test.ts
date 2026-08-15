@@ -85,7 +85,7 @@ test("attach posts to /attach and returns sessionId with workspace header", asyn
 
 // ─── applyTier2Ops: idempotency + correlation + fail-closed ─────────────────────
 
-test("applyTier2Ops sends live idempotency key and stamps inResponseTo", async () => {
+test("applyTier2Ops sends live idempotency key and omits inResponseTo", async () => {
   let sentBody: Record<string, unknown> | undefined;
   let sentKey: string | undefined;
   const { fetch } = makeFetch([
@@ -107,11 +107,11 @@ test("applyTier2Ops sends live idempotency key and stamps inResponseTo", async (
   assert.equal(sentBody?.baseRevision, 4);
   assert.equal(sentBody?.by, "ai:tester");
   const ops = sentBody?.ops as Array<Record<string, unknown>>;
-  assert.equal(ops[0].inResponseTo, "live:lr_1");
+  assert.equal(ops[0].inResponseTo, undefined);
   assert.equal(ops[0].markdown, "Punchier.");
 });
 
-test("applyTier2Ops ignores handler-supplied inResponseTo/idempotency overrides", async () => {
+test("applyTier2Ops accepts handler-supplied inResponseTo as ignored wire field", async () => {
   let sentBody: Record<string, unknown> | undefined;
   let sentKey: string | undefined;
   const { fetch } = makeFetch([
@@ -125,13 +125,12 @@ test("applyTier2Ops ignores handler-supplied inResponseTo/idempotency overrides"
     },
   ]);
   const client = new LiveClient(cfg(fetch));
-  // Malicious/mistaken handler tries to override correlation.
   await client.applyTier2Ops(liveRequest(), [
-    { type: "block.replace", ref: "b7f2c1", markdown: "x", inResponseTo: "live:HIJACK" },
+    { type: "block.replace", ref: "b7f2c1", markdown: "x", inResponseTo: "live:legacy" },
   ]);
   assert.equal(sentKey, "live:lr_1");
   const ops = sentBody?.ops as Array<Record<string, unknown>>;
-  assert.equal(ops[0].inResponseTo, "live:lr_1");
+  assert.equal(ops[0].inResponseTo, undefined);
 });
 
 test("applyTier2Ops throws StaleRequestError on 409 STALE_REVISION (fail closed)", async () => {

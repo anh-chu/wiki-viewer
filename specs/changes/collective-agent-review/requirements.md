@@ -55,7 +55,7 @@ order). They are visually distinct and behave differently.
 
 ## R7 — All-or-nothing batch review (Markdown)
 
-- GIVEN an agent run produced M proof-span changes for the current file
+- GIVEN an agent run produced M activity/audit provenance changes for the current file
 - WHEN the user Accepts the run
 - THEN all M changes are accepted together
 - WHEN the user Discards the run

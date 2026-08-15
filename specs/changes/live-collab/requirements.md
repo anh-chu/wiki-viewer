@@ -19,13 +19,13 @@ WHEN the human submits an instruction via `POST /api/wiki/live/request`
 THEN the held agent poll returns `{ type: "generate", request: { requestId, path, blockRef,
     baseRevision, instruction } }` within ~1s of the submission (not on a fixed slow interval).
 
-## R3 — Agent edit lands as a proof-span through the existing engine, correlated
+## R3 — Agent edit lands as a activity/audit provenance through the existing engine, correlated
 
 GIVEN a delivered `generate` request with id `<rid>`
 WHEN the agent `POST /api/agent/files/<path>` with `Idempotency-Key: live:<rid>`,
     `baseRevision` equal to the request's, and an op carrying `inResponseTo: "live:<rid>"`
-THEN the edit is committed by the existing `applyOps` path, wrapped in a `<proof-span>` whose
-    `SpanAttrs.inResponseTo === "live:<rid>"`
+THEN the edit is committed by the existing `applyOps` path, written as clean markdown whose
+    `ActivityAttrs.inResponseTo === "live:<rid>"`
 AND no new/separate write path is used.
 
 ## R4 — Steer within the same session
@@ -36,7 +36,7 @@ THEN the agent receives it on its next held poll as `{ type: "steer", ... }`.
 
 ## R5 — Accept / revert reported to the session
 
-GIVEN a proof-span produced by a live request
+GIVEN a activity/audit provenance produced by a live request
 WHEN the human accepts or reverts it through the existing editor proof UI and the client
     posts `POST /api/wiki/live/request { kind: "accept" | "discard" }`
 THEN the corresponding `live_request` is marked `resolved` with

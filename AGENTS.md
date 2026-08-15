@@ -88,7 +88,7 @@ src/app/
   api/owner/ api/upload/ api/assets/ api/app-proxy/
   signin/  layout.tsx  page.tsx  manifest.ts
 src/components/
-  editor/              TipTap editor, proof-span, comment-pip, suggestion-card
+  editor/              TipTap editor, activity provenance, comment-pip, suggestion-card
   ai-panel/            Agents, activity, install panel
   wiki/ layout/ search/ ui/ auth-settings-sheet.tsx dir-picker.tsx
 src/lib/
@@ -134,8 +134,8 @@ Two tiers share one auth/scope/lock spine:
 
 - **Tier 1 — raw filesystem** (`/api/agent/fs/*`): read/write/edit/list/search/move/delete for
   all file types. Byte-accurate, audited. Overwrite requires `If-Match: <sha256>`.
-- **Tier 2 — Markdown collab** (`/api/agent/files/*`): block-ops wrapped in `<proof-span>`
-  provenance marks, comments, suggestions. Revision-checked, idempotent.
+- **Tier 2 — Markdown collab** (`/api/agent/files/*`): block-ops with revision checks,
+  idempotency, comments, suggestions, and activity-log provenance. Clean markdown.
 
 **Working-vs-collaborating safety**: before editing a `.md` file, agents check the
 `X-Collab-State` response header (`active` / `tracked` / `untracked` / `not-markdown`).

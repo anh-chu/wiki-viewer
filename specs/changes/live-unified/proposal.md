@@ -7,7 +7,7 @@
 **Live is speculative until Accept. Accept is the only transition from proposal to canonical source, on every surface.**
 
 This reverses two things shipped earlier this session, deliberately, because the async premises that justified them are gone (the agent is now live and in-session):
-1. Markdown Live moves from **write-first-then-proof-span** to **write-on-accept** speculative preview.
+1. Markdown Live moves from **write-first-then-activity/audit provenance** to **write-on-accept** speculative preview.
 2. The batch instruction-queue + RunReviewBar UX is removed from the Live path.
 
 Proof-span provenance survives only as an *accepted-edit* audit mark and (optionally) for the separate non-Live async agent path. It is never a pending-review artifact in Live.

@@ -28,7 +28,6 @@ import { useDocumentWatch } from "./hooks/use-document-watch";
 import { useSuggestionCapture } from "./hooks/use-suggestion-capture";
 import { CommentPip } from "./comment-pip";
 import { CommentThread } from "./comment-thread";
-import { ProofSpanPopover } from "./proof-span-popover";
 import { SuggestionCard } from "./suggestion-card";
 import { SuggestEditPopover } from "./suggest-edit-popover";
 import { LiveOverlay } from "./live-overlay";
@@ -173,9 +172,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	// The hook recreates the EventSource on path or workspace changes and on
 	// degraded/rescan reloads the snapshot+sidecar. Lite mode has no watcher.
 	useDocumentWatch({ path: currentPath, isViewingRef });
-
-	// Proof-span popover state.
-	const [proofTarget, setProofTarget] = useState<HTMLElement | null>(null);
 
 	/**
 	 * Ref to the editor scroll container. Used to compute block positions
@@ -985,32 +981,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 									<EditorContent editor={editor} />
 									{currentPath && /\.(md|markdown)$/i.test(currentPath) && (
 										<BacklinksPanel currentPath={currentPath} />
-									)}
-									{/* Proof-span hover delegation */}
-									<div
-										aria-hidden="true"
-										className="contents"
-										onMouseOver={(e) => {
-											const span = (e.target as HTMLElement).closest<HTMLElement>(".proof-span");
-											if (span && span !== proofTarget) setProofTarget(span);
-										}}
-										onMouseOut={(e) => {
-											const related = e.relatedTarget as HTMLElement | null;
-											if (!related?.closest(".proof-span")) setProofTarget(null);
-										}}
-									/>
-									{currentPath && (
-										<ProofSpanPopover
-											targetEl={proofTarget}
-											onClose={() => setProofTarget(null)}
-											onComment={() => {
-												if (!proofTarget) return;
-												const blockEl = proofTarget.closest<HTMLElement>("[data-block-ref]");
-												if (!blockEl) return;
-												const blockRef = blockEl.getAttribute("data-block-ref");
-												if (blockRef) setThreadTarget({ blockRef, el: blockEl });
-											}}
-										/>
 									)}
 									{!isViewing && (
 										<>

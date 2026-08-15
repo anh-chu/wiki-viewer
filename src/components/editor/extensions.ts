@@ -28,7 +28,6 @@ import { CalloutExtension } from "./callout-extension";
 import { DragHandle } from "./extensions/drag-handle";
 import { HeadingAnchors } from "./extensions/heading-anchors";
 import { MermaidCodeBlock } from "./extensions/mermaid-code-block";
-import { ProofSpan } from "./extensions/proof-span";
 import { ResizableImage } from "./extensions/resizable-image";
 import { WikiLink } from "./wiki-link-extension";
 
@@ -135,7 +134,6 @@ export const editorExtensions = [
 		},
 	}),
 	CalloutExtension,
-	ProofSpan,
 	TextAlign.configure({ types: ["heading", "paragraph"] }),
 	Subscript,
 	Superscript,

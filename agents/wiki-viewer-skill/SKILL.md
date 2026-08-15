@@ -1,19 +1,19 @@
 ---
 name: wiki-viewer
-description: Read and edit markdown files in a running wiki-viewer instance over its HTTP collab API. Use when the user mentions wiki-viewer, asks you to edit local notes, or shares a localhost wiki-viewer URL. Handles agent registration, scoped capabilities, block-level edits with provenance marks, comments, and suggestions.
+description: Read and edit markdown files in a running wiki-viewer instance over its HTTP collab API. Use when the user mentions wiki-viewer, asks you to edit local notes, or shares a localhost wiki-viewer URL. Handles agent registration, scoped capabilities, block-level edits with audit-log provenance, comments, and suggestions.
 license: MIT
 ---
 
 # wiki-viewer agent skill
 
-You are working with **wiki-viewer**, a local-first markdown viewer that exposes a Proof-SDK-compatible HTTP API for agents. Files on disk are the source of truth. Every AI-authored edit is wrapped in an inline `<proof-span>` mark so the human can see, accept, or revert your contribution.
+You are working with **wiki-viewer**, a local-first markdown viewer that exposes an HTTP API for agents. Files on disk are the source of truth. Every AI-authored edit writes clean markdown; provenance is recorded in the activity feed.
 
 ## Quick orientation: two tiers
 
 | Tier                | Routes                  | File types                          | When to use                                                                       |
 | ------------------- | ----------------------- | ----------------------------------- | --------------------------------------------------------------------------------- |
 | **Tier 1 — Raw FS** | `/api/agent/fs/*`       | All types (markdown, code, binary…) | Fast filework. Read, write, list, move, delete, search. Audited but no review UI. |
-| **Tier 2 — Collab** | `/api/agent/files/*.md` | Markdown only                       | Reviewable prose. Edits become proof-spans the human can accept/revert.           |
+| **Tier 2 — Collab** | `/api/agent/files/*.md` | Markdown only                       | Block-scoped concurrency-safe writes with activity-log provenance.           |
 
 Both tiers use the same auth (TOFU token). Pick the tier based on `X-Collab-State` (see [Which tier do I use?](#which-tier-do-i-use)).
 
@@ -181,20 +181,7 @@ Requirements:
 { "type": "block.prepend",      "markdown": "..." }
 ```
 
-Any text you insert is automatically wrapped in a `<proof-span>` mark by the server. Provide optional metadata to make your contribution legible:
-
-```json
-{
-  "type": "block.insertAfter",
-  "ref": "b7f2c1",
-  "markdown": "Three pillars: infra, tooling, launch.",
-  "basis": "described",
-  "basisDetail": "user asked for an opening paragraph",
-  "inResponseTo": "c4a1"
-}
-```
-
-`basis` ∈ `"described" | "inferred" | "suggested"`. Defaults to `"inferred"`. Always set `basis` and a short `basisDetail` so the human reviewer knows where your edit came from.
+Block ops write clean markdown verbatim. Provenance is recorded in the activity feed, not document bytes. Legacy `basis`, `basisDetail`, and `inResponseTo` fields remain accepted but are ignored for backward compatibility.
 
 **Comment ops** — threaded discussion attached to a block:
 
@@ -220,7 +207,7 @@ Any text you insert is automatically wrapped in a `<proof-span>` mark by the ser
 
 Suggestion kinds: `"replace" | "insertAfter" | "insertBefore" | "delete"`.
 
-Default for AI-initiated content edits: **prefer suggestions over direct block ops** unless the human explicitly asked you to write directly. Suggestions render as inline cards in the editor with Accept / Reject buttons. Block ops apply immediately and only show up as proof-span decorations.
+Suggestions are separate UI objects for proposed edits. Direct block ops commit clean markdown immediately; both actions are recorded in audit/activity logs.
 
 ## Polling events
 
@@ -525,7 +512,7 @@ Every `GET /api/agent/fs/file/<path>` (and every Tier-2 snapshot read) returns `
 - Read before write. Always GET a fresh snapshot to capture current `revision` and block `ref`s.
 - One file per request. There is no batch-across-files endpoint.
 - Atomic ops. Each POST applies all its ops or none. Order matters within a batch.
-- Be transparent. Set `basis` + `basisDetail` on every content op.
+- Write clean markdown. Legacy `basis`, `basisDetail`, and `inResponseTo` fields are accepted but ignored for backward compatibility.
 - Prefer comments and suggestions over silent edits. The human is your collaborator, not your reviewer-of-last-resort.
 - Poll events between turns when the human is reviewing your work; respond to their comments rather than re-litigating.
 

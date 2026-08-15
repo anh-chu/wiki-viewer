@@ -25,15 +25,15 @@
               ┌──────────────────▼──┐      ┌─────▼───────────────────────┐
               │  TIER 1 — RAW FS    │      │  TIER 2 — COLLAB (existing) │
               │  all file types     │      │  markdown only              │
-              │  read/write/ls/     │      │  block-ops + proof-spans    │
+              │  read/write/ls/     │      │  block-ops + activity-log provenance    │
               │  move/delete/search │      │  comments / suggestions     │
-              │  boring bytes       │      │  reviewable prose, accept/  │
+              │  boring bytes       │      │  block-scoped concurrency-safe writes, accept/  │
               │  light audit        │      │  revert provenance          │
               └─────────────────────┘      └─────────────────────────────┘
 ```
 
 - **Tier 1 (Raw FS, NEW):** bytes on disk, every file type, fast agent tooling. Light audit (event + sha). The "do filework" tier.
-- **Tier 2 (Collab, EXISTING, UNCHANGED):** markdown review layer — block-ops, `<proof-span>` marks, comments, suggestions. The "reviewable prose" tier.
+- **Tier 2 (Collab, EXISTING, UNCHANGED):** markdown review layer — block-ops, `activity record` marks, comments, suggestions. The "block-scoped concurrency-safe writes" tier.
 - **Do NOT** fold block-ops into the fs endpoint as a content-type. Collab is a review/provenance _workflow_, not file IO. Different invariants. Keep them separate; share the spine only.
 
 ---
@@ -95,7 +95,7 @@ All routes reuse `checkAuth` + `enforceScope` + `withFileMutex` + `resolveWorksp
 
 ## 3. Tier 2 — Collab (unchanged)
 
-Markdown block-ops (`block.replace/insertAfter/insertBefore/delete/append/prepend`), `comment.*`, `suggestion.*`, `<proof-span>` marks, `baseRevision` optimistic concurrency, mandatory `Idempotency-Key`, sidecar JSON in `.proof/`. **No changes.** This remains the reviewable-prose path.
+Markdown block-ops (`block.replace/insertAfter/insertBefore/delete/append/prepend`), `comment.*`, `suggestion.*`, `activity record` marks, `baseRevision` optimistic concurrency, mandatory `Idempotency-Key`, sidecar JSON in `.proof/`. **No changes.** This remains the reviewable-prose path.
 
 ---
 
@@ -114,14 +114,14 @@ X-Collab-Snapshot: /api/agent/files/<path>.md      # present when state != not-m
 
 | State          | Meaning                                                                                                                                                                                                                                      | Agent should…                                                                                                                                             |
 | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `active`       | `.md` that is **live**: either has review artifacts (pending suggestions / unresolved comments / unreverted proof-spans) **OR has a current human edit lease** (someone has the doc open in the editor). A human is collaborating right now. | **Use Tier-2 block-ops.** Your edits become reviewable suggestions. A raw `PUT` is rejected unless `If-Collab-Match` matches (see R6).                    |
+| `active`       | `.md` that is **live**: either has review artifacts (pending suggestions / unresolved comments / unreverted activity-log provenance) **OR has a current human edit lease** (someone has the doc open in the editor). A human is collaborating right now. | **Use Tier-2 block-ops.** Your edits become reviewable suggestions. A raw `PUT` is rejected unless `If-Collab-Match` matches (see R6).                    |
 | `tracked`      | `.md` with a sidecar, no artifacts, no lease.                                                                                                                                                                                                | **Prefer Tier-2 for any semantic/prose edit** so provenance accrues. Raw only for mechanical/whole-file ops (e.g. reformat, regenerate). Not a free pass. |
 | `untracked`    | `.md`, no sidecar, no lease — nobody has collaborated.                                                                                                                                                                                       | Raw ok. A reviewable (Tier-2) edit creates a sidecar so future edits are tracked.                                                                         |
 | `not-markdown` | Any non-`.md` file.                                                                                                                                                                                                                          | **Tier-1 raw only** (Tier-2 doesn't apply).                                                                                                               |
 
 **Definition of `active` (two sources, OR'd):**
 
-1. **Artifacts:** `pendingSuggestions > 0` OR `unresolvedComments > 0` OR `proofSpanCount > 0` (from sidecar — cheap, already in memory on read).
+1. **Artifacts:** `pendingSuggestions > 0` OR `unresolvedComments > 0` OR `activityCount > 0` (from sidecar — cheap, already in memory on read).
 2. **Human edit lease:** a short-TTL presence marker (default 90s, heartbeat ~30s) set when a human opens the doc in the editor and refreshed while it stays open. **This closes the false-negative GPT-5.5 caught:** a human who opens a doc but hasn't typed a suggestion yet still reads `active`, so the agent won't blind-write into a live session. Lease lives in-memory (or the existing SQLite), keyed by `(path)`, set by a lightweight `POST /api/wiki/presence` ping the editor already can issue alongside its chokidar SSE connection. No lease + no artifacts → not active.
 
 ### Layer 2 — documented (manifest + skill)
@@ -144,8 +144,8 @@ Even a confused or racing agent cannot silently clobber a live session: a raw `P
 
 ## 4. Integration rules (load-bearing)
 
-- **R1 — Shared lock.** A raw write/move/delete on a `.md` acquires the **same** `withFileMutex` key the ops-applier uses. No interleaving with block-ops mid-proof-span.
-- **R2 — No fake provenance.** Raw writes never author proof-spans. After a raw write to a tracked `.md`, emit `file.rawWritten` (writer known) and **reconcile the sidecar synchronously, inside the same mutex** (rebuild `refMap`, set fingerprint to `newSha`, mark affected proof refs stale). Raw edits are unmarked by definition; human sees _who_ via the event, not as an accept/revert suggestion.
+- **R1 — Shared lock.** A raw write/move/delete on a `.md` acquires the **same** `withFileMutex` key the ops-applier uses. No interleaving with block-ops mid-activity/audit provenance.
+- **R2 — No fake provenance.** Raw writes never author activity-log provenance. After a raw write to a tracked `.md`, emit `file.rawWritten` (writer known) and **reconcile the sidecar synchronously, inside the same mutex** (rebuild `refMap`, set fingerprint to `newSha`, mark affected proof refs stale). Raw edits are unmarked by definition; human sees _who_ via the event, not as an activity tracking suggestion.
   - **GOTCHA (do not regress):** do NOT just "bump fingerprint to newSha and let existing reconciliation fire later." The existing reconciliation triggers on `sidecar.fingerprint != file sha256`; if the raw write sets fingerprint current, the mismatch is gone and rebuild never runs. Because the writer is known, reconcile **eagerly within the write**, not lazily on next read.
 - **R3 — Sidecar lifecycle.** Raw `mv`/`rm` of a `.md` moves/deletes its sidecar. **NOTE:** the human `wiki/move` route currently does a bare `rename` and does NOT move the sidecar — a latent bug that orphans `.proof/` JSON today. Build a shared `moveSidecar`/`deleteSidecar` helper in `sidecar.ts` and wire **both** the raw-fs path and `wiki/move` to it (fixes the existing bug for free).
 - **R4 — Write guard (If-Match by default).** **All** mutating raw ops (`PUT`/`DELETE`/`move`) REQUIRE `If-Match: <sha256>` by default; 412 on mismatch. An explicit `?force=true` bypasses it and is recorded in the audit row. Rationale: agents edit code/config just as much as `.md`; optional concurrency = silent lost updates, and a format-based safety boundary is arbitrary. Cheap because the agent already has the sha from `GET`.
@@ -167,7 +167,7 @@ Even a confused or racing agent cannot silently clobber a live session: a raw `P
 
 ### Collab-anchor safety (raw `.md` overwrite)
 
-A full-file `PUT` to a `.md` can strip `<proof-span>` marks and shift block boundaries, orphaning pending comments/suggestions. **Invariant:** after any raw write to a `.md`, the synchronous reconciliation (R2) MUST re-bind or mark-stale every affected proof ref **before** the human UI reads the snapshot. A suggestion/comment whose anchor no longer resolves is flagged `stale`, not silently dropped. This is the explicit guard that keeps Tier 1 from corrupting Tier 2.
+A full-file `PUT` to a `.md` can strip `activity record` marks and shift block boundaries, orphaning pending comments/suggestions. **Invariant:** after any raw write to a `.md`, the synchronous reconciliation (R2) MUST re-bind or mark-stale every affected proof ref **before** the human UI reads the snapshot. A suggestion/comment whose anchor no longer resolves is flagged `stale`, not silently dropped. This is the explicit guard that keeps Tier 1 from corrupting Tier 2.
 
 ---
 

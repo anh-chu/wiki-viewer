@@ -22,7 +22,7 @@ The design is intentionally **API-compatible with [Proof SDK](https://github.com
 
 - Single-user, local-first. No multi-tenancy, no share links, no realtime CRDT.
 - File on disk is the source of truth. Always.
-- Provenance marks live **inline** in the markdown (`<proof-span>` HTML).
+- Provenance marks live **inline** in the markdown (`activity record` HTML).
 - Comments / threads / suggestions / event log / block-ref maps live in a **sidecar directory** (`.proof/`) next to the file.
 - TipTap is the editor. Do not introduce Milkdown or swap editors.
 - No new runtime dependencies are required. Use what's in `package.json`.
@@ -48,7 +48,7 @@ The design is intentionally **API-compatible with [Proof SDK](https://github.com
 | **Block**           | A top-level markdown element. Heading, paragraph, list, blockquote, code fence, table, hr, html block. Lists and tables are treated as a single block.                       |
 | **Block ref**       | Stable string ID like `b7f2a1`. Persists across edits via the sidecar's ref map.                                                                                             |
 | **Revision**        | Monotonic integer per file. Bumps on every successful mutation. Used for optimistic locking.                                                                                 |
-| **Provenance span** | An inline `<proof-span>` HTML element wrapping AI-authored text, with `origin`, `basis`, `by`, `at`, `id` attributes. Lives in the markdown.                                 |
+| **Provenance span** | An clean markdown HTML element wrapping AI-authored text, with `origin`, `basis`, `by`, `at`, `id` attributes. Lives in the markdown.                                 |
 | **Comment**         | A discussion thread attached to a block ref. Lives in the sidecar. Has ordered turns (initial + replies).                                                                    |
 | **Suggestion**      | A proposed edit on a block ref. Pending / accepted / rejected lifecycle. Lives in the sidecar until accepted (becomes a real block edit) or rejected (deleted from sidecar). |
 | **Event**           | Immutable log entry. New events emitted on every state change. Polled by agents.                                                                                             |
@@ -60,7 +60,7 @@ The design is intentionally **API-compatible with [Proof SDK](https://github.com
 
 ```
 ~/notes/                          workspace root
-├── plan.md                       canonical content + inline <proof-span> marks
+├── plan.md                       canonical content + clean markdown marks
 ├── specs.md
 ├── subdir/
 │   └── notes.md
@@ -84,7 +84,7 @@ agent ── POST /api/agent/files/<path> ──► route handler
                                           ├─ apply ops (block.* mutate the .md,
                                           │             comment.* / suggestion.* mutate sidecar,
                                           │             suggestion.accept does both)
-                                          ├─ write .md (rewraps proof-spans on inserts/replaces)
+                                          ├─ write .md (rewraps activity-log provenance on inserts/replaces)
                                           ├─ write sidecar with new revision + appended events
                                           ├─ release mutex
                                           └─ return new snapshot
@@ -101,7 +101,7 @@ Editor flow (browser):
 
 ```
 chokidar watcher (already exists) → SSE → editor reloads file
-                                       → re-parses inline <proof-span> via TipTap mark
+                                       → re-parses clean markdown via TipTap mark
                                        → renders gutter pips for comments (loaded from sidecar via separate REST call)
 ```
 
@@ -122,7 +122,7 @@ src/
 ├── lib/proof/                       ← NEW
 │   ├── blocks.ts                     markdown → blocks parser, block → markdown emitter
 │   ├── block-refs.ts                 ref generation, sidecar ref map updates
-│   ├── proof-span.ts                 mark schema + serialization helpers (shared client/server)
+│   ├── activity/audit provenance.ts                 mark schema + serialization helpers (shared client/server)
 │   ├── sidecar.ts                    read/write/migrate sidecar JSON
 │   ├── ops-applier.ts                op execution against (markdown, sidecar) tuple
 │   ├── event-bus.ts                  emit/poll/ack events on sidecar
@@ -132,12 +132,12 @@ src/
 │   └── types.ts                      Op, Block, Snapshot, Event, Comment, Suggestion
 ├── components/editor/
 │   ├── extensions/
-│   │   └── proof-span.ts             ← NEW   TipTap mark for <proof-span>
-│   ├── proof-span-popover.tsx        ← NEW   Hover popover: origin, basis, Accept/Revert
+│   │   └── activity/audit provenance.ts             ← NEW   TipTap mark for activity record
+│   ├── activity/audit provenance-popover.tsx        ← NEW   Hover popover: origin, basis, Accept/Revert
 │   ├── comment-pip.tsx               ← NEW   Gutter pip per commented block
 │   ├── comment-thread.tsx            ← NEW   Thread popover w/ reply form
 │   ├── suggestion-card.tsx           ← NEW   Inline pending-suggestion card with Accept/Reject
-│   └── extensions.ts                 ← EDIT  Register ProofSpan mark
+│   └── extensions.ts                 ← EDIT  Register ActivityProvenance mark
 ├── components/ai-panel/              ← NEW
 │   ├── ai-panel.tsx                  Right-side drawer: connections + activity + token UI
 │   ├── activity-row.tsx
@@ -146,7 +146,7 @@ src/
 │   ├── proof-store.ts                ← NEW   zustand: sidecar data per file, event tail cursor
 │   └── ai-panel-store.ts             ← EDIT  Wire to real activity feed (replace stub)
 ├── lib/markdown/
-│   └── to-markdown.ts                ← EDIT  Add turndown rule preserving <proof-span>
+│   └── to-markdown.ts                ← EDIT  Add turndown rule preserving activity record
 └── lib/proof-config.ts               ← NEW   Reads AGENT_BEARER_TOKEN, rate limits, etc.
 ```
 
@@ -280,7 +280,7 @@ The ops, applied in order (atomic — all succeed or all roll back):
 
 `markdown` may contain multiple top-level blocks. They are inserted in order at the target position.
 
-If the op originates from an AI agent (`by` starts with `ai:`), the **inserted text content is wrapped in a `<proof-span>` mark** automatically (see §5.3). The agent doesn't construct the span; the server does. Agents MAY supply additional metadata:
+If the op originates from an AI agent (`by` starts with `ai:`), the **inserted text content is written as clean markdown mark** automatically (see §5.3). The agent doesn't construct the span; the server does. Agents MAY supply additional metadata:
 
 ```json
 {
@@ -618,26 +618,19 @@ export function blockType(node: RootContent): {
 }
 ```
 
-**Important roundtrip note:** `<proof-span>` elements inside paragraphs are parsed as raw HTML by remark and preserved in the AST. They survive `parse → stringify` unchanged. **Verify this with a unit test** (see §7).
+**Important roundtrip note:** `activity record` elements inside paragraphs are parsed as raw HTML by remark and preserved in the AST. They survive `parse → stringify` unchanged. **Verify this with a unit test** (see §7).
 
-### 5.3 `src/lib/proof/proof-span.ts` — provenance marks
+### 5.3 `src/lib/proof/activity/audit provenance.ts` — audit-log provenance
 
 Format (inline HTML, valid in CommonMark and GFM, ignored by markdown renderers, decorated by TipTap):
 
 ```html
-<proof-span
-  id="p4a1"
-  origin="ai"
-  basis="described"
-  by="ai:claude"
-  at="2026-05-29T10:00:00Z"
-  in-response-to="c4a1"
-  >The text the AI wrote.</proof-span
+activity recordThe text the AI wrote.</activity/audit provenance
 >
 ```
 
 ```ts
-export interface SpanAttrs {
+export interface ActivityAttrs {
   spanId: string;
   origin: "ai" | "human";
   basis?: string;
@@ -647,9 +640,9 @@ export interface SpanAttrs {
   inResponseTo?: string;
 }
 
-const SPAN_OPEN = /<proof-span\b([^>]*)>/g;
+const SPAN_OPEN = /activity record]*)>/g;
 
-export function wrapAsProofSpan(markdown: string, attrs: SpanAttrs): string {
+export function wrapAsActivityProvenance(markdown: string, attrs: ActivityAttrs): string {
   // Find first non-whitespace leading content; wrap whole block's text content.
   // The simplest correct approach: stringify the block, then wrap the
   // *content portion* (everything after the leading markdown sigil) in a span.
@@ -680,10 +673,10 @@ Wrap rules (be conservative — if in doubt, don't wrap and record in sidecar in
 Add to `Sidecar` interface:
 
 ```ts
-blockProvenance?: Record<string, SpanAttrs>; // for blocks we can't wrap inline
+blockProvenance?: Record<string, ActivityAttrs>; // for blocks we can't wrap inline
 ```
 
-`unwrap` is straightforward: strip `<proof-span ...>` and `</proof-span>` from a markdown string for "Accept" (keep content, drop attribution mark). For "Revert" (delete content): the editor passes the span ID, server looks up the block, replaces span content with empty string, prunes empty paragraph if result is empty.
+`unwrap` is straightforward: strip `activity record` and `` from a markdown string for "Accept" (keep content, drop attribution mark). For "Revert" (delete content): the editor passes the span ID, server looks up the block, replaces span content with empty string, prunes empty paragraph if result is empty.
 
 ### 5.4 `src/lib/proof/block-refs.ts` — ref stability
 
@@ -812,7 +805,7 @@ finally:
 **Important: AI wrapping happens here**, not in routes. When applying `block.insertAfter` from an `ai:*` actor:
 
 - Parse the op's `markdown` into block nodes
-- For each text-bearing node, wrap text in a freshly-minted `<proof-span>` with attrs from the op (`origin: "ai"`, `basis`, `basisDetail`, `by`, `at`, `spanId`, `inResponseTo`)
+- For each text-bearing node, wrap text in a freshly-minted `activity record` with attrs from the op (`origin: "ai"`, `basis`, `basisDetail`, `by`, `at`, `spanId`, `inResponseTo`)
 - For non-wrappable block types (code, table, hr, html), record into `sidecar.blockProvenance[newRef]` instead
 - Stringify back to markdown for insertion
 
@@ -1015,13 +1008,13 @@ export async function withFileMutex<T>(
 }
 ```
 
-### 5.11 Browser side — TipTap mark `src/components/editor/extensions/proof-span.ts`
+### 5.11 Browser side — TipTap mark `src/components/editor/extensions/activity/audit provenance.ts`
 
 ```ts
 import { Mark, mergeAttributes } from "@tiptap/core";
 
-export const ProofSpan = Mark.create({
-  name: "proofSpan",
+export const ActivityProvenance = Mark.create({
+  name: "activityProvenance",
   priority: 900,
   inclusive: false,
   keepOnSplit: false,
@@ -1066,12 +1059,12 @@ export const ProofSpan = Mark.create({
     };
   },
   parseHTML() {
-    return [{ tag: "proof-span" }];
+    return [{ tag: "activity/audit provenance" }];
   },
   renderHTML({ HTMLAttributes }) {
     return [
-      "proof-span",
-      mergeAttributes(HTMLAttributes, { class: "proof-span" }),
+      "activity/audit provenance",
+      mergeAttributes(HTMLAttributes, { class: "activity/audit provenance" }),
       0,
     ];
   },
@@ -1081,8 +1074,8 @@ export const ProofSpan = Mark.create({
 CSS in `globals.css`:
 
 ```css
-proof-span.proof-span,
-.proof-span {
+activity/audit provenance.activity/audit provenance,
+.activity/audit provenance {
   background: linear-gradient(
     to right,
     rgba(165, 180, 252, 0.08),
@@ -1094,7 +1087,7 @@ proof-span.proof-span,
   cursor: pointer;
   transition: background 120ms ease;
 }
-proof-span.proof-span[origin="human"] {
+activity/audit provenance.activity/audit provenance[origin="human"] {
   border-left-color: rgb(110, 231, 183);
   background: linear-gradient(
     to right,
@@ -1102,14 +1095,14 @@ proof-span.proof-span[origin="human"] {
     rgba(110, 231, 183, 0)
   );
 }
-proof-span.proof-span:hover {
+activity/audit provenance.activity/audit provenance:hover {
   background: linear-gradient(
     to right,
     rgba(165, 180, 252, 0.18),
     rgba(165, 180, 252, 0.04)
   );
 }
-.dark proof-span.proof-span {
+.dark activity/audit provenance.activity/audit provenance {
   background: linear-gradient(
     to right,
     rgba(165, 180, 252, 0.14),
@@ -1120,10 +1113,10 @@ proof-span.proof-span:hover {
 
 ### 5.12 Turndown rule — `src/lib/markdown/to-markdown.ts` (EDIT)
 
-Add a turndown rule preserving `<proof-span>` with attrs (similar to existing `styledSpan` rule):
+Add a turndown rule preserving `activity record` with attrs (similar to existing `styledSpan` rule):
 
 ```ts
-turndown.addRule("proofSpan", {
+turndown.addRule("activityProvenance", {
   filter: (node) => node.nodeName === "PROOF-SPAN",
   replacement: (content, node) => {
     const el = node as HTMLElement;
@@ -1131,18 +1124,18 @@ turndown.addRule("proofSpan", {
     for (const a of Array.from(el.attributes)) {
       attrs.push(`${a.name}="${a.value.replace(/"/g, "&quot;")}"`);
     }
-    return `<proof-span${attrs.length ? " " + attrs.join(" ") : ""}>${content}</proof-span>`;
+    return `activity record${content}`;
   },
 });
 ```
 
-Also: lowercase `<proof-span>` is preserved through DOM uppercasing (`nodeName === "PROOF-SPAN"` because DOM uppercases). Verify with a test.
+Also: lowercase `activity record` is preserved through DOM uppercasing (`nodeName === "PROOF-SPAN"` because DOM uppercases). Verify with a test.
 
 ### 5.13 Editor UI
 
-#### `proof-span-popover.tsx`
+#### `activity/audit provenance-popover.tsx`
 
-On hover over a `.proof-span` element, show a small floating card:
+On hover over a `.activity/audit provenance` element, show a small floating card:
 
 ```
 ┌────────────────────────────────────┐
@@ -1306,7 +1299,7 @@ Reject mutations on non-`.md` files. Snapshot also rejects. Path must end in `.m
 
 When `block.replace` is applied:
 
-- Existing `<proof-span>` elements inside the old block content that are NOT changed should retain their IDs
+- Existing `activity record` elements inside the old block content that are NOT changed should retain their IDs
 - New content gets a fresh span if the op's `by` is ai
 - This is approximate. If the agent passes wholesale-replaced markdown, the old spans are gone. That's fine.
 
@@ -1318,13 +1311,13 @@ Keep it simple: when applying `suggestion.accept`, also iterate other pending su
 
 ### 6.9 Markdown roundtrip fidelity
 
-Wiki-viewer has a non-trivial roundtrip (turndown + custom rules for wiki-links, embeds, lucide icons, etc.). The agent protocol bypasses that: it operates directly on the raw markdown file, not on the TipTap HTML. The block parser uses remark only. **This means: the agent never sees the editor's HTML.** It sees raw markdown with raw `<proof-span>` tags.
+Wiki-viewer has a non-trivial roundtrip (turndown + custom rules for wiki-links, embeds, lucide icons, etc.). The agent protocol bypasses that: it operates directly on the raw markdown file, not on the TipTap HTML. The block parser uses remark only. **This means: the agent never sees the editor's HTML.** It sees raw markdown with raw `activity record` tags.
 
-When the editor saves a file (via existing PUT `/api/wiki/content`), the turndown rule (§5.12) ensures `<proof-span>` is preserved. Verify with an end-to-end test.
+When the editor saves a file (via existing PUT `/api/wiki/content`), the turndown rule (§5.12) ensures `activity record` is preserved. Verify with an end-to-end test.
 
-### 6.10 Wiki-links and proof-spans
+### 6.10 Wiki-links and activity-log provenance
 
-`[[slug]]` syntax inside a proof-span is fine. Remark parses link before HTML wrapping; turndown emits wiki-link rule before proof-span rule (because turndown processes children first). Verify.
+`[[slug]]` syntax inside a activity/audit provenance is fine. Remark parses link before HTML wrapping; turndown emits wiki-link rule before activity/audit provenance rule (because turndown processes children first). Verify.
 
 ### 6.11 Empty file / new file
 
@@ -1342,7 +1335,7 @@ Minimum suite (place in `src/tests/proof/`). No test framework dependency requir
 
 ### 7.1 Unit: blocks.test.ts
 
-- parse → stringify roundtrip preserves `<proof-span>` exactly
+- parse → stringify roundtrip preserves `activity record` exactly
 - list with checkboxes detected as `taskList`
 - code block with lang preserved
 - table preserved
@@ -1355,11 +1348,11 @@ Minimum suite (place in `src/tests/proof/`). No test framework dependency requir
 - Insert a block in middle, others keep refs
 - Aliases populated after replace, cleared after next mutation
 
-### 7.3 Unit: proof-span.test.ts
+### 7.3 Unit: activity/audit provenance.test.ts
 
-- wrapAsProofSpan on paragraph wraps text content
-- wrapAsProofSpan on heading wraps text after `#`s
-- wrapAsProofSpan on code block returns content unchanged + records in sidecar
+- wrapAsActivityProvenance on paragraph wraps text content
+- wrapAsActivityProvenance on heading wraps text after `#`s
+- wrapAsActivityProvenance on code block returns content unchanged + records in sidecar
 - Special chars in basisDetail escaped properly
 
 ### 7.4 Integration: ops-applier.test.ts
@@ -1382,10 +1375,10 @@ Use `next` dev server in a temp workspace root. Hit routes with fetch.
 
 ### 7.6 Roundtrip: editor-save.test.ts
 
-- Create .md with `<proof-span>` inline
+- Create .md with `activity record` inline
 - Load through `markdownToHtml` → TipTap state
 - Serialize back through `htmlToMarkdown`
-- Verify the `<proof-span>` is byte-identical
+- Verify the `activity record` is byte-identical
 
 Critical: this test catches the silent failure where Tiptap mangles the mark on save.
 
@@ -1400,11 +1393,11 @@ Sub-agent that picks this up: execute phases in order. Do not skip ahead. Each p
 1. Create `src/lib/proof/types.ts`
 2. Create `src/lib/proof/blocks.ts`, get tests green
 3. Create `src/lib/proof/block-refs.ts`, get tests green
-4. Create `src/lib/proof/proof-span.ts`, get tests green
+4. Create `src/lib/proof/activity/audit provenance.ts`, get tests green
 5. Create `src/lib/proof/sidecar.ts`
 6. Create `src/lib/proof/mutex.ts`, `idempotency.ts`, `auth.ts`
 7. Create `src/lib/proof/ops-applier.ts`, get tests green
-8. Add `<proof-span>` turndown rule in `src/lib/markdown/to-markdown.ts`
+8. Add `activity record` turndown rule in `src/lib/markdown/to-markdown.ts`
 
 **Acceptance:** All Foundation tests pass. No HTTP yet. No UI yet.
 
@@ -1414,20 +1407,20 @@ Sub-agent that picks this up: execute phases in order. Do not skip ahead. Each p
 2. Create `src/app/api/agent/events/[...path]/route.ts` (GET=poll, POST=ack)
 3. Create `src/app/api/agent/sidecar/[...path]/route.ts`
 4. Create `src/app/api/agent/settings/route.ts` + `settings/token/regenerate/route.ts`
-5. Create `src/app/api/agent/internal/span/route.ts` (accept/revert)
+5. Create `src/app/api/agent/internal/span/route.ts` (activity tracking)
 
 **Acceptance:** Integration tests pass. `curl` workflow from §10 works.
 
 ### C. Editor wiring (completed)
 
-1. Create `src/components/editor/extensions/proof-span.ts` TipTap mark
+1. Create `src/components/editor/extensions/activity/audit provenance.ts` TipTap mark
 2. Register in `extensions.ts`
 3. Add CSS in `globals.css`
 4. Create `src/stores/proof-store.ts`
 5. Update editor to load sidecar on file open, subscribe to chokidar SSE for sidecar refresh
-6. Create `proof-span-popover.tsx` (Accept / Revert / Comment)
+6. Create `activity/audit provenance-popover.tsx` (Accept / Revert / Comment)
 
-**Acceptance:** Load a .md with `<proof-span>` inline → see decoration. Hover → popover works. Accept removes mark.
+**Acceptance:** Load a .md with `activity record` inline → see decoration. Hover → popover works. Accept removes mark.
 
 ### D. Comments (completed)
 
@@ -1515,7 +1508,7 @@ curl -s -X POST http://localhost:3000/api/agent/files/plan.md \
     ]
   }" | jq
 
-# Expect: revision: 1, new block in snapshot, file on disk has <proof-span> around inserted text
+# Expect: revision: 1, new block in snapshot, file on disk has activity record around inserted text
 
 cat /plan.md
 # Expect:
@@ -1523,7 +1516,7 @@ cat /plan.md
 #
 # Ship the rewrite by June.
 #
-# <proof-span id="p..." origin="ai" basis="described" by="ai:claude" at="..." basis-detail="user asked for opening">The team will focus on three pillars: infra, tooling, launch.</proof-span>
+# activity recordThe team will focus on three pillars: infra, tooling, launch.
 
 # 3. browser: open http://localhost:3000, navigate to plan.md
 #    expect: lavender left-border decoration on the inserted paragraph

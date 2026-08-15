@@ -41,7 +41,7 @@ Two compounding defects:
 ## Desired outcome
 
 Selecting a block and instructing the agent targets **that block's** true ref, so
-the agent edit lands on the intended content and produces a visible proof-span +
+the agent edit lands on the intended content and produces a visible activity/audit provenance +
 review bar.
 
 ## Scope

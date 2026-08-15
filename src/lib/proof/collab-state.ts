@@ -16,8 +16,8 @@
  *   If-Collab-Match: <n> is only safe when n equals the revision computed
  *   atomically inside the write mutex — otherwise 409 COLLAB_ACTIVE.
  *
- * active = has artifacts (pendingSuggestions > 0 OR unresolvedComments > 0
- *          OR blockProvenance entries > 0) OR has a current human edit lease.
+ * active = has artifacts (pendingSuggestions > 0 OR unresolvedComments > 0)
+ *          OR has a current human edit lease.
  */
 
 import { readSidecar } from "./sidecar";
@@ -72,9 +72,7 @@ export async function computeCollabState(
 		(s) => s.status === "pending" && !s.stale,
 	).length;
 	const unresolvedComments = sidecar!.comments.filter((c) => !c.resolved).length;
-	const proofSpanCount = Object.keys(sidecar!.blockProvenance ?? {}).length;
-
-	if (pendingSuggestions > 0 || unresolvedComments > 0 || proofSpanCount > 0) {
+	if (pendingSuggestions > 0 || unresolvedComments > 0) {
 		return { state: "active", revision, snapshotUrl };
 	}
 

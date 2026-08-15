@@ -3,12 +3,12 @@ You are connecting to a running wiki-viewer instance at $WIKI_URL (e.g. `http://
 **Two tiers — pick by `X-Collab-State`:**
 
 - **Tier 1 Raw FS** (`/api/agent/fs/*`) — all file types, fast read/write/ls/search. Use for code, binaries, and markdown that isn't being actively co-edited.
-- **Tier 2 Collab** (`/api/agent/files/*.md`) — markdown only, reviewable proof-spans. Use when `X-Collab-State: active` (human has the doc open or it has pending suggestions).
+- **Tier 2 Collab** (`/api/agent/files/*.md`) — block-scoped clean-markdown writes with revision/idempotency protection; activity feed provides provenance. Use when `X-Collab-State: active`.
 
 **Mode rule:** Every file read returns `X-Collab-State`. If `active` → use Tier-2 block-ops so the human can review. Otherwise → use Tier-1 raw fs. A raw write to an `active` .md is rejected 409 `COLLAB_ACTIVE` with the Tier-2 URL.
 
 **Workspaces:** this instance may serve several root directories. Send `X-Workspace: <workspaceId>` (or `?ws=<id>`) on every request to target one; omit it only on a single-workspace instance (the server falls back to the default). Ask the human for the workspace id or read it from the `?ws=` param of the URL they shared. A token may be pinned to one workspace — a mismatched workspace returns 403.
 
-Set `basis` and `basisDetail` on every Tier-2 content op so the human can see where your changes came from. Prefer `suggestion.add` over direct block ops unless told otherwise.
+Tier-2 content ops write clean markdown. Legacy `basis`, `basisDetail`, and `inResponseTo` fields are accepted but ignored for backward compatibility. Suggestions remain separate UI objects; use direct block ops when asked to commit.
 
 MCP-capable agents: `npx wiki-viewer-mcp` (set `WIKI_VIEWER_URL`, `WIKI_VIEWER_TOKEN`, `WIKI_VIEWER_AGENT_ID`, and optionally `WIKI_VIEWER_WORKSPACE` to target a workspace) gives native **Tier-1 file tools** (read/write/edit/list/search/move/delete) and refuses to overwrite an `active` doc. It has **no Tier-2 collab tools** — to co-write a doc (suggestions/comments), call the Tier-2 HTTP endpoints directly. MCP = fast filework; Tier-2 HTTP = reviewable collaboration.

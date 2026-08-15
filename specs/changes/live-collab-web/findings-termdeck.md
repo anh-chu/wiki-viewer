@@ -79,7 +79,7 @@ What we do NOT get for free, and what makes web genuinely different from markdow
   HTML app, a CSS selector does **not** identify a source location — the agent
   must *find* where that element is generated (JSX, template, framework) and edit
   that. That search is the agent's job (exactly as in TermDeck), not the protocol's.
-- **No proof-span / accept-revert.** The edit lands in real source files via tier-1
+- **No activity/audit provenance / accept-revert.** The edit lands in real source files via tier-1
   raw FS (or the agent's own shell), not as a reviewable block-op. Review is
   "reload the preview." This is a *different persistence model* and must not be
   bolted onto the tier-2 engine.
@@ -96,7 +96,7 @@ Steal TermDeck's model almost verbatim, ride our existing rails:
 3. **Dispatch via live channel**, new request kind `tweak` (or `web.tweak`):
    `{ path, selector, tag, snippet, note }`. The attached agent receives it on poll.
 4. **Agent edits real source** through tier-1 raw FS (`/api/agent/fs/*`), not tier-2.
-   No proof-span. The preview reloads (node-app HMR, or re-fetch for static HTML).
+   No activity/audit provenance. The preview reloads (node-app HMR, or re-fetch for static HTML).
 5. Explicit non-goals for v1: no HMR variant preview, no write-on-accept staging,
    no DOM→source auto-localization, no CSS-only inline patching. The agent finds
    and edits source, same as a human would from a bug report.
@@ -104,7 +104,7 @@ Steal TermDeck's model almost verbatim, ride our existing rails:
 ## The load-bearing decision (needs Anh)
 
 Web tweak is a **second persistence model** (edit real source, reload preview),
-distinct from markdown live (block-op proof-span, accept/revert). That is fine and
+distinct from markdown live (block-op activity/audit provenance, activity tracking). That is fine and
 matches reality — but it means "live collaboration" becomes an umbrella over two
 concretely different flows. Options:
 

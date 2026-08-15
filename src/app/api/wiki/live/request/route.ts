@@ -63,7 +63,7 @@ function parseItems(raw: unknown): LiveInstructionItem[] | null {
  *
  * generate/steer: carry a freeform instruction (and, for generate, the selected
  * block + revision) to the waiting agent. accept/discard: notify the session that
- * a proof-span was resolved by the human through the normal editor UI.
+ * a live proposal was resolved by the human through the editor UI.
  */
 export async function POST(request: Request): Promise<NextResponse> {
 	const csrf = checkOrigin(request);

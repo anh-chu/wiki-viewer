@@ -114,8 +114,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 				"X-Collab-Snapshot: /api/agent/files/<path>.md",
 			],
 			tiers: {
-				tier1: "Raw FS — /api/agent/fs/* — all file types, fast, light audit (ETag/sha256, file.rawWritten event, audit table). No proof-spans.",
-				tier2: "Collab — /api/agent/files/*.md — markdown only, reviewable proof-spans, comments, suggestions. Human can accept/revert.",
+				tier1: "Raw FS — /api/agent/fs/* — all file types, fast, light audit (ETag/sha256, file.rawWritten event, audit table).",
+				tier2: "Collab — /api/agent/files/*.md — markdown only, block-scoped clean-markdown writes with revision checks, comments, suggestions. Provenance lands in the activity feed/audit log.",
 			},
 		},
 		mcpAdapter: {

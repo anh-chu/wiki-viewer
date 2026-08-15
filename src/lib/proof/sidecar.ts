@@ -98,6 +98,5 @@ export function emptySidecar(mdPath: string): Sidecar {
 		nextEventId: 1,
 		lastAck: {},
 		fingerprint: "",
-		blockProvenance: {},
 	};
 }

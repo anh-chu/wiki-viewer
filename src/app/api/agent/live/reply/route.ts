@@ -71,11 +71,11 @@ export async function POST(req: Request): Promise<NextResponse> {
 	touchAgent(request.sessionId);
 
 	// Map agent status to request state. "done" ENDS the agent's turn and frees
-	// the channel: the proof-span is left in the document for optional human
-	// accept/revert, but that review must not hold the one-outstanding slot
-	// hostage. The human can still resolve the proof-span later (accept/discard
-	// overwrite the outcome). Making "done" non-terminal previously deadlocked the
-	// session after every successful edit.
+	// the channel: the proposal is left for optional human accept/discard, but
+	// that review must not hold the one-outstanding slot hostage. The human can
+	// still resolve the proposal later (accept/discard overwrite the outcome).
+	// Making "done" non-terminal previously deadlocked the session after every
+	// successful edit.
 	if (status === "working") {
 		markState(requestId, "working");
 	} else if (status === "done") {

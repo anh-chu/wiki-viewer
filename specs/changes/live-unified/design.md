@@ -35,12 +35,12 @@ Agent flow (documented in skill): call `live_attach` once → loop `live_poll` �
 
 ## Client: shared Live overlay + ephemeral markdown preview
 - Presence component (new, shared) `src/components/editor/live-presence.tsx`: polls `/api/wiki/live/status`; solid/amber + Connect; grace window.
-- Markdown ephemeral preview: integration point `editor.tsx:435-464` (block annotation effect provides `[data-block-ref]` slots + `blockRefPositions`). On proposal `ready`, render selected variant via `markdownToHtml(candidate, {pagePath, sanitize: isViewing})` into an overlay pinned to the target block slot; hide original block visually; cycle = swap candidate; **Accept** → POST md-resolve accept (server commits) then reload snapshot; **Discard** → drop client state only. Never call `editor.commands.setContent` for preview; never write proof-span for pending preview.
+- Markdown ephemeral preview: integration point `editor.tsx:435-464` (block annotation effect provides `[data-block-ref]` slots + `blockRefPositions`). On proposal `ready`, render selected variant via `markdownToHtml(candidate, {pagePath, sanitize: isViewing})` into an overlay pinned to the target block slot; hide original block visually; cycle = swap candidate; **Accept** → POST md-resolve accept (server commits) then reload snapshot; **Discard** → drop client state only. Never call `editor.commands.setContent` for preview; never write activity/audit provenance for pending preview.
 - Target selection reuses `resolveSelectionBlock` (block primary, text-range as context fields).
 - Verb/label alignment in `web-tweak-overlay.tsx`: Target/Variant/Proposal/Accept/Discard/Go.
 
 ## Delete from live path (client)
-`run-review-bar.tsx`, `instruction-queue-bar.tsx`, `instruction-popover.tsx`, proof-span hover popover + delegation IF no pending-review remains, `onInstruct` in `bubble-menu.tsx` and its editor wiring, `draftInstructions`/`sentInstructions` state. Keep: `ProofSpan` extension, sanitize-schema proof-span support, `wrapAsProofSpan`/`unwrapProofSpans`/`revertProofSpan` (accepted provenance), server accepted-provenance ops.
+`run-review-bar.tsx`, `instruction-queue-bar.tsx`, `instruction-popover.tsx`, activity/audit provenance hover popover + delegation IF no pending-review remains, `onInstruct` in `bubble-menu.tsx` and its editor wiring, `draftInstructions`/`sentInstructions` state. Keep: `ActivityProvenance` extension, sanitize-schema activity/audit provenance support, `wrapAsActivityProvenance`/`unwrapActivityProvenances`/`revertActivityProvenance` (accepted provenance), server accepted-provenance ops.
 
 ## Keep as-is
 Tier-2 `/api/agent/files` commit path (stale/idempotency), web-tweak resolve/status/picker routes, content-clock revision, block-ref frontmatter offset fix, filesystem MCP tools.

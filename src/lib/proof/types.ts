@@ -108,16 +108,6 @@ export interface ProofEvent {
 	[k: string]: unknown;
 }
 
-export interface SpanAttrs {
-	spanId: string;
-	origin: "ai" | "human";
-	basis?: string;
-	basisDetail?: string;
-	by: string;
-	at: string;
-	inResponseTo?: string;
-}
-
 export interface Sidecar {
 	schemaVersion: 1;
 	path: string;
@@ -135,7 +125,6 @@ export interface Sidecar {
 	nextEventId: number;
 	lastAck: Record<string, number>; // by -> eventId
 	fingerprint: string; // last-known sha256 of the .md file
-	blockProvenance?: Record<string, SpanAttrs>; // for blocks we can't wrap inline
 }
 
 export type Op =

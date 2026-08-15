@@ -199,7 +199,6 @@ describe("computeCollabState", () => {
 			revision: 3,
 			suggestions: [],
 			comments: [],
-			blockProvenance: {},
 		};
 		await writeSidecar(tmpRoot, mdPath, sc);
 		const result = await computeCollabState(tmpRoot, mdPath);
@@ -221,7 +220,6 @@ describe("computeCollabState", () => {
 				} as Suggestion,
 			],
 			comments: [],
-			blockProvenance: {},
 		};
 		await writeSidecar(tmpRoot, mdPath, sc);
 		const result = await computeCollabState(tmpRoot, mdPath);
@@ -243,7 +241,6 @@ describe("computeCollabState", () => {
 					createdAt: new Date().toISOString(), turns: [],
 				} as Comment,
 			],
-			blockProvenance: {},
 		};
 		await writeSidecar(tmpRoot, mdPath, sc);
 		const result = await computeCollabState(tmpRoot, mdPath);
@@ -293,7 +290,6 @@ describe("computeCollabState", () => {
 				} as Suggestion,
 			],
 			comments: [],
-			blockProvenance: {},
 		};
 		await writeSidecar(tmpRoot, mdPath, sc);
 		const result = await computeCollabState(tmpRoot, mdPath);

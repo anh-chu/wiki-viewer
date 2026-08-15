@@ -6,7 +6,7 @@ Both agent surfaces share the same disease: **scattered, fire-and-forget, one-at
 agent calls**, and the way "Comment" and "Ask agent" coexist is confusing.
 
 - **Markdown "Ask agent"** (`ask-agent-popover.tsx`): select a block, type an instruction,
-  hit Send, popover auto-closes in ~900ms. The result later materializes as a `<proof-span>`
+  hit Send, popover auto-closes in ~900ms. The result later materializes as a `activity record`
   with no visible tie back to what you asked. Only one request may be outstanding per session.
   No way to annotate several blocks and dispatch them together.
 - **Web "Tweak"** (`web-tweak-overlay.tsx`): each element tweak is its own immediate request.
@@ -56,7 +56,7 @@ Cursor's Ask-vs-Agent split).
 One rhythm on both surfaces: **pin your intent → send when ready → review as a batch.**
 
 The only thing that differs between surfaces is how a result *looks while you review it*
-(inline `<proof-span>` suggestion in Markdown vs a staged preview on the HTML page). That is
+(clean markdown suggestion in Markdown vs a staged preview on the HTML page). That is
 the medium, not the workflow.
 
 ## Scope (this change — step 1)
@@ -70,7 +70,7 @@ the medium, not the workflow.
 - **One run per send**: the batch of instructions goes as a single agent dispatch carrying
   whole-file context; returned changes correlate to that run and to each instruction.
 - **Batch review, all-or-nothing** for v1: Accept applies the whole run, Discard drops it.
-  - Markdown: changes land as `<proof-span>`s (existing tier-2 path), reviewed inline, tagged
+  - Markdown: changes land as `activity record`s (existing tier-2 path), reviewed inline, tagged
     with the run id.
   - Web: agent returns a staged preview set bound to one previewId, reviewed in the overlay.
 - **Rename the user-facing verb** from "Ask agent"/"Tweak" to Instruct / Send to agent, with
@@ -83,7 +83,7 @@ the medium, not the workflow.
 - **Per-item / partial batch accept.** v1 is all-or-nothing. Per-item accept reintroduces
   multi-file atomicity / partial-commit rollback that were deliberately deferred.
 - **Merging the two write engines.** Markdown keeps write-first-then-review (tier-2
-  proof-span); web keeps write-on-accept (tier-1 candidate patch). This change unifies the
+  activity/audit provenance); web keeps write-on-accept (tier-1 candidate patch). This change unifies the
   *surface language and workflow*, not the engines. Line reviewers must enforce that no code
   path writes disk/provenance outside the two canonical commit paths.
 - Multi-file candidate writes for web (still single-file per v1 web-tweak constraint).
@@ -100,7 +100,7 @@ the medium, not the workflow.
 - **Scope creep toward a unified Accept abstraction.** Rejected earlier. Keep two review
   mechanisms; unify only wording/affordances.
 - **Correlation UX.** Users must see which returned change answers which instruction. Needs a
-  run id threaded from send → each resulting proof-span / preview item.
+  run id threaded from send → each resulting activity/audit provenance / preview item.
 - **Outstanding-request invariant.** Today one request is outstanding per session. Collective
   send is still one dispatch, so the invariant holds; the request now carries N instruction
   items instead of one.

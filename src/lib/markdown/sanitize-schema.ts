@@ -15,12 +15,6 @@ const tableTags = ["table", "thead", "tbody", "tfoot", "tr", "th", "td", "colgro
 
 export const previewSanitizeSchema: SanitizeOptions = {
 	...defaultSchema,
-	// Do not prefix `id` with `user-content-`. Proof-span ids are agent-minted
-	// (`p####`) and are read back from the rendered DOM by the review UI
-	// (run-review-bar, proof-span-popover) to accept/revert a specific span; a
-	// clobber prefix would make view-mode ids (`user-content-p1961`) fail to match
-	// the file's span id. Content here is single-user trusted, not untrusted web
-	// input, so id clobbering is unnecessary. Keep aria clobbering.
 	clobber: ["ariaDescribedBy", "ariaLabelledBy"],
 	tagNames: Array.from(
 		new Set([
@@ -31,8 +25,6 @@ export const previewSanitizeSchema: SanitizeOptions = {
 			// Embed wrapper divs and iframes from upgradeProviderVideos.
 			"iframe",
 			"video",
-			// Inert AI provenance wrapper used by the editor review flow.
-			"proof-span",
 		]),
 	),
 	attributes: {
@@ -68,19 +60,6 @@ export const previewSanitizeSchema: SanitizeOptions = {
 			"dataAnchor",
 			["dataBroken", "true"],
 			["dataPdfLink", "true"],
-		],
-		// Proof-span metadata is inert provenance, not executable HTML.
-		// Hyphenated custom attributes stay hyphenated here: rehype-sanitize
-		// matches these raw HAST property names for custom elements.
-		"proof-span": [
-			"id",
-			"origin",
-			"basis",
-			"basis-detail",
-			"by",
-			"at",
-			"in-response-to",
-			"className",
 		],
 		// Task-list input/label.
 		input: ["type", "checked", "disabled"],

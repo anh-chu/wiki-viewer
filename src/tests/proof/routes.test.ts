@@ -103,7 +103,6 @@ before(async () => {
 		nextEventId: 2,
 		lastAck: {},
 		fingerprint: "",
-		blockProvenance: {},
 	});
 
 	const proofDir = path.join(tmpRoot, ".proof");
@@ -451,7 +450,6 @@ test("GET sidecar - text anchors re-anchor on nearby edit and go stale otherwise
 		nextEventId: 1,
 		lastAck: {},
 		fingerprint: "",
-		blockProvenance: {},
 	};
 
 	await writeFile(path.join(tmpRoot, "notes.txt"), "alpha\nbeta\ngamma\n", "utf-8");
