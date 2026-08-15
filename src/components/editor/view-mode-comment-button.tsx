@@ -7,8 +7,7 @@ interface Props {
 	/** The scrollable container that wraps the editor content. */
 	containerRef: RefObject<HTMLElement | null>;
 	onComment: () => void;
-	/** Optional: when provided, an "Instruct" action appears beside Comment. */
-	onInstruct?: () => void;
+	onLive?: () => void;
 	/**
 	 * "center": floating above the selection, centered (markdown default).
 	 * "left": pinned to the container's left edge, beside the selected line
@@ -28,7 +27,7 @@ interface Props {
 export function ViewModeCommentButton({
 	containerRef,
 	onComment,
-	onInstruct,
+	onLive,
 	align = "center",
 }: Props) {
 	const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -92,21 +91,7 @@ export function ViewModeCommentButton({
 				<MessageCircle className="w-3.5 h-3.5" />
 				<span>Comment</span>
 			</button>
-			{onInstruct && (
-				<button
-					type="button"
-					className="flex items-center gap-1 px-2 py-1 text-[12px] text-foreground/80 hover:text-foreground hover:bg-accent rounded-sm border-l border-border transition-colors"
-					onClick={() => {
-						onInstruct();
-						setPos(null);
-					}}
-					aria-label="Instruct"
-					title="Instruct"
-				>
-					<ListChecks className="w-3.5 h-3.5 text-amber-600" />
-					<span>Instruct</span>
-				</button>
-			)}
+			{onLive && <button type="button" className="flex items-center gap-1 border-l border-border px-2 py-1 text-[12px] text-foreground/80 hover:bg-accent" onClick={() => { onLive(); setPos(null); }} aria-label="Go"><ListChecks className="h-3.5 w-3.5 text-amber-600" />Go</button>}
 		</div>
 	);
 }

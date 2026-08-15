@@ -4,21 +4,11 @@
 
 import { parseArgs } from "node:util";
 import { createRequire } from "node:module";
-import { spawn } from "node:child_process";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
 import { WikiViewerClient } from "./http-client.js";
 import { createServer } from "./server.js";
-import {
-  LiveClient,
-  runLiveLoop,
-  type LiveHandler,
-  type BlockOp,
-  type WebTweakHandler,
-  type WebVariantsHandler,
-  type WebVariant,
-  type DomOp,
-} from "./live-client.js";
+import { LiveClient } from "./live-client.js";
 import {
   register,
   type RegisterScope,
@@ -90,7 +80,7 @@ function readPackageVersion(): string {
 export async function main(): Promise<void> {
   await enableKeepAlive();
   const client = createClient();
-  const server = createServer(client, { version: readPackageVersion() });
+  const server = createServer(client, { version: readPackageVersion(), liveClient: createLiveClient() });
   const transport = new StdioServerTransport();
   await server.connect(transport);
   // Server runs until stdin closes
@@ -106,8 +96,6 @@ export async function runCli(): Promise<void> {
 
   if (subcommand === "register") {
     await runRegister();
-  } else if (subcommand === "live") {
-    await runLive();
   } else {
     await main();
   }
@@ -130,256 +118,6 @@ export function createLiveClient(overrides?: {
     workspace: overrides?.workspace ?? process.env.WIKI_VIEWER_WORKSPACE,
     fetch: overrides?.fetch,
   });
-}
-
-/**
- * Built-in passthrough handler: treats the human's instruction as the literal
- * new markdown for the selected block. This is a functional reference agent
- * (useful for smoke tests and scripting); real LLM agents should import
- * runLiveLoop and supply their own handler.
- */
-export const passthroughHandler: LiveHandler = async (req) => {
-  const instruction = (req.instruction ?? "").trim();
-  if (!instruction) return null;
-  if (!req.blockRef) {
-    // No target block — append as a new block at the end.
-    const op: BlockOp = {
-      type: "block.append",
-      markdown: instruction,
-      basis: "described",
-      basisDetail: "live instruction (passthrough)",
-    };
-    return [op];
-  }
-  const op: BlockOp = {
-    type: "block.replace",
-    ref: req.blockRef,
-    markdown: instruction,
-    basis: "described",
-    basisDetail: "live instruction (passthrough)",
-  };
-  return [op];
-};
-
-/**
- * Run a prompt through the local `claude -p` CLI (uses the host's existing
- * Claude auth; no API key needed). Returns stdout trimmed. Rejects on non-zero
- * exit. Kept dependency-free so the published package stays SDK-light.
- */
-function claudePrompt(prompt: string, signal?: AbortSignal): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const bin = process.env.WIKI_VIEWER_LLM_BIN ?? "claude";
-    const child = spawn(bin, ["-p"], { stdio: ["pipe", "pipe", "pipe"], signal });
-    let out = "";
-    let err = "";
-    child.stdout.on("data", (d) => (out += d));
-    child.stderr.on("data", (d) => (err += d));
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code === 0) resolve(out.trim());
-      else reject(new Error(`claude exited ${code}: ${err.slice(0, 500)}`));
-    });
-    child.stdin.write(prompt);
-    child.stdin.end();
-  });
-}
-
-/**
- * Real LLM live handler: transforms the selected block's current markdown per
- * the human's instruction using the local `claude -p` CLI. Unlike passthrough
- * (which pastes the instruction verbatim), this actually applies the edit --
- * "remove em-dashes" removes them instead of replacing the block with that text.
- *
- * Edits exactly one block (req.blockRef) and returns block.replace with the
- * transformed markdown. Block content comes from the pre-fetched snapshot; if
- * the block is gone it returns null (loop replies done with no change, and the
- * server's ref check fails closed anyway).
- */
-export const llmHandler: LiveHandler = async (req, { snapshot }) => {
-  const instruction = (req.instruction ?? "").trim();
-  if (!instruction || !req.blockRef) return null;
-  const block = snapshot?.blocks.find((b) => b.ref === req.blockRef);
-  if (!block) return null;
-
-  const selection = req.selectionText?.trim();
-  const prompt = [
-    "You are editing one block of a Markdown document. Apply the instruction to",
-    "the block below and return ONLY the rewritten Markdown for that block.",
-    "Rules: return raw Markdown, no code fence, no commentary, no preamble.",
-    "Preserve meaning and formatting except where the instruction changes it.",
-    "Do not add or remove blocks; return a single block's Markdown.",
-    "",
-    `Instruction: ${instruction}`,
-    selection ? `\nThe human highlighted this text within the block: ${selection}` : "",
-    "",
-    "Current block Markdown:",
-    "---",
-    block.markdown,
-    "---",
-  ].join("\n");
-
-  let rewritten = "";
-  try {
-    rewritten = await claudePrompt(prompt);
-  } catch (e) {
-    console.error(`[live] llm error: ${(e as Error).message}`);
-    throw e; // surface as reply status error, not a silent no-op
-  }
-  if (!rewritten) {
-    console.error("[live] llm returned empty output; skipping edit");
-    return null;
-  }
-  console.error(`[live] llm rewrote block ${req.blockRef} (${rewritten.length} chars)`);
-
-  return [
-    {
-      type: "block.replace",
-      ref: req.blockRef,
-      markdown: rewritten,
-      basis: "described",
-      basisDetail: "live instruction (claude)",
-    },
-  ];
-};
-
-/**
- * Built-in passthrough web-tweak handler: a functional reference agent for smoke
- * tests. It turns the human note into a trivial data-only DOM preview op (a color
- * mention becomes a setStyle color; otherwise the note becomes setText). By
- * default it produces a visual-only preview (null candidate). If the note starts
- * with "commit:" it also emits a real whole-file replacement candidate, pinning
- * baseFiles via client.fetchFileForHash so accept can re-check the hash.
- *
- * Never writes source directly: it only returns the candidate + base hashes; the
- * server commits verbatim on human accept.
- */
-/** Map one note to a data-only DOM preview op (color -> setStyle, else setText). */
-function noteToDomOp(note: string): DomOp {
-  const colorMatch = note.match(
-    /\b(red|green|blue|black|white|orange|purple|yellow|pink|gray|grey|#[0-9a-fA-F]{3,8})\b/,
-  );
-  return colorMatch
-    ? { type: "setStyle", prop: "color", value: colorMatch[1] }
-    : { type: "setText", value: note };
-}
-
-export const passthroughWebHandler: WebTweakHandler = async (ctx, { client }) => {
-  const note = (ctx.note ?? "").trim();
-
-  // Batch run: one preview per pinned instruction, correlated by instructionId.
-  // Visual-only (no source candidate) — the passthrough agent is a smoke test.
-  if (ctx.items && ctx.items.length > 0) {
-    return {
-      domPreviewOps: null,
-      candidateSourcePatch: null,
-      baseFiles: [],
-      itemPreviews: ctx.items.map((it) => ({
-        instructionId: it.instructionId,
-        ops: [noteToDomOp((it.note ?? "").trim())],
-      })),
-    };
-  }
-
-  const domPreviewOps: DomOp[] = [noteToDomOp(note)];
-
-  const commit = note.toLowerCase().startsWith("commit:");
-  if (!commit) {
-    // Visual-only preview: not acceptable as a source change.
-    return { domPreviewOps, candidateSourcePatch: null, baseFiles: [] };
-  }
-
-  // Real candidate: derive a whole-file replacement against the current file.
-  const { content, sha256 } = await client.fetchFileForHash(ctx.path);
-  const newContent = `${content}\n<!-- ${note} -->\n`;
-  return {
-    domPreviewOps,
-    candidateSourcePatch: {
-      files: [{ path: ctx.path, content: newContent }],
-      summary: note,
-    },
-    baseFiles: [{ path: ctx.path, sha256 }],
-  };
-};
-
-/**
- * Built-in passthrough variants handler: a functional reference agent for smoke
- * tests. It derives 2-3 visual-only candidate options from the human note by
- * reusing noteToDomOp for a couple of color/text variations. Each variant is
- * visual-only (null candidateSourcePatch) unless the note starts with "commit:",
- * in which case the first variant carries a real whole-file replacement candidate
- * pinned via client.fetchFileForHash so accept can re-check the hash.
- */
-export const passthroughVariantsHandler: WebVariantsHandler = async (ctx, { client }) => {
-  const note = (ctx.note ?? "").trim();
-
-  // A small spread of visual-only options derived from the note.
-  const variants: WebVariant[] = [
-    {
-      variantId: "v1",
-      label: note || "option 1",
-      domPreviewOps: [noteToDomOp(note)],
-      candidateSourcePatch: null,
-      baseFiles: [],
-    },
-    {
-      variantId: "v2",
-      label: `${note || "option"} (bold)`,
-      domPreviewOps: [{ type: "setStyle", prop: "font-weight", value: "bold" }],
-      candidateSourcePatch: null,
-      baseFiles: [],
-    },
-    {
-      variantId: "v3",
-      label: `${note || "option"} (emphasis)`,
-      domPreviewOps: [{ type: "setStyle", prop: "text-decoration", value: "underline" }],
-      candidateSourcePatch: null,
-      baseFiles: [],
-    },
-  ];
-
-  const commit = note.toLowerCase().startsWith("commit:");
-  if (commit) {
-    // Make the first variant committable: a whole-file replacement candidate.
-    const { content, sha256 } = await client.fetchFileForHash(ctx.path);
-    const newContent = `${content}\n<!-- ${note} -->\n`;
-    variants[0] = {
-      ...variants[0],
-      candidateSourcePatch: {
-        files: [{ path: ctx.path, content: newContent }],
-        summary: note,
-      },
-      baseFiles: [{ path: ctx.path, sha256 }],
-    };
-  }
-
-  return { variants };
-};
-
-async function runLive(): Promise<void> {
-  await enableKeepAlive();
-  const client = createLiveClient();
-  const controller = new AbortController();
-  const stop = () => controller.abort();
-  process.on("SIGINT", stop);
-  process.on("SIGTERM", stop);
-
-  // Default to the real LLM handler (claude -p) so instructions are actually
-  // applied; set WIKI_VIEWER_LLM=passthrough for the deterministic smoke agent.
-  const mode = process.env.WIKI_VIEWER_LLM ?? "claude";
-  const handler = mode === "passthrough" ? passthroughHandler : llmHandler;
-  console.error(
-    `[live] attaching (${mode} handler) — waiting for block-scoped requests. Ctrl-C to stop.`,
-  );
-  await runLiveLoop(client, handler, {
-    signal: controller.signal,
-    webHandler: passthroughWebHandler,
-    webVariantsHandler: passthroughVariantsHandler,
-    onEvent: (event, detail) => {
-      const suffix = detail ? ` ${JSON.stringify(detail)}` : "";
-      console.error(`[live] ${event}${suffix}`);
-    },
-  });
-  console.error("[live] stopped.");
 }
 
 async function runRegister(): Promise<void> {

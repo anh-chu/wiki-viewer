@@ -52,6 +52,29 @@ export const DeleteFileInput = z.object({
   force: z.boolean().optional().describe("Skip If-Match guard (audited)"),
 });
 
+export const LiveAttachInput = z.object({});
+export const LivePollInput = z.object({ sessionId: z.string(), afterSeq: z.number() });
+export const LiveSnapshotInput = z.object({ path: z.string() });
+export const LiveReplyInput = z.object({
+  requestId: z.string(),
+  status: z.enum(["working", "done", "error"]),
+});
+export const LiveSubmitMarkdownInput = z.object({
+  previewId: z.string(),
+  requestId: z.string(),
+  variants: z.array(z.object({
+    variantId: z.string().optional(), label: z.string(), markdown: z.string(),
+  })).min(2).max(5),
+});
+export const LiveSubmitWebInput = z.object({
+  previewId: z.string(),
+  requestId: z.string(),
+  variants: z.array(z.unknown()).optional(),
+  domPreviewOps: z.array(z.unknown()).nullable().optional(),
+  candidateSourcePatch: z.unknown().nullable().optional(),
+  baseFiles: z.array(z.unknown()).optional(),
+}).refine((v) => v.variants !== undefined || v.domPreviewOps !== undefined || v.candidateSourcePatch !== undefined || v.baseFiles !== undefined);
+
 export interface ToolDefinition {
   name: string;
   description: string;
@@ -110,9 +133,13 @@ export const TOOLS = [
   },
   {
     name: "delete_file",
-    description:
-      "Delete a file. Requires 'delete' scope. You must have read the file first " +
-      "(its sha is sent as If-Match). .md sidecars are removed automatically.",
+    description: "Delete a file.",
     inputSchema: toInputSchema(DeleteFileInput),
   },
+  { name: "live_attach", description: "Attach to live session.", inputSchema: toInputSchema(LiveAttachInput) },
+  { name: "live_poll", description: "Long-poll for next live request.", inputSchema: toInputSchema(LivePollInput) },
+  { name: "live_snapshot", description: "Read markdown tier-2 snapshot.", inputSchema: toInputSchema(LiveSnapshotInput) },
+  { name: "live_reply", description: "Report live request status.", inputSchema: toInputSchema(LiveReplyInput) },
+  { name: "live_submit_markdown", description: "Submit markdown variants for human preview.", inputSchema: toInputSchema(LiveSubmitMarkdownInput) },
+  { name: "live_submit_web", description: "Submit web preview or variants for human preview.", inputSchema: toInputSchema(LiveSubmitWebInput) },
 ] as const satisfies ToolDefinition[];

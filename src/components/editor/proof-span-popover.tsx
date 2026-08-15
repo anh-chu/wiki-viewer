@@ -1,10 +1,7 @@
 "use client";
 
-import { clientId } from "@/lib/client-id";
 import * as Popover from "@radix-ui/react-popover";
 import { useEffect, useState } from "react";
-import { authHeaders } from "@/lib/proof/client-auth";
-import { wsFetch } from "@/lib/workspace-client";
 
 interface SpanMeta {
 	spanId: string;
@@ -40,15 +37,13 @@ function timeAgo(iso: string | null): string {
 
 interface Props {
 	targetEl: HTMLElement | null;
-	path: string;
 	onClose: () => void;
 	onComment?: () => void;
 }
 
-export function ProofSpanPopover({ targetEl, path, onClose, onComment }: Props) {
+export function ProofSpanPopover({ targetEl, onClose, onComment }: Props) {
 	const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
 	const [meta, setMeta] = useState<SpanMeta | null>(null);
-	const [busy, setBusy] = useState(false);
 
 	useEffect(() => {
 		if (!targetEl) {
@@ -71,26 +66,6 @@ export function ProofSpanPopover({ targetEl, path, onClose, onComment }: Props) 
 	}, [targetEl, onClose]);
 
 	if (!targetEl || !anchor || !meta) return null;
-
-	async function sendAction(action: "accept" | "revert") {
-		if (busy || !meta) return;
-		setBusy(true);
-		try {
-			await wsFetch("/api/agent/internal/span", {
-				method: "POST",
-				headers: { "Content-Type": "application/json", ...authHeaders() },
-				body: JSON.stringify({
-					path,
-					spanId: meta.spanId,
-					action,
-					idempotencyKey: clientId(),
-				}),
-			});
-		} finally {
-			setBusy(false);
-			onClose();
-		}
-	}
 
 	return (
 		<Popover.Root open>
@@ -129,32 +104,7 @@ export function ProofSpanPopover({ targetEl, path, onClose, onComment }: Props) 
 							<p className="text-muted-foreground/60">origin: {meta.origin}</p>
 						)}
 					</div>
-					<div className="flex items-center gap-1.5 pt-1">
-						<button
-							type="button"
-							disabled={busy}
-							onClick={() => void sendAction("accept")}
-							className="flex-1 py-1 rounded-md bg-primary text-primary-foreground text-[11px] font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
-						>
-							Accept
-						</button>
-						<button
-							type="button"
-							disabled={busy}
-							onClick={() => void sendAction("revert")}
-							className="flex-1 py-1 rounded-md border border-border text-[11px] font-medium hover:bg-accent disabled:opacity-50 transition-colors"
-						>
-							Revert
-						</button>
-						<button
-							type="button"
-							disabled={busy}
-							onClick={() => { onComment?.(); onClose(); }}
-							className="flex-1 py-1 rounded-md border border-border text-[11px] font-medium hover:bg-accent disabled:opacity-50 transition-colors"
-						>
-							Comment
-						</button>
-					</div>
+					{onComment && <button type="button" onClick={() => { onComment(); onClose(); }} className="mt-1 w-full rounded-md border border-border py-1 text-[11px] font-medium hover:bg-accent">Comment</button>}
 					<Popover.Arrow className="fill-border" />
 				</Popover.Content>
 			</Popover.Portal>

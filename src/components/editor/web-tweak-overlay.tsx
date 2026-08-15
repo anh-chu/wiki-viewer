@@ -3,6 +3,7 @@
 import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
 import { wsFetch } from "@/lib/workspace-client";
 import { useAIPanelStore } from "@/stores/ai-panel-store";
+import { LivePresence } from "./live-presence";
 import {
 	type DomOp,
 	type PickerRect,
@@ -44,7 +45,7 @@ type Phase =
 	| { kind: "waiting" }
 	| { kind: "ready" }
 	| { kind: "resolving" }
-	| { kind: "variantsWaiting" } // single-element variants dispatched, awaiting options
+	| { kind: "variantsWaiting" } // single-element variants dispatched, awaiting Variants
 	| { kind: "variants"; items: VariantView[]; selected: string }
 	| { kind: "message"; text: string; visualOnly?: boolean };
 
@@ -87,8 +88,8 @@ interface StatusResponse {
  * Trusted parent-side overlay driving the web-tweak flow over a rendered iframe.
  *
  * Rhythm: pin instructions to N elements (no dispatch) -> one file-level
- * "Send N to agent" as a single run -> review the whole run (Accept run /
- * Discard run). Write-on-accept engine is unchanged: source stays clean until
+ * "Send N to agent" as a single run -> review the whole run (Accept /
+ * Discard). Write-on-accept engine is unchanged: source stays clean until
  * accept commits the candidate patch through commitCandidate.
  *
  * Every iframe->parent message passes through readPickerMessage (identity +
@@ -435,7 +436,7 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 			if (res.status === 409) {
 				setPhase({
 					kind: "message",
-					text: "A run is already outstanding. Resolve it first.",
+					text: "A Proposal is already outstanding. Resolve it first.",
 				});
 				return;
 			}
@@ -453,7 +454,7 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 		}
 	}
 
-	/** Dispatch the current single element for N variant options. */
+	/** Dispatch the current single element for N variant Variants. */
 	async function handleGetOptions() {
 		if (!pick || note.trim().length === 0) return;
 		// The picker always assigns a non-empty id to a selected element, and the
@@ -478,7 +479,7 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 			if (res.status === 409) {
 				setPhase({
 					kind: "message",
-					text: "A run is already outstanding. Resolve it first.",
+					text: "A Proposal is already outstanding. Resolve it first.",
 				});
 				return;
 			}
@@ -613,10 +614,11 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 
 	return (
 		<>
+			<div className="fixed right-4 top-3 z-50"><LivePresence enabled={enabled} /></div>
 			{/* Toolbar hint while picking, no active pick and no run in flight. */}
 			{!pick && phase.kind !== "confirm" && !runInFlight && (
 				<div className="absolute left-1/2 top-2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-full bg-foreground/85 px-3 py-1 text-[11px] font-medium text-background shadow">
-					<span>Instruct mode — click an element to add a change</span>
+					<span>Target mode — click an element to add a proposal</span>
 					<button
 						type="button"
 						onClick={onClose}
@@ -628,7 +630,7 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 				</div>
 			)}
 
-			{/* File-level queue bar: N instructions ready · Send to agent. */}
+			{/* File-level queue bar: N instructions ready · Go. */}
 			{queue.length > 0 && !runInFlight && phase.kind !== "confirm" && (
 				<div className="fixed bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-border bg-popover px-3 py-2 text-[12px] shadow-xl">
 					<span className="font-medium text-foreground">
@@ -657,7 +659,7 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 							onClick={() => setPhase({ kind: "confirm" })}
 							className="rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
 						>
-							Send {queue.length} to agent
+							Go
 						</button>
 					) : (
 						<button
@@ -707,7 +709,7 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
 					<div className="w-[min(30rem,calc(100vw-2rem))] space-y-3 rounded-lg border border-border bg-popover p-4 text-[12px] shadow-xl">
 						<div className="font-medium text-foreground">
-							Send {queue.length} instruction{queue.length === 1 ? "" : "s"} to{" "}
+							Go with {queue.length} proposal{queue.length === 1 ? "" : "s"} to{" "}
 							{agent.name ?? "the agent"}?
 						</div>
 						<ol className="max-h-64 space-y-1.5 overflow-y-auto">
@@ -736,7 +738,7 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 								onClick={() => void handleSend()}
 								className="rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
 							>
-								Send to agent
+								Go
 							</button>
 						</div>
 					</div>
@@ -750,7 +752,7 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 					style={{ top: anchorTop + 6, left: anchorLeft }}
 				>
 					<div className="flex items-center justify-between">
-						<span className="font-medium text-foreground">Instruct element</span>
+						<span className="font-medium text-foreground">Target</span>
 						<code className="rounded bg-muted px-1 py-0.5 font-mono text-[10px] text-muted-foreground">
 							{pick.tag}
 						</code>
@@ -787,13 +789,13 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 								disabled={note.trim().length === 0 || !agent.attached}
 								title={
 									agent.attached
-										? "Ask the agent for several options"
+										? "Ask the agent for several Variants"
 										: "No agent is on the line yet"
 								}
 								onClick={() => void handleGetOptions()}
 								className="rounded-md border border-border px-2.5 py-1 text-[11px] font-medium transition-colors hover:bg-accent disabled:opacity-50"
 							>
-								Get options
+								Go
 							</button>
 							<button
 								type="button"
@@ -801,7 +803,7 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 								onClick={handleAddInstruction}
 								className="rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
 							>
-								Add instruction
+								Add proposal
 							</button>
 						</div>
 					</div>
@@ -847,7 +849,7 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 								<span className="font-medium text-foreground">
 									{agent.name ?? "the agent"}
 								</span>
-								. Waiting for it to produce a preview run…
+								. Waiting for a Proposal…
 							</p>
 							<div className="flex items-center justify-end gap-2">
 								<button
@@ -889,7 +891,7 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 									onClick={() => void handleDiscardRun()}
 									className="rounded-md border border-border px-2.5 py-1 text-[11px] font-medium transition-colors hover:bg-accent"
 								>
-									Discard run
+									Discard
 								</button>
 								{acceptable && (
 									<button
@@ -897,7 +899,7 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 										onClick={() => void handleAcceptRun()}
 										className="rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
 									>
-										Accept run
+										Accept
 									</button>
 								)}
 							</div>
@@ -912,7 +914,7 @@ export function WebTweakOverlay({ frameRef, path, enabled, onClose }: Props) {
 							return (
 								<>
 									<p className="text-[11px] font-medium text-foreground">
-										{phase.items.length} option
+										{phase.items.length} Variant
 										{phase.items.length === 1 ? "" : "s"}
 									</p>
 									<div className="flex flex-wrap gap-1.5">

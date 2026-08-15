@@ -241,176 +241,94 @@ Acks are advisory; events are never deleted.
 
 ## Live collaboration (human-in-the-loop, attended)
 
-Live mode is the attended counterpart to the pull-based flow above. Instead of you
-deciding when to edit, a human selects a block in the editor and pushes a request to
-you while you wait on a held-open poll. You respond in seconds; they steer or accept.
+Live responder is the user's current chat agent session, calling MCP tools. The human
+selects a markdown block (optionally pointing at text) and sends a request while the
+agent waits on a held poll. Live is speculative until human Accepts: agent never
+accepts or discards, and never writes the live markdown file directly.
 
-The live channel is a **control plane only**. It carries the human's intent to you; the
-actual edit still goes through the ordinary Tier-2 `POST /api/agent/files/<path>.md`.
-There is no separate live write path.
+### MCP tool loop
 
-### Loop
-
-```
-1. POST /api/agent/live/attach            -> { sessionId }
-2. GET  /api/agent/live/poll?sessionId=<id>&afterSeq=<seq>   (long-poll, hold ~25s)
-     -> { type: "timeout" }                      re-poll
-     -> { type: "generate"|"steer", request }    handle it (below)
-3. handle a generate/steer request:
-     a. POST /api/agent/live/reply { requestId, status: "working" }   (optional)
-     b. POST /api/agent/files/<request.path>          (the real edit)
-            Idempotency-Key: <request.idempotencyKey>   // "live:<requestId>"
-            body.baseRevision = request.baseRevision     // use the REQUEST's revision
-            op.inResponseTo   = request.inResponseTo     // "live:<requestId>"
-            op.ref            = request.blockRef
-     c. POST /api/agent/live/reply { requestId, status: "done" }
-4. re-poll with afterSeq = request.seq
-```
-
-### Rules
-
-- **Use `request.baseRevision`, never a fresh read.** If the human edited the block
-  meanwhile, the Tier-2 POST returns `409 STALE_REVISION`. Do **not** re-read and
-  re-interpret against the new revision. Reply `{ status: "stale" }` and stop; the human
-  re-selects. Silent re-interpretation of stale intent is a bug.
-- **Reuse `request.idempotencyKey` on retry.** If you crash after the edit committed but
-  before replying, reconnect and re-POST the identical body with the same
-  `live:<requestId>` key: the cached result returns, no duplicate edit.
-- **One outstanding request per session.** Finish (`done`/`error`/`stale`) before the
-  human can send another `generate`.
-- The held poll IS your presence signal. Re-poll promptly; if you stop, the editor shows
-  "no agent" after ~45s.
-- Accept/revert happen in the human's editor UI; you don't apply them. The proof-span you
-  wrote (correlated via `inResponseTo`) is what they act on.
-- **Precise-pointing context (optional).** A generate/steer request may carry
-  `selectionText`, `selectionStart`, and `selectionEnd`. `selectionText` is the exact
-  substring the human highlighted inside the block; `selectionStart`/`selectionEnd` are
-  best-effort character offsets within the block markdown (end exclusive). All three are
-  nullable and may be absent, and the offsets may be null even when `selectionText` is
-  present because editor offsets are approximate. They tell you *what the human pointed at*
-  for context only. The committed edit is still block-level (`block.replace` on
-  `request.blockRef`); do not treat the offsets as an authoritative sub-block range.
-
-Requires `mutate` scope. Live requests are workspace-scoped: a poll only returns requests
-for the workspace you attached in (`X-Workspace` / `?ws=`).
-
-### Ready-made runtime (`wiki-viewer-mcp`)
-
-The `wiki-viewer-mcp` package ships the client + loop so you don't hand-roll the poll cycle:
+Call these tools exactly as follows:
 
 ```
-WIKI_VIEWER_URL=... WIKI_VIEWER_TOKEN=... WIKI_VIEWER_AGENT_ID=ai:me \
-  npx wiki-viewer-mcp live
+1. live_attach {}
+   -> { sessionId, workspaceId }
+2. live_poll { sessionId, afterSeq }       // held long-poll, about 25s
+   -> { type: "timeout" }                  // re-poll
+   -> a live request, including requestId, kind, surface, path, blockRef,
+      baseRevision, instruction, and optional previewId/selection fields
+3. On a markdown generate request:
+   a. live_snapshot { path }                // read current blocks + revision
+   b. produce 2–5 candidate rewrites for request.blockRef
+   c. live_submit_markdown {
+        previewId, requestId,
+        variants: [{ variantId?, label, markdown }, ...]
+      }
+   d. live_reply { requestId, status: "done" }
+4. Re-poll with afterSeq from the returned request.
 ```
 
-The bundled `live` subcommand runs a passthrough agent (the human's instruction becomes the
-new markdown of the selected block) — handy for smoke tests. For a real agent, import the
-loop and supply your own handler:
+`live_reply` status accepts only `working`, `done`, or `error` (use these exact enum
+values). `live_submit_markdown` requires **2–5** variants; a single-candidate reply
+is rejected. `variantId` is optional; `label` and `markdown` are strings. The server
+may derive an omitted id. These are data-only candidates.
 
-```ts
-import { createLiveClient, runLiveLoop } from "wiki-viewer-mcp";
+Markdown is **write-on-accept**. `live_submit_markdown` posts candidates to
+`/api/agent/live/md-preview`; it does not touch the file. The human cycles variants
+in the UI, then Accept commits the selected markdown verbatim through Tier-2
+`block.replace`, gated by the base block hash and revision. Discard leaves the file
+byte-identical. The agent must not use Tier-2 `/api/agent/files` for live edits, and
+must never accept or discard. This is the same speculative-until-accept model as
+web-tweak.
 
-const client = createLiveClient();
-await runLiveLoop(client, async (req, { snapshot }) => {
-  // req: { path, blockRef, baseRevision, instruction, selectionText, selectionStart, selectionEnd, idempotencyKey, inResponseTo, ... }
-  // snapshot: the file's blocks at req.baseRevision (prefetched)
-  const newText = await yourModel(req.instruction, snapshot);
-  return [{ type: "block.replace", ref: req.blockRef!, markdown: newText,
-            basis: "described", basisDetail: req.instruction ?? undefined }];
-});
-```
+The optional `selectionText`, `selectionStart`, and `selectionEnd` fields are
+precise-pointing context only. They identify what the human pointed at; the commit
+is still a whole-block replacement at `blockRef`, not an authoritative sub-block
+range.
 
-The loop attaches, holds the poll, calls your handler on each generate/steer, applies the
-returned block-ops through the canonical Tier-2 path (with the request's own `baseRevision`,
-`Idempotency-Key`, and `inResponseTo`), and reports `working`/`done`/`stale`/`error`. A
-`STALE_REVISION` from the edit surfaces as `StaleRequestError` and is reported `stale` — it
-never silently re-interprets against changed content. Return `null` to skip the edit.
+The held `live_poll` is the presence signal. Keep polling promptly; if polling
+stops, the editor shows **no agent** within about 8 seconds.
+
+Requires `mutate` scope. Requests and polling are workspace-scoped to the workspace
+used by the attached session.
 
 ### Web tweak (live collaboration on rendered web pages)
 
-When the human is looking at a **rendered web surface** (a local `.html` preview or a
-running node-app), they can point at a DOM element and describe a change. You receive a
-`web.tweak` request and produce a **preview transaction**, not a direct edit. This is
-deliberately different from markdown, which writes first and reviews after. Web tweaks are
-**write-on-accept**: the source stays untouched until the human accepts a previewed variant.
+For a rendered web surface, the agent handles a `surface: "web"` request and submits
+an MCP preview transaction with `live_submit_web`, not a direct source edit. Its
+input is:
 
-A `web.tweak` request carries the human note as `instruction` and, in `selectionText`, a
-JSON string `{ previewId, selector, tag, snippet }` identifying the element they clicked.
-Your reply (POST `/api/agent/live/web-preview`) must contain **both**:
-
-- `domPreviewOps`: data-only DOM operations applied *inside the iframe* so the human sees
-  the change live. Allowed ops: `setText`, `setStyle {prop,value}`, `setAttr {name,value}`,
-  `removeAttr {name}`, `addClass {value}`, `removeClass {value}`. No HTML/script injection.
-- `candidateSourcePatch`: the **immutable** source edit that Accept will commit, as
-  `{ summary, files: [{ path, content }] }` (whole-file replacements). Plus `baseFiles:
-  [{ path, sha256 }]` — the SHA-256 of each file's content **as you read it**.
-
-Accept commits `candidateSourcePatch` **verbatim, iff every `baseFiles` hash still matches
-disk**. If a human/watcher/other agent changed those files since your reply, Accept fails
-closed (`BASE_DRIFT`) and the human re-tweaks. You are **not** asked to re-synthesize on
-accept — the candidate you returned is the exact thing that lands. Produce the DOM preview
-and the source candidate from the *same* analysis so what the human sees is what gets
-written.
-
-If you can render a visual preview but cannot confidently map it to a source edit, return
-`candidateSourcePatch: null` (with `baseFiles: []`). The UI shows it as **visual only** and
-offers no Accept. Never fake a candidate.
-
-Hard rules:
-
-- Web tweaks **never write source directly**. You only submit the candidate + base hashes;
-  the server writes on human accept. (Markdown `generate`/`steer` still write via Tier-2 —
-  do not confuse the two.)
-- `domPreviewOps` must be data-only; the picker rejects HTML/script and dangerous attributes.
-- `baseFiles` hashes must be sha256 hex of the exact content the candidate was derived from,
-  or drift detection cannot protect the human.
-
-The `wiki-viewer-mcp` `live` subcommand handles `web.tweak` too, via a passthrough web
-handler (reference/demo). Real agents supply a `webHandler` to `runLiveLoop`:
-
-```ts
-import { createLiveClient, runLiveLoop, passthroughWebHandler } from "wiki-viewer-mcp";
-await runLiveLoop(client, markdownHandler, {
-  webHandler: async (ctx, { client }) => {
-    // ctx: { previewId, selector, tag, snippet, note, path }
-    const { content, sha256 } = await client.fetchFileForHash(ctx.path);
-    const next = yourEdit(content, ctx);           // produce new file content
-    return {
-      domPreviewOps: [{ type: "setStyle", prop: "color", value: "red" }],
-      candidateSourcePatch: { summary: ctx.note, files: [{ path: ctx.path, content: next }] },
-      baseFiles: [{ path: ctx.path, sha256 }],
-    };
-  },
-});
+```
+{
+  previewId, requestId,
+  variants?,
+  domPreviewOps?, candidateSourcePatch?, baseFiles?
+}
 ```
 
-**Variants (`web.tweak.variants`).** The human can ask for *options* on one element. This
-kind carries the same `selectionText` (`{ previewId, selector, tag, snippet }`) and `note`,
-but you return **N candidates in one reply** (max 5). Each candidate is self-contained and
-follows the same rules as a single tweak (data-only DOM ops, single-file candidate, every
-file hashed in `baseFiles`, paths in scope). The human switches between them in-frame and
-Accepts exactly one; that one commits verbatim iff its `baseFiles` still match. Supply a
-`webVariantsHandler` to `runLiveLoop`:
+For one web tweak, submit `domPreviewOps`, `candidateSourcePatch`, and `baseFiles`.
+For web variants, submit `variants` (up to 5 candidates). Each candidate is
+self-contained. All candidates derive from the same source base and carry SHA-256
+`baseFiles` hashes. The MCP tool requires at least one of `variants`,
+`domPreviewOps`, `candidateSourcePatch`, or `baseFiles`.
 
-```ts
-await runLiveLoop(client, markdownHandler, {
-  webVariantsHandler: async (ctx, { client }) => {
-    const { content, sha256 } = await client.fetchFileForHash(ctx.path);
-    return {
-      variants: [
-        { variantId: "red",  label: "Red",  domPreviewOps: [{ type: "setStyle", prop: "color", value: "red" }],
-          candidateSourcePatch: { summary: "red",  files: [{ path: ctx.path, content: red(content) }] },  baseFiles: [{ path: ctx.path, sha256 }] },
-        { variantId: "blue", label: "Blue", domPreviewOps: [{ type: "setStyle", prop: "color", value: "blue" }],
-          candidateSourcePatch: { summary: "blue", files: [{ path: ctx.path, content: blue(content) }] }, baseFiles: [{ path: ctx.path, sha256 }] },
-      ],
-    };
-  },
-});
-```
+`domPreviewOps` are data-only operations applied inside the iframe. Allowed ops:
+`setText`, `setStyle {prop,value}`, `setAttr {name,value}`, `removeAttr {name}`,
+`addClass {value}`, and `removeClass {value}`. No HTML or script injection.
+`candidateSourcePatch` is the immutable source candidate (`{summary, files:[{path,
+content}]}`). `baseFiles` is `{path, sha256}` for every source file read.
 
-Each `variantId` must be unique and non-empty. A `null` candidate makes that option
-visual-only (no Accept). Derive every variant against the *same* base content so all their
-`baseFiles` hashes agree.
+Web source is also **write-on-accept**: UI Accept commits the chosen candidate
+verbatim only when every `baseFiles` hash still matches. Drift fails closed;
+Discard writes nothing. A visual-only candidate may use
+`candidateSourcePatch: null` and `baseFiles: []`, and cannot be accepted. Do not
+write web source directly. Keep DOM operations, candidate source, and hashes from
+the same analysis.
+
+The live web flow is the same MCP loop: `live_poll`, generate candidate(s),
+`live_submit_web`, then `live_reply { requestId, status: "done" }`. Accept and
+Discard remain human/UI-only. Preserve the shared variant limit (maximum 5),
+data-only DOM rules, and `baseFiles` hashing.
 
 ## Error codes
 

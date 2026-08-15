@@ -29,8 +29,8 @@ interface Props {
 	onSuggestEdit?: () => void;
 	/** Open a comment thread on the current selection's block. */
 	onComment?: () => void;
-	/** Create a draft instruction (agent work order) on the current selection's block. */
-	onInstruct?: () => void;
+	/** Open Live proposal for current selection's block. */
+	onLive?: () => void;
 	/** Hide all formatting controls; show only comment button. */
 	readOnly?: boolean;
 }
@@ -45,7 +45,7 @@ type OpenPopover =
 			anchor: { top: number; left: number };
 	  };
 
-export function EditorBubbleMenu({ editor, onSuggestEdit, onComment, onInstruct, readOnly }: Props) {
+export function EditorBubbleMenu({ editor, onSuggestEdit, onComment, onLive, readOnly }: Props) {
 	const [popover, setPopover] = useState<OpenPopover>(null);
 
 	useEffect(() => {
@@ -218,20 +218,20 @@ export function EditorBubbleMenu({ editor, onSuggestEdit, onComment, onInstruct,
 				>
 					<LinkIcon className="w-3.5 h-3.5" />
 				</button>
-				{(onSuggestEdit || onComment || onInstruct) && (
+				{(onSuggestEdit || onComment || onLive) && (
 					<div className="w-px h-5 bg-border mx-1" />
 				)}
-				{onInstruct && (
+				{onLive && (
 					<button
 						type="button"
 						className={btn(false)}
 						onMouseDown={(e) => e.preventDefault()}
 						onClick={(e) => {
 							e.preventDefault();
-							onInstruct();
+							onLive();
 						}}
-						aria-label="Instruct"
-						title="Instruct (queue a work order for the agent)"
+						aria-label="Go"
+						title="Go"
 					>
 						<ListChecks className="w-3.5 h-3.5 text-amber-600" />
 					</button>

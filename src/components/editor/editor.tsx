@@ -31,9 +31,8 @@ import { CommentThread } from "./comment-thread";
 import { ProofSpanPopover } from "./proof-span-popover";
 import { SuggestionCard } from "./suggestion-card";
 import { SuggestEditPopover } from "./suggest-edit-popover";
-import { InstructionPopover } from "./instruction-popover";
-import { InstructionQueueBar } from "./instruction-queue-bar";
-import { RunReviewBar } from "./run-review-bar";
+import { LiveOverlay } from "./live-overlay";
+import { LivePresence } from "./live-presence";
 import { SlashCommands } from "./slash-commands";
 import { DocumentOutline } from "./document-outline";
 import { ReadingExperiments } from "./experiments";
@@ -251,36 +250,10 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		return map;
 	}, [comments]);
 
-	/** Group instructions by block ref for pip rendering (distinct from comments). */
-	const instructionsByRef = useMemo(() => {
-		const map: Record<string, typeof comments> = {};
-		for (const c of comments) {
-			if (!c.ref || c.kind !== "instruction") continue;
-			(map[c.ref] ??= []).push(c);
-		}
-		return map;
-	}, [comments]);
-
-	/** Draft (unsent) instructions for the current file, driving the queue bar. */
-	const draftInstructions = useMemo(
-		() =>
-			comments.filter(
-				(c) => c.kind === "instruction" && (c.instructionState ?? "draft") === "draft",
-			),
-		[comments],
-	);
-
-	const sentInstructions = useMemo(
-		() =>
-			comments.filter(
-				(c) => c.kind === "instruction" && c.instructionState === "sent" && !!c.runId,
-			),
-		[comments],
-	);
 
 	/** Tracks which block's comment thread is open and its anchor element. */
 	const [threadTarget, setThreadTarget] = useState<
-		{ blockRef: string; el: HTMLElement; mode?: "comment" | "instruction" } | null
+		{ blockRef: string; el: HTMLElement } | null
 	>(null);
 
 	/** Tracks the open human "suggest edit" popover (block + anchor + content). */
@@ -404,25 +377,14 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		});
 	}, [resolveSelectionBlock]);
 
-	const [instructTarget, setInstructTarget] = useState<
-		{
-			blockRef: string;
-			markdown: string;
-			anchor: { top: number; left: number };
-			selectionText: string | null;
-		} | null
-	>(null);
+	const [liveTarget, setLiveTarget] = useState<{
+		blockRef: string; markdown: string; selectionText: string | null; selectionStart: number | null; selectionEnd: number | null;
+	} | null>(null);
 
-	const openInstructForSelection = useCallback(() => {
+	const openLiveForSelection = useCallback(() => {
 		const resolved = resolveSelectionBlock();
 		if (!resolved) return;
-		const rect = resolved.blockEl.getBoundingClientRect();
-		setInstructTarget({
-			blockRef: resolved.blockRef,
-			markdown: resolved.markdown,
-			anchor: { top: rect.bottom + 4, left: rect.left },
-			selectionText: resolved.selectionText,
-		});
+		setLiveTarget({ blockRef: resolved.blockRef, markdown: resolved.markdown, selectionText: resolved.selectionText, selectionStart: resolved.selectionStart, selectionEnd: resolved.selectionEnd });
 	}, [resolveSelectionBlock]);
 
 	const openCommentForSelection = useCallback(() => {
@@ -952,41 +914,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 											);
 										})}
 
-										{/* Instruction pips — distinct icon/color from comments */}
-										{Object.entries(instructionsByRef).map(([blockRef, blockInstr]) => {
-											const pos = blockRefPositions.get(blockRef);
-											if (!pos) return null;
-											const pending = blockInstr.some(
-												(c) => (c.instructionState ?? "draft") === "draft",
-											);
-											return (
-												<div key={`instr-${blockRef}`} style={{ pointerEvents: "auto" }}>
-													<button
-														type="button"
-														style={{
-															position: "absolute",
-															top: pos.top + 4,
-															left: Math.max(0, pos.left - 38),
-															transform: "translateY(2px)",
-														}}
-														className="z-10 p-2 sm:p-0.5 -m-1.5 sm:m-0 rounded transition-colors hover:bg-accent focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-													aria-label={`Instruction on ${blockRef}`}
-													onClick={() => {
-														const el = scrollContainerRef.current?.querySelector(
-															`[data-block-ref="${blockRef}"]`,
-														) as HTMLElement | null;
-														if (el) setThreadTarget({ blockRef, el, mode: "instruction" });
-													}}
-												>
-													<ListChecks
-														className={`h-3.5 w-3.5 ${pending ? "text-amber-600" : "text-amber-600/40"}`}
-													/>
-												</button>
-											</div>
-											);
-										})}
-
-										{/* Suggestion cards — one per pending suggestion */}
+						{/* Suggestion cards — one per pending suggestion */}
 										{currentPath && pendingSuggestions.map((sg) => {
 											const pos = blockRefPositions.get(sg.ref);
 											const currentBlock = snapshotBlocks.find((b) => b.ref === sg.ref);
@@ -1027,9 +955,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 							anchorRef={threadTarget.blockRef}
 							anchorLabel={threadTarget.blockRef}
 							comments={
-								(threadTarget.mode === "instruction"
-									? instructionsByRef[threadTarget.blockRef]
-									: commentsByRef[threadTarget.blockRef]) ?? []
+								(commentsByRef[threadTarget.blockRef]) ?? []
 							}
 							anchorEl={threadTarget.el}
 							onClose={() => setThreadTarget(null)}
@@ -1048,27 +974,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 										/>
 									)}
 
-								{instructTarget && currentPath && (
-									<InstructionPopover
-										path={currentPath}
-										blockRef={instructTarget.blockRef}
-										currentMarkdown={instructTarget.markdown}
-										anchor={instructTarget.anchor}
-										selectionText={instructTarget.selectionText}
-										onClose={() => setInstructTarget(null)}
-									/>
-								)}
-								{currentPath && (
-									<InstructionQueueBar path={currentPath} drafts={draftInstructions} />
-								)}
-								{currentPath && (
-									<RunReviewBar
-										path={currentPath}
-										sent={sentInstructions}
-										scrollContainer={scrollContainerRef.current}
-									/>
-								)}
-
+										{currentPath && <LiveOverlay path={currentPath} target={liveTarget} onClose={() => setLiveTarget(null)} positions={blockRefPositions} scrollRef={scrollContainerRef} isViewing={isViewing} baseRevision={snapshotRevision} />}
 									{isViewing && Object.keys(parsedViewingContent.data).length > 0 && (
 										<div className="max-w-[var(--editor-max-w,48rem)] ml-[var(--editor-ml,auto)] mr-auto px-4 sm:px-8 pt-3">
 											<FrontmatterHeader
@@ -1096,7 +1002,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 									{currentPath && (
 										<ProofSpanPopover
 											targetEl={proofTarget}
-											path={currentPath}
 											onClose={() => setProofTarget(null)}
 											onComment={() => {
 												if (!proofTarget) return;
@@ -1113,7 +1018,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 												editor={editor}
 												onSuggestEdit={openSuggestForSelection}
 												onComment={openCommentForSelection}
-												onInstruct={openInstructForSelection}
+												onLive={openLiveForSelection}
 											/>
 											<TableMenu editor={editor} />
 											<SlashCommands editor={editor} />
@@ -1127,7 +1032,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 										<ViewModeCommentButton
 											containerRef={scrollContainerRef}
 											onComment={openCommentForSelection}
-											onInstruct={openInstructForSelection}
+											onLive={openLiveForSelection}
 										/>
 									)}
 									{/* AI Edit Prompt + slash hint */}

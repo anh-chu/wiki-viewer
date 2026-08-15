@@ -26,15 +26,6 @@ export interface LiveConfig {
   fetch?: typeof fetch;
 }
 
-/** One instruction in a batch run (collective agent review). */
-export interface LiveInstructionItem {
-  instructionId: string;
-  blockRef: string | null;
-  baseRevision: number | null;
-  instruction: string;
-  selectionText?: string | null;
-}
-
 /** A generate/steer request pushed to the agent. */
 export interface LiveRequest {
   requestId: string;
@@ -50,10 +41,6 @@ export interface LiveRequest {
   selectionStart?: number | null;
   /** Best-effort end char offset (exclusive) within block markdown (may be null). */
   selectionEnd?: number | null;
-  /** Batch payload: N instruction items dispatched as one run. Null/absent for legacy single requests. */
-  items?: LiveInstructionItem[] | null;
-  /** Correlation id for the batch run (e.g. "run:<hex>"); null for legacy single requests. */
-  runId?: string | null;
   seq: number;
   /** "live:<requestId>" — pass verbatim as the Idempotency-Key on the edit. */
   idempotencyKey: string;
@@ -61,7 +48,7 @@ export interface LiveRequest {
   inResponseTo: string;
 }
 
-type PollResponse =
+export type PollResponse =
   | { type: "timeout" }
   | { type: "aborted" }
   | { type: LiveRequest["kind"]; request: LiveRequest };
@@ -118,40 +105,10 @@ export interface CandidateSourcePatch {
   summary: string;
 }
 
-/** Parsed selection facts carried in a web.tweak request's selectionText. */
-/** One pinned element in a batch web.tweak run. */
-export interface WebTweakItem {
-  instructionId: string;
-  selector: string;
-  tag: string;
-  snippet: string;
-  note: string;
-}
-
-export interface WebTweakContext {
-  previewId: string;
-  selector: string;
-  tag: string;
-  snippet: string;
-  note: string;
-  path: string;
-  /** Present for a batch run: the N pinned instructions dispatched together. */
-  items?: WebTweakItem[];
-}
-
 /** Per-instruction DOM preview ops for a batch run. */
 export interface WebItemPreview {
   instructionId: string;
   ops: DomOp[];
-}
-
-/** The agent's reply to a web.tweak request. */
-export interface WebTweakResult {
-  domPreviewOps: DomOp[] | null;
-  candidateSourcePatch: CandidateSourcePatch | null;
-  baseFiles: BaseFile[];
-  /** Batch runs may return per-instruction preview ops for correlation. */
-  itemPreviews?: WebItemPreview[] | null;
 }
 
 /** One candidate option in a web.tweak.variants reply. */
@@ -161,11 +118,6 @@ export interface WebVariant {
   domPreviewOps: DomOp[] | null;
   candidateSourcePatch: CandidateSourcePatch | null;
   baseFiles: BaseFile[];
-}
-
-/** The agent's reply to a web.tweak.variants request: N candidate options. */
-export interface WebVariantsResult {
-  variants: WebVariant[];
 }
 
 export interface Snapshot {
@@ -207,6 +159,11 @@ export class LiveClient {
   private readonly agentId: string;
   private readonly workspace?: string;
   private readonly _fetch: typeof fetch;
+  private attachedWorkspaceId?: string;
+
+  get workspaceId(): string | undefined {
+    return this.attachedWorkspaceId ?? this.workspace;
+  }
 
   constructor(config: LiveConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, "");
@@ -245,7 +202,8 @@ export class LiveClient {
       body: "{}",
     });
     if (!res.ok) await this.parseError(res);
-    const body = (await res.json()) as { sessionId: string };
+    const body = (await res.json()) as { sessionId: string; workspaceId?: string };
+    this.attachedWorkspaceId = body.workspaceId;
     return body.sessionId;
   }
 
@@ -299,14 +257,9 @@ export class LiveClient {
     // crash dedupe and provenance linkage can't be broken by a mutated request.
     // Op spread comes first, then the stamp overrides.
     const correlation = `live:${req.requestId}`;
-    // For a batch run, also stamp the runId into provenance so the editor can
-    // group proof-spans by run (Accept run / Discard run). BlockOp has no
-    // dedicated run field, so it rides in basisDetail.
-    const runTag = req.runId ? ` [run:${req.runId}]` : "";
     const stampedOps = ops.map((op) => ({
       ...op,
       inResponseTo: correlation,
-      ...(runTag ? { basisDetail: `${op.basisDetail ?? ""}${runTag}` } : {}),
     }));
     const res = await this._fetch(`${this.baseUrl}/api/agent/files/${encodeFilePath(req.path)}`, {
       method: "POST",
@@ -350,6 +303,20 @@ export class LiveClient {
     const content = await res.text();
     const sha256 = createHash("sha256").update(content, "utf8").digest("hex");
     return { content, sha256 };
+  }
+
+  /** Submit markdown variants for human-only preview/accept. */
+  async submitMarkdownPreview(input: {
+    previewId: string;
+    requestId: string;
+    variants: Array<{ variantId?: string; label: string; markdown: string }>;
+  }): Promise<void> {
+    const res = await this._fetch(`${this.baseUrl}/api/agent/live/md-preview`, {
+      method: "POST",
+      headers: this.headers({ "Content-Type": "application/json" }),
+      body: JSON.stringify(input),
+    });
+    if (!res.ok) await this.parseError(res);
   }
 
   /**
@@ -413,331 +380,6 @@ export class LiveClient {
   }
 }
 
-// ─── Runtime loop ─────────────────────────────────────────────────────────────
-
-/**
- * Decides what to do with one delivered generate/steer request. Return the
- * block-ops to apply, or null to skip the edit (still marks the request done).
- * Throw StaleRequestError-agnostic errors freely; the loop maps them to reply
- * status. `snapshot` is provided pre-fetched at the request's revision for
- * convenience. It is fetched at handling time so it may be newer than the
- * request's baseRevision; the edit still commits at req.baseRevision and fails
- * closed if the human moved on. May be undefined if the fetch failed.
- */
-export type LiveHandler = (
-  req: LiveRequest,
-  ctx: { client: LiveClient; snapshot?: Snapshot },
-) => Promise<BlockOp[] | null>;
-
-/**
- * Decides what to do with one delivered web.tweak request. Returns the DOM
- * preview ops + candidate source patch + base file hashes for the previewId.
- * The agent never writes source directly here; the server commits the candidate
- * on human accept iff the base hashes still match.
- */
-export type WebTweakHandler = (
-  ctx: WebTweakContext,
-  api: { client: LiveClient },
-) => Promise<WebTweakResult>;
-
-/**
- * Decides what to do with one delivered web.tweak.variants request. Returns N
- * candidate options for the single target. Like WebTweakHandler, the agent never
- * writes source directly; the server commits the chosen variant on human accept.
- */
-export type WebVariantsHandler = (
-  ctx: WebTweakContext,
-  api: { client: LiveClient },
-) => Promise<WebVariantsResult>;
-
-export interface RunLiveLoopOptions {
-  signal?: AbortSignal;
-  /** Called on each accepted request lifecycle transition (for logging). */
-  onEvent?: (event: string, detail?: unknown) => void;
-  /** Prefetch the snapshot before invoking the handler. Default true. */
-  prefetchSnapshot?: boolean;
-  /** Handler for web.tweak requests. Without it, web.tweak replies status error. */
-  webHandler?: WebTweakHandler;
-  /** Handler for web.tweak.variants requests. Without it, replies status error. */
-  webVariantsHandler?: WebVariantsHandler;
-}
-
-/**
- * Attach and process live requests until aborted. One outstanding request at a
- * time is enforced server-side; this loop honors that by handling sequentially.
- */
-export async function runLiveLoop(
-  client: LiveClient,
-  handler: LiveHandler,
-  opts: RunLiveLoopOptions = {},
-): Promise<void> {
-  const log = opts.onEvent ?? (() => {});
-  const prefetch = opts.prefetchSnapshot ?? true;
-  let sessionId = await client.attach();
-  log("attached", { sessionId });
-  let afterSeq = 0;
-
-  while (!opts.signal?.aborted) {
-    let res: PollResponse;
-    try {
-      res = await client.poll(sessionId, afterSeq, { signal: opts.signal });
-    } catch (e) {
-      if (opts.signal?.aborted) break;
-      if ((e as Error).name === "AbortError") break;
-      // Session evaporated (server restart / presence expiry) — re-attach and
-      // resume from seq 0 against the fresh session.
-      if (e instanceof LiveError && e.status === 404) {
-        log("reattach", { reason: e.code });
-        sessionId = await client.attach();
-        afterSeq = 0;
-        log("attached", { sessionId });
-        continue;
-      }
-      log("poll-error", { error: (e as Error).message });
-      await sleep(1000);
-      continue;
-    }
-
-    if (res.type === "timeout" || res.type === "aborted") {
-      continue;
-    }
-
-    const req = res.request;
-    afterSeq = req.seq;
-
-    // Web-tweak requests produce a preview transaction (DOM ops + candidate
-    // patch), never a direct source write. Handled on its own path.
-    if (req.kind === "web.tweak") {
-      await handleWebTweak(client, req, opts, log);
-      continue;
-    }
-
-    // Web-tweak variants: one target, N candidate options in a single reply.
-    if (req.kind === "web.tweak.variants") {
-      await handleWebVariants(client, req, opts, log);
-      continue;
-    }
-
-    // Control-only kinds (accept/discard/exit) are notifications; no edit.
-    if (req.kind !== "generate" && req.kind !== "steer") {
-      log("notification", { kind: req.kind, requestId: req.requestId });
-      continue;
-    }
-
-    log("request", { kind: req.kind, requestId: req.requestId, path: req.path });
-    try {
-      await client.reply(req.requestId, "working");
-      let snapshot: Snapshot | undefined;
-      if (prefetch) {
-        try {
-          snapshot = await client.snapshot(req.path);
-        } catch {
-          snapshot = undefined;
-        }
-      }
-      // Batch run: call the handler once per item, collecting all block-ops, then
-      // commit them in one write correlated to the single request/run. The
-      // single-instruction path (no items) is unchanged for backward compat.
-      let ops: BlockOp[] | null;
-      // The request used for the single commit. For a batch the top-level
-      // baseRevision is null (each item carries its own, all against the current
-      // file revision), so derive the commit baseRevision from the items.
-      let commitReq = req;
-      if (req.items && req.items.length > 0) {
-        const collected: BlockOp[] = [];
-        for (const item of req.items) {
-          const itemReq: LiveRequest = {
-            ...req,
-            blockRef: item.blockRef,
-            baseRevision: item.baseRevision,
-            instruction: item.instruction,
-            selectionText: item.selectionText ?? null,
-          };
-          const itemOps = await handler(itemReq, { client, snapshot });
-          if (itemOps) collected.push(...itemOps);
-        }
-        ops = collected;
-        const itemBase = req.items.find((it) => it.baseRevision !== null)?.baseRevision ?? null;
-        commitReq = { ...req, baseRevision: itemBase };
-      } else {
-        ops = await handler(req, { client, snapshot });
-      }
-      if (ops && ops.length > 0) {
-        await client.applyTier2Ops(commitReq, ops);
-      }
-      await client.reply(req.requestId, "done");
-      log("done", { requestId: req.requestId });
-    } catch (e) {
-      if (e instanceof StaleRequestError) {
-        // Fail closed: the human moved on. Do not re-interpret against new content.
-        await client.reply(req.requestId, "stale").catch(() => {});
-        log("stale", { requestId: req.requestId });
-      } else {
-        await client.reply(req.requestId, "error").catch(() => {});
-        log("error", { requestId: req.requestId, error: (e as Error).message });
-      }
-    }
-  }
-  log("stopped");
-}
-
-/**
- * Parse a web.tweak request's selectionText into typed selection facts. Returns
- * null if the payload is missing or malformed.
- */
-function parseWebTweakContext(req: LiveRequest): WebTweakContext | null {
-  if (!req.selectionText) return null;
-  let parsed: Record<string, unknown>;
-  try {
-    parsed = JSON.parse(req.selectionText) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-  if (typeof parsed.previewId !== "string") return null;
-  // Batch run: the pinned instructions ride in req.items. Each item's
-  // selectionText carries {selector, tag, snippet}; note is the item instruction.
-  const items: WebTweakItem[] | undefined = req.items?.map((it) => {
-    let facts: Record<string, unknown> = {};
-    if (it.selectionText) {
-      try {
-        facts = JSON.parse(it.selectionText) as Record<string, unknown>;
-      } catch {
-        facts = {};
-      }
-    }
-    return {
-      instructionId: it.instructionId,
-      selector:
-        typeof facts.selector === "string" ? facts.selector : it.blockRef ?? "",
-      tag: typeof facts.tag === "string" ? facts.tag : "",
-      snippet: typeof facts.snippet === "string" ? facts.snippet : "",
-      note: it.instruction,
-    };
-  });
-  // For a single (non-batch) tweak, selection facts sit at the top level.
-  const first = items?.[0];
-  return {
-    previewId: parsed.previewId,
-    selector:
-      typeof parsed.selector === "string" ? parsed.selector : first?.selector ?? "",
-    tag: typeof parsed.tag === "string" ? parsed.tag : first?.tag ?? "",
-    snippet: typeof parsed.snippet === "string" ? parsed.snippet : first?.snippet ?? "",
-    note: req.instruction ?? first?.note ?? "",
-    path: req.path,
-    items,
-  };
-}
-
-/** Handle one delivered web.tweak request. */
-async function handleWebTweak(
-  client: LiveClient,
-  req: LiveRequest,
-  opts: RunLiveLoopOptions,
-  log: (event: string, detail?: unknown) => void,
-): Promise<void> {
-  const ctx = parseWebTweakContext(req);
-  if (!ctx) {
-    log("error", { requestId: req.requestId, error: "invalid web.tweak selectionText" });
-    return;
-  }
-  log("request", { kind: req.kind, requestId: req.requestId, previewId: ctx.previewId });
-
-  if (!opts.webHandler) {
-    await client
-      .submitWebPreview({
-        previewId: ctx.previewId,
-        requestId: req.requestId,
-        domPreviewOps: null,
-        candidateSourcePatch: null,
-        baseFiles: [],
-        status: "error",
-      })
-      .catch(() => {});
-    log("error", { requestId: req.requestId, error: "no webHandler configured" });
-    return;
-  }
-
-  try {
-    await client.reply(req.requestId, "working");
-    const result = await opts.webHandler(ctx, { client });
-    await client.submitWebPreview({
-      previewId: ctx.previewId,
-      requestId: req.requestId,
-      domPreviewOps: result.domPreviewOps,
-      candidateSourcePatch: result.candidateSourcePatch,
-      baseFiles: result.baseFiles,
-      status: "done",
-      itemPreviews: result.itemPreviews ?? null,
-    });
-    log("done", { requestId: req.requestId, previewId: ctx.previewId });
-  } catch (e) {
-    await client
-      .submitWebPreview({
-        previewId: ctx.previewId,
-        requestId: req.requestId,
-        domPreviewOps: null,
-        candidateSourcePatch: null,
-        baseFiles: [],
-        status: "error",
-      })
-      .catch(() => {});
-    log("error", { requestId: req.requestId, error: (e as Error).message });
-  }
-}
-
-/** Handle one delivered web.tweak.variants request. */
-async function handleWebVariants(
-  client: LiveClient,
-  req: LiveRequest,
-  opts: RunLiveLoopOptions,
-  log: (event: string, detail?: unknown) => void,
-): Promise<void> {
-  const ctx = parseWebTweakContext(req);
-  if (!ctx) {
-    log("error", { requestId: req.requestId, error: "invalid web.tweak.variants selectionText" });
-    return;
-  }
-  log("request", { kind: req.kind, requestId: req.requestId, previewId: ctx.previewId });
-
-  if (!opts.webVariantsHandler) {
-    await client
-      .submitWebPreview({
-        previewId: ctx.previewId,
-        requestId: req.requestId,
-        domPreviewOps: null,
-        candidateSourcePatch: null,
-        baseFiles: [],
-        status: "error",
-      })
-      .catch(() => {});
-    log("error", { requestId: req.requestId, error: "no webVariantsHandler configured" });
-    return;
-  }
-
-  try {
-    await client.reply(req.requestId, "working");
-    const result = await opts.webVariantsHandler(ctx, { client });
-    await client.submitWebVariants({
-      previewId: ctx.previewId,
-      requestId: req.requestId,
-      variants: result.variants,
-    });
-    log("done", { requestId: req.requestId, previewId: ctx.previewId });
-  } catch (e) {
-    await client
-      .submitWebPreview({
-        previewId: ctx.previewId,
-        requestId: req.requestId,
-        domPreviewOps: null,
-        candidateSourcePatch: null,
-        baseFiles: [],
-        status: "error",
-      })
-      .catch(() => {});
-    log("error", { requestId: req.requestId, error: (e as Error).message });
-  }
-}
-
 // ─── Helpers ───────────────────────────────────────────────────────
 
 function encodeFilePath(path: string): string {
@@ -748,6 +390,3 @@ function encodeFilePath(path: string): string {
     .join("/");
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}

@@ -16,6 +16,7 @@ import {
   MatchCountError,
 } from "./http-client.js";
 import * as stateCache from "./state-cache.js";
+import { LiveClient } from "./live-client.js";
 import {
   ReadFileInput,
   WriteFileInput,
@@ -24,6 +25,8 @@ import {
   SearchInput,
   MoveFileInput,
   DeleteFileInput,
+  LiveAttachInput, LivePollInput, LiveSnapshotInput, LiveReplyInput,
+  LiveSubmitMarkdownInput, LiveSubmitWebInput,
 } from "./tool-schemas.js";
 
 // ─── Result helpers ───────────────────────────────────────────────────────────
@@ -36,6 +39,11 @@ function ok(text: string): ToolResult {
 
 function err(text: string): ToolResult {
   return { content: [{ type: "text", text: `ERROR: ${text}` }] };
+}
+
+function requireLive(client?: LiveClient): LiveClient {
+  if (!client) throw new Error("Live tools unavailable: no live client configured");
+  return client;
 }
 
 // ─── Markdown / collab helpers ────────────────────────────────────────────────
@@ -83,6 +91,7 @@ export async function handleToolCall(
   client: WikiViewerClient,
   name: string,
   args: unknown,
+  liveClient?: LiveClient,
 ): Promise<ToolResult> {
   try {
     switch (name) {
@@ -254,6 +263,39 @@ export async function handleToolCall(
         return ok(`Deleted: ${path}`);
       }
 
+      case "live_attach": {
+        const live = requireLive(liveClient); LiveAttachInput.parse(args);
+        const sessionId = await live.attach();
+        return ok(JSON.stringify({ sessionId, workspaceId: live.workspaceId ?? null }));
+      }
+      case "live_poll": {
+        const live = requireLive(liveClient); const input = LivePollInput.parse(args);
+        return ok(JSON.stringify(await live.poll(input.sessionId, input.afterSeq)));
+      }
+      case "live_snapshot": {
+        const live = requireLive(liveClient); const { path } = LiveSnapshotInput.parse(args);
+        return ok(JSON.stringify(await live.snapshot(path)));
+      }
+      case "live_reply": {
+        const live = requireLive(liveClient); const input = LiveReplyInput.parse(args);
+        await live.reply(input.requestId, input.status); return ok("ok");
+      }
+      case "live_submit_markdown": {
+        const live = requireLive(liveClient); const input = LiveSubmitMarkdownInput.parse(args);
+        await live.submitMarkdownPreview(input); return ok("ok");
+      }
+      case "live_submit_web": {
+        const live = requireLive(liveClient); const input = LiveSubmitWebInput.parse(args);
+        if (input.variants !== undefined) {
+          await live.submitWebVariants({ previewId: input.previewId, requestId: input.requestId, variants: input.variants as any });
+        } else {
+          await live.submitWebPreview({ previewId: input.previewId, requestId: input.requestId,
+            domPreviewOps: (input.domPreviewOps ?? null) as any,
+            candidateSourcePatch: (input.candidateSourcePatch ?? null) as any,
+            baseFiles: (input.baseFiles ?? []) as any, status: "done" });
+        }
+        return ok("ok");
+      }
       default:
         return err(`Unknown tool: ${name}`);
     }

@@ -95,8 +95,8 @@ export function AIPanel({ currentPath }: { currentPath?: string | null }) {
 	);
 	const getLiveAttach = useCallback(
 		() =>
-			`WIKI_VIEWER_URL=${origin} WIKI_VIEWER_TOKEN=<token> WIKI_VIEWER_AGENT_ID=ai:myagent npx wiki-viewer-mcp live`,
-		[origin]
+			`Attend live in wiki-viewer: call live_attach, then loop live_poll and respond to each request.`,
+		[]
 	);
 	const skillCli = useCopyButton(getSkillCli);
 	const bootstrapCopy = useCopyButton(getBootstrapPrompt);
@@ -230,18 +230,18 @@ export function AIPanel({ currentPath }: { currentPath?: string | null }) {
 						{/* Option C — live (attach) */}
 						<div className="rounded-md border border-border bg-muted/40 p-3 space-y-1.5">
 							<p className="text-xs font-semibold text-foreground">
-								Attend live (for Ask agent &amp; Tweak)
+								Attend live (for in-page Go &amp; Tweak)
 							</p>
 							<p className="text-[10px] text-muted-foreground/70">
-								Only needed for the in-page “Ask agent” and “Tweak” buttons. After
-								approving (step 2), run this with your token so an agent waits on the
-								line:
+								Only needed for the in-page “Go” and “Tweak” buttons. Connect the MCP
+								server (option above), then tell your agent to attend live — it uses
+								the live_* tools to wait on the line:
 							</p>
 							<div className="flex items-center gap-2">
 								<code className="flex-1 text-[10px] font-mono text-foreground/80 truncate bg-muted rounded px-1 py-0.5">
 									{getLiveAttach()}
 								</code>
-								<Button size="sm" variant="ghost" className="h-6 w-6 p-0 shrink-0" title="Copy this command" onClick={() => void liveAttach.copy()}>
+								<Button size="sm" variant="ghost" className="h-6 w-6 p-0 shrink-0" title="Copy this instruction" onClick={() => void liveAttach.copy()}>
 									{liveAttach.copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
 								</Button>
 							</div>

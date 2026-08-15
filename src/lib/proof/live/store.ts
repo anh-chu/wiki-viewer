@@ -17,7 +17,11 @@ import { mkdirSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 
 /** An agent counts as attached if it polled within this window (ms). */
-export const PRESENCE_TTL_MS = 45_000;
+// Held polls refresh presence every ~400ms and re-poll sub-second, so a short
+// TTL never false-negatives an actively attending agent but flips a stopped
+// agent to "not listening" quickly. The client adds a small grace window on top
+// to avoid flicker during the agent's own chat turns.
+export const PRESENCE_TTL_MS = 8_000;
 
 export type RequestKind =
 	| "generate"
