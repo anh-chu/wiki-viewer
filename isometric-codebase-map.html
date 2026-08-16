@@ -1,0 +1,1523 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; font-src data:">
+  <title>Isometric Codebase Map</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg viewBox='0 0 64 64'%3E%3Ctext y='52' font-size='52'%3E%F0%9F%97%BA%EF%B8%8F%3C/text%3E%3C/svg%3E">
+  <style>
+    :root {
+      --paper: #f3efe3;
+      --paper-2: #e9e2d1;
+      --ink: #242b2a;
+      --muted: #69706d;
+      --line: #9b9a8d;
+      --accent: #d24d35;
+      --panel: rgba(249, 246, 237, 0.94);
+      --shadow: rgba(47, 42, 31, 0.16);
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    button { font: inherit; }
+
+    .shell {
+      min-width: 1180px;
+      height: 100vh;
+      padding-top: 72px;
+      background:
+        linear-gradient(rgba(69, 77, 71, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(69, 77, 71, 0.035) 1px, transparent 1px),
+        var(--paper);
+      background-size: 18px 18px;
+    }
+
+    .topbar {
+      position: fixed;
+      top: 0;
+      right: 0;
+      left: 0;
+      height: 72px;
+      display: grid;
+      grid-template-columns: minmax(320px, 1fr) auto auto;
+      align-items: center;
+      gap: 22px;
+      padding: 0 20px;
+      border-bottom: 1px solid rgba(63, 69, 66, 0.34);
+      background: rgba(246, 242, 232, 0.96);
+      box-shadow: 0 4px 18px rgba(51, 48, 39, 0.07);
+      z-index: 10;
+    }
+
+    .brand {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 13px;
+    }
+
+    .brand-mark {
+      width: 40px;
+      height: 40px;
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      border: 1px solid var(--ink);
+      background:
+        repeating-linear-gradient(135deg, transparent 0 4px, rgba(36, 43, 42, 0.15) 4px 5px),
+        #dfd7c2;
+      box-shadow: 3px 3px 0 rgba(36, 43, 42, 0.16);
+      font-size: 20px;
+    }
+
+    .brand-copy { min-width: 0; }
+
+    .brand h1 {
+      margin: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .brand p {
+      margin: 3px 0 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .stats {
+      display: flex;
+      align-items: stretch;
+      border-left: 1px solid rgba(63, 69, 66, 0.25);
+    }
+
+    .stat {
+      min-width: 80px;
+      padding: 3px 14px;
+      border-right: 1px solid rgba(63, 69, 66, 0.25);
+      text-align: center;
+    }
+
+    .stat strong {
+      display: block;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 15px;
+      line-height: 1.1;
+    }
+
+    .stat span {
+      display: block;
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 9px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .control {
+      min-height: 34px;
+      padding: 0 12px;
+      border: 1px solid rgba(36, 43, 42, 0.5);
+      border-radius: 2px;
+      background: transparent;
+      color: var(--ink);
+      cursor: pointer;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .control:hover,
+    .control:focus-visible {
+      outline: none;
+      background: var(--ink);
+      color: var(--paper);
+    }
+
+    .control.primary {
+      border-color: var(--accent);
+      background: var(--accent);
+      color: #fffaf0;
+    }
+
+    .app {
+      height: calc(100vh - 72px);
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 258px minmax(560px, 1fr) 342px;
+    }
+
+    .rail,
+    .detail {
+      min-height: 0;
+      overflow: auto;
+      background: var(--panel);
+      backdrop-filter: blur(7px);
+      scrollbar-width: thin;
+      scrollbar-color: rgba(36, 43, 42, 0.28) transparent;
+    }
+
+    .rail {
+      border-right: 1px solid rgba(63, 69, 66, 0.34);
+      padding: 20px 14px 30px;
+    }
+
+    .detail {
+      border-left: 1px solid rgba(63, 69, 66, 0.34);
+      padding: 24px 24px 38px;
+    }
+
+    .rail-heading,
+    .eyebrow {
+      margin: 0 0 15px;
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .group { margin-bottom: 19px; }
+
+    .group-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0 7px 7px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+    }
+
+    .swatch {
+      width: 9px;
+      height: 9px;
+      border: 1px solid rgba(36, 43, 42, 0.46);
+      transform: rotate(45deg);
+    }
+
+    .structure-link {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 31px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+      min-height: 37px;
+      margin: 2px 0;
+      padding: 4px 6px;
+      border: 1px solid transparent;
+      border-radius: 2px;
+      background: transparent;
+      color: var(--ink);
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .structure-link:hover,
+    .structure-link:focus-visible,
+    .structure-link.active {
+      outline: none;
+      border-color: rgba(36, 43, 42, 0.35);
+      background: rgba(255, 252, 244, 0.8);
+      box-shadow: 2px 2px 0 rgba(36, 43, 42, 0.09);
+    }
+
+    .structure-link.active { border-left: 3px solid var(--accent); }
+
+    .code-chip {
+      width: 28px;
+      height: 25px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(36, 43, 42, 0.5);
+      background: var(--chip, #ddd4bf);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 10px;
+      font-weight: 900;
+    }
+
+    .structure-link .name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .structure-link .loc {
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 9px;
+    }
+
+    .stage {
+      position: relative;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      background:
+        repeating-linear-gradient(30deg, transparent 0 12px, rgba(65, 75, 69, 0.035) 12px 13px),
+        repeating-linear-gradient(150deg, transparent 0 12px, rgba(65, 75, 69, 0.028) 12px 13px),
+        radial-gradient(circle at 50% 42%, rgba(255, 255, 255, 0.78), rgba(230, 223, 207, 0.52));
+    }
+
+    #map {
+      width: 100%;
+      height: 100%;
+      display: block;
+      overflow: visible;
+    }
+
+    .ground-line {
+      fill: none;
+      stroke: rgba(66, 73, 69, 0.11);
+      stroke-width: 1;
+    }
+
+    .zone-label {
+      fill: rgba(52, 61, 57, 0.28);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.18em;
+    }
+
+    .edge-line {
+      fill: none;
+      stroke: rgba(54, 64, 59, 0.43);
+      stroke-width: 1.5;
+      vector-effect: non-scaling-stroke;
+    }
+
+    .edge-line.flow { stroke: rgba(56, 72, 65, 0.68); }
+    .edge-line.dashed { stroke-dasharray: 5 5; stroke: rgba(83, 81, 70, 0.5); }
+    .edge-line.active { stroke: var(--accent); stroke-width: 3; }
+    .edge-line.trace-complete { stroke: #aa6d32; stroke-width: 2.2; opacity: 0.9; }
+    .edge-line.trace-current { stroke: var(--accent); stroke-width: 4; opacity: 1; }
+
+    .edge-hit {
+      fill: none;
+      stroke: transparent;
+      stroke-width: 12;
+      pointer-events: stroke;
+      cursor: help;
+    }
+
+    .flow-dot {
+      fill: #c54831;
+      stroke: #fff8e8;
+      stroke-width: 1.2;
+      pointer-events: all;
+    }
+
+    .structure {
+      cursor: pointer;
+      transition: opacity 140ms ease;
+    }
+
+    .structure:focus-visible { outline: none; }
+    .structure .face { stroke: rgba(31, 39, 36, 0.62); stroke-width: 1; vector-effect: non-scaling-stroke; }
+    .structure .top { filter: url(#paper-shadow); }
+
+    .structure:hover .face,
+    .structure.active .face,
+    .structure:focus-visible .face {
+      stroke: var(--accent);
+      stroke-width: 2.4;
+    }
+
+    .structure.dimmed { opacity: 0.28; }
+
+    .structure.trace-complete .face {
+      stroke: #aa6d32;
+      stroke-width: 2.1;
+    }
+
+    .structure.trace-current {
+      filter: drop-shadow(0 0 6px rgba(210, 77, 53, 0.5));
+    }
+
+    .structure.trace-current .face {
+      stroke: var(--accent);
+      stroke-width: 3.2;
+    }
+
+    .block-code {
+      fill: #28302d;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+      font-weight: 900;
+      text-anchor: middle;
+      pointer-events: none;
+    }
+
+    .block-loc {
+      fill: rgba(40, 48, 45, 0.67);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 8px;
+      font-weight: 700;
+      text-anchor: middle;
+      pointer-events: none;
+    }
+
+    .external-line {
+      fill: none;
+      stroke: rgba(78, 79, 70, 0.53);
+      stroke-width: 1.2;
+      stroke-dasharray: 4 5;
+    }
+
+    .external-card {
+      fill: rgba(249, 246, 237, 0.96);
+      stroke: rgba(58, 64, 61, 0.58);
+      stroke-width: 1;
+    }
+
+    .external-name {
+      fill: var(--ink);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+    }
+
+    .external-pay {
+      fill: var(--muted);
+      font-size: 8px;
+    }
+
+    .tooltip {
+      position: fixed;
+      z-index: 30;
+      width: 240px;
+      padding: 12px 13px;
+      border: 1px solid var(--ink);
+      background: #fffaf0;
+      box-shadow: 5px 5px 0 rgba(36, 43, 42, 0.14);
+      pointer-events: none;
+      opacity: 0;
+      transform: translate(10px, 10px);
+    }
+
+    .tooltip.show { opacity: 1; }
+
+    .tooltip strong {
+      display: block;
+      margin-bottom: 5px;
+      font-size: 12px;
+    }
+
+    .tooltip span {
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.45;
+    }
+
+    .detail h2 {
+      margin: 0 0 10px;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 28px;
+      line-height: 1.05;
+      letter-spacing: -0.025em;
+    }
+
+    .detail-meta {
+      display: flex;
+      gap: 7px;
+      flex-wrap: wrap;
+      margin-bottom: 25px;
+    }
+
+    .detail-meta span {
+      padding: 4px 7px;
+      border: 1px solid rgba(36, 43, 42, 0.32);
+      background: rgba(255, 252, 244, 0.65);
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 9px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .detail-section {
+      padding: 18px 0;
+      border-top: 1px solid rgba(63, 69, 66, 0.24);
+    }
+
+    .detail-section h3 {
+      margin: 0 0 9px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 10px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .detail-section p,
+    .detail-section li {
+      margin: 0;
+      color: #4f5753;
+      font-size: 12px;
+      line-height: 1.65;
+    }
+
+    .detail-section ul {
+      margin: 0;
+      padding-left: 18px;
+    }
+
+    .inside-button {
+      width: 100%;
+      min-height: 44px;
+      margin-top: 17px;
+      border: 1px solid var(--ink);
+      background:
+        repeating-linear-gradient(135deg, transparent 0 6px, rgba(255, 255, 255, 0.15) 6px 7px),
+        var(--ink);
+      color: #fffaf0;
+      cursor: pointer;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 10px;
+      font-weight: 900;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .inside-button:hover,
+    .inside-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    .trace-card {
+      position: absolute;
+      left: 24px;
+      right: 24px;
+      bottom: 20px;
+      z-index: 8;
+      display: none;
+      grid-template-columns: 130px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 12px 18px;
+      min-height: 148px;
+      padding: 14px 16px 12px;
+      border: 1px solid var(--ink);
+      background: rgba(255, 250, 240, 0.96);
+      box-shadow: 6px 6px 0 rgba(36, 43, 42, 0.14);
+    }
+
+    .trace-card.show { display: grid; }
+
+    .trace-count {
+      min-width: 120px;
+      color: var(--accent);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-weight: 900;
+    }
+
+    .trace-count small,
+    .trace-count span {
+      display: block;
+      color: var(--muted);
+      font-size: 8px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .trace-count b {
+      display: block;
+      margin: 2px 0 3px;
+      font-size: 22px;
+    }
+
+    .trace-copy strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 15px;
+    }
+
+    .trace-copy span {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .trace-actions { display: flex; gap: 7px; }
+
+    .trace-actions button {
+      min-width: 72px;
+      height: 34px;
+      padding: 0 9px;
+      border: 1px solid rgba(36, 43, 42, 0.48);
+      background: transparent;
+      cursor: pointer;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 9px;
+      font-weight: 900;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .trace-actions button:hover,
+    .trace-actions button:focus-visible { outline: none; background: var(--ink); color: var(--paper); }
+
+    .trace-actions button:disabled { cursor: default; opacity: 0.3; }
+
+    .trace-timeline {
+      position: relative;
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: repeat(var(--trace-count), minmax(42px, 1fr));
+      gap: 5px;
+      padding-top: 13px;
+      border-top: 1px solid rgba(63, 69, 66, 0.24);
+    }
+
+    .trace-timeline::before {
+      position: absolute;
+      top: 27px;
+      right: 22px;
+      left: 22px;
+      height: 2px;
+      background: rgba(36, 43, 42, 0.18);
+      content: "";
+    }
+
+    .trace-step {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      justify-items: center;
+      gap: 4px;
+      min-width: 0;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+    }
+
+    .trace-dot {
+      width: 29px;
+      height: 29px;
+      display: grid;
+      place-items: center;
+      border: 2px solid rgba(36, 43, 42, 0.35);
+      border-radius: 50%;
+      background: #fffaf0;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 9px;
+      font-weight: 900;
+    }
+
+    .trace-step.complete .trace-dot { border-color: #aa6d32; background: #aa6d32; color: #fffaf0; }
+    .trace-step.current .trace-dot { border-color: var(--accent); background: var(--accent); color: #fffaf0; box-shadow: 0 0 0 4px rgba(210, 77, 53, 0.16); }
+
+    .trace-step-label {
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 8px;
+      font-weight: 800;
+    }
+
+    .trace-step.current .trace-step-label { color: var(--accent); }
+    .trace-step:hover .trace-step-label,
+    .trace-step:focus-visible .trace-step-label { color: var(--ink); }
+    .trace-step:focus-visible { outline: 1px solid var(--ink); outline-offset: 3px; }
+
+    .inside-title {
+      fill: var(--ink);
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 28px;
+      font-weight: 700;
+    }
+
+    .inside-note {
+      fill: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 10px;
+      letter-spacing: 0.08em;
+    }
+
+    .inside-boundary {
+      fill: rgba(255, 252, 244, 0.3);
+      stroke: rgba(56, 64, 60, 0.36);
+      stroke-width: 1.2;
+      stroke-dasharray: 8 6;
+    }
+
+    .inside-back {
+      position: absolute;
+      top: 18px;
+      left: 18px;
+      z-index: 9;
+      display: none;
+    }
+
+    .inside-back.show { display: block; }
+
+    .legend {
+      position: absolute;
+      right: 16px;
+      top: 15px;
+      display: flex;
+      gap: 13px;
+      padding: 7px 9px;
+      border: 1px solid rgba(36, 43, 42, 0.22);
+      background: rgba(249, 246, 237, 0.72);
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 8px;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+    }
+
+    .legend i {
+      width: 18px;
+      height: 2px;
+      display: inline-block;
+      margin-right: 5px;
+      vertical-align: middle;
+      background: rgba(56, 72, 65, 0.68);
+    }
+
+    .legend i.dashed {
+      background: repeating-linear-gradient(90deg, rgba(83, 81, 70, 0.7) 0 4px, transparent 4px 7px);
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">🗺️</div>
+        <div class="brand-copy">
+          <h1 id="page-title"></h1>
+          <p id="page-subtitle"></p>
+        </div>
+      </div>
+      <div class="stats" id="stats" aria-label="Repository statistics"></div>
+      <div class="top-actions">
+        <button class="control" id="overview-button" type="button">Overview</button>
+        <button class="control primary" id="trace-button" type="button">Request trace</button>
+      </div>
+    </header>
+
+    <div class="app">
+      <aside class="rail" aria-label="Repository structures">
+        <p class="rail-heading">Structure index</p>
+        <nav id="structure-nav"></nav>
+      </aside>
+
+      <main class="stage" id="stage">
+        <svg id="map" viewBox="0 0 1000 790" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Interactive isometric architecture map">
+          <defs>
+            <filter id="paper-shadow" x="-20%" y="-20%" width="150%" height="160%">
+              <feDropShadow dx="3" dy="5" stdDeviation="3" flood-color="#3b392f" flood-opacity="0.16"></feDropShadow>
+            </filter>
+            <pattern id="fine-hatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(35)">
+              <line x1="0" y1="0" x2="0" y2="7" stroke="#27302d" stroke-opacity="0.09" stroke-width="1"></line>
+            </pattern>
+          </defs>
+        </svg>
+        <button class="control inside-back" id="inside-back" type="button">← Back to system</button>
+        <div class="legend" aria-hidden="true"><span><i></i>runtime flow</span><span><i class="dashed"></i>advisory</span></div>
+        <div class="trace-card" id="trace-card" aria-live="polite"></div>
+      </main>
+
+      <aside class="detail" id="detail" aria-live="polite"></aside>
+    </div>
+  </div>
+
+  <div class="tooltip" id="tooltip" role="tooltip"></div>
+
+  <script>
+  "use strict";
+
+  /* ========================================================================
+     DATA — REPLACE ONLY THIS SECTION FOR A NEW REPOSITORY
+
+     STRUCTURES fields:
+       id, code, name, group, loc, gx, gy, w, d, h, what, how, talks
+       optional slab:true
+       optional children:[{code,name,h,what,how}]
+
+     EDGES fields:
+       f, t, pay
+       optional flow:1, dashed:1, via:[[gx,gy], ...]
+
+     EXTERNALS fields:
+       id, name, target, gx, gy, pay
+
+     TRACE contains 10-14 [structureId, sentence] entries.
+     Keep structure footprints disjoint and all IDs stable across updates.
+     ======================================================================== */
+
+  const SAMPLE_DATA = false;
+
+  const TITLE = "Wiki Viewer Architecture";
+  const SUBTITLE = "Measured map of one Next.js server, its browser clients, agent API, and local stores";
+
+  const STATS = [
+    { value: "60,395", label: "source LOC" },
+    { value: "79", label: "API routes" },
+    { value: "75", label: "test files" },
+    { value: "1", label: "deployed service" }
+  ];
+
+  const GROUPS = [
+    { id: "surface", name: "Browser surfaces", color: "#d8a14a", labelGX: 5, labelGY: -1 },
+    { id: "entry", name: "Entry and access", color: "#c86a52", labelGX: 4, labelGY: 4 },
+    { id: "domain", name: "Core capabilities", color: "#6f9d83", labelGX: -1, labelGY: 10 },
+    { id: "compute", name: "Runtime roles", color: "#6689a6", labelGX: 13, labelGY: 9 },
+    { id: "data", name: "Durable stores", color: "#9a8eb4", labelGX: 8, labelGY: 19 },
+    { id: "delivery", name: "Delivery", color: "#8b9272", labelGX: 1, labelGY: 14 }
+  ];
+
+  const STRUCTURES = [
+    { id: "web-shell", code: "WS", name: "Web shell", group: "surface", loc: "5,443 LOC", gx: 1, gy: 0, w: 3, d: 2, h: 8, what: "The browser workbench where people browse folders, open files, and review changes.", how: "App routes, layout, wiki shell, viewer toolbar, and shared UI compose the protected workbench.", talks: ["hooks", "wiki-api", "share-api"], children: [
+      { code: "AP", name: "App routes", h: 6, what: "Load the protected shell and route-level page surfaces.", how: "Next.js pages in src/app compose the sign-in, share, and main workbench surfaces behind the middleware gate." },
+      { code: "WL", name: "Wiki layout", h: 7, what: "Compose navigation, directory tree, tabs, and the main canvas.", how: "layout.tsx plus the wiki sidebar and shell components assemble the directory tree, tabs, and viewer canvas into one protected frame." },
+      { code: "UI", name: "Shared UI", h: 4, what: "Provide dialogs, menus, forms, and status primitives.", how: "Reusable components in src/components/ui centralize dialogs, menus, forms, and status elements used across surfaces." },
+      { code: "TB", name: "Viewer toolbar", h: 3, what: "Expose file actions, history, sharing, and view controls.", how: "The editor toolbar and file actions menu wire view controls, history, sharing, and view-mode buttons to hooks and API calls." }
+    ] },
+    { id: "editor", code: "ED", name: "Editor and viewers", group: "surface", loc: "12,224 LOC", gx: 5, gy: 0, w: 4, d: 3, h: 13, what: "Shows many file types and lets people edit Markdown with rich interactions.", how: "TipTap extensions and viewer components handle Markdown, documents, media, notebooks, websites, and live collaboration.", talks: ["wiki-api", "proof", "web-tweak", "state"], children: [
+      { code: "TP", name: "TipTap editor", h: 8, what: "Turns Markdown blocks into an editable document.", how: "editor.tsx and extensions.ts register TipTap nodes and marks that map Markdown blocks to an editable ProseMirror document." },
+      { code: "VW", name: "File viewers", h: 6, what: "Chooses a safe renderer for each supported file kind.", how: "A viewer registry dispatches per-type renderers for images, PDFs, media, notebooks, CSVs, Mermaid, and websites." },
+      { code: "LV", name: "Live overlay", h: 4, what: "Shows agent presence and in-progress instructions.", how: "live-overlay.tsx reads presence and instruction state to surface agent activity over the editor." }
+    ] },
+    { id: "hooks", code: "HK", name: "Page-shell hooks", group: "surface", loc: "1,688 LOC", gx: 10, gy: 0, w: 2, d: 2, h: 5, what: "Connects page actions to workspaces, file trees, uploads, scratchpad, and navigation.", how: "Client hooks coordinate URL state, prefetching, workspace selection, and server calls.", talks: ["wiki-api", "workspace", "state"], children: [
+      { code: "FT", name: "File tree", h: 6, what: "Load directories and preserve expanded navigation state.", how: "use-file-tree.ts fetches directory listings and keeps expanded nodes in sync with the active path." },
+      { code: "OF", name: "Open file", h: 5, what: "Resolve selected files into editor or viewer content.", how: "use-open-file.ts maps selected paths to editor content or the correct file viewer." },
+      { code: "WS", name: "Workspace switcher", h: 4, what: "Change roots without losing the current page intent.", how: "use-workspaces.ts lists roots and swaps the active workspace while preserving the current page." },
+      { code: "UP", name: "Upload flow", h: 3, what: "Coordinate drops, progress, and post-upload refreshes.", how: "use-upload.ts stages dropped files, tracks progress, and refreshes the tree after uploads land." }
+    ] },
+    { id: "state", code: "ST", name: "Client state", group: "surface", loc: "1,453 LOC", gx: 13, gy: 0, w: 2, d: 2, h: 4, what: "Keeps open pages, editor status, search, favorites, and live activity responsive.", how: "Zustand stores combine page caching, autosave state, revision recovery, and browser preferences.", talks: ["editor", "web-shell", "wiki-api"], children: [
+      { code: "PG", name: "Page state", h: 6, what: "Track open paths, active tabs, and route transitions.", how: "Zustand stores hold open paths, active tabs, and route transition state shared across the shell." },
+      { code: "ED", name: "Editor state", h: 7, what: "Track dirty content, save status, and revision recovery.", how: "editor-store.ts tracks dirty content, save status, and revision recovery for the active document." },
+      { code: "SR", name: "Search state", h: 4, what: "Keep query, result scope, and selected matches stable.", how: "search-store.ts keeps query, scope, and selected matches stable across navigation." },
+      { code: "AC", name: "Activity state", h: 3, what: "Surface agent events, presence, and collaboration status.", how: "ai-panel-store.ts and proof-store.ts hold agent events, presence, and collaboration status." }
+    ] },
+    { id: "ai-panel", code: "AI", name: "Agent panel", group: "surface", loc: "934 LOC", gx: 16, gy: 0, w: 2, d: 2, h: 3, what: "Lets people register agents, inspect activity, and follow collaboration status.", how: "A small client surface polls activity and calls registration, approval, and presence APIs.", talks: ["agent-api", "live", "state"] },
+
+    { id: "middleware", code: "MW", name: "Middleware gate", group: "entry", loc: "70 LOC", gx: 0, gy: 4, w: 2, d: 2, h: 3, what: "Stops protected pages before the app shell loads when no session cookie exists.", how: "src/middleware.ts applies the cookie gate, lite-mode deny list, and pass-through rules.", talks: ["web-shell", "auth"] },
+    { id: "auth", code: "AU", name: "Human access", group: "entry", loc: "618 LOC", gx: 3, gy: 4, w: 2, d: 2, h: 5, what: "Authenticates people and checks whether state-changing browser requests are allowed.", how: "Better Auth, session checks, CSRF origin checks, admin rules, and embed-key checks share one boundary.", talks: ["middleware", "wiki-api", "system-api", "share-api"], children: [
+      { code: "BA", name: "Better Auth", h: 7, what: "Create accounts, sessions, and sign-in responses.", how: "The Better Auth server instance issues accounts, sessions, and sign-in responses from the database adapter." },
+      { code: "SS", name: "Session boundary", h: 6, what: "Resolve the current person before protected handlers run.", how: "Session checks resolve the current person before protected route handlers execute." },
+      { code: "CS", name: "Origin checks", h: 4, what: "Reject cross-origin cookie mutations.", how: "CSRF origin checks reject state-changing requests that lack the expected origin." },
+      { code: "AD", name: "Admin policy", h: 3, what: "Gate system settings and privileged app controls.", how: "Admin rules gate system settings and privileged controls behind a role check." }
+    ] },
+    { id: "workspace", code: "WS", name: "Workspace registry", group: "entry", loc: "918 LOC", gx: 6, gy: 4, w: 3, d: 2, h: 6, what: "Selects one of the server's registered roots for each request.", how: "workspaces.ts, config.ts, and workspace-context.ts resolve workspace headers, access, git roots, and remote mounts.", talks: ["path", "wiki-api", "system-api", "agent-api"], children: [
+      { code: "RG", name: "Root registry", h: 6, what: "Stores and lists named workspace roots.", how: "config.ts and workspaces.ts store and list the named roots registered for the server." },
+      { code: "CX", name: "Request context", h: 7, what: "Resolves workspace identity and access for each request.", how: "workspace-context.ts resolves the active workspace and access policy for each request." },
+      { code: "GI", name: "Git roots", h: 4, what: "Recognizes repository-backed workspaces and branches.", how: "Git root detection recognizes repository-backed workspaces and exposes their branches." },
+      { code: "RM", name: "Remote mounts", h: 3, what: "Connects registered roots to remote folder mounts.", how: "Remote mount config connects registered roots to SSHFS-backed folder mounts." }
+    ] },
+    { id: "path", code: "PT", name: "Path containment", group: "entry", loc: "343 LOC", gx: 10, gy: 4, w: 2, d: 2, h: 4, what: "Keeps file operations inside the selected workspace.", how: "resolveWorkspacePath realpaths roots, rejects traversal and denied segments, and checks symlink-safe ancestors.", talks: ["workspace", "wiki-api", "agent-api", "git"] },
+    { id: "wiki-api", code: "WK", name: "Browser wiki API", group: "entry", loc: "2,701 LOC", gx: 13, gy: 4, w: 3, d: 2, h: 8, what: "Serves folder listings, file content, search, history, uploads, watches, and live controls.", how: "31 route handlers resolve user workspaces, validate origins, call domain libraries, and serialize responses.", talks: ["auth", "workspace", "path", "proof", "watch", "live", "search", "git", "scratch", "web-tweak"], children: [
+      { code: "FI", name: "File operations", h: 8, what: "List, read, write, move, upload, and delete workspace files.", how: "Route handlers validate origins and call the filesystem library for list, read, write, move, upload, and delete." },
+      { code: "GI", name: "Git views", h: 5, what: "Expose history, diffs, branches, and repository actions.", how: "Git routes wrap the git integration to expose history, diffs, branches, and repository actions." },
+      { code: "SR", name: "Search and links", h: 5, what: "Serve content search, backlinks, and slug lookups.", how: "Search routes invoke the search engine for content matches, backlinks, and slug lookups." },
+      { code: "WS", name: "Watch stream", h: 4, what: "Connect browser directories to live file events.", how: "Watch routes subscribe request scopes to the watcher pool for live file events." },
+      { code: "LV", name: "Live requests", h: 4, what: "Create and inspect human-to-agent instructions.", how: "Live routes create and inspect instructions against the live control plane." }
+    ] },
+    { id: "agent-api", code: "AG", name: "Agent HTTP API", group: "entry", loc: "2,612 LOC", gx: 17, gy: 4, w: 3, d: 2, h: 8, what: "Gives approved automation agents scoped file and collaboration operations.", how: "22 route handlers enforce bearer identity, workspace scope, path globs, revision checks, and operation permissions.", talks: ["auth", "workspace", "path", "proof", "live", "search"], children: [
+      { code: "FS", name: "Raw filesystem", h: 8, what: "Read, write, search, move, and delete arbitrary file bytes.", how: "Raw filesystem routes enforce bearer identity, workspace scope, and path globs before byte-level operations." },
+      { code: "MD", name: "Markdown collab", h: 8, what: "Read snapshots and apply revision-checked block operations.", how: "Markdown routes read snapshots and apply revision-checked block operations through the proof core." },
+      { code: "EV", name: "Events and activity", h: 4, what: "Stream document changes and provenance to agents.", how: "Event routes stream document changes and provenance to approved agents." },
+      { code: "RG", name: "Registration", h: 4, what: "Register agents and expose approved scopes.", how: "Registration routes record agents and expose their approved operation scopes." }
+    ] },
+
+    { id: "cli", code: "CL", name: "CLI launcher", group: "compute", loc: "1,862 LOC", gx: 0, gy: 7, w: 2, d: 2, h: 5, what: "Starts the packaged server and manages local service or remote-mount setup.", how: "bin/ parses options, applies environment precedence, starts the standalone server, and exposes service helpers.", talks: ["ci", "web-shell", "workspace", "sshfs"] },
+    { id: "system-api", code: "SY", name: "System config API", group: "entry", loc: "902 LOC", gx: 3, gy: 7, w: 2, d: 2, h: 4, what: "Changes workspaces, users, administrators, pins, and local settings.", how: "14 route handlers use session and origin checks before mutating persisted configuration.", talks: ["auth", "workspace", "auth-store"] },
+    { id: "share-api", code: "SH", name: "Shared documents", group: "entry", loc: "817 LOC", gx: 6, gy: 7, w: 3, d: 2, h: 4, what: "Publishes read-only document links with optional unlock and expiry controls.", how: "Share routes and shared-docs modules create opaque grants, validate unlocks, and render sanitized content.", talks: ["auth", "share-store", "markdown"] },
+    { id: "mcp", code: "MC", name: "MCP adapter", group: "compute", loc: "2,911 LOC", gx: 10, gy: 7, w: 3, d: 2, h: 6, what: "Lets MCP clients use the agent contract through a separate npm package.", how: "packages/wiki-viewer-mcp defines 13 Zod-backed tools and a typed HTTP client with revision and scope errors.", talks: ["agent-api", "proof", "live"] },
+    { id: "app-runner", code: "AR", name: "Node app runner", group: "compute", loc: "738 LOC", gx: 14, gy: 7, w: 3, d: 2, h: 5, what: "Runs trusted node-app folders and proxies their local web surface.", how: "app-runner.ts manages child processes, readiness probes, ports, logs, and access-checked forwarding.", talks: ["wiki-api", "path", "web-shell"] },
+    { id: "git", code: "GT", name: "Git integration", group: "domain", loc: "871 LOC", gx: 18, gy: 7, w: 2, d: 2, h: 5, what: "Shows repository history and supports safe branch-oriented workspace actions.", how: "git.ts wraps the system binary, scans for leaked credentials, and backs history, diff, branch, and clone routes.", talks: ["wiki-api", "path", "workspace"] },
+    { id: "sshfs", code: "SF", name: "SSHFS remotes", group: "domain", loc: "464 LOC", gx: 21, gy: 7, w: 2, d: 2, h: 4, what: "Makes remote folders appear as workspaces through a local mount boundary.", how: "sshfs.ts and mount helpers manage remote lifecycle, reconnects, and mount hazards.", talks: ["workspace", "path", "cli"] },
+
+    { id: "proof", code: "PR", name: "Proof core", group: "domain", loc: "1,397 LOC", gx: 1, gy: 10, w: 4, d: 3, h: 10, what: "Applies structured Markdown edits while preserving revisions, references, comments, and suggestions.", how: "ops-applier.ts parses blocks, checks base revisions, applies operations, writes atomically, and updates sidecar metadata.", talks: ["safety", "live", "markdown", "auth-store", "audit-store"], children: [
+      { code: "OP", name: "Block operations", h: 9, what: "Apply insert, replace, delete, and annotation operations.", how: "ops-applier.ts applies insert, replace, delete, and annotation operations against parsed blocks." },
+      { code: "RF", name: "Reference map", h: 5, what: "Keeps stable block references across edits.", how: "block-refs.ts keeps stable block references valid across edits." },
+      { code: "SC", name: "Sidecar state", h: 6, what: "Stores revisions, activity, comments, and suggestions beside files.", how: "sidecar.ts and activity.ts store revisions, activity, comments, and suggestions beside each file." },
+      { code: "EV", name: "Event bus", h: 4, what: "Publishes document changes to watchers and agents.", how: "event-bus.ts publishes document changes to watchers and agent subscribers." }
+    ] },
+    { id: "safety", code: "LK", name: "Locking and audit", group: "domain", loc: "539 LOC", gx: 6, gy: 10, w: 3, d: 2, h: 7, what: "Prevents concurrent edits from silently overwriting one another.", how: "Mutexes, proper-lockfile, leases, collab state, idempotency, rate limits, and audit rows protect writes.", talks: ["proof", "audit-store", "live"] },
+    { id: "live", code: "LV", name: "Live control plane", group: "compute", loc: "1,312 LOC", gx: 10, gy: 10, w: 3, d: 2, h: 7, what: "Carries human instructions and agent replies for live collaboration.", how: "A SQLite-backed session and request store handles attach, sequence ordering, long-poll delivery, and reply application.", talks: ["agent-api", "proof", "live-store", "ai-panel"], children: [
+      { code: "SS", name: "Sessions", h: 6, what: "Attach one agent to one live collaboration session.", how: "The live session records attach one agent to one collaboration session." },
+      { code: "RQ", name: "Request queue", h: 8, what: "Sequence generate, steer, and web-tweak requests.", how: "The request store sequences generate, steer, and web-tweak requests in order." },
+      { code: "PR", name: "Presence", h: 4, what: "Track human and agent presence with short leases.", how: "Presence records track human and agent liveness with short renewable leases." },
+      { code: "RP", name: "Replies", h: 6, what: "Deliver replies and apply accepted operations.", how: "Reply handling delivers replies and applies accepted operations through proof." }
+    ] },
+    { id: "watch", code: "WT", name: "Watch and SSE", group: "compute", loc: "725 LOC", gx: 14, gy: 10, w: 2, d: 2, h: 5, what: "Notifies browser and agent clients when files change outside their current request.", how: "watcher-pool.ts uses chokidar subscriptions, ancestor merging, scope rebasing, deduplication, and heartbeats.", talks: ["wiki-api", "state", "proof"], children: [
+      { code: "CH", name: "Chokidar pool", h: 7, what: "Share filesystem watchers across compatible scopes.", how: "watcher-pool.ts shares chokidar watchers across compatible scopes." },
+      { code: "RB", name: "Scope rebasing", h: 5, what: "Map ancestor events back to subscribed workspace paths.", how: "Scope rebasing maps ancestor events back to subscribed workspace paths." },
+      { code: "DD", name: "Deduplication", h: 4, what: "Collapse repeated changes into useful event payloads.", how: "Deduplication collapses repeated changes into one useful event payload." },
+      { code: "HB", name: "Heartbeats", h: 3, what: "Keep long-lived browser and agent streams alive.", how: "Heartbeats keep long-lived browser and agent streams alive." }
+    ] },
+    { id: "search", code: "SE", name: "Search engine", group: "domain", loc: "1,845 LOC", gx: 17, gy: 10, w: 3, d: 2, h: 8, what: "Finds files and content without loading an entire workspace into memory.", how: "Ripgrep adapters stream bounded JSON results, retry advanced patterns, and verify backlinks through Markdown parsing.", talks: ["wiki-api", "agent-api", "markdown", "path"], children: [
+      { code: "RG", name: "Ripgrep adapter", h: 7, what: "Stream bounded file and content matches.", how: "rg-search.ts and rg-snippet.ts stream bounded ripgrep matches as JSON." },
+      { code: "FP", name: "File paths", h: 5, what: "Filter hidden, denied, and out-of-scope paths.", how: "rg-path.ts filters hidden, denied, and out-of-scope paths before searching." },
+      { code: "BL", name: "Backlinks", h: 6, what: "Parse Markdown references and return incoming links.", how: "backlinks.ts parses Markdown references and returns incoming links." },
+      { code: "RT", name: "Retry policy", h: 3, what: "Retry advanced queries when the fast path rejects them.", how: "The retry policy reruns advanced queries when the fast path rejects them." }
+    ] },
+
+    { id: "markdown", code: "MD", name: "Markdown pipeline", group: "domain", loc: "1,023 LOC", gx: 0, gy: 13, w: 3, d: 2, h: 6, what: "Converts Markdown into safe HTML and understands links, embeds, tasks, and frontmatter.", how: "Unified remark and rehype plugins parse, sanitize, rewrite relative assets, detect embeds, and cache output.", talks: ["proof", "search", "share-api", "editor"], children: [
+      { code: "PA", name: "Parser", h: 7, what: "Build an AST from Markdown and GitHub-flavored syntax.", how: "Unified remark plugins parse Markdown and GitHub-flavored syntax into an AST." },
+      { code: "HT", name: "HTML renderer", h: 6, what: "Convert parsed content into safe display HTML.", how: "to-html.ts runs rehype plugins and the sanitize schema to emit safe HTML." },
+      { code: "WL", name: "Wiki links", h: 4, what: "Resolve internal links and relative asset references.", how: "wikilink.ts resolves internal links and relative asset references." },
+      { code: "EM", name: "Embeds", h: 4, what: "Detect supported external media and document embeds.", how: "lib/embeds detects supported external media and document embeds." }
+    ] },
+    { id: "web-tweak", code: "TW", name: "Web tweak flow", group: "domain", loc: "2,930 LOC", gx: 4, gy: 13, w: 3, d: 2, h: 7, what: "Lets people select an element in a preview and review a proposed source change.", how: "Sandboxed picker messages become preview operations and candidate patches before accept or discard.", talks: ["editor", "wiki-api", "proof"], children: [
+      { code: "PK", name: "Picker", h: 7, what: "Select an element from a sandboxed preview.", how: "picker.ts and protocol.ts capture element selections from the sandboxed preview." },
+      { code: "PV", name: "Preview", h: 6, what: "Apply temporary DOM operations without saving source.", how: "preview-store.ts applies temporary DOM operations without saving source." },
+      { code: "AC", name: "Accept flow", h: 5, what: "Review, accept, or discard a candidate source patch.", how: "accept.ts turns preview operations into a candidate patch for accept or discard." }
+    ] },
+    { id: "scratch", code: "SC", name: "Scratchpad", group: "domain", loc: "355 LOC", gx: 8, gy: 13, w: 2, d: 2, h: 4, what: "Captures quick snippets before they become normal workspace files.", how: "Scratch config and detection modules create, sweep, and promote temporary captures.", talks: ["wiki-api", "path", "state"] },
+    { id: "tests", code: "TS", name: "Proof test suite", group: "delivery", loc: "14,849 LOC", gx: 12, gy: 13, w: 2, d: 2, h: 5, what: "Exercises the filesystem, auth, collaboration, and agent safety contracts.", how: "71 proof test files run through scripts/test-floor.mjs, which enforces a 691-test minimum.", talks: ["proof", "agent-api", "wiki-api", "ci"] },
+    { id: "ci", code: "CI", name: "Build and publish", group: "delivery", loc: "3 workflow files", gx: 15, gy: 13, w: 3, d: 2, h: 3, what: "Checks changes and prepares the standalone package for release.", how: "Versioned workflows run formatting, tests, builds, and npm publishing around the one server artifact.", talks: ["cli", "editor", "agent-api", "tests"] },
+
+    { id: "auth-store", code: "DB", name: "Auth store", group: "data", loc: "role", gx: 0, gy: 16, w: 3, d: 2, h: 1, slab: true, what: "Durable users, sessions, and account records.", how: "Better Auth uses a local SQLite store through the project database adapter.", talks: ["auth", "system-api", "proof"] },
+    { id: "share-store", code: "DB", name: "Share store", group: "data", loc: "role", gx: 4, gy: 16, w: 3, d: 2, h: 1, slab: true, what: "Durable public-share grants, expiry data, and view counts.", how: "shared-docs/db.ts persists opaque share metadata in SQLite.", talks: ["share-api"] },
+    { id: "live-store", code: "DB", name: "Live store", group: "data", loc: "role", gx: 8, gy: 16, w: 3, d: 2, h: 1, slab: true, what: "Durable live sessions, request sequence, and presence state.", how: "proof/live/store.ts persists collaboration control-plane state in SQLite.", talks: ["live"] },
+    { id: "audit-store", code: "DB", name: "Audit store", group: "data", loc: "role", gx: 12, gy: 16, w: 3, d: 2, h: 1, slab: true, what: "Append-only records of scoped agent filesystem operations.", how: "proof/audit.ts writes operation, path, revision, and hash metadata to SQLite.", talks: ["safety", "agent-api"] }
+  ];
+
+  const EDGES = [
+    { f: "middleware", t: "web-shell", flow: 1, pay: "Session gate" },
+    { f: "web-shell", t: "hooks", flow: 1, pay: "Page actions" },
+    { f: "hooks", t: "wiki-api", flow: 1, pay: "Workspace request" },
+    { f: "wiki-api", t: "auth", flow: 1, pay: "Session context" },
+    { f: "wiki-api", t: "workspace", flow: 1, pay: "Workspace choice" },
+    { f: "workspace", t: "path", flow: 1, pay: "Root and relative path" },
+    { f: "wiki-api", t: "proof", flow: 1, pay: "Markdown command" },
+    { f: "editor", t: "wiki-api", flow: 1, pay: "Read or save" },
+    { f: "wiki-api", t: "watch", flow: 1, pay: "Watch scope" },
+    { f: "watch", t: "state", flow: 1, pay: "File event" },
+    { f: "wiki-api", t: "live", flow: 1, pay: "Live instruction" },
+    { f: "live", t: "agent-api", flow: 1, pay: "Queued request" },
+    { f: "agent-api", t: "proof", flow: 1, pay: "Scoped block ops" },
+    { f: "proof", t: "safety", flow: 1, pay: "Locked mutation" },
+    { f: "safety", t: "audit-store", flow: 1, pay: "Audit row" },
+    { f: "proof", t: "auth-store", flow: 1, pay: "Access-linked state" },
+    { f: "live", t: "live-store", flow: 1, pay: "Session sequence" },
+    { f: "share-api", t: "share-store", flow: 1, pay: "Share grant" },
+    { f: "share-api", t: "markdown", flow: 1, pay: "Safe rendering" },
+    { f: "proof", t: "markdown", flow: 1, pay: "Parsed document" },
+    { f: "search", t: "markdown", flow: 1, pay: "Parsed backlink" },
+    { f: "wiki-api", t: "search", flow: 1, pay: "Query" },
+    { f: "wiki-api", t: "git", flow: 1, pay: "Repository action" },
+    { f: "workspace", t: "sshfs", flow: 1, pay: "Remote workspace" },
+    { f: "wiki-api", t: "scratch", flow: 1, pay: "Quick capture" },
+    { f: "wiki-api", t: "web-tweak", flow: 1, pay: "Preview patch" },
+    { f: "editor", t: "web-tweak", flow: 1, pay: "Picker selection" },
+    { f: "wiki-api", t: "app-runner", flow: 1, pay: "Trusted app launch" },
+    { f: "app-runner", t: "web-shell", flow: 1, pay: "Proxied preview" },
+    { f: "mcp", t: "agent-api", flow: 1, pay: "MCP tool call" },
+    { f: "ai-panel", t: "agent-api", flow: 1, pay: "Agent management" },
+    { f: "state", t: "editor", flow: 1, pay: "Page state" },
+    { f: "cli", t: "web-shell", dashed: 1, pay: "Server startup" },
+    { f: "ci", t: "cli", dashed: 1, pay: "Package output" },
+    { f: "ci", t: "tests", dashed: 1, pay: "Quality checks" },
+    { f: "tests", t: "proof", dashed: 1, pay: "Contract coverage" }
+  ];
+
+  const EXTERNALS = [
+    { id: "browser", name: "Browser", target: "web-shell", gx: 4, gy: -3, pay: "User interaction" },
+    { id: "identity-service", name: "Identity service", target: "auth", gx: -3, gy: 5, pay: "Optional identity" },
+    { id: "git-host", name: "Git host", target: "git", gx: 23, gy: 6, pay: "Repository data" },
+    { id: "model-service", name: "Model service", target: "live", gx: 23, gy: 11, pay: "Agent response" }
+  ];
+
+  const TRACE = [
+    ["web-shell", "A person opens the browser workbench."],
+    ["middleware", "Middleware checks for the session gate before protected pages render."],
+    ["web-shell", "The app shell mounts its workspace and file-tree controls."],
+    ["hooks", "Page hooks request available workspaces and the current directory listing."],
+    ["wiki-api", "The wiki API validates the request and selects the content handler."],
+    ["workspace", "Workspace context resolves the selected root and access policy."],
+    ["path", "Path containment resolves the relative file without crossing the root."],
+    ["editor", "The editor renders the Markdown snapshot and starts its watch stream."],
+    ["proof", "A debounced save applies the new blocks and advances the revision atomically."],
+    ["live", "An optional live instruction enters the in-process collaboration queue."],
+    ["agent-api", "An approved agent receives the request and returns scoped operations."],
+    ["state", "Client state records the revision and refreshes the visible page."],
+    ["web-shell", "The browser presents the saved document and current activity." ]
+  ];
+
+  const OVERVIEW_WHAT = "Wiki Viewer is one local-first web server for browsing and editing many file types. Its browser workbench, scoped agent API, MCP adapter, and live collaboration surface all meet at workspace-aware filesystem operations, with Markdown collaboration adding revisions and provenance around ordinary files.";
+  const OVERVIEW_HOW = "The standalone Next.js server owns request routing, auth, workspace selection, path containment, rendering, git and remote adapters, app launching, and four SQLite-backed roles. Human saves and agent block operations share locks and revision checks. Chokidar watchers, SSE streams, timers, and long polling provide asynchronous behavior inside the same deployed service; no separate queue or worker service is present.";
+
+  /* ============================== END DATA ============================== */
+
+  (function () {
+    const NS = "http:" + "//www.w3.org/2000/svg";
+    const VIEW_W = 1000;
+    const VIEW_H = 790;
+    const ORIGIN_X = 493;
+    const ORIGIN_Y = 175;
+    const ISO_X = 26;
+    const ISO_Y = 14.3;
+    const ISO_H = 16;
+
+    const svg = document.getElementById("map");
+    const nav = document.getElementById("structure-nav");
+    const detail = document.getElementById("detail");
+    const tooltip = document.getElementById("tooltip");
+    const traceCard = document.getElementById("trace-card");
+    const insideBack = document.getElementById("inside-back");
+    const groupById = new Map(GROUPS.map((group) => [group.id, group]));
+    const structureById = new Map(STRUCTURES.map((structure) => [structure.id, structure]));
+    let selectedId = null;
+    let insideId = null;
+    let traceIndex = null;
+
+    function esc(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+
+    function svgEl(name, attrs, text) {
+      const node = document.createElementNS(NS, name);
+      Object.entries(attrs || {}).forEach(([key, value]) => node.setAttribute(key, String(value)));
+      if (text !== undefined) node.textContent = String(text);
+      return node;
+    }
+
+    function project(gx, gy, h) {
+      return [ORIGIN_X + (gx - gy) * ISO_X, ORIGIN_Y + (gx + gy) * ISO_Y - h * ISO_H];
+    }
+
+    function points(values) {
+      return values.map((point) => point.join(",")).join(" ");
+    }
+
+    function shade(hex, amount) {
+      const raw = hex.replace("#", "");
+      const value = parseInt(raw, 16);
+      const r = Math.max(0, Math.min(255, (value >> 16) + amount));
+      const g = Math.max(0, Math.min(255, ((value >> 8) & 255) + amount));
+      const b = Math.max(0, Math.min(255, (value & 255) + amount));
+      return `rgb(${r},${g},${b})`;
+    }
+
+    function structureCenter(structure) {
+      return {
+        gx: structure.gx + structure.w / 2,
+        gy: structure.gy + structure.d / 2
+      };
+    }
+
+    function clearDrawing() {
+      svg.querySelectorAll(".drawing-layer").forEach((node) => node.remove());
+    }
+
+    function makeLayer(name) {
+      const layer = svgEl("g", { class: `drawing-layer ${name}` });
+      svg.appendChild(layer);
+      return layer;
+    }
+
+    function drawGround(layer) {
+      for (let i = -5; i <= 24; i += 2) {
+        const a = project(i, -4, 0);
+        const b = project(i, 23, 0);
+        layer.appendChild(svgEl("line", { class: "ground-line", x1: a[0], y1: a[1], x2: b[0], y2: b[1] }));
+      }
+      for (let i = -4; i <= 23; i += 2) {
+        const a = project(-5, i, 0);
+        const b = project(24, i, 0);
+        layer.appendChild(svgEl("line", { class: "ground-line", x1: a[0], y1: a[1], x2: b[0], y2: b[1] }));
+      }
+    }
+
+    function routeFor(edge) {
+      const from = structureById.get(edge.f);
+      const to = structureById.get(edge.t);
+      if (!from || !to) return null;
+      const start = structureCenter(from);
+      const end = structureCenter(to);
+      const logical = [
+        [start.gx, start.gy],
+        ...(edge.via || [[end.gx, start.gy]]),
+        [end.gx, end.gy]
+      ];
+      const projected = logical.map(([gx, gy]) => project(gx, gy, 0.08));
+      return `M ${projected.map((point) => `${point[0]} ${point[1]}`).join(" L ")}`;
+    }
+
+    function showTooltip(event, title, body) {
+      tooltip.innerHTML = `<strong>${esc(title)}</strong><span>${esc(body)}</span>`;
+      const left = Math.min(window.innerWidth - 270, event.clientX + 12);
+      const top = Math.min(window.innerHeight - 120, event.clientY + 12);
+      tooltip.style.left = `${Math.max(10, left)}px`;
+      tooltip.style.top = `${Math.max(10, top)}px`;
+      tooltip.classList.add("show");
+    }
+
+    function hideTooltip() {
+      tooltip.classList.remove("show");
+    }
+
+    function drawEdges(layer) {
+      EDGES.forEach((edge, index) => {
+        const d = routeFor(edge);
+        if (!d) return;
+        const path = svgEl("path", {
+          id: `flow-path-${index}`,
+          class: `edge-line${edge.flow ? " flow" : ""}${edge.dashed ? " dashed" : ""}`,
+          d,
+          "data-from": edge.f,
+          "data-to": edge.t
+        });
+        const hit = svgEl("path", { class: "edge-hit", d, tabindex: "0" });
+        const describe = (event) => showTooltip(event, `${structureById.get(edge.f).name} → ${structureById.get(edge.t).name}`, edge.pay);
+        hit.addEventListener("pointermove", describe);
+        hit.addEventListener("pointerleave", hideTooltip);
+        hit.addEventListener("focus", (event) => showTooltip({ clientX: window.innerWidth / 2, clientY: 120 }, "Data flow", edge.pay));
+        hit.addEventListener("blur", hideTooltip);
+        layer.appendChild(path);
+        layer.appendChild(hit);
+
+        if (edge.flow) {
+          [0, 1].forEach((dotIndex) => {
+            const circle = svgEl("circle", { class: "flow-dot", r: 3.5, "data-pay": edge.pay });
+            const motion = svgEl("animateMotion", {
+              path: d,
+              dur: `${5.5 + (index % 4) * 0.8}s`,
+              begin: `${dotIndex * -2.7}s`,
+              repeatCount: "indefinite"
+            });
+            circle.appendChild(motion);
+            circle.addEventListener("pointermove", (event) => showTooltip(event, "In transit", edge.pay));
+            circle.addEventListener("pointerleave", hideTooltip);
+            layer.appendChild(circle);
+          });
+        }
+      });
+    }
+
+    function blockGeometry(structure) {
+      const height = structure.slab ? Math.max(0.55, structure.h) : structure.h;
+      const topA = project(structure.gx, structure.gy, height);
+      const topB = project(structure.gx + structure.w, structure.gy, height);
+      const topC = project(structure.gx + structure.w, structure.gy + structure.d, height);
+      const topD = project(structure.gx, structure.gy + structure.d, height);
+      const baseB = project(structure.gx + structure.w, structure.gy, 0);
+      const baseC = project(structure.gx + structure.w, structure.gy + structure.d, 0);
+      const baseD = project(structure.gx, structure.gy + structure.d, 0);
+      return { height, topA, topB, topC, topD, baseB, baseC, baseD };
+    }
+
+    function drawBlock(layer, structure, options) {
+      const settings = options || {};
+      const group = groupById.get(structure.group) || { color: "#a69d88" };
+      const color = settings.color || group.color;
+      const geometry = blockGeometry(structure);
+      const node = svgEl("g", {
+        class: "structure",
+        tabindex: "0",
+        role: "button",
+        "aria-label": `${structure.name}, ${structure.loc || "internal structure"}`,
+        "data-id": structure.id
+      });
+
+      node.appendChild(svgEl("polygon", {
+        class: "face right",
+        points: points([geometry.topB, geometry.topC, geometry.baseC, geometry.baseB]),
+        fill: shade(color, -36)
+      }));
+      node.appendChild(svgEl("polygon", {
+        class: "face left",
+        points: points([geometry.topC, geometry.topD, geometry.baseD, geometry.baseC]),
+        fill: shade(color, -18)
+      }));
+      node.appendChild(svgEl("polygon", {
+        class: "face top",
+        points: points([geometry.topA, geometry.topB, geometry.topC, geometry.topD]),
+        fill: color
+      }));
+      node.appendChild(svgEl("polygon", {
+        points: points([geometry.topA, geometry.topB, geometry.topC, geometry.topD]),
+        fill: "url(#fine-hatch)",
+        "pointer-events": "none"
+      }));
+
+      const topCenter = project(structure.gx + structure.w / 2, structure.gy + structure.d / 2, geometry.height);
+      node.appendChild(svgEl("text", { class: "block-code", x: topCenter[0], y: topCenter[1] - 2 }, structure.code));
+      node.appendChild(svgEl("text", { class: "block-loc", x: topCenter[0], y: topCenter[1] + 11 }, structure.loc || ""));
+
+      const activate = () => settings.onSelect ? settings.onSelect(structure) : selectStructure(structure.id);
+      node.addEventListener("click", activate);
+      node.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          activate();
+        }
+      });
+      node.addEventListener("pointermove", (event) => {
+        showTooltip(event, `${structure.name} · ${structure.loc || ""}`, structure.what);
+        if (!settings.noNeighbors) highlightNeighborhood(structure.id);
+      });
+      node.addEventListener("pointerleave", () => {
+        hideTooltip();
+        if (!settings.noNeighbors) applyHighlightState();
+      });
+      node.addEventListener("focus", () => {
+        if (!settings.noNeighbors) highlightNeighborhood(structure.id);
+      });
+      node.addEventListener("blur", () => {
+        if (!settings.noNeighbors) applyHighlightState();
+      });
+      layer.appendChild(node);
+      return node;
+    }
+
+    function drawExternals(layer) {
+      EXTERNALS.forEach((external) => {
+        const target = structureById.get(external.target);
+        if (!target) return;
+        const targetCenter = structureCenter(target);
+        const start = project(external.gx, external.gy, 0.1);
+        const end = project(targetCenter.gx, targetCenter.gy, 0.1);
+        const width = Math.max(118, external.name.length * 7.2);
+        const group = svgEl("g", { tabindex: "0", role: "note" });
+        group.appendChild(svgEl("path", { class: "external-line", d: `M ${start[0]} ${start[1]} L ${end[0]} ${end[1]}` }));
+        group.appendChild(svgEl("rect", { class: "external-card", x: start[0] - width / 2, y: start[1] - 18, width, height: 35, rx: 2 }));
+        group.appendChild(svgEl("text", { class: "external-name", x: start[0], y: start[1] - 3, "text-anchor": "middle" }, external.name));
+        group.appendChild(svgEl("text", { class: "external-pay", x: start[0], y: start[1] + 10, "text-anchor": "middle" }, external.pay));
+        group.addEventListener("pointermove", (event) => showTooltip(event, external.name, external.pay));
+        group.addEventListener("pointerleave", hideTooltip);
+        layer.appendChild(group);
+      });
+    }
+
+    function drawZoneLabels(layer) {
+      const labels = GROUPS
+        .filter(
+          (group) =>
+            Number.isFinite(group.labelGX)
+            && Number.isFinite(group.labelGY)
+        )
+        .map((group) => [group.name.toUpperCase(), group.labelGX, group.labelGY]);
+
+      labels.forEach(([label, gx, gy]) => {
+        const at = project(gx, gy, 0);
+        layer.appendChild(svgEl("text", { class: "zone-label", x: at[0], y: at[1], "text-anchor": "middle" }, label));
+      });
+    }
+
+    function renderCity() {
+      insideId = null;
+      insideBack.classList.remove("show");
+      clearDrawing();
+      const ground = makeLayer("ground-layer");
+      const edges = makeLayer("edge-layer");
+      const blocks = makeLayer("block-layer");
+      const externals = makeLayer("external-layer");
+      drawGround(ground);
+      drawZoneLabels(ground);
+      drawEdges(edges);
+      STRUCTURES
+        .slice()
+        .sort((a, b) => (a.gx + a.gy) - (b.gx + b.gy))
+        .forEach((structure) => drawBlock(blocks, structure));
+      drawExternals(externals);
+      applyHighlightState();
+    }
+
+    function renderInside(parent) {
+      insideId = parent.id;
+      selectedId = parent.id;
+      traceIndex = null;
+      traceCard.classList.remove("show");
+      insideBack.classList.add("show");
+      clearDrawing();
+      const ground = makeLayer("ground-layer");
+      const blocks = makeLayer("block-layer");
+      drawGround(ground);
+
+      ground.appendChild(svgEl("rect", { class: "inside-boundary", x: 130, y: 130, width: 740, height: 520, rx: 8 }));
+      ground.appendChild(svgEl("text", { class: "inside-title", x: 165, y: 184 }, `Inside ${parent.name}`));
+      ground.appendChild(svgEl("text", { class: "inside-note", x: 166, y: 207 }, "COMPONENT RESPONSIBILITIES · HEIGHTS FOLLOW RELATIVE SIZE"));
+
+      const children = parent.children || [];
+      children.forEach((child, index) => {
+        const column = index % 3;
+        const row = Math.floor(index / 3);
+        const structure = {
+          id: `${parent.id}-child-${index}`,
+          code: child.code,
+          name: child.name,
+          group: parent.group,
+          loc: child.loc || "internal",
+          gx: 5 + column * 5,
+          gy: 8 + row * 6,
+          w: 3,
+          d: 2.4,
+          h: child.h,
+          what: child.what,
+          how: parent.how,
+          talks: []
+        };
+        drawBlock(blocks, structure, {
+          color: (groupById.get(parent.group) || { color: "#9d9480" }).color,
+          noNeighbors: true,
+          onSelect: () => renderChildDetail(parent, child)
+        });
+      });
+      renderStructureDetail(parent);
+      syncNav();
+    }
+
+    function highlightNeighborhood(id) {
+      const neighbors = new Set([id]);
+      EDGES.forEach((edge) => {
+        if (edge.f === id) neighbors.add(edge.t);
+        if (edge.t === id) neighbors.add(edge.f);
+      });
+      svg.querySelectorAll(".structure").forEach((node) => {
+        node.classList.toggle("dimmed", !neighbors.has(node.dataset.id));
+      });
+      svg.querySelectorAll(".edge-line").forEach((node) => {
+        node.classList.toggle("active", node.dataset.from === id || node.dataset.to === id);
+      });
+    }
+
+    function applyHighlightState() {
+      const active = traceIndex !== null ? TRACE[traceIndex][0] : selectedId;
+      const completedIds = traceIndex !== null
+        ? new Set(TRACE.slice(0, traceIndex + 1).map(([id]) => id))
+        : new Set();
+      const transitions = traceIndex !== null
+        ? TRACE.slice(1, traceIndex + 1).map(([to], index) => [TRACE[index][0], to])
+        : [];
+      svg.querySelectorAll(".structure").forEach((node) => {
+        const isCurrent = traceIndex !== null && node.dataset.id === active;
+        const isComplete = traceIndex !== null && completedIds.has(node.dataset.id) && !isCurrent;
+        node.classList.toggle("dimmed", traceIndex !== null && !completedIds.has(node.dataset.id));
+        node.classList.toggle("active", traceIndex === null && node.dataset.id === active);
+        node.classList.toggle("trace-complete", isComplete);
+        node.classList.toggle("trace-current", isCurrent);
+      });
+      svg.querySelectorAll(".edge-line").forEach((node) => {
+        let lastMatch = -1;
+        transitions.forEach(([from, to], index) => {
+          const matches = (node.dataset.from === from && node.dataset.to === to)
+            || (node.dataset.from === to && node.dataset.to === from);
+          if (matches) lastMatch = index;
+        });
+        node.classList.toggle("active", false);
+        node.classList.toggle("trace-complete", lastMatch >= 0 && lastMatch < transitions.length - 1);
+        node.classList.toggle("trace-current", lastMatch >= 0 && lastMatch === transitions.length - 1);
+      });
+      syncNav();
+    }
+
+    function syncNav() {
+      nav.querySelectorAll(".structure-link").forEach((button) => {
+        button.classList.toggle("active", button.dataset.id === selectedId);
+      });
+    }
+
+    function renderNav() {
+      nav.textContent = "";
+      GROUPS.forEach((group) => {
+        const members = STRUCTURES.filter((structure) => structure.group === group.id);
+        if (!members.length) return;
+        const section = document.createElement("section");
+        section.className = "group";
+        const title = document.createElement("p");
+        title.className = "group-title";
+        title.innerHTML = `<span class="swatch" style="background:${esc(group.color)}"></span>${esc(group.name)}`;
+        section.appendChild(title);
+        members.forEach((structure) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "structure-link";
+          button.dataset.id = structure.id;
+          button.style.setProperty("--chip", group.color);
+          button.innerHTML = `<span class="code-chip">${esc(structure.code)}</span><span class="name">${esc(structure.name)}</span><span class="loc">${esc(structure.loc)}</span>`;
+          button.addEventListener("click", () => {
+            if (location.hash) history.replaceState(null, "", location.pathname + location.search);
+            if (insideId) renderCity();
+            traceIndex = null;
+            traceCard.classList.remove("show");
+            selectStructure(structure.id);
+          });
+          section.appendChild(button);
+        });
+        nav.appendChild(section);
+      });
+    }
+
+    function renderOverview() {
+      selectedId = null;
+      detail.innerHTML = `
+        <p class="eyebrow">System overview</p>
+        <h2>${esc(TITLE)}</h2>
+        <div class="detail-meta"><span>${STRUCTURES.length} structures</span><span>${EDGES.length} connections</span></div>
+        <section class="detail-section"><h3>What it does</h3><p>${esc(OVERVIEW_WHAT)}</p></section>
+        <section class="detail-section"><h3>How it's built</h3><p>${esc(OVERVIEW_HOW)}</p></section>
+        <section class="detail-section"><h3>How to explore</h3><p>Hover blocks and moving dots for context. Select a structure for details. Request trace reveals a numbered path: orange marks completed steps and red marks the current step. Structures with internal components offer a go-inside view.</p></section>`;
+      syncNav();
+    }
+
+    function renderStructureDetail(structure) {
+      const group = groupById.get(structure.group);
+      const connections = (structure.talks || [])
+        .map((id) => structureById.get(id))
+        .filter(Boolean);
+      const connectionsHtml = connections.length
+        ? `<ul>${connections.map((item) => `<li>${esc(item.name)}</li>`).join("")}</ul>`
+        : `<p>No outgoing runtime connection is shown.</p>`;
+      detail.innerHTML = `
+        <p class="eyebrow">${esc(group ? group.name : "Structure")}</p>
+        <h2>${esc(structure.name)}</h2>
+        <div class="detail-meta"><span>${esc(structure.code)}</span><span>${esc(structure.loc)}</span>${structure.slab ? "<span>storage slab</span>" : ""}</div>
+        <section class="detail-section"><h3>What it does</h3><p>${esc(structure.what)}</p></section>
+        <section class="detail-section"><h3>How it's built</h3><p>${esc(structure.how)}</p></section>
+        <section class="detail-section"><h3>Talks to</h3>${connectionsHtml}</section>
+        ${structure.children && structure.children.length ? `<button class="inside-button" id="go-inside" type="button">Go inside · ${structure.children.length} components</button>` : ""}`;
+      const insideButton = document.getElementById("go-inside");
+      if (insideButton) insideButton.addEventListener("click", () => { location.hash = `inside=${encodeURIComponent(structure.id)}`; });
+    }
+
+    function renderChildDetail(parent, child) {
+      detail.innerHTML = `
+        <p class="eyebrow">Inside ${esc(parent.name)}</p>
+        <h2>${esc(child.name)}</h2>
+        <div class="detail-meta"><span>${esc(child.code)}</span><span>internal component</span></div>
+        <section class="detail-section"><h3>What it does</h3><p>${esc(child.what)}</p></section>
+        <section class="detail-section"><h3>How it works</h3><p>${esc(child.how)}</p></section>
+        <section class="detail-section"><h3>Parent implementation</h3><p>${esc(parent.how)}</p></section>`;
+    }
+
+    function selectStructure(id) {
+      const structure = structureById.get(id);
+      if (!structure) return;
+      selectedId = id;
+      renderStructureDetail(structure);
+      applyHighlightState();
+    }
+
+    function renderTrace(index) {
+      const safeIndex = Math.max(0, Math.min(TRACE.length - 1, index));
+      traceIndex = safeIndex;
+      const [id, sentence] = TRACE[safeIndex];
+      const structure = structureById.get(id);
+      const traceStepsHtml = TRACE.map(([stepId], stepIndex) => {
+        const stepStructure = structureById.get(stepId);
+        const state = stepIndex === safeIndex ? " current" : (stepIndex < safeIndex ? " complete" : "");
+        const label = stepStructure ? stepStructure.code : String(stepIndex + 1);
+        const name = stepStructure ? stepStructure.name : stepId;
+        return `<button class="trace-step${state}" type="button" data-trace-step="${stepIndex + 1}" aria-label="Go to trace step ${stepIndex + 1}: ${esc(name)}"><span class="trace-dot">${stepIndex + 1}</span><span class="trace-step-label">${esc(label)}</span></button>`;
+      }).join("");
+      selectedId = id;
+      if (insideId) renderCity();
+      traceCard.classList.add("show");
+      traceCard.innerHTML = `
+        <div class="trace-count"><small>Request trace</small><b>${String(safeIndex + 1).padStart(2, "0")} / ${String(TRACE.length).padStart(2, "0")}</b><span>Orange done · red current</span></div>
+        <div class="trace-copy"><strong>${esc(structure ? structure.name : id)}</strong><span>${esc(sentence)}</span></div>
+        <div class="trace-actions">
+          <button type="button" data-trace-action="previous"${safeIndex === 0 ? " disabled" : ""}>← Previous</button>
+          <button type="button" data-trace-action="next"${safeIndex === TRACE.length - 1 ? " disabled" : ""}>Next →</button>
+          <button type="button" data-trace-action="close">Close</button>
+        </div>
+        <div class="trace-timeline" style="--trace-count:${TRACE.length}">${traceStepsHtml}</div>`;
+      traceCard.querySelector('[data-trace-action="previous"]').addEventListener("click", () => setTrace(Math.max(1, safeIndex)));
+      traceCard.querySelector('[data-trace-action="next"]').addEventListener("click", () => setTrace(Math.min(TRACE.length, safeIndex + 2)));
+      traceCard.querySelector('[data-trace-action="close"]').addEventListener("click", () => { location.hash = ""; });
+      traceCard.querySelectorAll("[data-trace-step]").forEach((button) => {
+        button.addEventListener("click", () => setTrace(Number(button.dataset.traceStep)));
+      });
+      if (structure) renderStructureDetail(structure);
+      applyHighlightState();
+    }
+
+    function setTrace(oneBasedIndex) {
+      location.hash = `trace=${oneBasedIndex}`;
+    }
+
+    function applyHash() {
+      // Debug hooks: #inside=STRUCTURE_ID and #trace=7.
+      window.scrollTo(0, 0);
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+      const params = new URLSearchParams(location.hash.slice(1));
+      const inside = params.get("inside");
+      const trace = Number(params.get("trace"));
+      if (inside) {
+        const structure = structureById.get(inside);
+        if (structure && structure.children && structure.children.length) {
+          renderInside(structure);
+          return;
+        }
+      }
+      renderCity();
+      if (Number.isFinite(trace) && trace >= 1) {
+        renderTrace(trace - 1);
+      } else {
+        traceIndex = null;
+        traceCard.classList.remove("show");
+        renderOverview();
+        applyHighlightState();
+      }
+    }
+
+    document.getElementById("page-title").textContent = TITLE;
+    document.getElementById("page-subtitle").textContent = SUBTITLE;
+    document.title = TITLE;
+    document.getElementById("stats").innerHTML = STATS.map((stat) => `<div class="stat"><strong>${esc(stat.value)}</strong><span>${esc(stat.label)}</span></div>`).join("");
+    document.getElementById("overview-button").addEventListener("click", () => { location.hash = ""; });
+    document.getElementById("trace-button").addEventListener("click", () => setTrace(1));
+    insideBack.addEventListener("click", () => { location.hash = ""; });
+    window.addEventListener("hashchange", applyHash);
+    window.addEventListener("pointerdown", (event) => {
+      if (!event.target.closest(".structure") && !event.target.closest(".structure-link") && !event.target.closest(".detail")) hideTooltip();
+    });
+
+    if ("scrollRestoration" in history) history.scrollRestoration = "manual";
+    renderNav();
+    applyHash();
+    window.__isometricReady = true;
+  }());
+  </script>
+</body>
+</html>
