@@ -118,15 +118,15 @@ Import alias: `@/*` → `./src/*`.
 
 ## UX Contracts
 
-`docs/ux-contracts.md` is the ground-truth inventory of user-facing behavior
-(triggers, edge cases, exact constants, keyboard shortcuts). It currently covers
-the Live collaboration surface; the rest of the app is listed under Known gaps.
+`docs/ux-contracts.md` is the canonical, ground-truth inventory of every user-facing
+feature, trigger, edge case, exact constant, and keyboard shortcut in the app. It
+has a Table of Contents for fast routing.
 
-- **Read the relevant section(s) before implementing anything user-facing.**
-- **Update the doc in the same change**, not later.
-- If code and the doc disagree, code is ground truth; fix the doc as part of the change.
-- Read the file in full (or via `offset`/`limit`) before editing; never rewrite it
-  from a possibly-truncated read. Edit via targeted string replacement.
+- **Always read the relevant section(s) before implementing anything user-facing.**
+- **Always update the doc after implementing**, in the same change, not later.
+- If code and the doc disagree, code is ground truth — fix the doc as part of the change.
+- Read the file in full before editing; never rewrite it from a possibly-truncated
+  read. Edit via targeted string replacement or chunked reads (offset/limit).
 
 ## Agent API model (the core domain)
 
