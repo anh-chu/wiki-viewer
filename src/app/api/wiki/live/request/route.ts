@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { checkOrigin } from "@/lib/auth/csrf";
 import { resolveWorkspaceForUser } from "@/lib/workspace-context";
-import { randomBytes } from "node:crypto";
+import { resolveWorkspacePath } from "@/lib/fs/workspace-path";
+import { readSnapshot } from "@/lib/proof/ops-applier";
+import { createProposal, bindRequest, deleteProposal } from "@/lib/proof/live/md-proposal-store";
+import { createHash, randomBytes } from "node:crypto";
 import {
 	getOrCreateSession,
 	enqueueRequest,
@@ -168,6 +171,45 @@ export async function POST(request: Request): Promise<NextResponse> {
 	}
 	const runId = items ? `run_${randomBytes(6).toString("hex")}` : null;
 
+	// md-surface items carry a string blockRef + numeric baseRevision. Each gets
+	// its own md proposal (server-computed baseBlockHash) so per-item accept /
+	// discard flows through the unchanged md-resolve route keyed by previewId.
+	// Web-tweak batch items carry baseRevision:null so they never enter this path.
+	const mdItems = items
+		? items.filter(
+				(i) => typeof i.blockRef === "string" && typeof i.baseRevision === "number",
+			)
+		: [];
+	const trackedPreviewIds: string[] = [];
+	if (mdItems.length > 0) {
+		const rp = await resolveWorkspacePath(ws.rootDir, rel, { allowMissing: true });
+		if (!rp) {
+			return NextResponse.json({ error: "INVALID_PATH" }, { status: 400 });
+		}
+		const snapshot = await readSnapshot(ws.rootDir, rp.relPath);
+		// No live-md snapshot for this doc: it is not a markdown-surface target
+		// (e.g. legacy/web batch). Leave items untouched so behavior stays
+		// byte-identical. BLOCK_NOT_FOUND is reserved for a real md doc with a
+		// stale/bad ref (snapshot present but block absent).
+		if (snapshot) for (const item of mdItems) {
+			const block = snapshot?.blocks.find((b) => b.ref === item.blockRef);
+			if (!block) {
+				return NextResponse.json({ error: "BLOCK_NOT_FOUND" }, { status: 400 });
+			}
+			const baseBlockHash = `sha256:${createHash("sha256").update(block.markdown, "utf8").digest("hex")}`;
+			const proposal = createProposal({
+				workspaceId: ws.id,
+				path: rp.relPath,
+				blockRef: item.blockRef as string,
+				baseRevision: item.baseRevision as number,
+				baseBlockHash,
+			});
+			item.baseBlockHash = baseBlockHash;
+			item.previewId = proposal.previewId;
+			trackedPreviewIds.push(proposal.previewId);
+		}
+	}
+
 	const enq = enqueueRequest({
 		sessionId: session.id,
 		workspaceId: ws.id,
@@ -183,6 +225,12 @@ export async function POST(request: Request): Promise<NextResponse> {
 		runId,
 	});
 	if (!enq.ok) {
+		// Enqueue conflicted: unbind orphan proposals created in this dispatch so
+		// they don't linger forever in state 'requested'. deleteProposal only removes
+		// rows still 'requested' with no request_id, so it is safe.
+		for (const previewId of trackedPreviewIds) {
+			deleteProposal(previewId);
+		}
 		return NextResponse.json(
 			{
 				error: enq.code,
@@ -193,11 +241,24 @@ export async function POST(request: Request): Promise<NextResponse> {
 		);
 	}
 
+	for (const previewId of trackedPreviewIds) {
+		bindRequest(previewId, enq.request.id);
+	}
+
+	const mdItemPreviews =
+		mdItems.length > 0
+			? mdItems.map((i) => ({
+					instructionId: i.instructionId,
+					previewId: i.previewId ?? null,
+				}))
+			: undefined;
+
 	return NextResponse.json({
 		ok: true,
 		requestId: enq.request.id,
 		sessionId: session.id,
 		seq: enq.request.seq,
 		runId: enq.request.runId,
+		...(mdItemPreviews ? { items: mdItemPreviews } : {}),
 	});
 }

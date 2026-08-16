@@ -12,6 +12,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { useLiveAttached } from "@/components/editor/live-presence";
 import { WebTweakOverlay } from "@/components/editor/web-tweak-overlay";
 import { injectPicker } from "@/lib/web-tweak/picker";
 import { withWs, wsFetch } from "@/lib/workspace-client";
@@ -48,6 +49,7 @@ export function WebsiteViewer({
 	const iframeSrc = withWs(src ?? `/api/assets/${path}/index.html`);
 
 	const frameRef = useRef<HTMLIFrameElement | null>(null);
+	const liveAttached = useLiveAttached();
 	const [tweakEnabled, setTweakEnabled] = useState(false);
 	const [tweakHtml, setTweakHtml] = useState<string | null>(null);
 	const [tweakError, setTweakError] = useState<string | null>(null);
@@ -127,7 +129,7 @@ export function WebsiteViewer({
 		) : null;
 
 	return (
-		<div className="flex-1 flex flex-col overflow-hidden">
+		<div className={`flex-1 flex flex-col overflow-hidden transition-shadow duration-300 ease-out ${liveAttached ? "agent-live-frame" : ""}`}>
 			<ViewerToolbar
 				path={path}
 				badge={fullscreen ? "App" : undefined}
@@ -171,10 +173,10 @@ export function WebsiteViewer({
 					size="sm"
 					className={`h-7 gap-1.5 text-xs${tweakEnabled ? " text-primary" : ""}`}
 					onClick={handleTweakClick}
-					title={tweakEnabled ? "Exit instruct mode" : "Instruct changes on this page"}
+					title={tweakEnabled ? "Exit Tweak mode" : "Tweak this page with AI"}
 				>
 					<MousePointerClick className="h-3.5 w-3.5" />
-					Instruct
+					Tweak
 				</Button>
 				<Button
 					variant="ghost"

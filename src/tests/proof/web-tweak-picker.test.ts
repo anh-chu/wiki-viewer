@@ -15,6 +15,7 @@ test("picker script is self-contained and postMessage-only (no same-origin needs
 	assert.doesNotMatch(WEB_TWEAK_PICKER_JS, /parent\.document|top\.location|document\.cookie/);
 	// Idempotent install guard.
 	assert.match(WEB_TWEAK_PICKER_JS, /window\.__wvTweakPicker/);
+	assert.match(WEB_TWEAK_PICKER_JS, /elementPath: elementPath\(el\)/);
 });
 
 test("pickerScriptTag escapes closing script tags", () => {
@@ -87,6 +88,7 @@ test("readPickerMessage validates + bounds a selected event", () => {
 			event: "selected",
 			id: "p1",
 			selector: "div.card",
+			elementPath: "html[1]/body[2]/main[1]/div[3]",
 			tag: "div",
 			snippet: "<div>x</div>",
 			text: "x".repeat(5000),
@@ -97,6 +99,7 @@ test("readPickerMessage validates + bounds a selected event", () => {
 	assert.ok(out && out.event === "selected");
 	if (out && out.event === "selected") {
 		assert.equal(out.selector, "div.card");
+		assert.equal(out.elementPath, "html[1]/body[2]/main[1]/div[3]");
 		assert.equal(out.text.length, 2000); // bounded
 	}
 	// missing rect -> rejected
@@ -105,6 +108,20 @@ test("readPickerMessage validates + bounds a selected event", () => {
 		data: { source: "wv-tweak", event: "selected", id: "p1", selector: "d", tag: "d", snippet: "", text: "" },
 	} as unknown as MessageEvent;
 	assert.equal(readPickerMessage(bad, frame), null);
+	const withoutElementPath = {
+		source: win,
+		data: {
+			source: "wv-tweak",
+			event: "selected",
+			id: "p1",
+			selector: "d",
+			tag: "d",
+			snippet: "",
+			text: "",
+			rect: { top: 1, left: 2, width: 3, height: 4, bottom: 5, right: 6 },
+		},
+	} as unknown as MessageEvent;
+	assert.equal(readPickerMessage(withoutElementPath, frame), null);
 });
 
 test("readPickerMessage cannot yield a write/accept command shape", () => {

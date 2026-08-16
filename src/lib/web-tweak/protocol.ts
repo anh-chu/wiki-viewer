@@ -48,6 +48,7 @@ export type PickerEvent =
 			event: "selected";
 			id: string;
 			selector: string;
+			elementPath: string;
 			tag: string;
 			snippet: string;
 			text: string;
@@ -97,6 +98,7 @@ export function readPickerMessage(
 			if (
 				typeof d.id !== "string" ||
 				typeof d.selector !== "string" ||
+				typeof d.elementPath !== "string" ||
 				typeof d.tag !== "string" ||
 				typeof d.snippet !== "string" ||
 				typeof d.text !== "string" ||
@@ -110,6 +112,7 @@ export function readPickerMessage(
 				event: "selected",
 				id: d.id.slice(0, 64),
 				selector: d.selector.slice(0, 2000),
+				elementPath: d.elementPath.slice(0, 4000),
 				tag: d.tag.slice(0, 64),
 				snippet: d.snippet.slice(0, 4000),
 				text: d.text.slice(0, 2000),

@@ -31,7 +31,7 @@ import { CommentThread } from "./comment-thread";
 import { SuggestionCard } from "./suggestion-card";
 import { SuggestEditPopover } from "./suggest-edit-popover";
 import { LiveOverlay } from "./live-overlay";
-import { LivePresence } from "./live-presence";
+import { useLiveAttached } from "./live-presence";
 import { SlashCommands } from "./slash-commands";
 import { DocumentOutline } from "./document-outline";
 import { ReadingExperiments } from "./experiments";
@@ -172,6 +172,9 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	// The hook recreates the EventSource on path or workspace changes and on
 	// degraded/rescan reloads the snapshot+sidecar. Lite mode has no watcher.
 	useDocumentWatch({ path: currentPath, isViewingRef });
+
+	// Live agent attachment drives the subtle editor-surface highlight.
+	const liveAttached = useLiveAttached();
 
 	/**
 	 * Ref to the editor scroll container. Used to compute block positions
@@ -373,14 +376,14 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		});
 	}, [resolveSelectionBlock]);
 
-	const [liveTarget, setLiveTarget] = useState<{
+	const [tweakTarget, setTweakTarget] = useState<{
 		blockRef: string; markdown: string; selectionText: string | null; selectionStart: number | null; selectionEnd: number | null;
 	} | null>(null);
 
-	const openLiveForSelection = useCallback(() => {
+	const openTweakForSelection = useCallback(() => {
 		const resolved = resolveSelectionBlock();
 		if (!resolved) return;
-		setLiveTarget({ blockRef: resolved.blockRef, markdown: resolved.markdown, selectionText: resolved.selectionText, selectionStart: resolved.selectionStart, selectionEnd: resolved.selectionEnd });
+		setTweakTarget({ blockRef: resolved.blockRef, markdown: resolved.markdown, selectionText: resolved.selectionText, selectionStart: resolved.selectionStart, selectionEnd: resolved.selectionEnd });
 	}, [resolveSelectionBlock]);
 
 	const openCommentForSelection = useCallback(() => {
@@ -827,7 +830,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 
 	return (
 		<>
-			<div className="flex-1 flex flex-col overflow-hidden">
+			<div className={`flex-1 flex flex-col overflow-hidden transition-shadow duration-300 ease-out ${liveAttached ? "agent-live-frame" : ""}`}>
 						{!isViewing && (
 							<div className="flex items-center min-w-0">
 								<div className="flex-1 min-w-0">
@@ -970,7 +973,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 										/>
 									)}
 
-										{currentPath && <LiveOverlay path={currentPath} target={liveTarget} onClose={() => setLiveTarget(null)} positions={blockRefPositions} scrollRef={scrollContainerRef} isViewing={isViewing} baseRevision={snapshotRevision} />}
+										{currentPath && <LiveOverlay path={currentPath} target={tweakTarget} onClose={() => setTweakTarget(null)} positions={blockRefPositions} scrollRef={scrollContainerRef} isViewing={isViewing} baseRevision={snapshotRevision} />}
 									{isViewing && Object.keys(parsedViewingContent.data).length > 0 && (
 										<div className="max-w-[var(--editor-max-w,48rem)] ml-[var(--editor-ml,auto)] mr-auto px-4 sm:px-8 pt-3">
 											<FrontmatterHeader
@@ -988,7 +991,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 												editor={editor}
 												onSuggestEdit={openSuggestForSelection}
 												onComment={openCommentForSelection}
-												onLive={openLiveForSelection}
+												onTweak={openTweakForSelection}
 											/>
 											<TableMenu editor={editor} />
 											<SlashCommands editor={editor} />
@@ -1002,7 +1005,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 										<ViewModeCommentButton
 											containerRef={scrollContainerRef}
 											onComment={openCommentForSelection}
-											onLive={openLiveForSelection}
+											onTweak={openTweakForSelection}
 										/>
 									)}
 									{/* AI Edit Prompt + slash hint */}

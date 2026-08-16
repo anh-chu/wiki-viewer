@@ -24,9 +24,9 @@ down turns "did we regress the loop?" into a diff against this file.
 
 - [1. Live collaboration](#1-live-collaboration)
   - [1.1 Presence indicator](#11-presence-indicator)
-  - [1.2 The Go loop (shared across surfaces)](#12-the-go-loop-shared-across-surfaces)
-  - [1.3 Markdown targets: write-on-accept](#13-markdown-targets-write-on-accept)
-  - [1.4 Web-tweak targets: write-on-accept](#14-web-tweak-targets-write-on-accept)
+  - [1.2 Tweak queue (shared across surfaces)](#12-tweak-queue-shared-across-surfaces)
+  - [1.3 Markdown targets: queued batch and write-on-accept](#13-markdown-targets-queued-batch-and-write-on-accept)
+  - [1.4 HTML targets: queued batch and write-on-accept](#14-html-targets-queued-batch-and-write-on-accept)
   - [1.5 One outstanding request per session](#15-one-outstanding-request-per-session)
   - [1.6 Agent approval and token rotation](#16-agent-approval-and-token-rotation)
 - [2. Live inventory (routes, tools, constants)](#2-live-inventory-routes-tools-constants)
@@ -63,49 +63,52 @@ class this system exists to prevent.
 **Verification pointer:** `src/lib/proof/live/store.ts`,
 `src/app/api/wiki/live/status/route.ts`, `src/components/editor/live-presence.tsx`
 
-### 1.2 The Go loop (shared across surfaces)
+### 1.2 Tweak queue (shared across surfaces)
 
-**Contract:** The loop is identical on both surfaces: point at a **Target** →
-optionally type an instruction → **Go** → the target enters **Generating** →
-**2 to 5 Variants** appear in place → cycle with **‹ ›** → **Accept** one or
-**Discard**. Accept commits the chosen variant verbatim; Discard leaves the file
-byte-identical. Agent replies use the shared verbs; the poll is held open up to
-`HOLD_MS` (25s) so delivery latency is near zero, and returns `{ type: "timeout" }`
-otherwise. The poll response echoes `afterSeq` (the cursor) and `previewId` as
-first-class fields on both delivered and timeout responses.
+**Contract:** The user-facing feature is **Tweak**. In the editor action menu,
+**Comment** starts a discussion or annotation, **Suggest** proposes a human edit
+for review, and **Tweak** asks the AI to rewrite the selected target live. A
+Tweak is first added to a queue. Selecting the same target again updates its
+queued instruction and snippet in place, so the count does not increase. Users
+can remove one queued item or choose **Cancel** to clear all queued selections
+without dispatching.
 
-**Why it matters:** One vocabulary and one state machine across surfaces is what
-makes markdown and HTML feel like one product; divergent review dialects break
-the mental model.
+**Why it matters:** One vocabulary and queue model across markdown and HTML
+keeps target selection predictable and prevents duplicate work.
 
-**Verification pointer:** `src/app/api/agent/live/poll/route.ts`,
-`src/components/editor/live-overlay.tsx`, `src/components/web-tweak/web-tweak-overlay.tsx`
+**Verification pointer:** `src/components/editor/tweak/use-tweak-session.ts`,
+`src/components/editor/tweak/tweak-queue-bar.tsx`,
+`src/components/editor/bubble-menu.tsx`
 
-### 1.3 Markdown targets: write-on-accept
+### 1.3 Markdown targets: queued batch and write-on-accept
 
 **Contract:** The target is a rendered **block** (paragraph, heading, list item,
 etc.), with an optional text selection inside it carried only as context, never
-as the edit unit. The agent returns 2 to 5 markdown-string variants; the client
-renders the selected variant into the block's slot as an **ephemeral preview**
-without touching the file. Accept commits the exact variant string through the
-single tier-2 write engine, gated on the block's `baseBlockHash`
-(`sha256:<hex>`), computed server-side at request time. If the block changed on
-disk since the request, Accept is refused (`BASE_DRIFT`) and the file keeps the
-manual edit. `md-resolve` (accept/discard) is **human-only**; an agent bearer
-token cannot reach it.
+as the edit unit. Markdown and text always gather queued targets before they
+dispatch. **Rewrite** sends the whole queue as one batch through
+`POST /api/wiki/live/request`; there is no immediate single-target dispatch.
+The agent returns 2 to 5 markdown-string variants; the client renders the
+selected variant into the block's slot as an **ephemeral preview** without
+touching the file. Accept commits the exact variant string through the single
+tier-2 write engine, gated on the block's `baseBlockHash` (`sha256:<hex>`),
+computed server-side at request time. If the block changed on disk since the
+request, Accept is refused (`BASE_DRIFT`) and the file keeps the manual edit.
+`md-resolve` (accept/discard) is **human-only**; an agent bearer token cannot
+reach it.
 
 **Why it matters:** Write-on-accept keeps the file clean until the human
 decides; server-side hashing avoids the `crypto.subtle` secure-context failure
 on HTTP deployments; drift refusal prevents clobbering concurrent human edits.
 
 **Verification pointer:** `src/lib/proof/live/md-proposal-store.ts`,
-`src/app/api/wiki/live/md-request/route.ts`, `src/app/api/wiki/live/md-resolve/route.ts`,
+`src/app/api/wiki/live/request/route.ts`, `src/app/api/wiki/live/md-resolve/route.ts`,
 `src/app/api/agent/live/md-preview/route.ts`
 
-### 1.4 Web-tweak targets: write-on-accept
+### 1.4 HTML targets: queued batch and write-on-accept
 
 **Contract:** The target is a DOM element in a static-HTML, opaque-origin
-preview, picked via a postMessage-only picker. The agent returns 2 to 5 variants
+preview, picked via a postMessage-only picker. HTML targets gather in the shared
+queue and **Apply** dispatches the batch. The agent returns 2 to 5 variants
 (single-target variants path) or one candidate; each variant carries a unique
 `variantId`, data-only DOM preview ops (attribute/style/class changes via
 allowlist; no scripts), and an immutable `candidateSourcePatch` plus `baseFiles`
@@ -179,7 +182,7 @@ with no explanation; the notice makes the rotation explicit and consistent.
 | `POST /api/agent/live/reply` | agent | Request lifecycle status |
 | `POST /api/agent/live/md-preview` | agent | Submit markdown variants |
 | `POST /api/agent/live/web-preview` | agent | Submit web DOM preview + candidate |
-| `POST /api/wiki/live/md-request` | human | Point at a block, dispatch |
+| `POST /api/wiki/live/request` | human | Dispatch queued markdown Tweak targets as one batch |
 | `GET /api/wiki/live/md-status` | human | Proposal state + variants |
 | `POST /api/wiki/live/md-resolve` | human only | Accept / discard markdown proposal |
 | `GET /api/wiki/live/status` | human | Presence + current turn |

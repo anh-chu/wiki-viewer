@@ -67,6 +67,10 @@ export interface LiveInstructionItem {
 	selectionText?: string | null;
 	selectionStart?: number | null;
 	selectionEnd?: number | null;
+	/** Computed server-side for md-surface items (never client-supplied). */
+	baseBlockHash?: string | null;
+	/** Set for md-surface items so the agent can target md-preview. */
+	previewId?: string | null;
 }
 
 export interface LiveRequest {

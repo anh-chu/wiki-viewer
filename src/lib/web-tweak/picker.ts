@@ -58,6 +58,7 @@ export const WEB_TWEAK_PICKER_JS = String.raw`(function () {
       "font:600 11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;min-width:16px;text-align:center;" +
       'padding:0 5px;border-radius:9px;box-shadow:0 1px 4px rgba(0,0,0,.35);}' +
       'html.__wv-active,html.__wv-active *{cursor:crosshair !important;}';
+    style.setAttribute('data-wv-picker-chrome', '');
     document.documentElement.appendChild(style);
     hover = document.createElement('div');
     hover.className = '__wv-hl';
@@ -68,6 +69,10 @@ export const WEB_TWEAK_PICKER_JS = String.raw`(function () {
   function isOwn(el) {
     return el && el.classList && (el.classList.contains('__wv-hl') ||
       el.classList.contains('__wv-mark') || el.classList.contains('__wv-badge'));
+  }
+
+  function isPickerChrome(el) {
+    return isOwn(el) || (el && el.getAttribute && el.getAttribute('data-wv-picker-chrome') !== null);
   }
 
   function rectOf(el) {
@@ -105,6 +110,24 @@ export const WEB_TWEAK_PICKER_JS = String.raw`(function () {
       node = node.parentNode;
     }
     return parts.join(' > ');
+  }
+
+  function elementPath(el) {
+    if (!(el instanceof Element)) return '';
+    var parts = [];
+    var node = el;
+    while (node && node.nodeType === 1) {
+      var parent = node.parentElement;
+      var index = 1;
+      if (parent) {
+        var siblings = Array.prototype.filter.call(parent.children, function (c) { return !isPickerChrome(c); });
+        index = siblings.indexOf(node) + 1;
+      }
+      parts.unshift(node.nodeName.toLowerCase() + '[' + index + ']');
+      if (node === document.documentElement) break;
+      node = parent;
+    }
+    return parts.join('/');
   }
 
   function snippetOf(el) {
@@ -151,7 +174,7 @@ export const WEB_TWEAK_PICKER_JS = String.raw`(function () {
     picks.push(p);
     badgePlace(p, picks.length - 1);
     post({
-      event: 'selected', id: id, selector: cssPath(el), tag: el.nodeName.toLowerCase(),
+      event: 'selected', id: id, selector: cssPath(el), elementPath: elementPath(el), tag: el.nodeName.toLowerCase(),
       snippet: snippetOf(el), text: (el.textContent || '').trim().slice(0, 200), rect: rectOf(el),
     });
   }

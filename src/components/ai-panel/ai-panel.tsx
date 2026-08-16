@@ -230,10 +230,10 @@ export function AIPanel({ currentPath }: { currentPath?: string | null }) {
 						{/* Option C — live (attach) */}
 						<div className="rounded-md border border-border bg-muted/40 p-3 space-y-1.5">
 							<p className="text-xs font-semibold text-foreground">
-								Attend live (for in-page Go &amp; Tweak)
+								Attend live (for in-page Tweak)
 							</p>
 							<p className="text-[10px] text-muted-foreground/70">
-								Only needed for the in-page “Go” and “Tweak” buttons. Connect the MCP
+								Only needed for the in-page Tweak button (Rewrite / Apply). Connect the MCP
 								server (option above), then tell your agent to attend live — it uses
 								the live_* tools to wait on the line:
 							</p>

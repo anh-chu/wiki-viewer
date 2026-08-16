@@ -29,8 +29,8 @@ interface Props {
 	onSuggestEdit?: () => void;
 	/** Open a comment thread on the current selection's block. */
 	onComment?: () => void;
-	/** Open Live proposal for current selection's block. */
-	onLive?: () => void;
+	/** Open the Tweak flow for the current selection's block. */
+	onTweak?: () => void;
 	/** Hide all formatting controls; show only comment button. */
 	readOnly?: boolean;
 }
@@ -45,7 +45,7 @@ type OpenPopover =
 			anchor: { top: number; left: number };
 	  };
 
-export function EditorBubbleMenu({ editor, onSuggestEdit, onComment, onLive, readOnly }: Props) {
+export function EditorBubbleMenu({ editor, onSuggestEdit, onComment, onTweak, readOnly }: Props) {
 	const [popover, setPopover] = useState<OpenPopover>(null);
 
 	useEffect(() => {
@@ -218,20 +218,20 @@ export function EditorBubbleMenu({ editor, onSuggestEdit, onComment, onLive, rea
 				>
 					<LinkIcon className="w-3.5 h-3.5" />
 				</button>
-				{(onSuggestEdit || onComment || onLive) && (
+				{(onSuggestEdit || onComment || onTweak) && (
 					<div className="w-px h-5 bg-border mx-1" />
 				)}
-				{onLive && (
+				{onTweak && (
 					<button
 						type="button"
 						className={btn(false)}
 						onMouseDown={(e) => e.preventDefault()}
 						onClick={(e) => {
 							e.preventDefault();
-							onLive();
+							onTweak();
 						}}
-						aria-label="Go"
-						title="Go"
+						aria-label="Tweak"
+						title="Tweak — AI rewrites the selection live now"
 					>
 						<ListChecks className="w-3.5 h-3.5 text-amber-600" />
 					</button>
@@ -246,7 +246,7 @@ export function EditorBubbleMenu({ editor, onSuggestEdit, onComment, onLive, rea
 							onComment();
 						}}
 						aria-label="Comment"
-						title="Comment"
+						title="Comment — discuss or annotate this selection"
 					>
 						<MessageCircle className="w-3.5 h-3.5" />
 					</button>
@@ -261,7 +261,7 @@ export function EditorBubbleMenu({ editor, onSuggestEdit, onComment, onLive, rea
 							onSuggestEdit();
 						}}
 						aria-label="Suggest edit"
-						title="Suggest edit"
+						title="Suggest — propose a human edit for review"
 					>
 						<MessageSquarePlus className="w-3.5 h-3.5" />
 					</button>
