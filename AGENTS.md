@@ -194,3 +194,15 @@ header or `?ws=`. State (leases, locks, idempotency, sidecars, audit) namespaced
 - `AGENT_BEARER_TOKEN` (legacy single-secret) is dead — does nothing.
 - Git access uses the system `git` binary; tokens injected via `GIT_ASKPASS`, never in
   process args / `.git/config` / `ps` output. `git-secrets.ts` scans for leaked secrets.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in Linear (workspace `silverycaster`, project `wiki-viewer-858e6b16ea00`,
+team `OPS`) via the `linear` CLI. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root (created lazily).
+See `docs/agents/domain.md`.
