@@ -869,6 +869,15 @@ export function useHtmlTweakAdapter(props: HtmlAdapterProps): ContentKindAdapter
 					</div>
 				)}
 
+				{/* An empty note has no draft to lose, so outside click cancels it. */}
+				{pick && phase.kind === "note" && note.trim().length === 0 && (
+					<div
+						aria-hidden="true"
+						className="fixed inset-0 z-40"
+						onPointerDown={clearPick}
+					/>
+				)}
+
 				{/* Per-element instruction editor (pin to queue). */}
 				{pick && phase.kind === "note" && (
 					<div
