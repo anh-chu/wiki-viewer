@@ -96,6 +96,11 @@ export function useMarkdownTweakAdapter(props: MarkdownAdapterProps): ContentKin
 		onClose();
 	}, [target, draft, addItem, onClose]);
 
+	const handleCancel = useCallback(() => {
+		setDraft("");
+		onClose();
+	}, [onClose]);
+
 	// Mirror runItems into a ref so the poll loop reads fresh state.
 	const runItemsRef = useRef<RunItem[]>([]);
 	runItemsRef.current = runItems;
@@ -332,12 +337,22 @@ export function useMarkdownTweakAdapter(props: MarkdownAdapterProps): ContentKin
 			const pos = positions.get(target.blockRef);
 			if (!pos) return null;
 			return (
-				<MarkdownTargeting
-					pos={pos}
-					draft={draft}
-					onChange={setDraft}
-					onAdd={handleAdd}
-				/>
+				<>
+					{draft.trim().length === 0 && (
+						<div
+							aria-hidden="true"
+							className="fixed inset-0 z-30"
+							onPointerDown={handleCancel}
+						/>
+					)}
+					<MarkdownTargeting
+						pos={pos}
+						draft={draft}
+						onChange={setDraft}
+						onAdd={handleAdd}
+						onCancel={handleCancel}
+					/>
+				</>
 			);
 		},
 		renderRunPanel: () => {
@@ -377,11 +392,13 @@ function MarkdownTargeting({
 	draft,
 	onChange,
 	onAdd,
+	onCancel,
 }: {
 	pos: BlockPos;
 	draft: string;
 	onChange: (v: string) => void;
 	onAdd: () => void;
+	onCancel: () => void;
 }) {
 	return (
 		<div
@@ -402,7 +419,14 @@ function MarkdownTargeting({
 				placeholder="What should change?"
 				className="w-full resize-y rounded border border-border bg-background px-2 py-1.5"
 			/>
-			<div className="mt-2 flex items-center justify-end">
+			<div className="mt-2 flex items-center justify-end gap-2">
+				<button
+					type="button"
+					onClick={onCancel}
+					className="rounded border border-border px-3 py-1 hover:bg-accent"
+				>
+					Cancel
+				</button>
 				<button
 					type="button"
 					disabled={draft.trim().length === 0}

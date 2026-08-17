@@ -152,9 +152,10 @@ for review, and **Tweak** asks the AI to rewrite the selected target live. A
 Tweak is first added to a queue. Selecting the same target again updates its
 queued instruction and snippet in place, so the count does not increase. Users
 can remove one queued item or choose **Cancel** to clear all queued selections
-without dispatching. In the HTML instruction editor, clicking outside while
-its input is empty is equivalent to **Cancel**. The dispatch button label is
-surface-specific (`Rewrite` for markdown, `Apply` for HTML).
+without dispatching. Both instruction editors expose **Cancel**. Clicking
+outside while an instruction input is empty is equivalent to **Cancel**. The
+dispatch button label is surface-specific (`Rewrite` for markdown, `Apply` for
+HTML).
 
 **Why it matters:** One vocabulary and queue model across markdown and HTML
 keeps target selection predictable and prevents duplicate work.
