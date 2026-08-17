@@ -89,7 +89,7 @@ interface StatusResponse {
 export function useHtmlTweakAdapter(props: HtmlAdapterProps): ContentKindAdapter {
 	const { frameRef, path, enabled, onClose } = props;
 	const session = useTweakSession({ attached: false });
-	const { items, addItem, removeItem } = session;
+	const { items, addItem, removeItem: removeSessionItem } = session;
 
 	const [pick, setPick] = useState<Pick | null>(null);
 	const [phase, setPhase] = useState<Phase>({ kind: "idle" });
@@ -105,6 +105,7 @@ export function useHtmlTweakAdapter(props: HtmlAdapterProps): ContentKindAdapter
 	const [promptModal, setPromptModal] = useState<string | null>(null);
 
 	const metaRef = useRef<Map<string, ItemMeta>>(new Map());
+	const queuedPickIdsRef = useRef<Map<string, string>>(new Map());
 	const previewIdRef = useRef<string | null>(null);
 	const appliedIdsRef = useRef<string[]>([]);
 	const variantsTargetIdRef = useRef<string | null>(null);
@@ -133,6 +134,17 @@ export function useHtmlTweakAdapter(props: HtmlAdapterProps): ContentKindAdapter
 		dismissPickEditor();
 	}, [pick, frameRef, dismissPickEditor]);
 
+	const removeItem = useCallback(
+		(itemId: string) => {
+			postPickerCommand(frameRef.current, { source: "wv-tweak", cmd: "remove", id: itemId });
+			for (const [targetKey, pickId] of queuedPickIdsRef.current) {
+				if (pickId === itemId) queuedPickIdsRef.current.delete(targetKey);
+			}
+			removeSessionItem(itemId);
+		},
+		[frameRef, removeSessionItem],
+	);
+
 	const resetRun = useCallback(() => {
 		stopPolling();
 		for (const id of appliedIdsRef.current) {
@@ -143,6 +155,7 @@ export function useHtmlTweakAdapter(props: HtmlAdapterProps): ContentKindAdapter
 		variantsTargetIdRef.current = null;
 		previewIdRef.current = null;
 		metaRef.current.clear();
+		queuedPickIdsRef.current.clear();
 		session.clear();
 		setPick(null);
 		setNote("");
@@ -207,7 +220,8 @@ export function useHtmlTweakAdapter(props: HtmlAdapterProps): ContentKindAdapter
 									text: msg.text,
 									rect: msg.rect,
 								});
-								setNote("");
+								const targetKey = deriveHtmlTargetKey(msg);
+								setNote(items.find((item) => item.targetKey === targetKey)?.instruction ?? "");
 								return { kind: "note" };
 							})()
 						: prev,
@@ -216,7 +230,7 @@ export function useHtmlTweakAdapter(props: HtmlAdapterProps): ContentKindAdapter
 		}
 		window.addEventListener("message", onMessage);
 		return () => window.removeEventListener("message", onMessage);
-	}, [enabled, frameRef]);
+	}, [enabled, frameRef, items]);
 
 	useEffect(() => stopPolling, [stopPolling]);
 
@@ -390,7 +404,8 @@ export function useHtmlTweakAdapter(props: HtmlAdapterProps): ContentKindAdapter
 	function handleAddInstruction() {
 		if (!pick || note.trim().length === 0) return;
 		const targetKey = deriveHtmlTargetKey(pick);
-		const itemId = pick.id || `pin_${Date.now().toString(36)}`;
+		const existingPickId = queuedPickIdsRef.current.get(targetKey);
+		const itemId = (existingPickId ?? pick.id) || `pin_${Date.now().toString(36)}`;
 		metaRef.current.set(targetKey, {
 			selector: pick.selector,
 			tag: pick.tag,
@@ -403,6 +418,13 @@ export function useHtmlTweakAdapter(props: HtmlAdapterProps): ContentKindAdapter
 			displaySnippet: pick.selector,
 			instruction: note.trim(),
 		});
+		if (existingPickId && existingPickId !== pick.id) {
+			// Re-picking a queued target edits it in place. Keep its original
+			// badge and discard the temporary badge created for this edit.
+			postPickerCommand(frameRef.current, { source: "wv-tweak", cmd: "remove", id: pick.id });
+		} else {
+			queuedPickIdsRef.current.set(targetKey, itemId);
+		}
 		// Keep the badge: it now represents the queued item, so only close the
 		// editor (unlike Cancel, which must remove the badge).
 		dismissPickEditor();
