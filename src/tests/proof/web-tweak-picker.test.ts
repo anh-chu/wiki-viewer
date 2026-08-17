@@ -58,6 +58,16 @@ test("picker script exposes apply/revert with data-only ops and denylist", () =>
 	assert.match(WEB_TWEAK_PICKER_JS, /event: 'reverted'/);
 });
 
+test("picker script drops badge + mark on remove/clear commands", () => {
+	// The adapter cancels a single pick via {cmd:'remove', id} and clears the
+	// queue via {cmd:'clear'}; both must tear down the numbered badge (and the
+	// dashed mark) so no stale badge survives cancellation.
+	assert.match(WEB_TWEAK_PICKER_JS, /d\.cmd === 'remove'/);
+	assert.match(WEB_TWEAK_PICKER_JS, /d\.cmd === 'clear'/);
+	assert.match(WEB_TWEAK_PICKER_JS, /\.mark\.remove\(\)/);
+	assert.match(WEB_TWEAK_PICKER_JS, /\.badge\.remove\(\)/);
+});
+
 function frameStub(win: unknown): HTMLIFrameElement {
 	return { contentWindow: win } as unknown as HTMLIFrameElement;
 }

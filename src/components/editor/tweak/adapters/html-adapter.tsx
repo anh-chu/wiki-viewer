@@ -118,17 +118,27 @@ export function useHtmlTweakAdapter(props: HtmlAdapterProps): ContentKindAdapter
 		}
 	}, []);
 
-	const clearPick = useCallback(() => {
+	/** Close the note editor without changing picker chrome (e.g. after pinning). */
+	const dismissPickEditor = useCallback(() => {
 		setPick(null);
 		setNote("");
 		setPhase({ kind: "idle" });
 	}, []);
+
+	/** Cancel the current pick: remove its badge/mark in the iframe, then close. */
+	const clearPick = useCallback(() => {
+		if (pick) {
+			postPickerCommand(frameRef.current, { source: "wv-tweak", cmd: "remove", id: pick.id });
+		}
+		dismissPickEditor();
+	}, [pick, frameRef, dismissPickEditor]);
 
 	const resetRun = useCallback(() => {
 		stopPolling();
 		for (const id of appliedIdsRef.current) {
 			postPickerCommand(frameRef.current, { source: "wv-tweak", cmd: "revert", id });
 		}
+		postPickerCommand(frameRef.current, { source: "wv-tweak", cmd: "clear" });
 		appliedIdsRef.current = [];
 		variantsTargetIdRef.current = null;
 		previewIdRef.current = null;
@@ -393,7 +403,9 @@ export function useHtmlTweakAdapter(props: HtmlAdapterProps): ContentKindAdapter
 			displaySnippet: pick.selector,
 			instruction: note.trim(),
 		});
-		clearPick();
+		// Keep the badge: it now represents the queued item, so only close the
+		// editor (unlike Cancel, which must remove the badge).
+		dismissPickEditor();
 	}
 
 	async function handleSend() {
