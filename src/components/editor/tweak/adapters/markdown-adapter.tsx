@@ -59,6 +59,8 @@ export function useMarkdownTweakAdapter(props: MarkdownAdapterProps): ContentKin
 	const [draft, setDraft] = useState("");
 	const [runItems, setRunItems] = useState<RunItem[]>([]);
 	const [message, setMessage] = useState("");
+	const [copied, setCopied] = useState(false);
+	const [promptModal, setPromptModal] = useState<string | null>(null);
 	// Per-target selectionText captured at add time (not stored on TweakItem).
 	const selectionByKey = useRef<Map<string, string | null>>(new Map());
 	const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -100,6 +102,41 @@ export function useMarkdownTweakAdapter(props: MarkdownAdapterProps): ContentKin
 		setDraft("");
 		onClose();
 	}, [onClose]);
+
+	function buildPrompt(): string {
+		const lines = [
+			`Edit the file \`${path}\` (a Markdown document). Apply these changes:`,
+			"",
+		];
+		session.items.forEach((q, i) => {
+			lines.push(`${i + 1}. \`${q.displaySnippet}\`: ${q.instruction}`);
+		});
+		return lines.join("\n");
+	}
+
+	function canUseClipboard(): boolean {
+		return (
+			typeof navigator !== "undefined" &&
+			!!navigator.clipboard &&
+			typeof navigator.clipboard.writeText === "function" &&
+			window.isSecureContext
+		);
+	}
+
+	async function handleCopyPrompt() {
+		const text = buildPrompt();
+		if (!canUseClipboard()) {
+			setPromptModal(text);
+			return;
+		}
+		try {
+			await navigator.clipboard.writeText(text);
+			setCopied(true);
+			setTimeout(() => setCopied(false), 1500);
+		} catch {
+			setPromptModal(text);
+		}
+	}
 
 	// Mirror runItems into a ref so the poll loop reads fresh state.
 	const runItemsRef = useRef<RunItem[]>([]);
@@ -336,6 +373,14 @@ export function useMarkdownTweakAdapter(props: MarkdownAdapterProps): ContentKin
 			if (runInFlight || phase === "message" || !target) return null;
 			const pos = positions.get(target.blockRef);
 			if (!pos) return null;
+			const availableWidth =
+				scrollRef.current?.clientWidth ||
+				(typeof window === "undefined" ? 1024 : window.innerWidth);
+			const panelWidth = Math.min(384, Math.max(0, availableWidth - 16));
+			const panelLeft = Math.min(
+				Math.max(8, pos.left),
+				Math.max(8, availableWidth - panelWidth - 8),
+			);
 			return (
 				<>
 					{draft.trim().length === 0 && (
@@ -347,6 +392,8 @@ export function useMarkdownTweakAdapter(props: MarkdownAdapterProps): ContentKin
 					)}
 					<MarkdownTargeting
 						pos={pos}
+						panelLeft={panelLeft}
+						panelWidth={panelWidth}
 						draft={draft}
 						onChange={setDraft}
 						onAdd={handleAdd}
@@ -358,7 +405,17 @@ export function useMarkdownTweakAdapter(props: MarkdownAdapterProps): ContentKin
 		renderRunPanel: () => {
 			if (phase === "message") {
 				const pos = target ? positions.get(target.blockRef) : undefined;
-				return <MarkdownMessage message={message} pos={pos} onDismiss={resetRun} />;
+				return (
+					<MarkdownMessage
+						message={message}
+						pos={pos}
+						onDismiss={resetRun}
+						onCopyPrompt={session.items.length > 0 ? () => void handleCopyPrompt() : undefined}
+						copied={copied}
+						promptModal={promptModal}
+						onDismissPrompt={() => setPromptModal(null)}
+					/>
+				);
 			}
 			if ((phase === "waiting" || phase === "dispatching") && runItems.length > 0) {
 				return <MarkdownWaiting />;
@@ -384,17 +441,45 @@ export function useMarkdownTweakAdapter(props: MarkdownAdapterProps): ContentKin
 			}
 			return null;
 		},
+		renderQueueBarExtras: () => (
+			<>
+				<div className="flex items-center overflow-hidden rounded-md border border-border">
+					<button
+						type="button"
+						onClick={() => void handleCopyPrompt()}
+						className="px-2.5 py-1 text-[11px] font-medium transition-colors hover:bg-accent"
+					>
+						{copied ? "Copied" : "Copy as prompt"}
+					</button>
+					<button
+						type="button"
+						title="Show the prompt to copy manually"
+						onClick={() => setPromptModal(buildPrompt())}
+						className="border-l border-border px-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent"
+					>
+						Show
+					</button>
+				</div>
+				{promptModal !== null && (
+					<MarkdownPromptModal text={promptModal} onDone={() => setPromptModal(null)} />
+				)}
+			</>
+		),
 	};
 }
 
 function MarkdownTargeting({
 	pos,
+	panelLeft,
+	panelWidth,
 	draft,
 	onChange,
 	onAdd,
 	onCancel,
 }: {
 	pos: BlockPos;
+	panelLeft: number;
+	panelWidth: number;
 	draft: string;
 	onChange: (v: string) => void;
 	onAdd: () => void;
@@ -402,8 +487,14 @@ function MarkdownTargeting({
 }) {
 	return (
 		<div
-			className="absolute z-40 rounded-lg border border-border bg-popover p-3 text-[12px] shadow-xl"
-			style={{ top: pos.top, left: pos.left, width: pos.width }}
+			className="absolute z-40 box-border max-w-[calc(100vw-1rem)] rounded-lg border border-border bg-popover p-3 text-[12px] shadow-xl"
+			style={{
+				top: pos.top,
+				left: panelLeft,
+				width: panelWidth,
+				maxHeight: "calc(100vh - 1rem)",
+				overflowY: "auto",
+			}}
 		>
 			<div className="mb-2 flex items-center justify-between">
 				<span className="font-medium">Target</span>
@@ -417,7 +508,7 @@ function MarkdownTargeting({
 				}}
 				rows={3}
 				placeholder="What should change?"
-				className="w-full resize-y rounded border border-border bg-background px-2 py-1.5"
+				className="max-h-[40vh] w-full resize-y overflow-y-auto rounded border border-border bg-background px-2 py-1.5"
 			/>
 			<div className="mt-2 flex items-center justify-end gap-2">
 				<button
@@ -448,14 +539,52 @@ function MarkdownWaiting() {
 	);
 }
 
+function MarkdownPromptModal({ text, onDone }: { text: string; onDone: () => void }) {
+	return (
+		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+			<div className="w-[min(34rem,calc(100vw-2rem))] space-y-2 rounded-lg border border-border bg-popover p-4 text-[12px] shadow-xl">
+				<div className="font-medium text-foreground">Prompt</div>
+				<p className="text-[11px] text-muted-foreground/70">
+					Copy this and run it in your agent. (Clipboard access needs an https connection, so
+					copy manually here.)
+				</p>
+				<textarea
+					readOnly
+					value={text}
+					rows={8}
+					ref={(el) => el?.select()}
+					className="w-full resize-y rounded-md border border-border bg-background px-2 py-1.5 font-mono text-[11px] focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+				/>
+				<div className="flex items-center justify-end gap-2 pt-1">
+					<button
+						type="button"
+						onClick={onDone}
+						className="rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+					>
+						Done
+					</button>
+				</div>
+			</div>
+		</div>
+	);
+}
+
 function MarkdownMessage({
 	message,
 	pos,
 	onDismiss,
+	onCopyPrompt,
+	copied,
+	promptModal,
+	onDismissPrompt,
 }: {
 	message: string;
 	pos: BlockPos | undefined;
 	onDismiss: () => void;
+	onCopyPrompt?: () => void;
+	copied: boolean;
+	promptModal: string | null;
+	onDismissPrompt: () => void;
 }) {
 	return (
 		<div
@@ -463,7 +592,16 @@ function MarkdownMessage({
 			style={pos ? { top: pos.top, left: pos.left, width: pos.width } : { top: 12, left: 12 }}
 		>
 			<p className="text-amber-600">{message}</p>
-			<div className="mt-2 flex justify-end">
+			<div className="mt-2 flex items-center justify-end gap-2">
+				{onCopyPrompt && (
+					<button
+						type="button"
+						onClick={onCopyPrompt}
+						className="rounded border border-border px-2 py-1"
+					>
+						{copied ? "Copied" : "Copy as prompt"}
+					</button>
+				)}
 				<button
 					type="button"
 					onClick={onDismiss}
@@ -472,6 +610,9 @@ function MarkdownMessage({
 					Dismiss
 				</button>
 			</div>
+			{promptModal !== null && (
+				<MarkdownPromptModal text={promptModal} onDone={onDismissPrompt} />
+			)}
 		</div>
 	);
 }

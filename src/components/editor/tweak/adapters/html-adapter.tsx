@@ -927,7 +927,7 @@ export function useHtmlTweakAdapter(props: HtmlAdapterProps): ContentKindAdapter
 									onClick={() => void handleGetOptions()}
 									className="rounded-md border border-border px-2.5 py-1 text-[11px] font-medium transition-colors hover:bg-accent disabled:opacity-50"
 								>
-									Options
+									Iterate
 								</button>
 								<button
 									type="button"

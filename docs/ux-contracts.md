@@ -155,7 +155,7 @@ can remove one queued item or choose **Cancel** to clear all queued selections
 without dispatching. Both instruction editors expose **Cancel**. Clicking
 outside while an instruction input is empty is equivalent to **Cancel**. The
 dispatch button label is surface-specific (`Rewrite` for markdown, `Apply` for
-HTML).
+HTML). Queue bars also offer **Copy as prompt** and **Show** fallback controls.
 
 **Why it matters:** One vocabulary and queue model across markdown and HTML
 keeps target selection predictable and prevents duplicate work.
@@ -198,7 +198,8 @@ queue and **Apply** dispatches the batch. The agent returns 2 to 5 variants
 (single-target variants path) or one candidate; each variant carries a unique
 `variantId`, data-only DOM preview ops (attribute/style/class changes via
 allowlist; no scripts), and an immutable `candidateSourcePatch` plus `baseFiles`
-hashes. Accept commits the bound candidate verbatim for the single target file,
+hashes. The HTML instruction editor labels its request-for-variants action
+**Iterate**. Accept commits the bound candidate verbatim for the single target file,
 refused on base-file drift. A variants reply with fewer than 2 or more than
 `MAX_VARIANTS` (5), or with missing/duplicate `variantId`, is rejected
 `INVALID_PARAM`. Node-app previews are out of scope (same-origin escape risk).
