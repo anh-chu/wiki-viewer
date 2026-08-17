@@ -244,6 +244,78 @@ test("md-resolve accept commits chosen variant verbatim; second accept is STALE_
 	assert.equal(((await acceptB.json()) as { error: string }).error, "STALE_REVISION");
 });
 
+test("kind discard frees the outstanding slot so a new dispatch succeeds", async () => {
+	const { res } = await dispatchBatch();
+	const body = (await res.json()) as { requestId: string };
+
+	// Human cancel while waiting: resolve the outstanding request via kind discard.
+	const discard = await requestPOST(
+		new Request(userUrl("/api/wiki/live/request", wsA), {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ path: filePath, kind: "discard", requestId: body.requestId }),
+		}),
+	);
+	assert.equal(discard.status, 200);
+	assert.equal(store.getRequest(body.requestId)?.state, "resolved");
+	assert.equal(store.getRequest(body.requestId)?.outcome, "reverted");
+
+	// Slot is free: a fresh dispatch succeeds instead of returning 409.
+	const { res: res2 } = await dispatchBatch();
+	assert.equal(res2.status, 200);
+});
+
+test("discarded preview cannot be accepted later", async () => {
+	const { res } = await dispatchBatch();
+	const body = (await res.json()) as {
+		requestId: string;
+		items: Array<{ instructionId: string; previewId: string }>;
+	};
+	const [a, b] = body.items;
+	await submitPreviews(body.requestId, [
+		{
+			previewId: a.previewId,
+			variants: [
+				{ variantId: "a1", label: "A1", markdown: "First rewritten." },
+				{ variantId: "a2", label: "A2", markdown: "First alt." },
+			],
+		},
+		{
+			previewId: b.previewId,
+			variants: [
+				{ variantId: "b1", label: "B1", markdown: "Second rewritten." },
+				{ variantId: "b2", label: "B2", markdown: "Second alt." },
+			],
+		},
+	]);
+
+	for (const previewId of [a.previewId, b.previewId]) {
+		const discarded = await mdResolvePOST(
+			new Request(userUrl("/api/wiki/live/md-resolve", wsA), {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ previewId, action: "discard" }),
+			}),
+		);
+		assert.equal(discarded.status, 200);
+	}
+
+	const accept = await mdResolvePOST(
+		new Request(userUrl("/api/wiki/live/md-resolve", wsA), {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				previewId: a.previewId,
+				action: "accept",
+				variantId: "a1",
+			}),
+		}),
+	);
+	assert.equal(accept.status, 409);
+	assert.equal(((await accept.json()) as { error: string }).error, "INVALID_STATE");
+	assert.equal(await readFile(path.join(rootA, filePath), "utf8"), original);
+});
+
 test("md-resolve discard leaves file byte-identical", async () => {
 	const { res } = await dispatchBatch();
 	const body = (await res.json()) as {

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 import { markdownToHtml } from "@/lib/markdown/to-html";
 import { wsFetch } from "@/lib/workspace-client";
 import { useProofStore } from "@/stores/proof-store";
+import { useAIPanelStore } from "@/stores/ai-panel-store";
 import { useLiveAttached } from "../../live-presence";
 import { TWEAK_DISPATCH_LABELS } from "../tweak-queue";
 import { useTweakSession } from "../use-tweak-session";
@@ -35,6 +36,11 @@ interface RunItem {
 	status: "pending" | "ready" | "invalidated" | "resolved";
 }
 
+/** What the Retry button should do after a run error. */
+type RetryPlan =
+	| { kind: "redispatch" }
+	| { kind: "resolve"; itemId: string; action: "accept" | "discard" };
+
 export interface MarkdownAdapterProps {
 	path: string;
 	target: MarkdownTarget | null;
@@ -61,9 +67,21 @@ export function useMarkdownTweakAdapter(props: MarkdownAdapterProps): ContentKin
 	const [message, setMessage] = useState("");
 	const [copied, setCopied] = useState(false);
 	const [promptModal, setPromptModal] = useState<string | null>(null);
+	const [retryable, setRetryable] = useState(false);
 	// Per-target selectionText captured at add time (not stored on TweakItem).
 	const selectionByKey = useRef<Map<string, string | null>>(new Map());
 	const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+	// Current live request id, used to free the outstanding session slot on cancel.
+	const requestIdRef = useRef<string | null>(null);
+	// True when the user cancelled mid-dispatch, so the late response frees itself.
+	const cancelledRef = useRef(false);
+	// Monotonic run identity prevents a late request from a cancelled run from
+	// taking over a newer dispatch.
+	const runGenerationRef = useRef(0);
+	// Mirrors runItems so poll/cancel callbacks read fresh preview ids.
+	const runItemsRef = useRef<RunItem[]>([]);
+	// What the Retry button should do after a run error.
+	const retryPlanRef = useRef<RetryPlan | null>(null);
 
 	const { addItem, clear, setPhase, phase } = session;
 
@@ -80,11 +98,85 @@ export function useMarkdownTweakAdapter(props: MarkdownAdapterProps): ContentKin
 
 	const resetRun = useCallback(() => {
 		stop();
+		requestIdRef.current = null;
+		retryPlanRef.current = null;
 		setRunItems([]);
 		setMessage("");
+		setRetryable(false);
 		clear();
 		setPhase("targeting");
 	}, [stop, clear, setPhase]);
+
+	/** Show a run message; `canRetry` controls whether a Retry action is offered. */
+	const showMessage = useCallback(
+		(text: string, canRetry: boolean, plan: RetryPlan | null = null) => {
+			stop();
+			setMessage(text);
+			setRetryable(canRetry);
+			retryPlanRef.current = canRetry ? plan : null;
+			setPhase("message");
+		},
+		[stop, setPhase],
+	);
+
+	/** Resolve (discard) the outstanding live request so its slot frees. */
+	const freeRequest = useCallback(
+		async (requestId: string | null) => {
+			if (!requestId) return;
+			try {
+				await wsFetch("/api/wiki/live/request", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ path, kind: "discard", requestId }),
+				});
+			} catch {
+				/* best-effort: freeing the slot is not fatal if it fails */
+			}
+		},
+		[path],
+	);
+
+	/** Discard one Markdown preview so it can never be accepted later. */
+	const discardPreview = useCallback(async (previewId: string) => {
+		try {
+			await wsFetch("/api/wiki/live/md-resolve", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ previewId, action: "discard" }),
+			});
+		} catch {
+			/* best-effort: leaving a preview behind is not fatal */
+		}
+	}, []);
+
+	/** Discard current run previews and free its outstanding request slot. */
+	const discardRun = useCallback(async () => {
+		runGenerationRef.current += 1;
+		const previewIds = runItemsRef.current.map((i) => i.previewId);
+		await Promise.all([
+			freeRequest(requestIdRef.current),
+			...previewIds.map((pid) => discardPreview(pid)),
+		]);
+		requestIdRef.current = null;
+	}, [freeRequest, discardPreview]);
+
+	/** Cancel the in-flight run: free the outstanding slot, discard any previews, reset. */
+	const cancelRun = useCallback(async () => {
+		cancelledRef.current = true;
+		stop();
+		await discardRun();
+		resetRun();
+	}, [stop, discardRun, resetRun]);
+
+	/** Dismiss a message: clean ephemeral run state and return to the queue. */
+	const dismissMessage = useCallback(() => {
+		void discardRun();
+		retryPlanRef.current = null;
+		setRunItems([]);
+		setMessage("");
+		setRetryable(false);
+		setPhase("targeting");
+	}, [discardRun, setPhase]);
 
 	const handleAdd = useCallback(() => {
 		if (!target || draft.trim().length === 0) return;
@@ -138,18 +230,19 @@ export function useMarkdownTweakAdapter(props: MarkdownAdapterProps): ContentKin
 		}
 	}
 
-	// Mirror runItems into a ref so the poll loop reads fresh state.
-	const runItemsRef = useRef<RunItem[]>([]);
+	// Keep the poll loop's view of runItems fresh.
 	runItemsRef.current = runItems;
 
-	const startPolling = useCallback(() => {
+	const startPolling = useCallback((generation: number) => {
 		stop();
 		const started = Date.now();
 		pollRef.current = setInterval(async () => {
-			if (Date.now() - started > 90000) {
+			if (generation !== runGenerationRef.current) {
 				stop();
-				setMessage("No response from agent yet.");
-				setPhase("message");
+				return;
+			}
+			if (Date.now() - started > 90000) {
+				showMessage("No response from agent yet.", true, { kind: "redispatch" });
 				return;
 			}
 			let pending = false;
@@ -210,23 +303,30 @@ export function useMarkdownTweakAdapter(props: MarkdownAdapterProps): ContentKin
 				}
 			}
 			if (!hasReady && hasTerminalWithoutPreview) {
-				stop();
-				setMessage("file changed — retry");
-				setPhase("message");
+				showMessage("File changed on disk — retry to re-target the latest content.", true, {
+					kind: "redispatch",
+				});
 			} else if (!pending) {
 				stop();
+				requestIdRef.current = null;
 				setPhase("preview");
 			} else if (stateChanged && hasReady) {
+				requestIdRef.current = null;
 				setPhase("preview");
 			}
 		}, 1000);
-	}, [stop, setPhase]);
+	}, [stop, setPhase, showMessage]);
 
 	const onDispatch = useCallback(async () => {
 		if (!attached || session.items.length === 0) return;
+		const generation = ++runGenerationRef.current;
+		cancelledRef.current = false;
 		await session.refreshPresence();
+		if (generation !== runGenerationRef.current) return;
 		setPhase("dispatching");
 		setMessage("");
+		setRetryable(false);
+		retryPlanRef.current = null;
 		try {
 			const res = await wsFetch("/api/wiki/live/request", {
 				method: "POST",
@@ -237,16 +337,40 @@ export function useMarkdownTweakAdapter(props: MarkdownAdapterProps): ContentKin
 					items: session.items.map((i) => ({
 						instructionId: i.itemId,
 						blockRef: i.targetKey,
-						baseRevision,
+						baseRevision:
+							useProofStore.getState().byPath[path]?.snapshotRevision ?? baseRevision,
 						instruction: i.instruction,
 						selectionText: selectionByKey.current.get(i.targetKey) ?? undefined,
 					})),
 				}),
 			});
+			if (res.status === 409) {
+				const body = (await res.json().catch(() => ({}))) as { message?: string };
+				showMessage(
+					body.message ?? "A live request is already outstanding for this session.",
+					false,
+				);
+				return;
+			}
 			if (!res.ok) throw new Error("Request failed.");
 			const body = (await res.json()) as {
+				requestId?: string;
 				items?: { instructionId: string; previewId: string | null }[];
 			};
+			requestIdRef.current = body.requestId ?? null;
+			if (cancelledRef.current || generation !== runGenerationRef.current) {
+				// Cancelled or superseded mid-dispatch: free the late request and discard its
+				// proposals so nothing can be accepted as an orphan later.
+				const previewIds = (body.items ?? [])
+					.map((x) => x.previewId)
+					.filter((x): x is string => typeof x === "string");
+				await Promise.all([
+					freeRequest(body.requestId ?? null),
+					...previewIds.map((pid) => discardPreview(pid)),
+				]);
+				resetRun();
+				return;
+			}
 			const handles = body.items ?? [];
 			const next: RunItem[] = [];
 			for (const it of session.items) {
@@ -264,12 +388,14 @@ export function useMarkdownTweakAdapter(props: MarkdownAdapterProps): ContentKin
 			if (next.length === 0) throw new Error("Request failed.");
 			setRunItems(next);
 			setPhase("waiting");
-			startPolling();
+			startPolling(generation);
 		} catch (error) {
-			setMessage(error instanceof Error ? error.message : "Request failed.");
-			setPhase("message");
+			if (cancelledRef.current || generation !== runGenerationRef.current) return;
+			showMessage(error instanceof Error ? error.message : "Request failed.", true, {
+				kind: "redispatch",
+			});
 		}
-	}, [attached, session, path, baseRevision, setPhase, startPolling]);
+	}, [attached, session, path, baseRevision, setPhase, startPolling, showMessage, freeRequest, discardPreview, resetRun]);
 
 	const cycleVariant = useCallback((itemId: string, dir: 1 | -1) => {
 		setRunItems((prev) =>
@@ -301,15 +427,30 @@ export function useMarkdownTweakAdapter(props: MarkdownAdapterProps): ContentKin
 					}),
 				});
 				if (!res.ok) {
-					if (res.status === 409) setMessage("file changed — retry");
-					else setMessage("Could not resolve proposal.");
-					setPhase("message");
+					if (res.status === 409) {
+						// BASE_DRIFT / STALE_REVISION: the file moved; re-target fresh content.
+						showMessage(
+							"File changed on disk — retry to re-target the latest content.",
+							true,
+							{ kind: "redispatch" },
+						);
+					} else {
+						// Transient resolve failure: retry the SAME accept/discard.
+						showMessage("Could not resolve proposal.", true, {
+							kind: "resolve",
+							itemId: item.itemId,
+							action,
+						});
+					}
 					return;
 				}
 				if (action === "accept") await useProofStore.getState().loadSnapshot(path);
 			} catch {
-				setMessage("Could not resolve proposal.");
-				setPhase("message");
+				showMessage("Could not resolve proposal.", true, {
+					kind: "resolve",
+					itemId: item.itemId,
+					action,
+				});
 				return;
 			}
 			// Mark resolved and finalize when the whole run is done.
@@ -329,8 +470,27 @@ export function useMarkdownTweakAdapter(props: MarkdownAdapterProps): ContentKin
 				return updated;
 			});
 		},
-		[path, setPhase, resetRun, onClose],
+		[path, setPhase, resetRun, onClose, showMessage],
 	);
+
+	/** Retry the current run according to how it failed. */
+	const retryRun = useCallback(async () => {
+		const plan = retryPlanRef.current;
+		if (plan?.kind === "resolve") {
+			const item = runItemsRef.current.find((p) => p.itemId === plan.itemId) ?? null;
+			if (item) {
+				await resolveItem(item, plan.action);
+				return;
+			}
+		}
+		// Redispatch: discard the old run, keep queued items, dispatch again.
+		await discardRun();
+		setRunItems([]);
+		setMessage("");
+		setRetryable(false);
+		retryPlanRef.current = null;
+		await onDispatch();
+	}, [discardRun, onDispatch, resolveItem]);
 
 	// The item currently under review (first ready one).
 	const current = runItems.find((p) => p.status === "ready") ?? null;
@@ -354,11 +514,11 @@ export function useMarkdownTweakAdapter(props: MarkdownAdapterProps): ContentKin
 		phase === "preview" ||
 		phase === "resolving";
 
-	const dispatchDisabled = !attached || session.items.length === 0;
+	const dispatchDisabled = session.items.length === 0;
 
 	return {
 		contentKind: "markdown",
-		dispatchLabel: TWEAK_DISPATCH_LABELS.markdown,
+		dispatchLabel: attached ? TWEAK_DISPATCH_LABELS.markdown : "Connect an agent",
 		countBarNoun: "tweak",
 		items: session.items,
 		removeItem: session.removeItem,
@@ -367,7 +527,14 @@ export function useMarkdownTweakAdapter(props: MarkdownAdapterProps): ContentKin
 			onClose();
 		},
 		showQueueBar: !runInFlight && phase !== "message",
-		onDispatch: () => void onDispatch(),
+		onDispatch: () => {
+			if (session.items.length === 0) return;
+			if (!attached) {
+				useAIPanelStore.getState().open();
+				return;
+			}
+			void onDispatch();
+		},
 		dispatchDisabled,
 		renderTargeting: () => {
 			if (runInFlight || phase === "message" || !target) return null;
@@ -409,7 +576,9 @@ export function useMarkdownTweakAdapter(props: MarkdownAdapterProps): ContentKin
 					<MarkdownMessage
 						message={message}
 						pos={pos}
-						onDismiss={resetRun}
+						retryable={retryable}
+						onRetry={retryable ? () => void retryRun() : undefined}
+						onDismiss={dismissMessage}
 						onCopyPrompt={session.items.length > 0 ? () => void handleCopyPrompt() : undefined}
 						copied={copied}
 						promptModal={promptModal}
@@ -417,8 +586,8 @@ export function useMarkdownTweakAdapter(props: MarkdownAdapterProps): ContentKin
 					/>
 				);
 			}
-			if ((phase === "waiting" || phase === "dispatching") && runItems.length > 0) {
-				return <MarkdownWaiting />;
+			if (phase === "waiting" || phase === "dispatching") {
+				return <MarkdownWaiting onCancel={() => void cancelRun()} />;
 			}
 			if ((phase === "preview" || phase === "resolving") && current) {
 				const pos = positions.get(current.blockRef);
@@ -531,10 +700,19 @@ function MarkdownTargeting({
 	);
 }
 
-function MarkdownWaiting() {
+function MarkdownWaiting({ onCancel }: { onCancel: () => void }) {
 	return (
 		<div className="fixed bottom-4 left-1/2 z-40 -translate-x-1/2 rounded-lg border border-border bg-popover px-3 py-2 text-[12px] shadow-xl">
-			<div className="animate-pulse text-muted-foreground">Generating…</div>
+			<div className="flex items-center gap-3">
+				<div className="animate-pulse text-muted-foreground">Generating…</div>
+				<button
+					type="button"
+					onClick={onCancel}
+					className="rounded-md border border-border px-2.5 py-1 text-[11px] font-medium transition-colors hover:bg-accent"
+				>
+					Cancel
+				</button>
+			</div>
 		</div>
 	);
 }
@@ -572,6 +750,8 @@ function MarkdownPromptModal({ text, onDone }: { text: string; onDone: () => voi
 function MarkdownMessage({
 	message,
 	pos,
+	retryable,
+	onRetry,
 	onDismiss,
 	onCopyPrompt,
 	copied,
@@ -580,6 +760,8 @@ function MarkdownMessage({
 }: {
 	message: string;
 	pos: BlockPos | undefined;
+	retryable: boolean;
+	onRetry?: () => void;
 	onDismiss: () => void;
 	onCopyPrompt?: () => void;
 	copied: boolean;
@@ -600,6 +782,15 @@ function MarkdownMessage({
 						className="rounded border border-border px-2 py-1"
 					>
 						{copied ? "Copied" : "Copy as prompt"}
+					</button>
+				)}
+				{retryable && onRetry && (
+					<button
+						type="button"
+						onClick={onRetry}
+						className="rounded bg-primary px-2 py-1 text-primary-foreground"
+					>
+						Retry
 					</button>
 				)}
 				<button

@@ -158,7 +158,11 @@ dispatch button label is surface-specific (`Rewrite` for markdown, `Apply` for
 HTML). Queue bars also offer **Copy as prompt** and **Show** fallback controls.
 
 **Why it matters:** One vocabulary and queue model across markdown and HTML
-keeps target selection predictable and prevents duplicate work.
+keeps target selection predictable and prevents duplicate work. When no agent is
+attached, a queued Markdown **Rewrite** action becomes **Connect an agent** and
+opens the agent panel without changing the queue. Cancelling a Markdown run
+frees its outstanding request and discards its previews; generation failures
+preserve queued items for retry or dismissal.
 
 **Verification pointer:** `src/components/editor/tweak/use-tweak-session.ts`,
 `src/components/editor/tweak/tweak-queue.ts`,
@@ -178,8 +182,10 @@ touching the file. Accept commits the exact variant string through the single
 tier-2 write engine, gated on the block's `baseBlockHash` (`sha256:<hex>`),
 computed server-side at request time. If the block changed on disk since the
 request, Accept is refused (`BASE_DRIFT`) and the file keeps the manual edit.
-`md-resolve` (accept/discard) is **human-only**; an agent bearer token cannot
-reach it.
+While a batch is waiting, **Cancel** discards its request and previews without
+writing. Generation failures preserve the queue for retry; transient resolve
+failures retry the same proposal. `md-resolve` (accept/discard) is **human-only**;
+an agent bearer token cannot reach it.
 
 **Why it matters:** Write-on-accept keeps the file clean until the human
 decides; server-side hashing avoids the `crypto.subtle` secure-context failure
