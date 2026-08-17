@@ -128,6 +128,32 @@ has a Table of Contents for fast routing.
 - Read the file in full before editing; never rewrite it from a possibly-truncated
   read. Edit via targeted string replacement or chunked reads (offset/limit).
 
+## Architecture Map
+
+`isometric-codebase-map.json` is the machine-readable architecture inventory. The
+companion `isometric-codebase-map.html` is the visual map for human review.
+
+- Read the JSON before making changes that span modules, API boundaries, storage, auth,
+  or request flows. Use stable structure `id` values, `talks`, `children`, `edges`, and
+  `trace` to understand relationships and the canonical request path.
+- Update both map files in the same change when code changes a subsystem, child
+  responsibility, connection, external integration, request trace, or headline stat.
+  Keep existing IDs stable; add new IDs only for genuinely new subsystems.
+- If the map disagrees with source code, source code wins. Verify the implementation,
+  then correct both artifacts. Do not add credentials, tokens, host-specific paths, or
+  other sensitive runtime data.
+- Keep JSON valid and run the relevant checks after updates:
+
+  ```bash
+  node -e 'JSON.parse(require("fs").readFileSync("isometric-codebase-map.json", "utf8")); console.log("valid JSON")'
+  node --check /tmp/isometric-map-script.js
+  python3 /home/sil/.pi/agent/skills/isometric/scripts/validate_isometric.py \
+    isometric-codebase-map.html
+  ```
+
+  Extract the inline `<script>` into `/tmp/isometric-map-script.js` before running
+  `node --check`. Use the validator's sensitive-prefix checks when map content changes.
+
 ## Agent API model (the core domain)
 
 Two tiers share one auth/scope/lock spine:
