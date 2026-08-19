@@ -25,302 +25,88 @@ down turns "did we regress the loop?" into a diff against this file.
 
 ## Table of Contents
 
-- [1. Live collaboration](#1-live-collaboration)
-  - [1.1 Presence indicator](#11-presence-indicator)
-  - [1.2 Tweak queue (shared across surfaces)](#12-tweak-queue-shared-across-surfaces)
-  - [1.3 Markdown targets: queued batch and write-on-accept](#13-markdown-targets-queued-batch-and-write-on-accept)
-  - [1.4 Web targets: live engine variants and write-on-accept](#14-web-targets-live-engine-variants-and-write-on-accept)
-  - [1.5 One outstanding request per session](#15-one-outstanding-request-per-session)
-  - [1.6 Agent approval and token rotation](#16-agent-approval-and-token-rotation)
-- [2. Live inventory (routes, tools, constants)](#2-live-inventory-routes-tools-constants)
-  - [MCP tools (packages/wiki-viewer-mcp)](#mcp-tools-packageswiki-viewer-mcp)
-  - [HTTP routes](#http-routes)
-  - [Constants](#constants)
-- [3. Shell and workspaces](#3-shell-and-workspaces)
-  - [3.1 URL state](#31-url-state)
-  - [3.2 Workspace resolution](#32-workspace-resolution)
-  - [3.3 AI activity and prefetch](#33-ai-activity-and-prefetch)
-  - [3.4 Embed and lite mode](#34-embed-and-lite-mode)
-- [4. Sidebar and file tree](#4-sidebar-and-file-tree)
-  - [4.1 Create, upload, download](#41-create-upload-download)
-  - [4.2 Tree keyboard navigation](#42-tree-keyboard-navigation)
-  - [4.3 Viewer-kind mapping](#43-viewer-kind-mapping)
-  - [4.4 Favorites, recents, and sidebar size](#44-favorites-recents-and-sidebar-size)
-  - [4.5 Watching and refresh](#45-watching-and-refresh)
-  - [4.6 Large-file gate](#46-large-file-gate)
-- [5. Viewer pane and file viewers](#5-viewer-pane-and-file-viewers)
-  - [5.1 Pane toolbar and menu](#51-pane-toolbar-and-menu)
-  - [5.2 HTML / app preview](#52-html-app-preview)
-  - [5.3 CSV viewer](#53-csv-viewer)
-  - [5.4 PDF viewer](#54-pdf-viewer)
-  - [5.5 Mermaid, notebook, source, image/media, office, fallback](#55-mermaid-notebook-source-imagemedia-office-fallback)
-  - [5.6 History panel](#56-history-panel)
-- [6. Markdown editor](#6-markdown-editor)
-  - [6.1 Modes and state](#61-modes-and-state)
-  - [6.2 Empty / missing / loading states](#62-empty-missing-loading-states)
-  - [6.3 Source mode, RTL, and paste/drop](#63-source-mode-rtl-and-pastedrop)
-  - [6.4 Wiki links](#64-wiki-links)
-  - [6.5 Toolbar and bubble menu](#65-toolbar-and-bubble-menu)
-  - [6.6 Slash commands](#66-slash-commands)
-  - [6.7 Extensions roster](#67-extensions-roster)
-  - [6.8 Reading-time experiments](#68-reading-time-experiments)
-- [7. Comments](#7-comments)
-  - [7.1 Comment pips and thread](#71-comment-pips-and-thread)
-  - [7.2 View-mode and source-line comments](#72-view-mode-and-source-line-comments)
-- [8. Suggestions](#8-suggestions)
-  - [8.1 Suggest-edit popover](#81-suggest-edit-popover)
-  - [8.2 Suggestion cards](#82-suggestion-cards)
-  - [8.3 Suggesting-mode capture](#83-suggesting-mode-capture)
-- [9. Search](#9-search)
-  - [9.1 Command palette and sidebar search](#91-command-palette-and-sidebar-search)
-  - [9.2 Snippet rendering and backend](#92-snippet-rendering-and-backend)
-- [10. Uploads and assets](#10-uploads-and-assets)
-  - [10.1 Upload paths and caps](#101-upload-paths-and-caps)
-- [11. Scratchpad](#11-scratchpad)
-  - [11.1 Create, detect, and save](#111-create-detect-and-save)
-- [12. Public share links](#12-public-share-links)
-  - [12.1 Create, list, revoke](#121-create-list-revoke)
-  - [12.2 Read and unlock](#122-read-and-unlock)
-- [13. Authentication](#13-authentication)
-  - [13.1 Sign-in](#131-sign-in)
-  - [13.2 Session gate and CSRF](#132-session-gate-and-csrf)
-  - [13.3 Auth settings (allowlist, admins, API key)](#133-auth-settings-allowlist-admins-api-key)
-- [14. Git](#14-git)
-  - [14.1 Tree badges and branch switching](#141-tree-badges-and-branch-switching)
-  - [14.2 History and diff](#142-history-and-diff)
-- [15. App runner and node apps](#15-app-runner-and-node-apps)
-  - [15.1 Node-app viewer](#151-node-app-viewer)
-  - [15.2 Proxy and lifecycle](#152-proxy-and-lifecycle)
-- [16. Settings and system config](#16-settings-and-system-config)
-  - [16.1 Workspace management](#161-workspace-management)
-  - [16.2 Config precedence](#162-config-precedence)
-- [17. Agent API](#17-agent-api)
-  - [17.1 Registration (TOFU) and auth](#171-registration-tofu-and-auth)
-  - [17.2 Tier 1 — raw filesystem](#172-tier-1-raw-filesystem)
-  - [17.3 Tier 2 — markdown collab](#173-tier-2-markdown-collab)
-  - [17.4 Events, sidecar, activity, settings](#174-events-sidecar-activity-settings)
-  - [17.5 Install manifest](#175-install-manifest)
-- [18. MCP adapter](#18-mcp-adapter)
-  - [18.1 Tool set and endpoints](#181-tool-set-and-endpoints)
-- [19. CLI](#19-cli)
-  - [19.1 Commands and flags](#191-commands-and-flags)
-- [20. PWA](#20-pwa)
-  - [20.1 Installability](#201-installability)
-- [21. Theming, fonts, and persistence](#21-theming-fonts-and-persistence)
-  - [21.1 Theme and view width](#211-theme-and-view-width)
-  - [21.2 Fonts](#212-fonts)
-  - [21.3 Persistence keys](#213-persistence-keys)
-- [22. Keyboard shortcuts](#22-keyboard-shortcuts)
-- [23. Non-goals / explicitly out of scope](#23-non-goals-explicitly-out-of-scope)
-- [24. Known gaps](#24-known-gaps)
+- [1. Shell and workspaces](#1-shell-and-workspaces)
+  - [1.1 URL state](#11-url-state)
+  - [1.2 Workspace resolution](#12-workspace-resolution)
+  - [1.3 AI activity and prefetch](#13-ai-activity-and-prefetch)
+  - [1.4 Embed and lite mode](#14-embed-and-lite-mode)
+- [2. Sidebar and file tree](#2-sidebar-and-file-tree)
+  - [2.1 Create, upload, download](#21-create-upload-download)
+  - [2.2 Tree keyboard navigation](#22-tree-keyboard-navigation)
+  - [2.3 Viewer-kind mapping](#23-viewer-kind-mapping)
+  - [2.4 Favorites, recents, and sidebar size](#24-favorites-recents-and-sidebar-size)
+  - [2.5 Watching and refresh](#25-watching-and-refresh)
+  - [2.6 Large-file gate](#26-large-file-gate)
+- [3. Viewer pane and file viewers](#3-viewer-pane-and-file-viewers)
+  - [3.1 Pane toolbar and menu](#31-pane-toolbar-and-menu)
+  - [3.2 HTML / app preview](#32-html-app-preview)
+  - [3.3 CSV viewer](#33-csv-viewer)
+  - [3.4 PDF viewer](#34-pdf-viewer)
+  - [3.5 Mermaid, notebook, source, image/media, office, fallback](#35-mermaid-notebook-source-imagemedia-office-fallback)
+  - [3.6 History panel](#36-history-panel)
+- [4. Markdown editor](#4-markdown-editor)
+  - [4.1 Modes and state](#41-modes-and-state)
+  - [4.2 Empty / missing / loading states](#42-empty-missing-loading-states)
+  - [4.3 Source mode, RTL, and paste/drop](#43-source-mode-rtl-and-pastedrop)
+  - [4.4 Wiki links](#44-wiki-links)
+  - [4.5 Toolbar and bubble menu](#45-toolbar-and-bubble-menu)
+  - [4.6 Slash commands](#46-slash-commands)
+  - [4.7 Extensions roster](#47-extensions-roster)
+  - [4.8 Reading-time experiments](#48-reading-time-experiments)
+- [5. Comments](#5-comments)
+  - [5.1 Comment pips and thread](#51-comment-pips-and-thread)
+  - [5.2 View-mode and source-line comments](#52-view-mode-and-source-line-comments)
+- [6. Suggestions](#6-suggestions)
+  - [6.1 Suggest-edit popover](#61-suggest-edit-popover)
+  - [6.2 Suggestion cards](#62-suggestion-cards)
+  - [6.3 Suggesting-mode capture](#63-suggesting-mode-capture)
+- [7. Search](#7-search)
+  - [7.1 Command palette and sidebar search](#71-command-palette-and-sidebar-search)
+  - [7.2 Snippet rendering and backend](#72-snippet-rendering-and-backend)
+- [8. Uploads and assets](#8-uploads-and-assets)
+  - [8.1 Upload paths and caps](#81-upload-paths-and-caps)
+- [9. Scratchpad](#9-scratchpad)
+  - [9.1 Create, detect, and save](#91-create-detect-and-save)
+- [10. Public share links](#10-public-share-links)
+  - [10.1 Create, list, revoke](#101-create-list-revoke)
+  - [10.2 Read and unlock](#102-read-and-unlock)
+- [11. Authentication](#11-authentication)
+  - [11.1 Sign-in](#111-sign-in)
+  - [11.2 Session gate and CSRF](#112-session-gate-and-csrf)
+  - [11.3 Auth settings (allowlist, admins, API key)](#113-auth-settings-allowlist-admins-api-key)
+- [12. Git](#12-git)
+  - [12.1 Tree badges and branch switching](#121-tree-badges-and-branch-switching)
+  - [12.2 History and diff](#122-history-and-diff)
+- [13. App runner and node apps](#13-app-runner-and-node-apps)
+  - [13.1 Node-app viewer](#131-node-app-viewer)
+  - [13.2 Proxy and lifecycle](#132-proxy-and-lifecycle)
+- [14. Settings and system config](#14-settings-and-system-config)
+  - [14.1 Workspace management](#141-workspace-management)
+  - [14.2 Config precedence](#142-config-precedence)
+- [15. Agent API](#15-agent-api)
+  - [15.1 Registration (TOFU) and auth](#151-registration-tofu-and-auth)
+  - [15.2 Tier 1 — raw filesystem](#152-tier-1-raw-filesystem)
+  - [15.3 Tier 2 — markdown collab](#153-tier-2-markdown-collab)
+  - [15.4 Events, sidecar, activity, settings](#154-events-sidecar-activity-settings)
+  - [15.5 Install manifest](#155-install-manifest)
+  - [15.6 Agent approval and token rotation](#156-agent-approval-and-token-rotation)
+- [16. MCP adapter](#16-mcp-adapter)
+  - [16.1 Tool set and endpoints](#161-tool-set-and-endpoints)
+- [17. CLI](#17-cli)
+  - [17.1 Commands and flags](#171-commands-and-flags)
+- [18. PWA](#18-pwa)
+  - [18.1 Installability](#181-installability)
+- [19. Theming, fonts, and persistence](#19-theming-fonts-and-persistence)
+  - [19.1 Theme and view width](#191-theme-and-view-width)
+  - [19.2 Fonts](#192-fonts)
+  - [19.3 Persistence keys](#193-persistence-keys)
+- [20. Keyboard shortcuts](#20-keyboard-shortcuts)
+- [21. Non-goals / explicitly out of scope](#21-non-goals-explicitly-out-of-scope)
+- [22. Known gaps](#22-known-gaps)
 
----
+## 1. Shell and workspaces
 
-## 1. Live collaboration
-
-Impeccable-style interactive editing, extended to markdown as well as rendered
-HTML. The attending agent is the user's own chat session (via MCP tools or the
-raw HTTP transport), not a separate daemon. The foundational invariant across
-every surface: **Live is speculative until Accept; Accept is the only thing that
-writes the file.**
-
-### 1.1 Presence indicator
-
-**Contract:** A single presence mark in the surface toolbar has two states.
-**Solid** "● listening" means an agent is live for this session; the **Go**
-button works. **Amber** "◌ no agent" means no agent is live; the Go button
-becomes **Connect**. Presence is solid when either (a) the agent held or
-refreshed a poll within `PRESENCE_TTL_MS` (8s), or (b) a request is in `working`
-state that was picked up within `WORKING_PRESENCE_GRACE_MS` (90s). A merely
-`pending` request with nobody polling does **not** show solid. A `working`
-request whose agent crashed falls back to amber after the 90s grace. Presence is
-refreshed on every held poll tick (~400ms), on every agent reply, and on every
-markdown/web preview submission.
-
-**Why it matters:** If presence lies solid while no agent is attending, **Go
-queues into the void** and the user sees "nothing happened", the exact failure
-class this system exists to prevent.
-
-**Verification pointer:** `src/lib/proof/live/store.ts`,
-`src/app/api/wiki/live/status/route.ts`, `src/components/editor/live-presence.tsx`
-
-### 1.2 Tweak queue (shared across surfaces)
-
-**Contract:** The user-facing feature is **Tweak**. In the editor action menu,
-**Comment** starts a discussion or annotation, **Suggest** proposes a human edit
-for review, and **Tweak** asks the AI to rewrite the selected target live. A
-Tweak is first added to a queue. Selecting the same target again updates its
-queued instruction and snippet in place, so the count does not increase. Users
-can remove one queued item or choose **Cancel** to clear all queued selections
-without dispatching. Both instruction editors expose **Cancel**. Clicking
-outside while an instruction input is empty is equivalent to **Cancel**. The
-dispatch button label is surface-specific (`Rewrite` for markdown, `Apply` for
-HTML). Queue bars also offer **Copy as prompt** and **Show** fallback controls.
-
-**Why it matters:** One vocabulary and queue model across markdown and HTML
-keeps target selection predictable and prevents duplicate work. When no agent is
-attached, a queued Markdown **Rewrite** action becomes **Connect an agent** and
-opens the agent panel without changing the queue. Cancelling a Markdown run
-frees its outstanding request and discards its previews; generation failures
-preserve queued items for retry or dismissal. Static `.html` and `.htm` website
-targets bypass the legacy picker queue when using the live bridge; all other
-surfaces retain the legacy picker path.
-
-**Verification pointer:** `src/components/editor/tweak/use-tweak-session.ts`,
-`src/components/editor/tweak/tweak-queue.ts`,
-`src/components/editor/tweak/tweak-queue-bar.tsx`,
-`src/components/editor/bubble-menu.tsx`
-
-### 1.3 Markdown targets: queued batch and write-on-accept
-
-**Contract:** The target is a rendered **block** (paragraph, heading, list item,
-etc.), with an optional text selection inside it carried only as context, never
-as the edit unit. Markdown and text always gather queued targets before they
-dispatch. **Rewrite** sends the whole queue as one batch through
-`POST /api/wiki/live/request`; there is no immediate single-target dispatch.
-The agent returns 2 to 5 markdown-string variants; the client renders the
-selected variant into the block's slot as an **ephemeral preview** without
-touching the file. Accept commits the exact variant string through the single
-tier-2 write engine, gated on the block's `baseBlockHash` (`sha256:<hex>`),
-computed server-side at request time. If the block changed on disk since the
-request, Accept is refused (`BASE_DRIFT`) and the file keeps the manual edit.
-While a batch is waiting, **Cancel** discards its request and previews without
-writing. Generation failures preserve the queue for retry; transient resolve
-failures retry the same proposal. `md-resolve` (accept/discard) is **human-only**;
-an agent bearer token cannot reach it.
-
-**Why it matters:** Write-on-accept keeps the file clean until the human
-decides; server-side hashing avoids the `crypto.subtle` secure-context failure
-on HTTP deployments; drift refusal prevents clobbering concurrent human edits.
-
-**Verification pointer:** `src/lib/proof/live/md-proposal-store.ts`,
-`src/app/api/wiki/live/request/route.ts`, `src/app/api/wiki/live/md-resolve/route.ts`,
-`src/app/api/agent/live/md-preview/route.ts`,
-`src/components/editor/tweak/adapters/markdown-adapter.tsx`
-
-### 1.4 Web targets: live engine variants and write-on-accept
-
-**Contract:** The unified web/visual Tweak path hosts one token-gated Impeccable
-live helper per workspace-relative surface. A loopback-only
-`POST /api/wiki/live-web/session` resolves the target inside the selected
-workspace, starts or reuses the helper, and returns its browser connection
-credentials; `DELETE` stops it. The product bridge polls the helper for
-`generate`/`steer` events, maps each event to the attached-agent
-`web.tweak.variants` request, and relays one selected Impeccable scaffold
-string back to the helper. Original source and its disk hash, scaffold state,
-and the engine-event mapping persist in the live database so replay is
-idempotent.
-
-Previews remain speculative: generating, mounting, cycling variants, and tuning
-knobs do not write workspace files. `GET /api/wiki/live-web/status?path=...`
-reports engine, bridge, session, scaffold, and recovery state. A human-only,
-loopback `POST /api/wiki/live-web/resolve` accepts or discards the latest
-scaffold. Accept requires a chosen variant, carbonizes its markers and knob
-values, then calls the contained writer with the original disk hash; marker,
-variant, or base drift failure writes nothing. Discard closes the scaffold and
-stops the bridge and helper. The current tracer bullet covers static `.html` and
-`.htm`; proxy injection and dynamic/node-app surfaces remain later work.
-
-**Why it matters:** The helper gives web previews the live variants-and-knobs
-experience while the bridge preserves wiki-viewer's invariant that Accept is the
-only write, with containment and base-drift protection authoritative.
-
-**Verification pointer:** `src/lib/live-engine/supervisor.ts`,
-`src/lib/live-engine/client.ts`, `src/lib/proof/live/web-bridge.ts`,
-`src/lib/proof/live/scaffold-store.ts`, `src/lib/proof/live/carbonize.ts`,
-`src/app/api/wiki/live-web/session/route.ts`,
-`src/app/api/wiki/live-web/status/route.ts`,
-`src/app/api/wiki/live-web/resolve/route.ts`,
-`src/lib/fs/contained-write.ts`
-
-### 1.5 One outstanding request per session
-
-**Contract:** A session may have at most one non-terminal `generate`/`steer`
-request at a time; a second dispatch while one is outstanding returns `409` with
-the outstanding request id. Accept/discard/exit are always allowed. An agent
-reply of `done` resolves the request with outcome `completed` and immediately
-frees the channel (the activity/audit provenance, if any, remains for optional later review and
-does not hold the slot). A delivered-but-unreplied request is redelivered on
-reconnect (idempotency-key replay).
-
-**Why it matters:** Serialization is what makes whole-file drift guards adequate;
-without it, concurrent block edits would need per-block preconditions. A
-non-terminal `done` previously deadlocked the session.
-
-**Verification pointer:** `src/lib/proof/live/store.ts`,
-`src/app/api/agent/live/reply/route.ts`
-
-### 1.6 Agent approval and token rotation
-
-**Contract:** An agent registers (trust-on-first-use), the owner approves it in
-the AI panel, and the agent picks up a one-shot bearer token. Approving a
-registration whose agent id **already exists** mints a new token and invalidates
-the old one. When this happens the same rotation notice ("Approving replaced the
-existing token for `<id>`; the previous token is now invalid.") is shown at every
-human touchpoint: the AI-panel approve toast (`toast.warning`), the approve API
-response (`rotated: true`, `warning`), and the register CLI pickup output
-(`⚠️ …`). Only SHA-256 token hashes are stored.
-
-**Why it matters:** Silent rotation stranded operators with a token that 401'd
-with no explanation; the notice makes the rotation explicit and consistent.
-
-**Verification pointer:** `src/app/api/agent/admin/registrations/[regId]/approve/route.ts`,
-`src/lib/proof/pending.ts`, `src/app/api/agent/register/[regId]/route.ts`,
-`src/components/ai-panel/token-section.tsx`, `packages/wiki-viewer-mcp/src/register.ts`
-
-## 2. Live inventory (routes, tools, constants)
-
-### MCP tools (packages/wiki-viewer-mcp)
-
-| Tool | Purpose |
-|------|---------|
-| `live_attach` | Register presence for the session; returns sessionId (idempotent per agent+workspace) |
-| `live_poll` | Long-poll held up to 25s; returns next request (with `previewId`, `seq`, `afterSeq`) or timeout |
-| `live_reply` | Report `working` / `done` / `error` / `stale` on a delivered request |
-| `live_snapshot` | Read the target file's block snapshot |
-| `live_submit_markdown` | Submit 2–5 markdown-string variants for a block proposal |
-| `live_submit_web` | Submit web-tweak DOM preview ops + candidate patch (single, batch `itemPreviews[]`, or variants) |
-
-### HTTP routes
-
-| Method + path | Auth | Purpose |
-|---------------|------|---------|
-| `POST /api/agent/live/attach` | agent | Attach / presence |
-| `GET /api/agent/live/poll` | agent | Long-poll for next request |
-| `POST /api/agent/live/reply` | agent | Request lifecycle status |
-| `POST /api/agent/live/md-preview` | agent | Submit markdown variants |
-| `POST /api/agent/live/web-preview` | agent | Submit web DOM preview + candidate |
-| `POST /api/wiki/live/request` | human | Dispatch queued markdown Tweak targets as one batch |
-| `POST /api/wiki/live/md-request` | human | Dispatch a single-target markdown request (`{path, blockRef, baseRevision, instruction}`) → `{previewId, requestId}` |
-| `GET /api/wiki/live/md-status` | human | Proposal state + variants |
-| `POST /api/wiki/live/md-resolve` | human only | Accept / discard markdown proposal |
-| `GET /api/wiki/live/status` | human | Presence + current turn |
-| `POST /api/wiki/web-tweak/request` | human | Point at an element, dispatch |
-| `GET /api/wiki/web-tweak/status` | human | Legacy preview state |
-| `POST /api/wiki/web-tweak/resolve` | human only | Legacy accept / discard web preview |
-| `POST /api/wiki/live-web/session` | human, loopback | Start or reuse a live helper for a surface |
-| `DELETE /api/wiki/live-web/session` | human, loopback | Stop the live helper for a surface |
-| `GET /api/wiki/live-web/status` | human, loopback | Engine, bridge, session, scaffold, and recovery state |
-| `POST /api/wiki/live-web/resolve` | human only, loopback | Carbonize and accept, or discard, the live scaffold |
-
-### Constants
-
-| Constant | Value | Meaning |
-|----------|-------|---------|
-| `PRESENCE_TTL_MS` | 8000 | Poll-freshness window for solid presence |
-| `WORKING_PRESENCE_GRACE_MS` | 90000 | Max time a `working` request keeps presence solid without fresh activity |
-| Poll `HOLD_MS` | 25000 | Long-poll hold duration |
-| Poll `TICK_MS` | 400 | Presence refresh / pending check interval while holding |
-| Variants (markdown) | 2–5 | Min 2, max `MAX_VARIANTS` (5) per reply |
-| Live web scaffold relay | 1 | One selected Impeccable scaffold string per helper reply |
-| Outstanding requests / session | 1 | Non-terminal generate/steer at a time |
-| Presence heartbeat (client) | 30000 | Editor `open`/`heartbeat` lease interval |
-| Live engine poll timeout | 1000 | Product bridge poll request timeout |
-| Live engine lease | 5000 | Product bridge lease on a helper event |
-
-## 3. Shell and workspaces
-
-### 3.1 URL state
+### 1.1 URL state
 
 **Contract:** The shell reads four query params: `?ws=<workspaceId>` selects the
 active workspace; `?path=` opens a file; `?file=` is a legacy restore fallback;
@@ -335,7 +121,7 @@ whole shell; breaking `?ws=`/`?path=` ordering breaks deep links and embed mode.
 **Verification pointer:** `src/app/page.tsx`, `src/hooks/use-workspaces.ts`,
 `src/hooks/use-open-file.ts`
 
-### 3.2 Workspace resolution
+### 1.2 Workspace resolution
 
 **Contract:** An ephemeral root (`?root=`, gated by the embed API key or
 `WIKI_NO_AUTH=1`) always wins and clears the workspace registry. Otherwise the
@@ -353,7 +139,7 @@ everything to the wrong root.
 **Verification pointer:** `src/hooks/use-workspaces.ts`, `src/lib/workspace-context.ts`,
 `src/app/api/system/workspaces/route.ts`
 
-### 3.3 AI activity and prefetch
+### 1.3 AI activity and prefetch
 
 **Contract:** The shell polls AI activity every **10 000 ms**; `activePaths` are
 files touched by events whose `by` starts with `ai:` within the last **60 s**
@@ -366,7 +152,7 @@ large workspace's tree responsive without hammering the server.
 
 **Verification pointer:** `src/app/page.tsx`, `src/stores/editor-store.ts`
 
-### 3.4 Embed and lite mode
+### 1.4 Embed and lite mode
 
 **Contract:** `?embed=1` (without `?chrome=1`) hides chrome; `WIKI_LITE=1`
 (`window.__WIKI_LITE`) hides settings and skips the SSE watcher entirely (the
@@ -381,9 +167,9 @@ routes exist.
 **Verification pointer:** `src/app/layout.tsx`, `src/app/page.tsx`,
 `src/lib/url-prefix.ts`, `src/app/api/wiki/watch/route.ts`
 
-## 4. Sidebar and file tree
+## 2. Sidebar and file tree
 
-### 4.1 Create, upload, download
+### 2.1 Create, upload, download
 
 **Contract:** **New file** appends `.md` when the entered name has no `.`
 (placeholder "filename (default .md)"); Enter creates, Escape cancels; success
@@ -400,7 +186,7 @@ are the two easiest behaviors to regress into silent data surprises.
 **Verification pointer:** `src/components/wiki/sidebar-shell.tsx`,
 `src/components/wiki/file-tree.tsx`, `src/hooks/use-upload.ts`
 
-### 4.2 Tree keyboard navigation
+### 2.2 Tree keyboard navigation
 
 **Contract:** Rows are `[role="treeitem"]` with `content-visibility:auto`. Enter/
 Space opens (directory toggles; app/node-app opens+toggles); ArrowUp/Down move
@@ -414,7 +200,7 @@ a11y navigation.
 
 **Verification pointer:** `src/components/wiki/file-tree.tsx`
 
-### 4.3 Viewer-kind mapping
+### 2.3 Viewer-kind mapping
 
 **Contract:** Extension → viewer kind: `md/markdown`→editor; `txt`→text;
 `csv/tsv`→csv; `pdf`→pdf; `mmd/mermaid`→mermaid; `ipynb`→notebook;
@@ -430,7 +216,7 @@ wrong mapping routes a file into the wrong parser or the binary fallback.
 **Verification pointer:** `src/components/wiki/file-tree.tsx`,
 `src/components/wiki/viewer-pane.tsx`, `src/types/wiki.ts`
 
-### 4.4 Favorites, recents, and sidebar size
+### 2.4 Favorites, recents, and sidebar size
 
 **Contract:** Favorites section is expanded by default; Recent is **collapsed by
 default** and shows only the **top 8** entries (the store keeps up to 15 per
@@ -444,7 +230,7 @@ bounds; a regression silently over-scrolls or collapses the sidebar.
 **Verification pointer:** `src/components/wiki/sidebar.tsx`,
 `src/stores/sidebar-width-store.ts`, `src/stores/recent-store.ts`
 
-### 4.5 Watching and refresh
+### 2.5 Watching and refresh
 
 **Contract:** The tree watches up to `WATCH_DIR_LIMIT` (24) expanded dirs via SSE
 `/api/wiki/watch?dir=…` (debounced 300 ms). `rescan` reloads root + all expanded
@@ -461,7 +247,7 @@ hammering the tree.
 **Verification pointer:** `src/hooks/use-file-tree.ts`,
 `src/app/api/wiki/watch/route.ts`, `src/lib/search/watcher-pool.ts`
 
-### 4.6 Large-file gate
+### 2.6 Large-file gate
 
 **Contract:** Files over `LARGE_FILE_GATE_BYTES` (5 MB) open behind a
 confirmation gate for unsafe viewers. `SAFE_VIEWER_KINDS` (image, media, pdf,
@@ -476,9 +262,9 @@ usable.
 **Verification pointer:** `src/components/editor/large-file-gate.tsx`,
 `src/components/wiki/viewer-pane.tsx`
 
-## 5. Viewer pane and file viewers
+## 3. Viewer pane and file viewers
 
-### 5.1 Pane toolbar and menu
+### 3.1 Pane toolbar and menu
 
 **Contract:** The pane header shows the full path, a file-type icon, an optional
 git author chip, and portal slots for badge + actions. The kebab menu offers
@@ -493,7 +279,7 @@ visible regression.
 
 **Verification pointer:** `src/components/wiki/viewer-pane.tsx`
 
-### 5.2 HTML / app preview
+### 3.2 HTML / app preview
 
 **Contract:** HTML previews sandbox an iframe with `allow-forms allow-popups
 allow-top-navigation-by-user-activation` (no scripts by default); "Enable scripts"
@@ -509,7 +295,7 @@ HTML-preview security boundary; either one relaxed lets arbitrary page JS escape
 **Verification pointer:** `src/components/editor/website-viewer.tsx`,
 `src/components/wiki/viewer-pane.tsx`
 
-### 5.3 CSV viewer
+### 3.3 CSV viewer
 
 **Contract:** `GET /api/assets/{path}`. Large inputs (>2 MB or >2000 rows)
 auto-switch to source mode with a "Large file (X MB, N rows)" badge; table render
@@ -525,7 +311,7 @@ painting an unbounded DOM; save silently failing on error is the known sharp edg
 
 **Verification pointer:** `src/components/editor/csv-viewer.tsx`
 
-### 5.4 PDF viewer
+### 3.4 PDF viewer
 
 **Contract:** pdf.js renders `withWs(/api/assets/{path})` with `page-width` scale
 on init. Tools: Select / Highlight / Text / Draw / Image. Any annotation
@@ -540,7 +326,7 @@ against losing annotations; dropping it loses user edits silently.
 **Verification pointer:** `src/components/editor/pdf-viewer.tsx`,
 `src/app/api/pdf/save/route.ts`
 
-### 5.5 Mermaid, notebook, source, image/media, office, fallback
+### 3.5 Mermaid, notebook, source, image/media, office, fallback
 
 **Contract:** Mermaid standalone viewer renders only after `mermaid.parse`
 succeeds (`securityLevel:"loose"`, dark theme follows the `dark` class) with
@@ -563,7 +349,7 @@ escape.
 `src/components/editor/source-viewer.tsx`, `src/components/editor/office/xlsx-viewer.tsx`,
 `src/components/editor/file-fallback-viewer.tsx`
 
-### 5.6 History panel
+### 3.6 History panel
 
 **Contract:** The history panel lists commits (short SHA, message, author, time)
 in a `max-h-[40vh]` scroll; clicking a commit loads a diff `<pre>` (max-h-60);
@@ -575,9 +361,9 @@ check out anything.
 **Verification pointer:** `src/components/wiki/viewer-pane.tsx`,
 `src/hooks/use-git-history.ts`
 
-## 6. Markdown editor
+## 4. Markdown editor
 
-### 6.1 Modes and state
+### 4.1 Modes and state
 
 **Contract:** Three modes: `viewing | editing | suggesting`. The status bar
 shows an Editing/Suggesting radio (edit modes only) and a save pill
@@ -593,7 +379,7 @@ suggesting session from clobbering the file with un-reviewed edits.
 **Verification pointer:** `src/components/editor/editor.tsx`,
 `src/stores/editor-store.ts`
 
-### 6.2 Empty / missing / loading states
+### 4.2 Empty / missing / loading states
 
 **Contract:** No path → "No page selected" + "Select a page from the sidebar or
 create a new one". A missing page shows an inferred title (slug `[-_]+` → spaces,
@@ -606,7 +392,7 @@ makes every navigation blink a spinner.
 
 **Verification pointer:** `src/components/editor/editor.tsx`
 
-### 6.3 Source mode, RTL, and paste/drop
+### 4.3 Source mode, RTL, and paste/drop
 
 **Contract:** The **Markdown/Preview** toggle (edit modes only) snapshots content
 into a local textarea on enter and `updateContent` on exit. RTL is driven by
@@ -619,7 +405,7 @@ editor; breaking it silently swallows pasted files.
 
 **Verification pointer:** `src/components/editor/editor.tsx`
 
-### 6.4 Wiki links
+### 4.4 Wiki links
 
 **Contract:** Typing `[[slug]]`, `[[slug|alias]]`, or `[[slug#anchor]]` converts
 to a wiki link (`slug` regex `^[a-z0-9-]+$`). The `[[` picker filters slugs
@@ -638,12 +424,12 @@ links navigable and self-healing.
 `src/components/editor/wiki-link-picker.tsx`, `src/components/editor/wiki-link-create-dialog.tsx`,
 `src/components/editor/wiki-link-decorator.ts`, `src/components/editor/link-navigation.ts`
 
-### 6.5 Toolbar and bubble menu
+### 4.5 Toolbar and bubble menu
 
 **Contract:** The toolbar offers H1/H2/H3, bold/italic/underline/strike/
 inline-code/link, bullet/ordered list, blockquote, checklist, code block,
 divider, align L/C/R/justify, superscript/subscript, insert image/video,
-undo/redo, and an RTL toggle. The bubble menu adds Tweak / Comment / Suggest edit
+undo/redo, and an RTL toggle. The bubble menu adds Comment / Suggest edit
 and (read-only) only Comment. Link editing uses a popover (`Add link`/`Edit link`,
 Enter applies, empty cancels, ⌘E opens a prompt for a selected link).
 
@@ -653,7 +439,7 @@ the read-only bubble showing only Comment is the correct gate for view mode.
 **Verification pointer:** `src/components/editor/editor-toolbar.tsx`,
 `src/components/editor/bubble-menu.tsx`, `src/components/editor/link-popover.tsx`
 
-### 6.6 Slash commands
+### 4.6 Slash commands
 
 **Contract:** `/` at line start (or after `\n`/space) opens the command menu
 (filter = label OR description substring). 18 commands: Text, H1/H2/H3, Bullet/
@@ -669,7 +455,7 @@ close-on-space rule and preview pane are deliberate UX that regresses easily.
 **Verification pointer:** `src/components/editor/slash-commands.tsx`,
 `src/components/editor/extensions/drag-handle.ts`
 
-### 6.7 Extensions roster
+### 4.7 Extensions roster
 
 **Contract:** Headings H1–H4 only; code blocks highlight 13 languages (bash, css,
 go, javascript, json, markdown, python, rust, shell, sql, typescript, xml, yaml);
@@ -688,7 +474,7 @@ no-Mod-K link rule are exact, user-visible constraints that drift breaks subtly.
 `src/components/editor/extensions/mermaid-code-block.tsx`,
 `src/components/editor/extensions/heading-anchors.ts`
 
-### 6.8 Reading-time experiments
+### 4.8 Reading-time experiments
 
 **Contract:** Always-on editor experiments: a read-time chip (`X min read` /
 `N min left`, words ÷ 220), a breadcrumb trail (after 40 px scroll, heading
@@ -704,9 +490,9 @@ cosmetic but user-visible.
 `src/components/editor/experiments/breadcrumb.tsx`,
 `src/components/editor/experiments/collapsible.tsx`
 
-## 7. Comments
+## 5. Comments
 
-### 7.1 Comment pips and thread
+### 5.1 Comment pips and thread
 
 **Contract:** One pip per block with ≥1 comment (instruction-kind excluded),
 positioned at the block top. Pip variants: all-resolved → faded check; last turn
@@ -724,9 +510,9 @@ file revision.
 **Verification pointer:** `src/components/editor/comment-pip.tsx`,
 `src/components/editor/comment-thread.tsx`
 
-### 7.2 View-mode and source-line comments
+### 5.2 View-mode and source-line comments
 
-**Contract:** In read-only mode a floating **Comment** (and optional **Tweak**)
+**Contract:** In read-only mode a floating **Comment**
 button appears over a non-collapsed selection; in the source viewer, comments
 anchor to `lineStart:lineEnd:12-hex-SHA-256-of-selected-text`, with pips keyed by
 that triple and the active thread's lines highlighted `bg-amber-400/25`.
@@ -737,9 +523,9 @@ survive line shifts; losing the hash breaks comment placement after any edit.
 **Verification pointer:** `src/components/editor/view-mode-comment-button.tsx`,
 `src/components/editor/source-viewer.tsx`
 
-## 8. Suggestions
+## 6. Suggestions
 
-### 8.1 Suggest-edit popover
+### 6.1 Suggest-edit popover
 
 **Contract:** Opened via the bubble "Suggest edit" or the view-mode button, the
 popover offers kind chips Replace block / Insert after / Insert before / Delete
@@ -753,7 +539,7 @@ kind are what let the reviewer see exactly what changed without touching the fil
 
 **Verification pointer:** `src/components/editor/suggest-edit-popover.tsx`
 
-### 8.2 Suggestion cards
+### 6.2 Suggestion cards
 
 **Contract:** Each pending suggestion renders a card ("`<by>` suggests replacing/
 inserting after/inserting before/deleting this block") with current/proposed
@@ -768,7 +554,7 @@ edits.
 
 **Verification pointer:** `src/components/editor/suggestion-card.tsx`
 
-### 8.3 Suggesting-mode capture
+### 6.3 Suggesting-mode capture
 
 **Contract:** In suggesting mode, on blur / block-change / selection move, each
 top-level block is diffed against the snapshot: changed → `replace`, deleted →
@@ -780,9 +566,9 @@ suggestions; a wrong diff flushes garbage suggestions to the sidecar.
 
 **Verification pointer:** `src/components/editor/hooks/use-suggestion-capture.ts`
 
-## 9. Search
+## 7. Search
 
-### 9.1 Command palette and sidebar search
+### 7.1 Command palette and sidebar search
 
 **Contract:** **Cmd/Ctrl+K** toggles the command palette (placeholder "Search
 files… ( > for actions )"). An empty or `>`-prefixed query enters action mode
@@ -799,7 +585,7 @@ on each keystroke with ArrowUp/Down wrap and Enter-to-open.
 **Verification pointer:** `src/components/search/search-command-dialog.tsx`,
 `src/components/search/sidebar-search-box.tsx`, `src/stores/search-store.ts`
 
-### 9.2 Snippet rendering and backend
+### 7.2 Snippet rendering and backend
 
 **Contract:** Snippets parse FTS5/rg `<mark>…</mark>` via regex (never
 `dangerouslySetInnerHTML`); marks render `bg-yellow-200 dark:bg-yellow-700`. The
@@ -817,16 +603,16 @@ the performance and XSS boundary of search.
 `src/app/api/wiki/search/route.ts`, `src/lib/search/rg-search.ts`,
 `src/lib/search/filename-search.ts`, `src/lib/search/backlinks.ts`
 
-## 10. Uploads and assets
+## 8. Uploads and assets
 
-### 10.1 Upload paths and caps
+### 8.1 Upload paths and caps
 
 **Contract:** `POST /api/wiki/upload` (multipart `file` + `dir`) caps files at
 **100 MB**, sanitizes the name (`[^a-zA-Z0-9._-]`→`_`, extension preserved), and
 allows only an allowlisted MIME-type **or** extension set. `POST /api/upload/…`
 (the editor paste/drop path) caps at **50 MB** and dedupes names with a `-N`
 suffix. `GET /api/assets/…` serves files with `Cache-Control: private, max-age=60`
-and denies `.proof`/`.git`/`.impeccable`. All three are workspace-scoped and session-gated.
+and denies `.proof`/`.git`. Both are workspace-scoped and session-gated.
 
 **Why it matters:** The 100 MB vs 50 MB caps are distinct per route; a "one-size"
 cap regression silently rejects legit uploads or admits oversized ones.
@@ -834,9 +620,9 @@ cap regression silently rejects legit uploads or admits oversized ones.
 **Verification pointer:** `src/app/api/wiki/upload/route.ts`,
 `src/app/api/upload/[...path]/route.ts`, `src/app/api/assets/[...path]/route.ts`
 
-## 11. Scratchpad
+## 9. Scratchpad
 
-### 11.1 Create, detect, and save
+### 9.1 Create, detect, and save
 
 **Contract:** **Cmd/Ctrl+Shift+N** opens the scratchpad surface (Text / URL /
 File). Text submits on **Cmd/Ctrl+Enter**; URL prepends `https://` when no
@@ -854,9 +640,9 @@ paths) promotes via `POST /api/wiki/move`.
 `src/components/wiki/save-scratch-dialog.tsx`, `src/lib/scratch/detect.ts`,
 `src/lib/scratch/config.ts`, `src/app/api/wiki/scratch/route.ts`
 
-## 12. Public share links
+## 10. Public share links
 
-### 12.1 Create, list, revoke
+### 10.1 Create, list, revoke
 
 **Contract:** `POST /api/share` (signed-in, workspace-scoped) validates path and
 optional password/expiry, returning `{token, url:"/s/<token>", hasPassword,
@@ -870,7 +656,7 @@ revocation and expiry are the only lifetime controls.
 **Verification pointer:** `src/app/api/share/route.ts`,
 `src/app/api/share/[token]/route.ts`, `src/components/share-dialog.tsx`
 
-### 12.2 Read and unlock
+### 10.2 Read and unlock
 
 **Contract:** `GET /api/share/[token]` is public, rate-limited (1 per window),
 and returns 404 / 410 (revoked or expired) / 401 (`protected`) / 500 (read
@@ -888,9 +674,9 @@ security/robustness boundary; the password must never appear in a URL or log.
 `src/lib/shared-docs/db.ts`, `src/app/api/share/[token]/route.ts`,
 `src/app/s/[token]/page.tsx`, `src/components/share/shared-content-viewer.tsx`
 
-## 13. Authentication
+## 11. Authentication
 
-### 13.1 Sign-in
+### 11.1 Sign-in
 
 **Contract:** The sign-in page (server-rendered) advertises google (when
 `GOOGLE_CLIENT_ID`+`GOOGLE_CLIENT_SECRET`) and password auth (disabled only when
@@ -907,7 +693,7 @@ sign-in UX contract; the rate limits are the brute-force boundary.
 **Verification pointer:** `src/app/signin/page.tsx`, `src/app/signin/signin-form.tsx`,
 `src/lib/auth/server.ts`, `src/lib/auth/allowlist.ts`
 
-### 13.2 Session gate and CSRF
+### 11.2 Session gate and CSRF
 
 **Contract:** Middleware redirects unauthenticated `/` visits to
 `/signin?next=…` (passthrough: `/signin`, `/api/`, `/s/`, `/_next`, icons).
@@ -922,7 +708,7 @@ session UI; the lite/no-auth flags are the two alternate deployment modes.
 
 **Verification pointer:** `src/middleware.ts`, `src/lib/auth/csrf.ts`
 
-### 13.3 Auth settings (allowlist, admins, API key)
+### 11.3 Auth settings (allowlist, admins, API key)
 
 **Contract:** The auth-settings sheet edits the signup allowlist (emails/domains,
 one-per-line or comma-separated) with an env→config migration banner; empty
@@ -939,9 +725,9 @@ only things preventing an accidental admin lockout.
 `src/app/api/system/admins/route.ts`, `src/app/api/system/auth-settings/route.ts`,
 `src/app/api/system/api-key/route.ts`, `src/app/api/system/users/route.ts`
 
-## 14. Git
+## 12. Git
 
-### 14.1 Tree badges and branch switching
+### 12.1 Tree badges and branch switching
 
 **Contract:** Repo rows show a git badge (branch name + `*` when dirty). The
 branch button opens a dropdown (filter input only when >8 branches) listing
@@ -957,7 +743,7 @@ read-only workspace flag is what keeps cloned repos from being edited.
 `src/components/wiki/workspace-menu.tsx`, `src/hooks/use-file-tree.ts`,
 `src/app/api/wiki/git-checkout/route.ts`, `src/lib/git.ts`
 
-### 14.2 History and diff
+### 12.2 History and diff
 
 **Contract:** `GET /api/wiki/git-history` lists commits (200 ms debounce);
 `GET /api/wiki/git-diff?sha=` (SHA `/^[0-9a-f]{7,40}$/i`) returns the diff;
@@ -971,16 +757,15 @@ boundary; breaking it leaks tokens to `ps`.
 **Verification pointer:** `src/app/api/wiki/git-history/route.ts`,
 `src/app/api/wiki/git-diff/route.ts`, `src/lib/git.ts`, `src/lib/git-secrets.ts`
 
-## 15. App runner and node apps
+## 13. App runner and node apps
 
-### 15.1 Node-app viewer
+### 13.1 Node-app viewer
 
 **Contract:** The node-app viewer proxies `withWs(/api/app-proxy/{path}/)` and
 polls every 800 ms while `installing`/`starting`; statuses are `stopped |
 installing | starting | running | error` with a mono log panel. Its iframe
 sandbox is `allow-scripts allow-same-origin …` (a trusted app, unlike HTML
-previews). Web-tweak is intentionally not offered for node apps (same-origin
-iframe could reach the parent).
+previews).
 
 **Why it matters:** The same-origin sandbox is a deliberate privilege grant to
 the app runner, distinct from the scripts-off HTML preview; confusing the two
@@ -988,7 +773,7 @@ is a security regression.
 
 **Verification pointer:** `src/components/editor/node-app-viewer.tsx`
 
-### 15.2 Proxy and lifecycle
+### 13.2 Proxy and lifecycle
 
 **Contract:** `ALL` verbs on `/api/app-proxy/…` resolve the longest running-app
 prefix (404 `APP_NOT_FOUND` otherwise) and stream via undici, stripping upstream
@@ -1006,9 +791,9 @@ are the start/stop liveness bounds.
 **Verification pointer:** `src/app/api/app-proxy/[...path]/route.ts`,
 `src/lib/app-runner.ts`
 
-## 16. Settings and system config
+## 14. Settings and system config
 
-### 16.1 Workspace management
+### 14.1 Workspace management
 
 **Contract:** The DirPicker (Local / From Git / Over SSH) browses via
 `GET /api/system/browse` (dirs only, `$HOME` default, shortcuts Home/Root/
@@ -1016,7 +801,7 @@ Desktop/Documents/Downloads). Local select POSTs a workspace; Git clones
 https-only, read-only (token dropped from memory); SSH mounts via sshfs with
 agent/keyfile/password auth and an optional read-only flag. Pins favorite/
 unfavorite directories (`POST /api/system/pins`). Reveal (`POST
-/api/system/reveal`) opens the OS file manager (denies `.proof`/`.git`/`.impeccable`).
+/api/system/reveal`) opens the OS file manager (denies `.proof`/`.git`).
 
 **Why it matters:** Workspace creation is admin-only; the https-only git rule
 and the sshfs read-only flag are the data-exfiltration guardrails.
@@ -1025,7 +810,7 @@ and the sshfs read-only flag are the data-exfiltration guardrails.
 `src/app/api/system/workspaces/route.ts`, `src/app/api/system/browse/route.ts`,
 `src/app/api/system/reveal/route.ts`, `src/lib/workspaces.ts`, `src/lib/sshfs.ts`
 
-### 16.2 Config precedence
+### 14.2 Config precedence
 
 **Contract:** Config precedence is shell env > `config.json` `env` block >
 CLI-derived defaults. User data lives in `~/.wiki-viewer/` (`config.json` chmod
@@ -1038,9 +823,9 @@ the https boot guard is the deployment security floor.
 
 **Verification pointer:** `src/lib/config.ts`, `bin/cli/config.js`
 
-## 17. Agent API
+## 15. Agent API
 
-### 17.1 Registration (TOFU) and auth
+### 15.1 Registration (TOFU) and auth
 
 **Contract:** An agent registers anonymously (`POST /api/agent/register`, id
 `/^ai:[a-z][a-z0-9-]{0,30}$/i`, scope `paths` 1–20 globs + `ops` ⊆
@@ -1058,7 +843,7 @@ trust model; a leak of the registration id or a scope bypass is full file access
 `src/app/api/agent/register/[regId]/route.ts`, `src/lib/proof/auth.ts`,
 `src/lib/proof/registry.ts`, `src/lib/proof/glob.ts`
 
-### 17.2 Tier 1 — raw filesystem
+### 15.2 Tier 1 — raw filesystem
 
 **Contract:** `GET/PUT/PATCH/DELETE /api/agent/fs/file/<path>` plus `fs/ls`
 (limit 1000 / hard 10 000, depth 10 / hard 20), `fs/move`, `fs/search`
@@ -1078,7 +863,7 @@ clobbering a live doc.
 `src/app/api/agent/fs/ls/[[...path]]/route.ts`, `src/app/api/agent/fs/move/route.ts`,
 `src/app/api/agent/fs/search/route.ts`, `src/lib/proof/raw-fs.ts`
 
-### 17.3 Tier 2 — markdown collab
+### 15.3 Tier 2 — markdown collab
 
 **Contract:** `GET /api/agent/files/<path>` returns a block snapshot with headers
 `X-Collab-State` (`active|tracked|untracked|not-markdown`),
@@ -1098,7 +883,7 @@ or clobbered writes.
 `src/lib/proof/ops-applier.ts`, `src/lib/proof/idempotency.ts`,
 `src/lib/proof/collab-state.ts`, `src/lib/proof/rate-limit.ts`
 
-### 17.4 Events, sidecar, activity, settings
+### 15.4 Events, sidecar, activity, settings
 
 **Contract:** `GET /api/agent/events/<path>` (markdown only) returns `{events,
 lastEventId}` (limit default 100 / max 1000, `after` cursor); `POST` acks with
@@ -1115,7 +900,7 @@ contract; the `after`/`lastEventId` semantics are what prevent replay and loss.
 `src/app/api/agent/sidecar/[...path]/route.ts`, `src/app/api/agent/activity/route.ts`,
 `src/app/api/agent/settings/route.ts`
 
-### 17.5 Install manifest
+### 15.5 Install manifest
 
 **Contract:** `GET /api/agents/install` (no auth) advertises name/version/
 endpoint, human instructions, the bootstrap prompt, the skill tarball
@@ -1131,9 +916,26 @@ route limits or agents will over-request.
 **Verification pointer:** `src/app/api/agents/install/route.ts`,
 `src/app/api/agents/skill/route.ts`, `src/app/api/agents/skill.tar.gz/route.ts`
 
-## 18. MCP adapter
+### 15.6 Agent approval and token rotation
 
-### 18.1 Tool set and endpoints
+**Contract:** An agent registers (trust-on-first-use), the owner approves it in
+the AI panel, and the agent picks up a one-shot bearer token. Approving a
+registration whose agent id **already exists** mints a new token and invalidates
+the old one. When this happens the same rotation notice ("Approving replaced the
+existing token for `<id>`; the previous token is now invalid.") is shown at every
+human touchpoint: the AI-panel approve toast (`toast.warning`), the approve API
+response (`rotated: true`, `warning`), and the register CLI pickup output
+(`⚠️ …`). Only SHA-256 token hashes are stored.
+
+**Why it matters:** Silent rotation stranded operators with a token that 401'd
+with no explanation; the notice makes the rotation explicit and consistent.
+
+**Verification pointer:** `src/app/api/agent/admin/registrations/[regId]/approve/route.ts`,
+`src/lib/proof/pending.ts`, `src/app/api/agent/register/[regId]/route.ts`,
+`src/components/ai-panel/token-section.tsx`, `packages/wiki-viewer-mcp/src/register.ts`
+## 16. MCP adapter
+
+### 16.1 Tool set and endpoints
 
 **Contract:** The `wiki-viewer-mcp` package exposes 7 filesystem tools
 (`read_file` → GET fs/file with Range, `write_file` → PUT fs/file, `edit_file` →
@@ -1153,9 +955,9 @@ environment silently switches strategies.
 **Verification pointer:** `packages/wiki-viewer-mcp/src/tool-handlers.ts`,
 `packages/wiki-viewer-mcp/src/http-client.ts`, `packages/wiki-viewer-mcp/src/cli.ts`
 
-## 19. CLI
+## 17. CLI
 
-### 19.1 Commands and flags
+### 17.1 Commands and flags
 
 **Contract:** `wiki-viewer` (bin entry) supports `init|setup`, `service
 install|uninstall|status|logs|restart|run`, `config show|set|unset`, `update`,
@@ -1173,9 +975,9 @@ break deployments.
 **Verification pointer:** `bin/wiki-viewer.js`, `bin/cli/serve.js`,
 `bin/cli/service.js`, `bin/cli/wizard.js`, `package.json`
 
-## 20. PWA
+## 18. PWA
 
-### 20.1 Installability
+### 18.1 Installability
 
 **Contract:** The web manifest declares name "Wiki Viewer" / short "Wiki",
 `display: standalone`, theme `#0c0a09`, and 192/512/maskable-512 icons; the
@@ -1187,9 +989,9 @@ Home Screen" render as an app rather than a browser tab.
 
 **Verification pointer:** `src/app/manifest.ts`, `src/app/layout.tsx`
 
-## 21. Theming, fonts, and persistence
+## 19. Theming, fonts, and persistence
 
-### 21.1 Theme and view width
+### 19.1 Theme and view width
 
 **Contract:** Theme is `next-themes` (`attribute="class"`, `defaultTheme="system"`,
 `enableSystem`). View width is `narrow | normal | wide` (42rem / 60rem / 90rem;
@@ -1202,7 +1004,7 @@ contract; a wrong class collapses or over-widens the reading pane.
 **Verification pointer:** `src/stores/view-width-store.ts`,
 `src/components/theme-provider.tsx`
 
-### 21.2 Fonts
+### 19.2 Fonts
 
 **Contract:** The font system exposes 27 fonts (sans, serif, mono) with
 independent UI/body/heading/code roles and presets (classic, modern, literary,
@@ -1216,7 +1018,7 @@ from breaking layout; the no-flash pre-paint script prevents a FOUC on load.
 **Verification pointer:** `src/lib/fonts.ts`, `src/stores/font-store.ts`,
 `src/app/layout.tsx`
 
-### 21.3 Persistence keys
+### 19.3 Persistence keys
 
 **Contract:** Client preferences persist to `localStorage` under: `wiki-fonts`,
 `wiki-sidebar-width`, `wiki-view-width`, `wiki-view-align`, `wiki-show-hidden`,
@@ -1234,7 +1036,7 @@ shape change silently wipes a user's fonts, width, recents, or pinned files.
 `src/stores/favorite-store.ts`, `src/components/editor/document-outline.tsx`,
 `src/components/editor/backlinks-panel.tsx`
 
-## 22. Keyboard shortcuts
+## 20. Keyboard shortcuts
 
 **Contract:** The global + editor shortcut set is:
 
@@ -1267,27 +1069,17 @@ keyboard-driven users.
 `src/app/page.tsx`, `src/components/search/search-command-dialog.tsx`,
 `src/components/wiki/sidebar.tsx`
 
-## 23. Non-goals / explicitly out of scope
+## 21. Non-goals / explicitly out of scope
 
 Deliberate v1 absences (each is a contract; do not re-add without a decision):
 
-- **Steer** (doc-level "make it all better") — deferred; would break the
-  single-block variants-in-place preview model.
-- **Batch instruction queue + run-review UI** — removed from the Live path in
-  favor of write-on-accept variants.
-- **Write-first activity/audit provenance review in the Live path** — activity-log provenance remain only
-  as optional accepted-provenance, not a pending-review workflow.
-- **Node-app / dynamic HTML web-tweak** — static `.html`/`.htm` opaque-origin only;
-  a same-origin app iframe would let hostile page JS click Accept.
-- **Multi-file web candidates**, markdown variants spanning multiple blocks, live
-  knobs/sliders, freehand strokes, comments-as-instructions escalation.
 - **Per-workspace access editor** in the auth settings sheet (TODO in source).
 - **FTS search via MCP** — the server accepts `fts`, but the MCP `search` schema
   exposes only `grep|glob`.
 - **`stale` live_reply status via MCP** — the wire protocol accepts `stale`, but
   the MCP tool schema excludes it (only `working|done|error`).
 
-## 24. Known gaps
+## 22. Known gaps
 
 - **CSV save errors are silent** — `csv-viewer.tsx` logs save failures to the
   console only (`console.error`); there is no user-visible error surface.
@@ -1304,4 +1096,4 @@ Deliberate v1 absences (each is a contract; do not re-add without a decision):
   CJK text may render blank; deployment must copy cmaps/fonts manually.
 - **`docs/agent-fs-plan.md` and `docs/agent-collab-plan.md` are partially stale**
   (they predate the shipped PATCH verb and Tier-1 create/move/delete); treat the
-  source routes in §17 as authoritative over those plans.
+  source routes in §15 as authoritative over those plans.

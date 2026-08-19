@@ -24,10 +24,9 @@
       { "code": "UI", "name": "Shared UI", "h": 4, "what": "Provide dialogs, menus, forms, and status primitives.", "how": "Reusable components in src/components/ui centralize dialogs, menus, forms, and status elements used across surfaces." },
       { "code": "TB", "name": "Viewer toolbar", "h": 3, "what": "Expose file actions, history, sharing, and view controls.", "how": "The editor toolbar and file actions menu wire view controls, history, sharing, and view-mode buttons to hooks and API calls." }
     ] },
-    { "id": "editor", "code": "ED", "name": "Editor and viewers", "group": "surface", "loc": "12,224 LOC", "gx": 5, "gy": 0, "w": 4, "d": 3, "h": 13, "what": "Shows many file types and lets people edit Markdown with rich interactions.", "how": "TipTap extensions and viewer components handle Markdown, documents, media, notebooks, websites, and live collaboration.", "talks": ["wiki-api", "proof", "web-tweak", "state"], "children": [
+    { "id": "editor", "code": "ED", "name": "Editor and viewers", "group": "surface", "loc": "12,224 LOC", "gx": 5, "gy": 0, "w": 4, "d": 3, "h": 13, "what": "Shows many file types and lets people edit Markdown with rich interactions.", "how": "TipTap extensions and viewer components handle Markdown, documents, media, notebooks, and websites.", "talks": ["wiki-api", "proof", "state"], "children": [
       { "code": "TP", "name": "TipTap editor", "h": 8, "what": "Turns Markdown blocks into an editable document.", "how": "editor.tsx and extensions.ts register TipTap nodes and marks that map Markdown blocks to an editable ProseMirror document." },
-      { "code": "VW", "name": "File viewers", "h": 6, "what": "Chooses a safe renderer for each supported file kind.", "how": "A viewer registry dispatches per-type renderers for images, PDFs, media, notebooks, CSVs, Mermaid, and websites." },
-      { "code": "LV", "name": "Live overlay", "h": 4, "what": "Shows agent presence and in-progress instructions.", "how": "live-overlay.tsx reads presence and instruction state to surface agent activity over the editor." }
+      { "code": "VW", "name": "File viewers", "h": 6, "what": "Chooses a safe renderer for each supported file kind.", "how": "A viewer registry dispatches per-type renderers for images, PDFs, media, notebooks, CSVs, Mermaid, and websites." }
     ] },
     { "id": "hooks", "code": "HK", "name": "Page-shell hooks", "group": "surface", "loc": "1,688 LOC", "gx": 10, "gy": 0, "w": 2, "d": 2, "h": 5, "what": "Connects page actions to workspaces, file trees, uploads, scratchpad, and navigation.", "how": "Client hooks coordinate URL state, prefetching, workspace selection, and server calls.", "talks": ["wiki-api", "workspace", "state"], "children": [
       { "code": "FT", "name": "File tree", "h": 6, "what": "Load directories and preserve expanded navigation state.", "how": "use-file-tree.ts fetches directory listings and keeps expanded nodes in sync with the active path." },
@@ -35,13 +34,13 @@
       { "code": "WS", "name": "Workspace switcher", "h": 4, "what": "Change roots without losing the current page intent.", "how": "use-workspaces.ts lists roots and swaps the active workspace while preserving the current page." },
       { "code": "UP", "name": "Upload flow", "h": 3, "what": "Coordinate drops, progress, and post-upload refreshes.", "how": "use-upload.ts stages dropped files, tracks progress, and refreshes the tree after uploads land." }
     ] },
-    { "id": "state", "code": "ST", "name": "Client state", "group": "surface", "loc": "1,453 LOC", "gx": 13, "gy": 0, "w": 2, "d": 2, "h": 4, "what": "Keeps open pages, editor status, search, favorites, and live activity responsive.", "how": "Zustand stores combine page caching, autosave state, revision recovery, and browser preferences.", "talks": ["editor", "web-shell", "wiki-api"], "children": [
+    { "id": "state", "code": "ST", "name": "Client state", "group": "surface", "loc": "1,453 LOC", "gx": 13, "gy": 0, "w": 2, "d": 2, "h": 4, "what": "Keeps open pages, editor status, search, favorites, and agent activity responsive.", "how": "Zustand stores combine page caching, autosave state, revision recovery, and browser preferences.", "talks": ["editor", "web-shell", "wiki-api"], "children": [
       { "code": "PG", "name": "Page state", "h": 6, "what": "Track open paths, active tabs, and route transitions.", "how": "Zustand stores hold open paths, active tabs, and route transition state shared across the shell." },
       { "code": "ED", "name": "Editor state", "h": 7, "what": "Track dirty content, save status, and revision recovery.", "how": "editor-store.ts tracks dirty content, save status, and revision recovery for the active document." },
       { "code": "SR", "name": "Search state", "h": 4, "what": "Keep query, result scope, and selected matches stable.", "how": "search-store.ts keeps query, scope, and selected matches stable across navigation." },
       { "code": "AC", "name": "Activity state", "h": 3, "what": "Surface agent events, presence, and collaboration status.", "how": "ai-panel-store.ts and proof-store.ts hold agent events, presence, and collaboration status." }
     ] },
-    { "id": "ai-panel", "code": "AI", "name": "Agent panel", "group": "surface", "loc": "934 LOC", "gx": 16, "gy": 0, "w": 2, "d": 2, "h": 3, "what": "Lets people register agents, inspect activity, and follow collaboration status.", "how": "A small client surface polls activity and calls registration, approval, and presence APIs.", "talks": ["agent-api", "live", "state"] },
+    { "id": "ai-panel", "code": "AI", "name": "Agent panel", "group": "surface", "loc": "934 LOC", "gx": 16, "gy": 0, "w": 2, "d": 2, "h": 3, "what": "Lets people register agents, inspect activity, and follow collaboration status.", "how": "A small client surface polls activity and calls registration, approval, and presence APIs.", "talks": ["agent-api", "state"] },
     { "id": "middleware", "code": "MW", "name": "Middleware gate", "group": "entry", "loc": "70 LOC", "gx": 0, "gy": 4, "w": 2, "d": 2, "h": 3, "what": "Stops protected pages before the app shell loads when no session cookie exists.", "how": "src/middleware.ts applies the cookie gate, lite-mode deny list, and pass-through rules.", "talks": ["web-shell", "auth"] },
     { "id": "auth", "code": "AU", "name": "Human access", "group": "entry", "loc": "618 LOC", "gx": 3, "gy": 4, "w": 2, "d": 2, "h": 5, "what": "Authenticates people and checks whether state-changing browser requests are allowed.", "how": "Better Auth, session checks, CSRF origin checks, admin rules, and embed-key checks share one boundary.", "talks": ["middleware", "wiki-api", "system-api", "share-api"], "children": [
       { "code": "BA", "name": "Better Auth", "h": 7, "what": "Create accounts, sessions, and sign-in responses.", "how": "The Better Auth server instance issues accounts, sessions, and sign-in responses from the database adapter." },
@@ -56,14 +55,13 @@
       { "code": "RM", "name": "Remote mounts", "h": 3, "what": "Connects registered roots to remote folder mounts.", "how": "Remote mount config connects registered roots to SSHFS-backed folder mounts." }
     ] },
     { "id": "path", "code": "PT", "name": "Path containment", "group": "entry", "loc": "343 LOC", "gx": 10, "gy": 4, "w": 2, "d": 2, "h": 4, "what": "Keeps file operations inside the selected workspace.", "how": "resolveWorkspacePath realpaths roots, rejects traversal and denied segments, and checks symlink-safe ancestors.", "talks": ["workspace", "wiki-api", "agent-api", "git"] },
-    { "id": "wiki-api", "code": "WK", "name": "Browser wiki API", "group": "entry", "loc": "2,701 LOC", "gx": 13, "gy": 4, "w": 3, "d": 2, "h": 8, "what": "Serves folder listings, file content, search, history, uploads, watches, and live controls.", "how": "31 route handlers resolve user workspaces, validate origins, call domain libraries, and serialize responses.", "talks": ["auth", "workspace", "path", "proof", "watch", "live", "search", "git", "scratch", "web-tweak"], "children": [
+    { "id": "wiki-api", "code": "WK", "name": "Browser wiki API", "group": "entry", "loc": "2,701 LOC", "gx": 13, "gy": 4, "w": 3, "d": 2, "h": 8, "what": "Serves folder listings, file content, search, history, uploads, and watches.", "how": "31 route handlers resolve user workspaces, validate origins, call domain libraries, and serialize responses.", "talks": ["auth", "workspace", "path", "proof", "watch", "search", "git", "scratch"], "children": [
       { "code": "FI", "name": "File operations", "h": 8, "what": "List, read, write, move, upload, and delete workspace files.", "how": "Route handlers validate origins and call the filesystem library for list, read, write, move, upload, and delete." },
       { "code": "GI", "name": "Git views", "h": 5, "what": "Expose history, diffs, branches, and repository actions.", "how": "Git routes wrap the git integration to expose history, diffs, branches, and repository actions." },
       { "code": "SR", "name": "Search and links", "h": 5, "what": "Serve content search, backlinks, and slug lookups.", "how": "Search routes invoke the search engine for content matches, backlinks, and slug lookups." },
-      { "code": "WS", "name": "Watch stream", "h": 4, "what": "Connect browser directories to live file events.", "how": "Watch routes subscribe request scopes to the watcher pool for live file events." },
-      { "code": "LV", "name": "Live requests", "h": 4, "what": "Create and inspect human-to-agent instructions.", "how": "Live routes create and inspect instructions against the live control plane." }
+      { "code": "WS", "name": "Watch stream", "h": 4, "what": "Connect browser directories to file events.", "how": "Watch routes subscribe request scopes to the watcher pool for file events." }
     ] },
-    { "id": "agent-api", "code": "AG", "name": "Agent HTTP API", "group": "entry", "loc": "2,612 LOC", "gx": 17, "gy": 4, "w": 3, "d": 2, "h": 8, "what": "Gives approved automation agents scoped file and collaboration operations.", "how": "22 route handlers enforce bearer identity, workspace scope, path globs, revision checks, and operation permissions.", "talks": ["auth", "workspace", "path", "proof", "live", "search"], "children": [
+    { "id": "agent-api", "code": "AG", "name": "Agent HTTP API", "group": "entry", "loc": "2,612 LOC", "gx": 17, "gy": 4, "w": 3, "d": 2, "h": 8, "what": "Gives approved automation agents scoped file and collaboration operations.", "how": "22 route handlers enforce bearer identity, workspace scope, path globs, revision checks, and operation permissions.", "talks": ["auth", "workspace", "path", "proof", "search"], "children": [
       { "code": "FS", "name": "Raw filesystem", "h": 8, "what": "Read, write, search, move, and delete arbitrary file bytes.", "how": "Raw filesystem routes enforce bearer identity, workspace scope, and path globs before byte-level operations." },
       { "code": "MD", "name": "Markdown collab", "h": 8, "what": "Read snapshots and apply revision-checked block operations.", "how": "Markdown routes read snapshots and apply revision-checked block operations through the proof core." },
       { "code": "EV", "name": "Events and activity", "h": 4, "what": "Stream document changes and provenance to agents.", "how": "Event routes stream document changes and provenance to approved agents." },
@@ -72,28 +70,17 @@
     { "id": "cli", "code": "CL", "name": "CLI launcher", "group": "compute", "loc": "1,862 LOC", "gx": 0, "gy": 7, "w": 2, "d": 2, "h": 5, "what": "Starts the packaged server and manages local service or remote-mount setup.", "how": "bin/ parses options, applies environment precedence, starts the standalone server, and exposes service helpers.", "talks": ["ci", "web-shell", "workspace", "sshfs"] },
     { "id": "system-api", "code": "SY", "name": "System config API", "group": "entry", "loc": "902 LOC", "gx": 3, "gy": 7, "w": 2, "d": 2, "h": 4, "what": "Changes workspaces, users, administrators, pins, and local settings.", "how": "14 route handlers use session and origin checks before mutating persisted configuration.", "talks": ["auth", "workspace", "auth-store"] },
     { "id": "share-api", "code": "SH", "name": "Shared documents", "group": "entry", "loc": "817 LOC", "gx": 6, "gy": 7, "w": 3, "d": 2, "h": 4, "what": "Publishes read-only document links with optional unlock and expiry controls.", "how": "Share routes and shared-docs modules create opaque grants, validate unlocks, and render sanitized content.", "talks": ["auth", "share-store", "markdown"] },
-    { "id": "mcp", "code": "MC", "name": "MCP adapter", "group": "compute", "loc": "2,911 LOC", "gx": 10, "gy": 7, "w": 3, "d": 2, "h": 6, "what": "Lets MCP clients use the agent contract through a separate npm package.", "how": "packages/wiki-viewer-mcp defines 13 Zod-backed tools and a typed HTTP client with revision and scope errors.", "talks": ["agent-api", "proof", "live"] },
+    { "id": "mcp", "code": "MC", "name": "MCP adapter", "group": "compute", "loc": "2,911 LOC", "gx": 10, "gy": 7, "w": 3, "d": 2, "h": 6, "what": "Lets MCP clients use the agent contract through a separate npm package.", "how": "packages/wiki-viewer-mcp defines 13 Zod-backed tools and a typed HTTP client with revision and scope errors.", "talks": ["agent-api", "proof"] },
     { "id": "app-runner", "code": "AR", "name": "Node app runner", "group": "compute", "loc": "738 LOC", "gx": 14, "gy": 7, "w": 3, "d": 2, "h": 5, "what": "Runs trusted node-app folders and proxies their local web surface.", "how": "app-runner.ts manages child processes, readiness probes, ports, logs, and access-checked forwarding.", "talks": ["wiki-api", "path", "web-shell"] },
     { "id": "git", "code": "GT", "name": "Git integration", "group": "domain", "loc": "871 LOC", "gx": 18, "gy": 7, "w": 2, "d": 2, "h": 5, "what": "Shows repository history and supports safe branch-oriented workspace actions.", "how": "git.ts wraps the system binary, scans for leaked credentials, and backs history, diff, branch, and clone routes.", "talks": ["wiki-api", "path", "workspace"] },
     { "id": "sshfs", "code": "SF", "name": "SSHFS remotes", "group": "domain", "loc": "464 LOC", "gx": 21, "gy": 7, "w": 2, "d": 2, "h": 4, "what": "Makes remote folders appear as workspaces through a local mount boundary.", "how": "sshfs.ts and mount helpers manage remote lifecycle, reconnects, and mount hazards.", "talks": ["workspace", "path", "cli"] },
-    { "id": "proof", "code": "PR", "name": "Proof core", "group": "domain", "loc": "1,397 LOC", "gx": 1, "gy": 10, "w": 4, "d": 3, "h": 10, "what": "Applies structured Markdown edits while preserving revisions, references, comments, and suggestions.", "how": "ops-applier.ts parses blocks, checks base revisions, applies operations, writes atomically, and updates sidecar metadata.", "talks": ["safety", "live", "markdown", "auth-store", "audit-store"], "children": [
+    { "id": "proof", "code": "PR", "name": "Proof core", "group": "domain", "loc": "1,397 LOC", "gx": 1, "gy": 10, "w": 4, "d": 3, "h": 10, "what": "Applies structured Markdown edits while preserving revisions, references, comments, and suggestions.", "how": "ops-applier.ts parses blocks, checks base revisions, applies operations, writes atomically, and updates sidecar metadata.", "talks": ["safety", "markdown", "auth-store", "audit-store"], "children": [
       { "code": "OP", "name": "Block operations", "h": 9, "what": "Apply insert, replace, delete, and annotation operations.", "how": "ops-applier.ts applies insert, replace, delete, and annotation operations against parsed blocks." },
       { "code": "RF", "name": "Reference map", "h": 5, "what": "Keeps stable block references across edits.", "how": "block-refs.ts keeps stable block references valid across edits." },
       { "code": "SC", "name": "Sidecar state", "h": 6, "what": "Stores revisions, activity, comments, and suggestions beside files.", "how": "sidecar.ts and activity.ts store revisions, activity, comments, and suggestions beside each file." },
       { "code": "EV", "name": "Event bus", "h": 4, "what": "Publishes document changes to watchers and agents.", "how": "event-bus.ts publishes document changes to watchers and agent subscribers." }
     ] },
-    { "id": "safety", "code": "LK", "name": "Locking and audit", "group": "domain", "loc": "539 LOC", "gx": 6, "gy": 10, "w": 3, "d": 2, "h": 7, "what": "Prevents concurrent edits from silently overwriting one another.", "how": "Mutexes, proper-lockfile, leases, collab state, idempotency, rate limits, and audit rows protect writes.", "talks": ["proof", "audit-store", "live"] },
-    { "id": "live", "code": "LV", "name": "Live control plane", "group": "compute", "loc": "1,312 LOC", "gx": 10, "gy": 10, "w": 3, "d": 2, "h": 7, "what": "Carries human instructions and agent replies for live collaboration.", "how": "A SQLite-backed session and request store handles attach, sequence ordering, long-poll delivery, and reply application.", "talks": ["agent-api", "proof", "live-store", "live-engine", "ai-panel"], "children": [
-      { "code": "SS", "name": "Sessions", "h": 6, "what": "Attach one agent to one live collaboration session.", "how": "The live session records attach one agent to one collaboration session." },
-      { "code": "RQ", "name": "Request queue", "h": 8, "what": "Sequence generate, steer, and web-tweak requests.", "how": "The request store sequences generate, steer, and web-tweak requests in order." },
-      { "code": "PR", "name": "Presence", "h": 4, "what": "Track human and agent presence with short leases.", "how": "Presence records track human and agent liveness with short renewable leases." },
-      { "code": "RP", "name": "Replies", "h": 6, "what": "Deliver replies and apply accepted operations.", "how": "Reply handling delivers replies and applies accepted operations through proof." }
-    ] },
-    { "id": "live-engine", "code": "LE", "name": "Impeccable live engine", "group": "compute", "loc": "950 LOC", "gx": 20, "gy": 13, "w": 3, "d": 2, "h": 8, "what": "Hosts a tokenized Impeccable helper and reconciles its live events with the attached-agent channel.", "how": "live-engine supervisor/client files spawn and supervise one helper per surface; the web bridge polls generate/steer events, persists scaffold mappings, and relays one selected scaffold string.", "talks": ["live", "web-tweak", "app-runner", "live-store"], "children": [
-      { "code": "SV", "name": "Helper supervisor", "h": 6, "what": "Start, health-check, reuse, and stop one helper per surface.", "how": "supervisor.ts allocates a loopback port, reads the helper token, probes health, and invalidates stale lifecycle generations." },
-      { "code": "BR", "name": "Agent bridge", "h": 8, "what": "Translate helper events into wiki-viewer live requests and replies.", "how": "web-bridge.ts polls generate/steer events, enqueues web.tweak.variants, relays one selected scaffold string, and replays durable engine replies idempotently." },
-      { "code": "SC", "name": "Scaffold ledger", "h": 5, "what": "Persist source hashes, scaffold state, and engine-event mappings.", "how": "scaffold-store.ts keeps recoverable live scaffolds and accepted/discarded lifecycle state in SQLite." }
-    ] },
+    { "id": "safety", "code": "LK", "name": "Locking and audit", "group": "domain", "loc": "539 LOC", "gx": 6, "gy": 10, "w": 3, "d": 2, "h": 7, "what": "Prevents concurrent edits from silently overwriting one another.", "how": "Mutexes, proper-lockfile, leases, collab state, idempotency, rate limits, and audit rows protect writes.", "talks": ["proof", "audit-store"] },
     { "id": "watch", "code": "WT", "name": "Watch and SSE", "group": "compute", "loc": "725 LOC", "gx": 14, "gy": 10, "w": 2, "d": 2, "h": 5, "what": "Notifies browser and agent clients when files change outside their current request.", "how": "watcher-pool.ts uses chokidar subscriptions, ancestor merging, scope rebasing, deduplication, and heartbeats.", "talks": ["wiki-api", "state", "proof"], "children": [
       { "code": "CH", "name": "Chokidar pool", "h": 7, "what": "Share filesystem watchers across compatible scopes.", "how": "watcher-pool.ts shares chokidar watchers across compatible scopes." },
       { "code": "RB", "name": "Scope rebasing", "h": 5, "what": "Map ancestor events back to subscribed workspace paths.", "how": "Scope rebasing maps ancestor events back to subscribed workspace paths." },
@@ -112,17 +99,11 @@
       { "code": "WL", "name": "Wiki links", "h": 4, "what": "Resolve internal links and relative asset references.", "how": "wikilink.ts resolves internal links and relative asset references." },
       { "code": "EM", "name": "Embeds", "h": 4, "what": "Detect supported external media and document embeds.", "how": "lib/embeds detects supported external media and document embeds." }
     ] },
-    { "id": "web-tweak", "code": "TW", "name": "Web tweak flow", "group": "domain", "loc": "2,930 LOC", "gx": 4, "gy": 13, "w": 3, "d": 2, "h": 8, "what": "Coordinates legacy picker previews, static .html/.htm live variants, and reviewed web source changes.", "how": "Legacy picker and preview stores bind other surfaces to ephemeral candidates; static .html/.htm bypass that queue through live-web routes, which carbonize and contain the chosen source on accept or close it on discard.", "talks": ["editor", "wiki-api", "proof", "live-engine"], "children": [
-      { "code": "PK", "name": "Picker", "h": 7, "what": "Select an element from a sandboxed preview.", "how": "picker.ts and protocol.ts capture element selections from the sandboxed preview." },
-      { "code": "PV", "name": "Preview", "h": 6, "what": "Apply temporary DOM operations without saving source.", "how": "preview-store.ts applies temporary DOM operations without saving source." },
-      { "code": "AC", "name": "Accept flow", "h": 5, "what": "Carbonize and commit the chosen live scaffold safely.", "how": "carbonize.ts bakes the chosen variant and knobs; containedWrite enforces path containment and base-hash drift before writing." }
-    ] },
     { "id": "scratch", "code": "SC", "name": "Scratchpad", "group": "domain", "loc": "355 LOC", "gx": 8, "gy": 13, "w": 2, "d": 2, "h": 4, "what": "Captures quick snippets before they become normal workspace files.", "how": "Scratch config and detection modules create, sweep, and promote temporary captures.", "talks": ["wiki-api", "path", "state"] },
     { "id": "tests", "code": "TS", "name": "Proof test suite", "group": "delivery", "loc": "14,849 LOC", "gx": 12, "gy": 13, "w": 2, "d": 2, "h": 5, "what": "Exercises the filesystem, auth, collaboration, and agent safety contracts.", "how": "71 proof test files run through scripts/test-floor.mjs, which enforces a 691-test minimum.", "talks": ["proof", "agent-api", "wiki-api", "ci"] },
     { "id": "ci", "code": "CI", "name": "Build and publish", "group": "delivery", "loc": "3 workflow files", "gx": 15, "gy": 13, "w": 3, "d": 2, "h": 3, "what": "Checks changes and prepares the standalone package for release.", "how": "Versioned workflows run formatting, tests, builds, and npm publishing around the one server artifact.", "talks": ["cli", "editor", "agent-api", "tests"] },
     { "id": "auth-store", "code": "DB", "name": "Auth store", "group": "data", "loc": "role", "gx": 0, "gy": 16, "w": 3, "d": 2, "h": 1, "slab": true, "what": "Durable users, sessions, and account records.", "how": "Better Auth uses a local SQLite store through the project database adapter.", "talks": ["auth", "system-api", "proof"] },
     { "id": "share-store", "code": "DB", "name": "Share store", "group": "data", "loc": "role", "gx": 4, "gy": 16, "w": 3, "d": 2, "h": 1, "slab": true, "what": "Durable public-share grants, expiry data, and view counts.", "how": "shared-docs/db.ts persists opaque share metadata in SQLite.", "talks": ["share-api"] },
-    { "id": "live-store", "code": "DB", "name": "Live store", "group": "data", "loc": "role", "gx": 8, "gy": 16, "w": 3, "d": 2, "h": 1, "slab": true, "what": "Durable live sessions, request sequence, and presence state.", "how": "proof/live/store.ts persists collaboration control-plane state in SQLite.", "talks": ["live"] },
     { "id": "audit-store", "code": "DB", "name": "Audit store", "group": "data", "loc": "role", "gx": 12, "gy": 16, "w": 3, "d": 2, "h": 1, "slab": true, "what": "Append-only records of scoped agent filesystem operations.", "how": "proof/audit.ts writes operation, path, revision, and hash metadata to SQLite.", "talks": ["safety", "agent-api"] }
   ],
   "edges": [
@@ -136,13 +117,10 @@
     { "f": "editor", "t": "wiki-api", "flow": 1, "pay": "Read or save" },
     { "f": "wiki-api", "t": "watch", "flow": 1, "pay": "Watch scope" },
     { "f": "watch", "t": "state", "flow": 1, "pay": "File event" },
-    { "f": "wiki-api", "t": "live", "flow": 1, "pay": "Live instruction" },
-    { "f": "live", "t": "agent-api", "flow": 1, "pay": "Queued request" },
     { "f": "agent-api", "t": "proof", "flow": 1, "pay": "Scoped block ops" },
     { "f": "proof", "t": "safety", "flow": 1, "pay": "Locked mutation" },
     { "f": "safety", "t": "audit-store", "flow": 1, "pay": "Audit row" },
     { "f": "proof", "t": "auth-store", "flow": 1, "pay": "Access-linked state" },
-    { "f": "live", "t": "live-store", "flow": 1, "pay": "Session sequence" },
     { "f": "share-api", "t": "share-store", "flow": 1, "pay": "Share grant" },
     { "f": "share-api", "t": "markdown", "flow": 1, "pay": "Safe rendering" },
     { "f": "proof", "t": "markdown", "flow": 1, "pay": "Parsed document" },
@@ -151,10 +129,6 @@
     { "f": "wiki-api", "t": "git", "flow": 1, "pay": "Repository action" },
     { "f": "workspace", "t": "sshfs", "flow": 1, "pay": "Remote workspace" },
     { "f": "wiki-api", "t": "scratch", "flow": 1, "pay": "Quick capture" },
-    { "f": "wiki-api", "t": "web-tweak", "flow": 1, "pay": "Preview patch" },
-    { "f": "editor", "t": "web-tweak", "flow": 1, "pay": "Legacy picker selection; static .html/.htm use live bridge" },
-    { "f": "live", "t": "live-engine", "flow": 1, "pay": "Attached-agent request" },
-    { "f": "live-engine", "t": "web-tweak", "flow": 1, "pay": "Selected scaffold and accept state" },
     { "f": "wiki-api", "t": "app-runner", "flow": 1, "pay": "Trusted app launch" },
     { "f": "app-runner", "t": "web-shell", "flow": 1, "pay": "Proxied preview" },
     { "f": "mcp", "t": "agent-api", "flow": 1, "pay": "MCP tool call" },
@@ -168,8 +142,7 @@
   "externals": [
     { "id": "browser", "name": "Browser", "target": "web-shell", "gx": 4, "gy": -3, "pay": "User interaction" },
     { "id": "identity-service", "name": "Identity service", "target": "auth", "gx": -3, "gy": 5, "pay": "Optional identity" },
-    { "id": "git-host", "name": "Git host", "target": "git", "gx": 23, "gy": 6, "pay": "Repository data" },
-    { "id": "model-service", "name": "Model service", "target": "live", "gx": 23, "gy": 11, "pay": "Agent response" }
+    { "id": "git-host", "name": "Git host", "target": "git", "gx": 23, "gy": 6, "pay": "Repository data" }
   ],
   "trace": [
     ["web-shell", "A person opens the browser workbench."],
@@ -181,13 +154,12 @@
     ["path", "Path containment resolves the relative file without crossing the root."],
     ["editor", "The editor renders the Markdown snapshot and starts its watch stream."],
     ["proof", "A debounced save applies the new blocks and advances the revision atomically."],
-    ["live", "An optional live instruction enters the in-process collaboration queue."],
     ["agent-api", "An approved agent receives the request and returns scoped operations."],
     ["state", "Client state records the revision and refreshes the visible page."],
     ["web-shell", "The browser presents the saved document and current activity."]
   ],
   "overview": {
-    "what": "Wiki Viewer is one local-first web server for browsing and editing many file types. Its browser workbench, scoped agent API, MCP adapter, and live collaboration surface all meet at workspace-aware filesystem operations, with Markdown collaboration adding revisions and provenance around ordinary files.",
-    "how": "The standalone Next.js server owns request routing, auth, workspace selection, path containment, rendering, git and remote adapters, app launching, and four SQLite-backed roles. Human saves and agent block operations share locks and revision checks. Chokidar watchers, SSE streams, timers, and long polling provide asynchronous behavior inside the same deployed service; no separate queue or worker service is present."
+    "what": "Wiki Viewer is one local-first web server for browsing and editing many file types. Its browser workbench, scoped agent API, and MCP adapter all meet at workspace-aware filesystem operations, with Markdown collaboration adding revisions and provenance around ordinary files.",
+    "how": "The standalone Next.js server owns request routing, auth, workspace selection, path containment, rendering, git and remote adapters, app launching, and three SQLite-backed roles. Human saves and agent block operations share locks and revision checks. Chokidar watchers, SSE streams, and timers provide asynchronous behavior inside the same deployed service; no separate queue or worker service is present."
   }
 }
