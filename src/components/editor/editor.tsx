@@ -3,7 +3,7 @@
 import { cellAround, isInTable } from "@tiptap/pm/tables";
 import { EditorContent, useEditor } from "@tiptap/react";
 import type { Editor } from "@tiptap/core";
-import { AlertCircle, Check, Code2, FilePlus, ListChecks, Loader2, Sparkles } from "lucide-react";
+import { AlertCircle, Check, Code2, FilePlus, Loader2, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { markdownToHtml } from "@/lib/markdown/to-html";
 import { htmlToMarkdown } from "@/lib/markdown/to-markdown";
@@ -30,8 +30,6 @@ import { CommentPip } from "./comment-pip";
 import { CommentThread } from "./comment-thread";
 import { SuggestionCard } from "./suggestion-card";
 import { SuggestEditPopover } from "./suggest-edit-popover";
-import { LiveOverlay } from "./live-overlay";
-import { useLiveAttached } from "./live-presence";
 import { SlashCommands } from "./slash-commands";
 import { DocumentOutline } from "./document-outline";
 import { ReadingExperiments } from "./experiments";
@@ -172,9 +170,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	// The hook recreates the EventSource on path or workspace changes and on
 	// degraded/rescan reloads the snapshot+sidecar. Lite mode has no watcher.
 	useDocumentWatch({ path: currentPath, isViewingRef });
-
-	// Live agent attachment drives the subtle editor-surface highlight.
-	const liveAttached = useLiveAttached();
 
 	/**
 	 * Ref to the editor scroll container. Used to compute block positions
@@ -374,16 +369,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 			markdown: resolved.markdown,
 			anchor: { top: rect.bottom + 4, left: rect.left },
 		});
-	}, [resolveSelectionBlock]);
-
-	const [tweakTarget, setTweakTarget] = useState<{
-		blockRef: string; markdown: string; selectionText: string | null; selectionStart: number | null; selectionEnd: number | null;
-	} | null>(null);
-
-	const openTweakForSelection = useCallback(() => {
-		const resolved = resolveSelectionBlock();
-		if (!resolved) return;
-		setTweakTarget({ blockRef: resolved.blockRef, markdown: resolved.markdown, selectionText: resolved.selectionText, selectionStart: resolved.selectionStart, selectionEnd: resolved.selectionEnd });
 	}, [resolveSelectionBlock]);
 
 	const openCommentForSelection = useCallback(() => {
@@ -830,7 +815,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 
 	return (
 		<>
-			<div className={`flex-1 flex flex-col overflow-hidden transition-shadow duration-300 ease-out ${liveAttached ? "agent-live-frame" : ""}`}>
+			<div className="flex-1 flex flex-col overflow-hidden">
 						{!isViewing && (
 							<div className="flex items-center min-w-0">
 								<div className="flex-1 min-w-0">
@@ -972,8 +957,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 											onClose={() => setSuggestTarget(null)}
 										/>
 									)}
-
-										{currentPath && <LiveOverlay path={currentPath} target={tweakTarget} onClose={() => setTweakTarget(null)} positions={blockRefPositions} scrollRef={scrollContainerRef} isViewing={isViewing} baseRevision={snapshotRevision} />}
 									{isViewing && Object.keys(parsedViewingContent.data).length > 0 && (
 										<div className="max-w-[var(--editor-max-w,48rem)] ml-[var(--editor-ml,auto)] mr-auto px-4 sm:px-8 pt-3">
 											<FrontmatterHeader
@@ -991,7 +974,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 												editor={editor}
 												onSuggestEdit={openSuggestForSelection}
 												onComment={openCommentForSelection}
-												onTweak={openTweakForSelection}
 											/>
 											<TableMenu editor={editor} />
 											<SlashCommands editor={editor} />
@@ -1005,7 +987,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 										<ViewModeCommentButton
 											containerRef={scrollContainerRef}
 											onComment={openCommentForSelection}
-											onTweak={openTweakForSelection}
 										/>
 									)}
 									{/* AI Edit Prompt + slash hint */}

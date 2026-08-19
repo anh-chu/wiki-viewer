@@ -21,7 +21,6 @@ import { contentTypeForPath } from "@/lib/mime";
  * Denied segments (see DENIED_SEGMENTS):
  * - .proof/     — sidecar storage (Tier-2 internal)
  * - .git/       — git objects (sensitive)
- * - .impeccable/ — live engine runtime state (never user content)
  */
 export function isDeniedRelPath(rel: string): boolean {
 	const norm = rel.replace(/\\/g, "/");

@@ -195,13 +195,6 @@ export function NodeAppViewer({ path, title }: Props) {
 						</Button>
 					</>
 				)}
-				{/* Web tweak is intentionally NOT offered for node-apps in v1. The
-				    proxied app is served from the wiki-viewer origin and its iframe
-				    keeps allow-same-origin (required for the app to work), so hostile
-				    page JS could reach parent.document and click the Accept button,
-				    bypassing the postMessage boundary. Tweak requires an opaque/
-				    cross-origin preview; only the static-HTML path provides that today.
-				    Enabling it here needs a dedicated isolated proxy origin. */}
 				<Button
 					variant="ghost"
 					size="sm"

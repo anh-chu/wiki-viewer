@@ -1,13 +1,12 @@
 "use client";
 
-import { ListChecks, MessageCircle } from "lucide-react";
+import { MessageCircle } from "lucide-react";
 import { type RefObject, useEffect, useState } from "react";
 
 interface Props {
 	/** The scrollable container that wraps the editor content. */
 	containerRef: RefObject<HTMLElement | null>;
 	onComment: () => void;
-	onTweak?: () => void;
 	/**
 	 * "center": floating above the selection, centered (markdown default).
 	 * "left": pinned to the container's left edge, beside the selected line
@@ -27,7 +26,6 @@ interface Props {
 export function ViewModeCommentButton({
 	containerRef,
 	onComment,
-	onTweak,
 	align = "center",
 }: Props) {
 	const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -90,8 +88,6 @@ export function ViewModeCommentButton({
 			>
 				<MessageCircle className="w-3.5 h-3.5" />
 				<span>Comment</span>
-			</button>
-			{onTweak && <button type="button" className="flex items-center gap-1 border-l border-border px-2 py-1 text-[12px] text-foreground/80 hover:bg-accent" onClick={() => { onTweak(); setPos(null); }} aria-label="Tweak" title="Tweak — AI rewrites the selection live now"><ListChecks className="h-3.5 w-3.5 text-amber-600" />Tweak</button>}
-		</div>
+			</button>		</div>
 	);
 }

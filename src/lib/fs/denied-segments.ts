@@ -1,2 +1,1 @@
-// `.impeccable` is engine runtime state, never user content.
-export const DENIED_SEGMENTS = [".proof", ".git", ".impeccable"];
+export const DENIED_SEGMENTS = [".proof", ".git"];

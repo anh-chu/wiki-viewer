@@ -156,11 +156,6 @@ function rewriteHtml(html: string, proxyBase: string): string {
 })();
 </script>`;
 	out = out.replace(/<\/head>/i, `${patches}\n</head>`);
-	// NOTE: the web-tweak picker is intentionally NOT injected into proxied node-app
-	// HTML. The proxied app runs same-origin with the editor (allow-same-origin is
-	// required for it to work), so it can already call trusted /api/wiki/* endpoints
-	// directly; adding a tweak surface here would not add an authorization boundary.
-	// Web tweak is offered only on the opaque-origin static-HTML preview.
 	return out;
 }
 

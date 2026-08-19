@@ -12,7 +12,6 @@ out/
 .env.*.local
 
 # misc
-.impeccable/
 .DS_Store
 *.log
 npm-debug.log*

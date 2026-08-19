@@ -5,7 +5,7 @@
  *
  * Returns {path, entries, truncated}.
  * Each entry: {name, path, type, size?, mtime?}.
- * Excludes denied segments (.proof/, .git/, .impeccable/). Scope-filters every returned path.
+ * Excludes denied segments (.proof/, .git/). Scope-filters every returned path.
  */
 export const runtime = "nodejs";
 

@@ -11,7 +11,6 @@ import {
 	Code,
 	Italic,
 	Link as LinkIcon,
-	ListChecks,
 	MessageCircle,
 	MessageSquarePlus,
 	Strikethrough,
@@ -29,8 +28,6 @@ interface Props {
 	onSuggestEdit?: () => void;
 	/** Open a comment thread on the current selection's block. */
 	onComment?: () => void;
-	/** Open the Tweak flow for the current selection's block. */
-	onTweak?: () => void;
 	/** Hide all formatting controls; show only comment button. */
 	readOnly?: boolean;
 }
@@ -45,7 +42,7 @@ type OpenPopover =
 			anchor: { top: number; left: number };
 	  };
 
-export function EditorBubbleMenu({ editor, onSuggestEdit, onComment, onTweak, readOnly }: Props) {
+export function EditorBubbleMenu({ editor, onSuggestEdit, onComment, readOnly }: Props) {
 	const [popover, setPopover] = useState<OpenPopover>(null);
 
 	useEffect(() => {
@@ -218,23 +215,8 @@ export function EditorBubbleMenu({ editor, onSuggestEdit, onComment, onTweak, re
 				>
 					<LinkIcon className="w-3.5 h-3.5" />
 				</button>
-				{(onSuggestEdit || onComment || onTweak) && (
+				{(onSuggestEdit || onComment) && (
 					<div className="w-px h-5 bg-border mx-1" />
-				)}
-				{onTweak && (
-					<button
-						type="button"
-						className={btn(false)}
-						onMouseDown={(e) => e.preventDefault()}
-						onClick={(e) => {
-							e.preventDefault();
-							onTweak();
-						}}
-						aria-label="Tweak"
-						title="Tweak — AI rewrites the selection live now"
-					>
-						<ListChecks className="w-3.5 h-3.5 text-amber-600" />
-					</button>
 				)}
 				{onComment && (
 					<button

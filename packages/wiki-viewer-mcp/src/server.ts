@@ -12,7 +12,6 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 
 import type { WikiViewerClient } from "./http-client.js";
-import type { LiveClient } from "./live-client.js";
 import { TOOLS } from "./tool-schemas.js";
 import { handleToolCall } from "./tool-handlers.js";
 
@@ -21,7 +20,6 @@ const SERVER_NAME = "wiki-viewer-mcp";
 export interface CreateServerOptions {
   /** Server version; defaults to "0.0.0" if not supplied. */
   version?: string;
-  liveClient?: LiveClient;
 }
 
 export function createServer(
@@ -39,7 +37,7 @@ export function createServer(
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
-    return handleToolCall(client, name, args, options.liveClient);
+    return handleToolCall(client, name, args);
   });
 
   return server;

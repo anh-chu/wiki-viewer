@@ -8,7 +8,6 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 
 import { WikiViewerClient } from "./http-client.js";
 import { createServer } from "./server.js";
-import { LiveClient } from "./live-client.js";
 import {
   register,
   type RegisterScope,
@@ -80,7 +79,7 @@ function readPackageVersion(): string {
 export async function main(): Promise<void> {
   await enableKeepAlive();
   const client = createClient();
-  const server = createServer(client, { version: readPackageVersion(), liveClient: createLiveClient() });
+  const server = createServer(client, { version: readPackageVersion() });
   const transport = new StdioServerTransport();
   await server.connect(transport);
   // Server runs until stdin closes
@@ -99,25 +98,6 @@ export async function runCli(): Promise<void> {
   } else {
     await main();
   }
-}
-
-/**
- * Create a LiveClient from env (same vars as the MCP client).
- */
-export function createLiveClient(overrides?: {
-  baseUrl?: string;
-  token?: string;
-  agentId?: string;
-  workspace?: string;
-  fetch?: typeof fetch;
-}): LiveClient {
-  return new LiveClient({
-    baseUrl: overrides?.baseUrl ?? requireEnv("WIKI_VIEWER_URL"),
-    token: overrides?.token ?? requireEnv("WIKI_VIEWER_TOKEN"),
-    agentId: overrides?.agentId ?? requireEnv("WIKI_VIEWER_AGENT_ID"),
-    workspace: overrides?.workspace ?? process.env.WIKI_VIEWER_WORKSPACE,
-    fetch: overrides?.fetch,
-  });
 }
 
 async function runRegister(): Promise<void> {

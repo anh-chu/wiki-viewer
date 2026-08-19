@@ -10,27 +10,7 @@
 import { fileURLToPath } from "node:url";
 
 export { createServer } from "./server.js";
-export {
-  createClient,
-  createLiveClient,
-} from "./cli.js";
-export {
-  LiveClient,
-  LiveError,
-  StaleRequestError,
-} from "./live-client.js";
-export type {
-  LiveConfig,
-  LiveRequest,
-  BlockOp,
-  Snapshot,
-  SnapshotBlock,
-  ReplyStatus,
-  WebVariant,
-  DomOp,
-  BaseFile,
-  CandidateSourcePatch,
-} from "./live-client.js";
+export { createClient } from "./cli.js";
 export type { CreateServerOptions } from "./server.js";
 
 import { runCli } from "./cli.js";
