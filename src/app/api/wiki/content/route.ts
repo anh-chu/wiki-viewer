@@ -7,7 +7,7 @@ import { resolveWorkspaceForUser } from "@/lib/workspace-context";
 import { resolveWorkspacePath } from "@/lib/fs/workspace-path";
 import { emitEvents, trimEvents } from "@/lib/proof/event-bus";
 
-const DENIED_SEGMENTS = [".proof", ".git"];
+import { DENIED_SEGMENTS } from "@/lib/fs/denied-segments";
 import { withFileMutex, workspaceLockKey } from "@/lib/proof/mutex";
 import { emptySidecar, readSidecar, writeSidecar } from "@/lib/proof/sidecar";
 import { SIDECAR_EVENT_TRIM_SIZE } from "@/lib/proof-config";

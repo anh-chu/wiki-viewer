@@ -6,7 +6,7 @@ import { resolveWorkspaceForUser } from "@/lib/workspace-context";
 import { resolveWorkspacePath } from "@/lib/fs/workspace-path";
 import { extractWikiLinks } from "@/lib/markdown/wikilink";
 
-const DENIED_SEGMENTS = [".proof", ".git"];
+import { DENIED_SEGMENTS } from "@/lib/fs/denied-segments";
 import { listSlugs } from "@/lib/wiki/slug-listing";
 
 interface OutlinkEntry {

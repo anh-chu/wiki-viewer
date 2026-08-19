@@ -3,7 +3,7 @@ import { detectGitRepo, gitBranches } from "@/lib/git";
 import { resolveWorkspaceForUser } from "@/lib/workspace-context";
 import { resolveWorkspacePath } from "@/lib/fs/workspace-path";
 
-const DENIED_SEGMENTS = [".proof", ".git"];
+import { DENIED_SEGMENTS } from "@/lib/fs/denied-segments";
 
 export async function GET(request: Request) {
 	const ctx = await resolveWorkspaceForUser(request);

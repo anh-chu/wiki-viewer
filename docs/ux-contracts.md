@@ -804,7 +804,7 @@ the performance and XSS boundary of search.
 allows only an allowlisted MIME-type **or** extension set. `POST /api/upload/…`
 (the editor paste/drop path) caps at **50 MB** and dedupes names with a `-N`
 suffix. `GET /api/assets/…` serves files with `Cache-Control: private, max-age=60`
-and denies `.proof`/`.git`. All three are workspace-scoped and session-gated.
+and denies `.proof`/`.git`/`.impeccable`. All three are workspace-scoped and session-gated.
 
 **Why it matters:** The 100 MB vs 50 MB caps are distinct per route; a "one-size"
 cap regression silently rejects legit uploads or admits oversized ones.
@@ -994,7 +994,7 @@ Desktop/Documents/Downloads). Local select POSTs a workspace; Git clones
 https-only, read-only (token dropped from memory); SSH mounts via sshfs with
 agent/keyfile/password auth and an optional read-only flag. Pins favorite/
 unfavorite directories (`POST /api/system/pins`). Reveal (`POST
-/api/system/reveal`) opens the OS file manager (denies `.proof`/`.git`).
+/api/system/reveal`) opens the OS file manager (denies `.proof`/`.git`/`.impeccable`).
 
 **Why it matters:** Workspace creation is admin-only; the https-only git rule
 and the sshfs read-only flag are the data-exfiltration guardrails.

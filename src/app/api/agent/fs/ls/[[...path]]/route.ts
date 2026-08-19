@@ -5,13 +5,14 @@
  *
  * Returns {path, entries, truncated}.
  * Each entry: {name, path, type, size?, mtime?}.
- * Excludes .proof/ and .git/. Scope-filters every returned path.
+ * Excludes denied segments (.proof/, .git/, .impeccable/). Scope-filters every returned path.
  */
 export const runtime = "nodejs";
 
 import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
+import { DENIED_SEGMENTS } from "@/lib/fs/denied-segments";
 import { checkAuth, enforceScope } from "@/lib/proof/auth";
 import { resolveWorkspaceForAgent } from "@/lib/workspace-context";
 import { safeWorkspacePath } from "@/lib/workspaces";
@@ -34,7 +35,7 @@ function errJson(code: string, message: string, status: number): NextResponse {
 }
 
 /** Skip these names at any depth */
-const SKIP_NAMES = new Set([".proof", ".git"]);
+const SKIP_NAMES = new Set(DENIED_SEGMENTS);
 
 async function walkDir(
 	rootDir: string,

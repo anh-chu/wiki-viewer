@@ -9,6 +9,7 @@
 import { createHash } from "node:crypto";
 import { open, stat, rename, mkdir } from "node:fs/promises";
 import path from "node:path";
+import { DENIED_SEGMENTS } from "@/lib/fs/denied-segments";
 import { resolveWorkspacePath } from "@/lib/fs/workspace-path";
 import { contentTypeForPath } from "@/lib/mime";
 
@@ -17,17 +18,14 @@ import { contentTypeForPath } from "@/lib/mime";
 
 /**
  * True if the root-relative path is hard-denied regardless of scope.
- * - .proof/ — sidecar storage (Tier-2 internal)
- * - .git/   — git objects (sensitive)
+ * Denied segments (see DENIED_SEGMENTS):
+ * - .proof/     — sidecar storage (Tier-2 internal)
+ * - .git/       — git objects (sensitive)
+ * - .impeccable/ — live engine runtime state (never user content)
  */
 export function isDeniedRelPath(rel: string): boolean {
 	const norm = rel.replace(/\\/g, "/");
-	return (
-		norm === ".proof" ||
-		norm.startsWith(".proof/") ||
-		norm === ".git" ||
-		norm.startsWith(".git/")
-	);
+	return DENIED_SEGMENTS.some((seg) => norm === seg || norm.startsWith(seg + "/"));
 }
 
 export function isMarkdown(filePath: string): boolean {
@@ -47,7 +45,7 @@ export async function safeAbsPath(root: string, rel: string): Promise<string | n
 	if (!root) return null;
 	const resolved = await resolveWorkspacePath(root, rel, {
 		allowMissing: true,
-		deniedSegments: [".proof", ".git"],
+		deniedSegments: DENIED_SEGMENTS,
 	});
 	return resolved?.absolutePath ?? null;
 }

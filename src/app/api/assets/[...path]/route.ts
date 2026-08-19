@@ -4,7 +4,7 @@ import { resolveWorkspaceForUser } from "@/lib/workspace-context";
 import { resolveWorkspacePath } from "@/lib/fs/workspace-path";
 import { contentTypeForPath } from "@/lib/mime";
 
-const DENIED_SEGMENTS = [".proof", ".git"];
+import { DENIED_SEGMENTS } from "@/lib/fs/denied-segments";
 
 export async function GET(
 	request: Request,

@@ -7,7 +7,7 @@ import { NextResponse } from "next/server";
 import { resolveWorkspaceForUser } from "@/lib/workspace-context";
 import { resolveWorkspacePath } from "@/lib/fs/workspace-path";
 
-const DENIED_SEGMENTS = [".proof", ".git"];
+import { DENIED_SEGMENTS } from "@/lib/fs/denied-segments";
 
 // Skip noise that should never end up in a downloaded archive.
 const SKIP_DIRS = new Set([".git", "node_modules", ".next", ".proof"]);

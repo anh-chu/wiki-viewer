@@ -5,7 +5,7 @@ import { checkOrigin } from "@/lib/auth/csrf";
 import { resolveWorkspaceForUser } from "@/lib/workspace-context";
 import { resolveWorkspacePath } from "@/lib/fs/workspace-path";
 
-const DENIED_SEGMENTS = [".proof", ".git"];
+import { DENIED_SEGMENTS } from "@/lib/fs/denied-segments";
 
 const ALLOWED_MIME_TYPES = new Set([
 	"application/pdf",

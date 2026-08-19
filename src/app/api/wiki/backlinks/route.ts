@@ -6,7 +6,7 @@ import { resolveWorkspacePath } from "@/lib/fs/workspace-path";
 import { resolveBacklinks } from "@/lib/search/backlinks";
 import { slugFromPath } from "@/lib/markdown/wikilink";
 
-const DENIED_SEGMENTS = [".proof", ".git"];
+import { DENIED_SEGMENTS } from "@/lib/fs/denied-segments";
 
 export async function GET(request: Request) {
 	const ctx = await resolveWorkspaceForUser(request);

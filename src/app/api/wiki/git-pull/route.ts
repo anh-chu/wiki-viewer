@@ -5,7 +5,7 @@ import { detectGitRepo, pullRepo, currentBranch, headSha } from "@/lib/git";
 import { resolveWorkspaceForUser } from "@/lib/workspace-context";
 import { resolveWorkspacePath } from "@/lib/fs/workspace-path";
 
-const DENIED_SEGMENTS = [".proof", ".git"];
+import { DENIED_SEGMENTS } from "@/lib/fs/denied-segments";
 
 export async function POST(request: Request) {
 	const csrf = checkOrigin(request);

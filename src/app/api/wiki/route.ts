@@ -7,7 +7,7 @@ import { resolveWorkspacePath } from "@/lib/fs/workspace-path";
 import { isAppFolder, isNodeApp } from "@/lib/wiki-helpers";
 import { detectGitRepo } from "@/lib/git";
 
-const DENIED_SEGMENTS = [".proof", ".git"];
+import { DENIED_SEGMENTS } from "@/lib/fs/denied-segments";
 
 export async function GET(request: Request) {
 	const ctx = await resolveWorkspaceForUser(request);

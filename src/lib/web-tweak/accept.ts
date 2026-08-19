@@ -37,7 +37,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { resolveWorkspacePath } from "@/lib/fs/workspace-path";
 import type { BaseFile, CandidateSourcePatch } from "./preview-store";
 
-const DENIED_SEGMENTS = [".proof", ".git"];
+import { DENIED_SEGMENTS } from "@/lib/fs/denied-segments";
 
 function sha256(buf: Buffer | string): string {
 	return createHash("sha256").update(buf).digest("hex");

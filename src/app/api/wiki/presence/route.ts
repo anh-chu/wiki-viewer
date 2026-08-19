@@ -16,7 +16,7 @@ import { resolveWorkspaceForUser } from "@/lib/workspace-context";
 import { resolveWorkspacePath } from "@/lib/fs/workspace-path";
 import { setLease, clearLease } from "@/lib/proof/lease";
 
-const DENIED_SEGMENTS = [".proof", ".git"];
+import { DENIED_SEGMENTS } from "@/lib/fs/denied-segments";
 
 function errJson(code: string, message: string, status: number): NextResponse {
 	return NextResponse.json({ error: code, message }, { status });

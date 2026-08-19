@@ -6,7 +6,7 @@ import { resolveWorkspaceForUser } from "@/lib/workspace-context";
 import { resolveWorkspacePath } from "@/lib/fs/workspace-path";
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
-const DENIED_SEGMENTS = [".proof", ".git"];
+import { DENIED_SEGMENTS } from "@/lib/fs/denied-segments";
 
 function sanitizeFilename(name: string): string {
 	const lowered = name.toLowerCase();

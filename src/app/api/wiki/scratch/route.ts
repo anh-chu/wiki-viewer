@@ -12,7 +12,7 @@ import {
 } from "@/lib/scratch/config";
 import { sweepScratch } from "@/lib/scratch/sweep";
 
-const DENIED_SEGMENTS = [".proof", ".git"];
+import { DENIED_SEGMENTS } from "@/lib/fs/denied-segments";
 
 async function writeScratch(
 	rootDir: string,

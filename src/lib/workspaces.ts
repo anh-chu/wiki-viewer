@@ -10,6 +10,7 @@
 import path from "node:path";
 import { rmSync } from "node:fs";
 import { randomBytes } from "node:crypto";
+import { DENIED_SEGMENTS } from "@/lib/fs/denied-segments";
 import { readConfig, updateConfig, reposDir } from "./config";
 import {
 	assertGitAvailable,
@@ -513,7 +514,7 @@ export function safeWorkspacePath(rootDir: string, rel: string): string | null {
 	if (norm === ".." || norm.startsWith("../")) return null;
 
 	const segments = norm.split("/").filter(Boolean);
-	if (segments.some((segment) => segment === ".proof" || segment === ".git")) {
+	if (segments.some((segment) => DENIED_SEGMENTS.includes(segment))) {
 		return null;
 	}
 

@@ -5,7 +5,7 @@ import { checkOrigin } from "@/lib/auth/csrf";
 import { resolveWorkspaceForUser } from "@/lib/workspace-context";
 import { resolveWorkspacePath } from "@/lib/fs/workspace-path";
 
-const DENIED_SEGMENTS = [".proof", ".git"];
+import { DENIED_SEGMENTS } from "@/lib/fs/denied-segments";
 
 const MAX_PDF_BYTES = 50 * 1024 * 1024; // 50MB
 
