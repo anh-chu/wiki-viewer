@@ -29,7 +29,7 @@ down turns "did we regress the loop?" into a diff against this file.
   - [1.1 Presence indicator](#11-presence-indicator)
   - [1.2 Tweak queue (shared across surfaces)](#12-tweak-queue-shared-across-surfaces)
   - [1.3 Markdown targets: queued batch and write-on-accept](#13-markdown-targets-queued-batch-and-write-on-accept)
-  - [1.4 HTML targets: queued batch and write-on-accept](#14-html-targets-queued-batch-and-write-on-accept)
+  - [1.4 Web targets: live engine variants and write-on-accept](#14-web-targets-live-engine-variants-and-write-on-accept)
   - [1.5 One outstanding request per session](#15-one-outstanding-request-per-session)
   - [1.6 Agent approval and token rotation](#16-agent-approval-and-token-rotation)
 - [2. Live inventory (routes, tools, constants)](#2-live-inventory-routes-tools-constants)
@@ -162,7 +162,9 @@ keeps target selection predictable and prevents duplicate work. When no agent is
 attached, a queued Markdown **Rewrite** action becomes **Connect an agent** and
 opens the agent panel without changing the queue. Cancelling a Markdown run
 frees its outstanding request and discards its previews; generation failures
-preserve queued items for retry or dismissal.
+preserve queued items for retry or dismissal. Static `.html` and `.htm` website
+targets bypass the legacy picker queue when using the live bridge; all other
+surfaces retain the legacy picker path.
 
 **Verification pointer:** `src/components/editor/tweak/use-tweak-session.ts`,
 `src/components/editor/tweak/tweak-queue.ts`,
@@ -196,27 +198,40 @@ on HTTP deployments; drift refusal prevents clobbering concurrent human edits.
 `src/app/api/agent/live/md-preview/route.ts`,
 `src/components/editor/tweak/adapters/markdown-adapter.tsx`
 
-### 1.4 HTML targets: queued batch and write-on-accept
+### 1.4 Web targets: live engine variants and write-on-accept
 
-**Contract:** The target is a DOM element in a static-HTML, opaque-origin
-preview, picked via a postMessage-only picker. HTML targets gather in the shared
-queue and **Apply** dispatches the batch. The agent returns 2 to 5 variants
-(single-target variants path) or one candidate; each variant carries a unique
-`variantId`, data-only DOM preview ops (attribute/style/class changes via
-allowlist; no scripts), and an immutable `candidateSourcePatch` plus `baseFiles`
-hashes. The HTML instruction editor labels its request-for-variants action
-**Iterate**. Accept commits the bound candidate verbatim for the single target file,
-refused on base-file drift. A variants reply with fewer than 2 or more than
-`MAX_VARIANTS` (5), or with missing/duplicate `variantId`, is rejected
-`INVALID_PARAM`. Node-app previews are out of scope (same-origin escape risk).
+**Contract:** The unified web/visual Tweak path hosts one token-gated Impeccable
+live helper per workspace-relative surface. A loopback-only
+`POST /api/wiki/live-web/session` resolves the target inside the selected
+workspace, starts or reuses the helper, and returns its browser connection
+credentials; `DELETE` stops it. The product bridge polls the helper for
+`generate`/`steer` events, maps each event to the attached-agent
+`web.tweak.variants` request, and relays one selected Impeccable scaffold
+string back to the helper. Original source and its disk hash, scaffold state,
+and the engine-event mapping persist in the live database so replay is
+idempotent.
 
-**Why it matters:** The opaque-origin + postMessage + data-only constraints are
-the security boundary; relaxing any of them lets hostile page JS reach the
-parent and commit unguarded writes.
+Previews remain speculative: generating, mounting, cycling variants, and tuning
+knobs do not write workspace files. `GET /api/wiki/live-web/status?path=...`
+reports engine, bridge, session, scaffold, and recovery state. A human-only,
+loopback `POST /api/wiki/live-web/resolve` accepts or discards the latest
+scaffold. Accept requires a chosen variant, carbonizes its markers and knob
+values, then calls the contained writer with the original disk hash; marker,
+variant, or base drift failure writes nothing. Discard closes the scaffold and
+stops the bridge and helper. The current tracer bullet covers static `.html` and
+`.htm`; proxy injection and dynamic/node-app surfaces remain later work.
 
-**Verification pointer:** `src/lib/web-tweak/preview-store.ts`,
-`src/app/api/wiki/web-tweak/request/route.ts`, `src/app/api/wiki/web-tweak/resolve/route.ts`,
-`src/app/api/agent/live/web-preview/route.ts`
+**Why it matters:** The helper gives web previews the live variants-and-knobs
+experience while the bridge preserves wiki-viewer's invariant that Accept is the
+only write, with containment and base-drift protection authoritative.
+
+**Verification pointer:** `src/lib/live-engine/supervisor.ts`,
+`src/lib/live-engine/client.ts`, `src/lib/proof/live/web-bridge.ts`,
+`src/lib/proof/live/scaffold-store.ts`, `src/lib/proof/live/carbonize.ts`,
+`src/app/api/wiki/live-web/session/route.ts`,
+`src/app/api/wiki/live-web/status/route.ts`,
+`src/app/api/wiki/live-web/resolve/route.ts`,
+`src/lib/fs/contained-write.ts`
 
 ### 1.5 One outstanding request per session
 
@@ -281,8 +296,12 @@ with no explanation; the notice makes the rotation explicit and consistent.
 | `POST /api/wiki/live/md-resolve` | human only | Accept / discard markdown proposal |
 | `GET /api/wiki/live/status` | human | Presence + current turn |
 | `POST /api/wiki/web-tweak/request` | human | Point at an element, dispatch |
-| `GET /api/wiki/web-tweak/status` | human | Preview state |
-| `POST /api/wiki/web-tweak/resolve` | human only | Accept / discard web preview |
+| `GET /api/wiki/web-tweak/status` | human | Legacy preview state |
+| `POST /api/wiki/web-tweak/resolve` | human only | Legacy accept / discard web preview |
+| `POST /api/wiki/live-web/session` | human, loopback | Start or reuse a live helper for a surface |
+| `DELETE /api/wiki/live-web/session` | human, loopback | Stop the live helper for a surface |
+| `GET /api/wiki/live-web/status` | human, loopback | Engine, bridge, session, scaffold, and recovery state |
+| `POST /api/wiki/live-web/resolve` | human only, loopback | Carbonize and accept, or discard, the live scaffold |
 
 ### Constants
 
@@ -292,9 +311,12 @@ with no explanation; the notice makes the rotation explicit and consistent.
 | `WORKING_PRESENCE_GRACE_MS` | 90000 | Max time a `working` request keeps presence solid without fresh activity |
 | Poll `HOLD_MS` | 25000 | Long-poll hold duration |
 | Poll `TICK_MS` | 400 | Presence refresh / pending check interval while holding |
-| Variants (markdown + web) | 2–5 | Min 2, max `MAX_VARIANTS` (5) per reply |
+| Variants (markdown) | 2–5 | Min 2, max `MAX_VARIANTS` (5) per reply |
+| Live web scaffold relay | 1 | One selected Impeccable scaffold string per helper reply |
 | Outstanding requests / session | 1 | Non-terminal generate/steer at a time |
 | Presence heartbeat (client) | 30000 | Editor `open`/`heartbeat` lease interval |
+| Live engine poll timeout | 1000 | Product bridge poll request timeout |
+| Live engine lease | 5000 | Product bridge lease on a helper event |
 
 ## 3. Shell and workspaces
 
@@ -1255,8 +1277,8 @@ Deliberate v1 absences (each is a contract; do not re-add without a decision):
   favor of write-on-accept variants.
 - **Write-first activity/audit provenance review in the Live path** — activity-log provenance remain only
   as optional accepted-provenance, not a pending-review workflow.
-- **Node-app / dynamic HTML web-tweak** — static-HTML opaque-origin only; a
-  same-origin app iframe would let hostile page JS click Accept.
+- **Node-app / dynamic HTML web-tweak** — static `.html`/`.htm` opaque-origin only;
+  a same-origin app iframe would let hostile page JS click Accept.
 - **Multi-file web candidates**, markdown variants spanning multiple blocks, live
   knobs/sliders, freehand strokes, comments-as-instructions escalation.
 - **Per-workspace access editor** in the auth settings sheet (TODO in source).

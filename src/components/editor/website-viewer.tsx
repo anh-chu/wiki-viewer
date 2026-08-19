@@ -14,6 +14,8 @@ import {
 } from "@/components/ui/dialog";
 import { useLiveAttached } from "@/components/editor/live-presence";
 import { WebTweakOverlay } from "@/components/editor/web-tweak-overlay";
+import { useLiveWebSession } from "@/hooks/use-live-web-session";
+import { injectOverlay } from "@/lib/proof/live/inject-overlay";
 import { injectPicker } from "@/lib/web-tweak/picker";
 import { withWs, wsFetch } from "@/lib/workspace-client";
 
@@ -53,6 +55,25 @@ export function WebsiteViewer({
 	const [tweakEnabled, setTweakEnabled] = useState(false);
 	const [tweakHtml, setTweakHtml] = useState<string | null>(null);
 	const [tweakError, setTweakError] = useState<string | null>(null);
+	const liveWeb = useLiveWebSession();
+	const lowerPath = path.toLowerCase();
+	const isStaticHtml = lowerPath.endsWith(".html") || lowerPath.endsWith(".htm");
+	const liveTweakHtml =
+		isStaticHtml && tweakHtml && liveWeb.state === "live" && liveWeb.session
+			? injectOverlay(tweakHtml, {
+					scriptSrc: `http://127.0.0.1:${liveWeb.session.port}/live.js?token=${liveWeb.session.token}`,
+					globals: {
+						__IMPECCABLE_PORT__: liveWeb.session.port,
+						__IMPECCABLE_TOKEN__: liveWeb.session.token,
+					},
+				})
+			: null;
+	const renderedTweakHtml = isStaticHtml
+		? liveTweakHtml
+		: tweakHtml
+			? injectPicker(tweakHtml)
+			: null;
+	const currentTweakError = tweakError ?? (liveWeb.state === "error" ? liveWeb.error : null);
 	const [confirmScripts, setConfirmScripts] = useState(false);
 
 	// Tweak needs scripts (the picker runs in-page). If scripts are off, ask
@@ -82,33 +103,40 @@ export function WebsiteViewer({
 		if (!scriptsEnabled && tweakEnabled) setTweakEnabled(false);
 	}, [scriptsEnabled, tweakEnabled]);
 
-	// Fetch the raw HTML and inject the picker when tweak mode turns on.
+	// Fetch raw HTML for tweak mode. Static .html pages use the live engine;
+	// other surfaces retain the legacy picker path.
 	useEffect(() => {
 		if (!tweakEnabled) {
 			setTweakHtml(null);
 			setTweakError(null);
+			void liveWeb.stop();
 			return;
 		}
 		let alive = true;
 		void (async () => {
 			try {
+				if (isStaticHtml) void liveWeb.start(path);
 				const res = await wsFetch(src ?? `/api/assets/${path}/index.html`);
 				if (!alive) return;
 				if (!res.ok) {
 					setTweakError("Could not load page for tweaking.");
+					if (isStaticHtml) await liveWeb.stop();
 					return;
 				}
 				const html = await res.text();
 				if (!alive) return;
-				setTweakHtml(injectPicker(html));
+				setTweakHtml(html);
 			} catch {
-				if (alive) setTweakError("Could not load page for tweaking.");
+				if (alive) {
+					setTweakError("Could not load page for tweaking.");
+					if (isStaticHtml) void liveWeb.stop();
+				}
 			}
 		})();
 		return () => {
 			alive = false;
 		};
-	}, [tweakEnabled, src, path]);
+	}, [tweakEnabled, src, path, isStaticHtml, liveWeb.start, liveWeb.stop]);
 
 	const sandbox = scriptsEnabled
 		? "allow-scripts allow-forms allow-popups allow-top-navigation-by-user-activation"
@@ -191,17 +219,17 @@ export function WebsiteViewer({
 
 			<div className="relative flex-1 flex overflow-hidden">
 				{tweakEnabled ? (
-					tweakHtml ? (
+					renderedTweakHtml ? (
 						<iframe
 							ref={frameRef}
-							srcDoc={tweakHtml}
+							srcDoc={renderedTweakHtml}
 							className="flex-1 w-full border-0 bg-card"
 							title={title}
 							sandbox="allow-scripts"
 						/>
 					) : (
 						<div className="flex-1 flex items-center justify-center text-xs text-muted-foreground">
-							{tweakError ?? "Loading page for tweaking…"}
+							{currentTweakError ?? "Loading page for tweaking…"}
 						</div>
 					)
 				) : (
@@ -212,7 +240,7 @@ export function WebsiteViewer({
 						sandbox={sandbox}
 					/>
 				)}
-				{tweakEnabled && tweakHtml && (
+				{tweakEnabled && renderedTweakHtml && !isStaticHtml && (
 					<WebTweakOverlay
 						frameRef={frameRef}
 						path={path}

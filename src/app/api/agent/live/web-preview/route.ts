@@ -39,6 +39,8 @@ const OP_TYPES = new Set([
 	"removeClass",
 ]);
 
+const MAX_SCAFFOLD_LENGTH = 512 * 1024;
+
 /** Validate DOM ops are data-only and well-typed, per union member. */
 function validOp(op: Record<string, unknown>): boolean {
 	const t = op.type;
@@ -234,6 +236,13 @@ export async function POST(req: Request): Promise<NextResponse> {
 				);
 			}
 			ids.add(variantId);
+			const scaffold = v.scaffold;
+			if (scaffold !== undefined && (typeof scaffold !== "string" || scaffold.length > MAX_SCAFFOLD_LENGTH)) {
+				return NextResponse.json(
+					{ error: "INVALID_PARAM", message: `variant ${variantId}: scaffold must be a string of at most ${MAX_SCAFFOLD_LENGTH} characters` },
+					{ status: 400 },
+				);
+			}
 			const vOps = (v.domPreviewOps ?? null) as DomOp[] | null;
 			if (vOps !== null && !validOps(vOps)) {
 				return NextResponse.json(
@@ -253,6 +262,7 @@ export async function POST(req: Request): Promise<NextResponse> {
 			out.push({
 				variantId,
 				label: typeof v.label === "string" ? v.label.slice(0, 80) : variantId,
+				scaffold: typeof scaffold === "string" ? scaffold : undefined,
 				domPreviewOps: vOps,
 				candidateSourcePatch: vCand,
 				baseFiles: vBase,

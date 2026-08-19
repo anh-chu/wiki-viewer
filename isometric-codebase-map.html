@@ -875,11 +875,16 @@
       { code: "EV", name: "Event bus", h: 4, what: "Publishes document changes to watchers and agents.", how: "event-bus.ts publishes document changes to watchers and agent subscribers." }
     ] },
     { id: "safety", code: "LK", name: "Locking and audit", group: "domain", loc: "539 LOC", gx: 6, gy: 10, w: 3, d: 2, h: 7, what: "Prevents concurrent edits from silently overwriting one another.", how: "Mutexes, proper-lockfile, leases, collab state, idempotency, rate limits, and audit rows protect writes.", talks: ["proof", "audit-store", "live"] },
-    { id: "live", code: "LV", name: "Live control plane", group: "compute", loc: "1,312 LOC", gx: 10, gy: 10, w: 3, d: 2, h: 7, what: "Carries human instructions and agent replies for live collaboration.", how: "A SQLite-backed session and request store handles attach, sequence ordering, long-poll delivery, and reply application.", talks: ["agent-api", "proof", "live-store", "ai-panel"], children: [
+    { id: "live", code: "LV", name: "Live control plane", group: "compute", loc: "1,312 LOC", gx: 10, gy: 10, w: 3, d: 2, h: 7, what: "Carries human instructions and agent replies for live collaboration.", how: "A SQLite-backed session and request store handles attach, sequence ordering, long-poll delivery, and reply application.", talks: ["agent-api", "proof", "live-store", "live-engine", "ai-panel"], children: [
       { code: "SS", name: "Sessions", h: 6, what: "Attach one agent to one live collaboration session.", how: "The live session records attach one agent to one collaboration session." },
       { code: "RQ", name: "Request queue", h: 8, what: "Sequence generate, steer, and web-tweak requests.", how: "The request store sequences generate, steer, and web-tweak requests in order." },
       { code: "PR", name: "Presence", h: 4, what: "Track human and agent presence with short leases.", how: "Presence records track human and agent liveness with short renewable leases." },
       { code: "RP", name: "Replies", h: 6, what: "Deliver replies and apply accepted operations.", how: "Reply handling delivers replies and applies accepted operations through proof." }
+    ] },
+    { id: "live-engine", code: "LE", name: "Impeccable live engine", group: "compute", loc: "950 LOC", gx: 20, gy: 13, w: 3, d: 2, h: 8, what: "Hosts a tokenized Impeccable helper and reconciles its live events with the attached-agent channel.", how: "live-engine supervisor/client files spawn and supervise one helper per surface; the web bridge polls generate/steer events, persists scaffold mappings, and relays one selected scaffold string.", talks: ["live", "web-tweak", "app-runner", "live-store"], children: [
+      { code: "SV", name: "Helper supervisor", h: 6, what: "Start, health-check, reuse, and stop one helper per surface.", how: "supervisor.ts allocates a loopback port, reads the helper token, probes health, and invalidates stale lifecycle generations." },
+      { code: "BR", name: "Agent bridge", h: 8, what: "Translate helper events into wiki-viewer live requests and replies.", how: "web-bridge.ts polls generate/steer events, enqueues web.tweak.variants, relays one selected scaffold string, and replays durable engine replies idempotently." },
+      { code: "SC", name: "Scaffold ledger", h: 5, what: "Persist source hashes, scaffold state, and engine-event mappings.", how: "scaffold-store.ts keeps recoverable live scaffolds and accepted/discarded lifecycle state in SQLite." }
     ] },
     { id: "watch", code: "WT", name: "Watch and SSE", group: "compute", loc: "725 LOC", gx: 14, gy: 10, w: 2, d: 2, h: 5, what: "Notifies browser and agent clients when files change outside their current request.", how: "watcher-pool.ts uses chokidar subscriptions, ancestor merging, scope rebasing, deduplication, and heartbeats.", talks: ["wiki-api", "state", "proof"], children: [
       { code: "CH", name: "Chokidar pool", h: 7, what: "Share filesystem watchers across compatible scopes.", how: "watcher-pool.ts shares chokidar watchers across compatible scopes." },
@@ -900,10 +905,10 @@
       { code: "WL", name: "Wiki links", h: 4, what: "Resolve internal links and relative asset references.", how: "wikilink.ts resolves internal links and relative asset references." },
       { code: "EM", name: "Embeds", h: 4, what: "Detect supported external media and document embeds.", how: "lib/embeds detects supported external media and document embeds." }
     ] },
-    { id: "web-tweak", code: "TW", name: "Web tweak flow", group: "domain", loc: "2,930 LOC", gx: 4, gy: 13, w: 3, d: 2, h: 7, what: "Lets people select an element in a preview and review a proposed source change.", how: "Sandboxed picker messages become preview operations and candidate patches before accept or discard.", talks: ["editor", "wiki-api", "proof"], children: [
+    { id: "web-tweak", code: "TW", name: "Web tweak flow", group: "domain", loc: "2,930 LOC", gx: 4, gy: 13, w: 3, d: 2, h: 8, what: "Coordinates legacy picker previews, static .html/.htm live variants, and reviewed web source changes.", how: "Legacy picker and preview stores bind other surfaces to ephemeral candidates; static .html/.htm bypass that queue through live-web routes, which carbonize and contain the chosen source on accept or close it on discard.", talks: ["editor", "wiki-api", "proof", "live-engine"], children: [
       { code: "PK", name: "Picker", h: 7, what: "Select an element from a sandboxed preview.", how: "picker.ts and protocol.ts capture element selections from the sandboxed preview." },
       { code: "PV", name: "Preview", h: 6, what: "Apply temporary DOM operations without saving source.", how: "preview-store.ts applies temporary DOM operations without saving source." },
-      { code: "AC", name: "Accept flow", h: 5, what: "Review, accept, or discard a candidate source patch.", how: "accept.ts turns preview operations into a candidate patch for accept or discard." }
+      { code: "AC", name: "Accept flow", h: 5, what: "Carbonize and commit the chosen live scaffold safely.", how: "carbonize.ts bakes the chosen variant and knobs; containedWrite enforces path containment and base-hash drift before writing." }
     ] },
     { id: "scratch", code: "SC", name: "Scratchpad", group: "domain", loc: "355 LOC", gx: 8, gy: 13, w: 2, d: 2, h: 4, what: "Captures quick snippets before they become normal workspace files.", how: "Scratch config and detection modules create, sweep, and promote temporary captures.", talks: ["wiki-api", "path", "state"] },
     { id: "tests", code: "TS", name: "Proof test suite", group: "delivery", loc: "14,849 LOC", gx: 12, gy: 13, w: 2, d: 2, h: 5, what: "Exercises the filesystem, auth, collaboration, and agent safety contracts.", how: "71 proof test files run through scripts/test-floor.mjs, which enforces a 691-test minimum.", talks: ["proof", "agent-api", "wiki-api", "ci"] },
@@ -942,7 +947,9 @@
     { f: "workspace", t: "sshfs", flow: 1, pay: "Remote workspace" },
     { f: "wiki-api", t: "scratch", flow: 1, pay: "Quick capture" },
     { f: "wiki-api", t: "web-tweak", flow: 1, pay: "Preview patch" },
-    { f: "editor", t: "web-tweak", flow: 1, pay: "Picker selection" },
+    { f: "editor", t: "web-tweak", flow: 1, pay: "Legacy picker selection; static .html/.htm use live bridge" },
+    { f: "live", t: "live-engine", flow: 1, pay: "Attached-agent request" },
+    { f: "live-engine", t: "web-tweak", flow: 1, pay: "Selected scaffold and accept state" },
     { f: "wiki-api", t: "app-runner", flow: 1, pay: "Trusted app launch" },
     { f: "app-runner", t: "web-shell", flow: 1, pay: "Proxied preview" },
     { f: "mcp", t: "agent-api", flow: 1, pay: "MCP tool call" },

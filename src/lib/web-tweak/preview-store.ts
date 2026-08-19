@@ -84,6 +84,8 @@ export interface Variant {
 	variantId: string;
 	/** Short human label for the switcher (e.g. "Bolder", "Blue"). */
 	label: string;
+	/** Optional complete scaffold source returned by the live engine. */
+	scaffold?: string;
 	domPreviewOps: DomOp[] | null;
 	candidateSourcePatch: CandidateSourcePatch | null;
 	baseFiles: BaseFile[];
