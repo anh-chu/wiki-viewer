@@ -17,6 +17,7 @@ import {
 	Link,
 	Loader2,
 	MoreHorizontal,
+	PencilRuler,
 	Star,
 	RefreshCw,
 	Terminal,
@@ -48,7 +49,10 @@ import { useShowHiddenStore } from "@/stores/show-hidden-store";
 import { humanizeName } from "@/lib/humanize-name";
 import { prefetchPage } from "@/stores/editor-store";
 import { wsFetch } from "@/lib/workspace-client";
+import { viewerKindFor } from "@/lib/viewer-kind";
 import type { FileTreeNode, OpenFile, ViewerKind } from "@/types/wiki";
+
+export { viewerKindFor } from "@/lib/viewer-kind";
 
 function timeAgo(iso: string): string {
 	const t = new Date(iso).getTime();
@@ -87,58 +91,6 @@ const WATCH_DIR_LIMIT = 24;
 
 export function ext(name: string) {
 	return name.split(".").pop()?.toLowerCase() ?? "";
-}
-
-export function viewerKindFor(
-	filename: string,
-	nodeType: "file" | "app" | "dir" | "node-app",
-): ViewerKind {
-	if (nodeType === "node-app") return "node-app";
-	if (nodeType === "app") return "app";
-	if (nodeType === "dir") return "fallback";
-	const base = filename.split("/").pop() ?? filename;
-	// Dotfile with no real extension (".env", ".gitignore", ".bashrc"):
-	// `".env".split(".").pop()` -> "env", which would match nothing below,
-	// so treat any leading-dot name as text and let the viewer sniff bytes.
-	if (base.startsWith(".") && base.indexOf(".", 1) === -1) return "source";
-	const fileExt = ext(filename);
-	// No extension at all ("Makefile", "LICENSE", "Dockerfile"): assume text.
-	if (!fileExt) return "source";
-	if (["md", "markdown"].includes(fileExt)) return "editor";
-	if (fileExt === "txt") return "text";
-	if (["csv", "tsv"].includes(fileExt)) return "csv";
-	if (fileExt === "pdf") return "pdf";
-	if (["mmd", "mermaid"].includes(fileExt)) return "mermaid";
-	if (fileExt === "ipynb") return "notebook";
-	if (
-		["png", "jpg", "jpeg", "gif", "webp", "svg", "avif", "ico", "bmp"].includes(
-			fileExt,
-		)
-	)
-		return "image";
-	if (
-		["mp4", "webm", "mov", "m4v", "mp3", "wav", "ogg", "m4a", "aac"].includes(
-			fileExt,
-		)
-	)
-		return "media";
-	if (fileExt === "docx") return "docx";
-	if (["xlsx", "xlsm"].includes(fileExt)) return "xlsx";
-	if (fileExt === "pptx") return "pptx";
-	if (fileExt === "html") return "html";
-	if (
-		[
-			"py", "js", "ts", "tsx", "jsx", "go", "rs", "java", "c", "cpp", "h",
-			"sh", "bash", "zsh", "rb", "php", "swift", "kt", "lua", "sql", "yaml",
-			"yml", "toml", "json", "xml", "css", "scss",
-		].includes(fileExt)
-	)
-		return "source";
-	// Default: assume text and let SourceViewer sniff the bytes. If the file is
-	// actually binary, SourceViewer degrades to a download/reveal fallback.
-	// This avoids a brittle text-extension whitelist that always misses
-	// something (.env, .ini, .lock, .gradle, .properties, ...).
-	return "source";
 }
 
 const TEXT_EDITABLE_EXTS = new Set([
@@ -406,6 +358,7 @@ export function FileTypeIcon({ name, type }: { name: string; type: TreeNode["typ
 	if (type === "app") return <Globe className={cn(cls, "text-foreground/70")} />;
 	if (type === "node-app") return <Terminal className={cn(cls, "text-emerald-500")} />;
 	if (isHtmlFile(name)) return <Globe className={cn(cls, "text-foreground/60")} />;
+	if (viewerKindFor(name, "file") === "canvas") return <PencilRuler className={cn(cls, "text-violet-500")} />;
 	if (isImage(name)) return <ImageIcon className={cn(cls, "text-sunshine-700")} />;
 	if (isText(name)) return <FileText className={cn(cls, "text-foreground/70")} />;
 	return <File className={cn(cls, "text-foreground/60")} />;
@@ -552,6 +505,8 @@ const TreeRowView = memo(function TreeRowView({
 						<Terminal className={cn("h-4 w-4 shrink-0", !isActive && "text-emerald-500")} />
 					) : isHtmlFile(node.name) ? (
 						<Globe className={cn("h-4 w-4 shrink-0", !isActive && "text-foreground/60")} />
+					) : viewerKindFor(node.name, "file") === "canvas" ? (
+						<PencilRuler className={cn("h-4 w-4 shrink-0", !isActive && "text-violet-500")} />
 					) : isImage(node.name) ? (
 						<ImageIcon className={cn("h-4 w-4 shrink-0", !isActive && "text-sunshine-700")} />
 					) : isText(node.name) ? (

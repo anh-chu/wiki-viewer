@@ -13,8 +13,10 @@
     ".next/standalone"
   ],
   "scripts": {
+    "predev": "node scripts/copy-excalidraw-assets.mjs",
     "dev": "next dev",
     "dev:https": "next dev --experimental-https",
+    "prebuild": "node scripts/copy-excalidraw-assets.mjs",
     "build": "next build",
     "start": "next start",
     "wiki": "node bin/wiki-viewer.js",
@@ -46,6 +48,7 @@
     "@vscode/ripgrep": "^1.18.0"
   },
   "dependencies": {
+    "@excalidraw/excalidraw": "0.18.1",
     "better-auth": "^1.6.12",
     "chokidar": "^5.0.0",
     "jszip": "^3.10.1",

@@ -43,7 +43,8 @@ down turns "did we regress the loop?" into a diff against this file.
   - [3.3 CSV viewer](#33-csv-viewer)
   - [3.4 PDF viewer](#34-pdf-viewer)
   - [3.5 Mermaid, notebook, source, image/media, office, fallback](#35-mermaid-notebook-source-imagemedia-office-fallback)
-  - [3.6 History panel](#36-history-panel)
+  - [3.6 Canvas viewer](#36-canvas-viewer)
+  - [3.7 History panel](#37-history-panel)
 - [4. Markdown editor](#4-markdown-editor)
   - [4.1 Modes and state](#41-modes-and-state)
   - [4.2 Empty / missing / loading states](#42-empty-missing-loading-states)
@@ -205,7 +206,7 @@ a11y navigation.
 **Contract:** Extension → viewer kind: `md/markdown`→editor; `txt`→text;
 `csv/tsv`→csv; `pdf`→pdf; `mmd/mermaid`→mermaid; `ipynb`→notebook;
 `png/jpg/jpeg/gif/webp/svg/avif/ico/bmp`→image; `mp4/webm/mov/m4v/mp3/wav/ogg/m4a/aac`→media;
-`docx`→docx; `xlsx/xlsm`→xlsx; `pptx`→pptx; `html`→html; a leading-dot file with
+`docx`→docx; `xlsx/xlsm`→xlsx; `pptx`→pptx; `html`→html; `excalidraw`→canvas; a leading-dot file with
 no further dot (`.env`, `.gitignore`) or a file with no extension → source;
 listed code extensions → source; everything else → source (binary is sniffed and
 falls back to download/reveal).
@@ -349,7 +350,15 @@ escape.
 `src/components/editor/source-viewer.tsx`, `src/components/editor/office/xlsx-viewer.tsx`,
 `src/components/editor/file-fallback-viewer.tsx`
 
-### 3.6 History panel
+### 3.6 Canvas viewer
+
+**Contract:** Opening a valid `.excalidraw` file loads its scene JSON from disk into a lazily loaded Excalidraw surface in read-only mode (`viewModeEnabled`). Fonts are served from the local `/excalidraw-assets/` path. Invalid or unreadable scene JSON shows a clear "Could not render canvas" error instead of a blank pane.
+
+**Why it matters:** A local, read-only canvas keeps diagrams viewable offline without loading Excalidraw for unrelated files, while parse errors remain diagnosable.
+
+**Verification pointer:** `src/components/editor/canvas-viewer.tsx`, `src/components/wiki/viewer-pane.tsx`, `src/lib/viewer-kind.ts`, `scripts/copy-excalidraw-assets.mjs`
+
+### 3.7 History panel
 
 **Contract:** The history panel lists commits (short SHA, message, author, time)
 in a `max-h-[40vh]` scroll; clicking a commit loads a diff `<pre>` (max-h-60);

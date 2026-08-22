@@ -85,7 +85,7 @@ export function useOpenFile({
 
 	const loadContent = useCallback(
 		async (path: string, kind: ReturnType<typeof viewerKindFor>) => {
-			if (!["editor", "text"].includes(kind) && !isText(nameFromPath(path))) {
+			if (kind !== "canvas" && !["editor", "text"].includes(kind) && !isText(nameFromPath(path))) {
 				return;
 			}
 			setFileLoading(true);
@@ -409,7 +409,7 @@ export function useOpenFile({
 			return;
 		}
 		const kind = viewerKindFor(current.name, current.nodeType);
-		if (!["editor", "text"].includes(kind) && !isText(current.name)) return;
+		if (kind !== "canvas" && !["editor", "text"].includes(kind) && !isText(current.name)) return;
 		setFileLoading(true);
 		try {
 			const res = await wsFetch(

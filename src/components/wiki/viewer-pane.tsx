@@ -12,6 +12,7 @@ import {
 	Image as ImageIcon,
 	Loader2,
 	Maximize2,
+	PencilRuler,
 	Pencil,
 	RefreshCw,
 	Share,
@@ -60,6 +61,10 @@ import {
 
 const PdfViewer = dynamic(
 	() => import("@/components/editor/pdf-viewer").then((m) => m.PdfViewer),
+	{ ssr: false },
+);
+const CanvasViewer = dynamic(
+	() => import("@/components/editor/canvas-viewer").then((m) => m.CanvasViewer),
 	{ ssr: false },
 );
 
@@ -412,7 +417,9 @@ export function ViewerPane({
 				<div className="flex items-center gap-2 min-w-0">
 					<span className="hidden md:inline-flex">
 						<span className="">
-							{isImage(openFile.name) ? (
+							{viewerKind === "canvas" ? (
+								<PencilRuler className="h-4 w-4 shrink-0 text-violet-500" />
+							) : isImage(openFile.name) ? (
 								<ImageIcon className="h-4 w-4 shrink-0 text-sunshine-700" />
 							) : isText(openFile.name) ? (
 								<FileText className="h-4 w-4 shrink-0 text-foreground/70" />
@@ -660,7 +667,8 @@ export function ViewerPane({
 						<KBEditor mode="viewing" />
 					)}
 				</div>
-			) : viewerKind === "csv" ||
+			) : viewerKind === "canvas" ||
+			  viewerKind === "csv" ||
 			  viewerKind === "pdf" ||
 			  viewerKind === "mermaid" ||
 			  viewerKind === "notebook" ||
@@ -681,6 +689,8 @@ export function ViewerPane({
 						<div className="flex justify-center py-8">
 							<Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
 						</div>
+					) : viewerKind === "canvas" ? (
+						<CanvasViewer content={fileContent} path={openFile.path} title={openFile.name} />
 					) : viewerKind === "csv" ? (
 						<CsvViewer path={openFile.path} title={openFile.name} />
 					) : viewerKind === "pdf" ? (

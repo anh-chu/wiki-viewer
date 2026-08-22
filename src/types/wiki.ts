@@ -27,6 +27,7 @@ export interface OpenFile {
 
 export type ViewerKind =
 	| "editor"
+	| "canvas"
 	| "csv"
 	| "pdf"
 	| "mermaid"

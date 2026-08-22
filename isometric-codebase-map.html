@@ -815,7 +815,8 @@
     ] },
     { id: "editor", code: "ED", name: "Editor and viewers", group: "surface", loc: "12,224 LOC", gx: 5, gy: 0, w: 4, d: 3, h: 13, what: "Shows many file types and lets people edit Markdown with rich interactions.", how: "TipTap extensions and viewer components handle Markdown, documents, media, notebooks, and websites.", talks: ["wiki-api", "proof", "state"], children: [
       { code: "TP", name: "TipTap editor", h: 8, what: "Turns Markdown blocks into an editable document.", how: "editor.tsx and extensions.ts register TipTap nodes and marks that map Markdown blocks to an editable ProseMirror document." },
-      { code: "VW", name: "File viewers", h: 6, what: "Chooses a safe renderer for each supported file kind.", how: "A viewer registry dispatches per-type renderers for images, PDFs, media, notebooks, CSVs, Mermaid, and websites." }
+      { code: "VW", name: "File viewers", h: 6, what: "Chooses a safe renderer for each supported file kind.", how: "A viewer registry dispatches per-type renderers for images, PDFs, media, notebooks, CSVs, Mermaid, and websites." },
+      { code: "CV", name: "Canvas viewer", h: 5, what: "Renders .excalidraw scene JSON in a read-only Excalidraw surface.", how: "The canvas viewer parses workspace content, lazy-loads Excalidraw, and uses locally served fonts/assets." }
     ] },
     { id: "hooks", code: "HK", name: "Page-shell hooks", group: "surface", loc: "1,688 LOC", gx: 10, gy: 0, w: 2, d: 2, h: 5, what: "Connects page actions to workspaces, file trees, uploads, scratchpad, and navigation.", how: "Client hooks coordinate URL state, prefetching, workspace selection, and server calls.", talks: ["wiki-api", "workspace", "state"], children: [
       { code: "FT", name: "File tree", h: 6, what: "Load directories and preserve expanded navigation state.", how: "use-file-tree.ts fetches directory listings and keeps expanded nodes in sync with the active path." },

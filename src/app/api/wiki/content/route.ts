@@ -16,7 +16,7 @@ const TEXT_EXTS = new Set([
 	"txt", "md", "markdown", "json", "yaml", "yml", "toml", "csv", "tsv",
 	"xml", "html", "css", "js", "ts", "tsx", "jsx", "sh", "bash",
 	"zsh", "rb", "py", "go", "rs", "java", "c", "cpp", "h", "php",
-	"swift", "kt", "lua", "sql", "scss", "mmd", "mermaid", "ini",
+	"swift", "kt", "lua", "sql", "scss", "mmd", "mermaid", "excalidraw", "ini",
 	"env", "log", "conf",
 ]);
 const MARKDOWN_EXTS = new Set(["md", "markdown"]);
