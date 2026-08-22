@@ -21,6 +21,17 @@ const TEXT_EXTS = new Set([
 ]);
 const MARKDOWN_EXTS = new Set(["md", "markdown"]);
 const MAX_EDIT_SIZE = 1 * 1024 * 1024; // 1MB
+// Canvas scenes embed pasted/dropped images inline, so they need more headroom
+// than plain text edits.
+const CANVAS_MAX_EDIT_SIZE = 10 * 1024 * 1024; // 10MB
+
+function maxEditSizeFor(filename: string): number {
+	return isCanvasFile(filename) ? CANVAS_MAX_EDIT_SIZE : MAX_EDIT_SIZE;
+}
+
+function tooLargeMessage(limit: number): string {
+	return `File too large (max ${Math.round(limit / (1024 * 1024))}MB)`;
+}
 
 function isTextFile(filename: string): boolean {
 	const ext = filename.split(".").pop()?.toLowerCase() ?? "";
@@ -58,9 +69,10 @@ export async function GET(request: Request) {
 		return NextResponse.json({ error: "Not a text file" }, { status: 400 });
 	try {
 		const buffer = await readFile(filePath);
-		if (buffer.length > MAX_EDIT_SIZE)
+		const getLimit = maxEditSizeFor(path.basename(filePath));
+		if (buffer.length > getLimit)
 			return NextResponse.json(
-				{ error: "File too large (max 1MB)" },
+				{ error: tooLargeMessage(getLimit) },
 				{ status: 413 },
 			);
 		const content = buffer.toString("utf-8");
@@ -121,9 +133,9 @@ export async function PUT(request: Request) {
 					{ status: 400 },
 				);
 			}
-			if (Buffer.byteLength(content, "utf8") > MAX_EDIT_SIZE) {
+			if (Buffer.byteLength(content, "utf8") > CANVAS_MAX_EDIT_SIZE) {
 				return NextResponse.json(
-					{ error: "File too large (max 1MB)" },
+					{ error: tooLargeMessage(CANVAS_MAX_EDIT_SIZE) },
 					{ status: 413 },
 				);
 			}

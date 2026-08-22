@@ -832,6 +832,7 @@ export const FileTree = memo(function FileTree(p: FileTreeProps) {
 								className="flex-1 bg-transparent text-sm outline-none border-b border-border min-w-0"
 								placeholder="filename (default .md)"
 								value={newFileName}
+								onFocus={(e) => e.currentTarget.select()}
 								onChange={(e) => ctx.setNewFileName(e.target.value)}
 								onKeyDown={(e) => {
 									if (e.key === "Enter") ctx.handleCreateFile();

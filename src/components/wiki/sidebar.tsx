@@ -19,6 +19,7 @@ import {
 	Moon,
 	MoreHorizontal,
 	PanelLeftClose,
+	PencilRuler,
 	Star,
 	Plus,
 	RefreshCw,
@@ -237,6 +238,22 @@ export function Sidebar({
 										>
 											<FilePlus className="mr-2 h-3.5 w-3.5" />
 											New file
+										</DropdownMenuItem>
+										<DropdownMenuItem
+											onClick={() =>
+												setCreateEntry((prev) => ({
+													...prev,
+													file: {
+														...prev.file,
+														parent: "",
+														name: "untitled.excalidraw",
+														error: null,
+													},
+												}))
+											}
+										>
+											<PencilRuler className="mr-2 h-3.5 w-3.5" />
+											New canvas
 										</DropdownMenuItem>
 										<DropdownMenuItem
 											onClick={() =>
