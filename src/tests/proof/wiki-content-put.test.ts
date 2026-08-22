@@ -119,6 +119,62 @@ test("PUT markdown with stale baseRevision → 409", async () => {
 	assert.ok(body.currentRevision >= 1);
 });
 
+test("PUT .excalidraw round-trip with sha256 precondition → 200", async () => {
+	const cookie = await makeUserCookie();
+	const filePath = path.join(tmpRoot, "foo.excalidraw");
+	const initial = { elements: [{ id: "old", type: "rectangle" }] };
+	const updated = {
+		elements: [
+			{ id: "new", type: "rectangle", x: 10, y: 20, width: 100, height: 80 },
+		],
+	};
+	await writeFile(filePath, JSON.stringify(initial), "utf-8");
+
+	const initialGet = await GET(
+		new Request("http://localhost:3000/api/wiki/content?path=foo.excalidraw", {
+			headers: { Cookie: cookie },
+		}),
+	);
+	assert.equal(initialGet.status, 200);
+	const baseSha = initialGet.headers.get("X-Wiki-Sha256");
+	assert.ok(baseSha);
+
+	const put = await PUT(
+		makePutReq({ path: "foo.excalidraw", content: JSON.stringify(updated), baseSha }, cookie),
+	);
+	assert.equal(put.status, 200);
+	const putBody = (await put.json()) as { ok: boolean; sha: string };
+	assert.equal(putBody.ok, true);
+	assert.equal(typeof putBody.sha, "string");
+
+	const finalGet = await GET(
+		new Request("http://localhost:3000/api/wiki/content?path=foo.excalidraw", {
+			headers: { Cookie: cookie },
+		}),
+	);
+	const finalBody = (await finalGet.json()) as { content: string };
+	assert.deepEqual(JSON.parse(finalBody.content).elements, updated.elements);
+
+	const stale = await PUT(
+		makePutReq({ path: "foo.excalidraw", content: JSON.stringify(initial), baseSha }, cookie),
+	);
+	assert.equal(stale.status, 409);
+	const staleBody = (await stale.json()) as { error: string; currentSha: string };
+	assert.equal(staleBody.error, "STALE_SHA");
+	assert.equal(staleBody.currentSha, putBody.sha);
+});
+
+test("PUT .excalidraw without baseSha → 400 BASE_SHA_REQUIRED", async () => {
+	const cookie = await makeUserCookie();
+	await writeFile(path.join(tmpRoot, "missing-sha.excalidraw"), "{\"elements\":[]}", "utf-8");
+	const res = await PUT(
+		makePutReq({ path: "missing-sha.excalidraw", content: "{\"elements\":[]}" }, cookie),
+	);
+	assert.equal(res.status, 400);
+	const body = (await res.json()) as { error: string };
+	assert.equal(body.error, "BASE_SHA_REQUIRED");
+});
+
 test("PUT non-markdown file → 200, no revision field", async () => {
 	const cookie = await makeUserCookie();
 	const filePath = path.join(tmpRoot, "data.json");

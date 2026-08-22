@@ -122,6 +122,7 @@ export interface GitFileInfo {
 export interface ViewerPaneProps {
 	openFile: OpenFile;
 	fileContent: string | null;
+	fileSha: string | null;
 	fileRevision: number;
 	fileLoading: boolean;
 	editing: boolean;
@@ -172,6 +173,7 @@ export interface ViewerPaneProps {
 export function ViewerPane({
 	openFile,
 	fileContent,
+	fileSha,
 	fileLoading,
 	editing,
 	setEditing,
@@ -690,7 +692,12 @@ export function ViewerPane({
 							<Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
 						</div>
 					) : viewerKind === "canvas" ? (
-						<CanvasViewer content={fileContent} path={openFile.path} title={openFile.name} />
+						<CanvasViewer
+							content={fileContent}
+							initialSha={fileSha}
+							path={openFile.path}
+							title={openFile.name}
+						/>
 					) : viewerKind === "csv" ? (
 						<CsvViewer path={openFile.path} title={openFile.name} />
 					) : viewerKind === "pdf" ? (

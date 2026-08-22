@@ -352,9 +352,9 @@ escape.
 
 ### 3.6 Canvas viewer
 
-**Contract:** Opening a valid `.excalidraw` file loads its scene JSON from disk into a lazily loaded Excalidraw surface in read-only mode (`viewModeEnabled`). Fonts are served from the local `/excalidraw-assets/` path. Invalid or unreadable scene JSON shows a clear "Could not render canvas" error instead of a blank pane.
+**Contract:** Opening a valid `.excalidraw` file loads its scene JSON from disk into a lazily loaded, editable Excalidraw surface. Changes autosave after an 800ms debounce through `PUT /api/wiki/content` with an `X-Wiki-Sha256`/`baseSha` concurrency precondition; stale saves are rejected and reload the current canvas in place. Theme, scroll, zoom, and selection state are not persisted. Pasted or dropped images are embedded in the scene JSON. Fonts are served from the local `/excalidraw-assets/` path. Invalid or unreadable scene JSON shows a clear "Could not render canvas" error instead of a blank pane.
 
-**Why it matters:** A local, read-only canvas keeps diagrams viewable offline without loading Excalidraw for unrelated files, while parse errors remain diagnosable.
+**Why it matters:** An editable local canvas keeps diagrams viewable and mutable offline without loading Excalidraw for unrelated files, while sha256 guards prevent autosave from clobbering concurrent changes and parse errors remain diagnosable.
 
 **Verification pointer:** `src/components/editor/canvas-viewer.tsx`, `src/components/wiki/viewer-pane.tsx`, `src/lib/viewer-kind.ts`, `scripts/copy-excalidraw-assets.mjs`
 

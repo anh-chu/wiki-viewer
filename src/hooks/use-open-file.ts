@@ -52,6 +52,7 @@ export function useOpenFile({
 	const [appKey, setAppKey] = useState(0);
 	const [viewerKey, setViewerKey] = useState(0);
 	const [fileContent, setFileContent] = useState<string | null>(null);
+	const [fileSha, setFileSha] = useState<string | null>(null);
 	const [fileRevision, setFileRevision] = useState(0);
 	const [fileLoading, setFileLoading] = useState(false);
 	const [editing, setEditing] = useState(false);
@@ -79,6 +80,7 @@ export function useOpenFile({
 		setHtmlSourceMode(false);
 		setSaveError(null);
 		setFileContent(null);
+		setFileSha(null);
 		setFileRevision(0);
 		setGateBypassPath(null);
 	}, []);
@@ -96,6 +98,9 @@ export function useOpenFile({
 				if (res.ok) {
 					const d: { content: string } = await res.json();
 					setFileContent(d.content);
+					if (kind === "canvas") {
+						setFileSha(res.headers.get("X-Wiki-Sha256"));
+					}
 					setFileRevision(Number(res.headers.get("X-Wiki-Revision") ?? 0));
 				}
 			} catch {
@@ -202,6 +207,7 @@ export function useOpenFile({
 	const closeFile = useCallback(() => {
 		setOpenFile(null);
 		setFileContent(null);
+		setFileSha(null);
 		setEditing(false);
 		setHtmlSourceMode(false);
 		setSaveError(null);
@@ -210,6 +216,7 @@ export function useOpenFile({
 	const clearFile = useCallback(() => {
 		setOpenFile(null);
 		setFileContent(null);
+		setFileSha(null);
 		setEditing(false);
 		setHtmlSourceMode(false);
 		setSaveError(null);
@@ -418,6 +425,9 @@ export function useOpenFile({
 			if (res.ok) {
 				const d: { content: string } = await res.json();
 				setFileContent(d.content);
+				if (kind === "canvas") {
+					setFileSha(res.headers.get("X-Wiki-Sha256"));
+				}
 				setFileRevision(Number(res.headers.get("X-Wiki-Revision") ?? 0));
 			}
 		} catch {
@@ -434,6 +444,7 @@ export function useOpenFile({
 	const onExternalChange = useCallback((relPath: string) => {
 		const current = openFileRef.current;
 		if (!current || current.path !== relPath || editingRef.current) return;
+		if (viewerKindFor(current.name, current.nodeType) === "canvas") return;
 		void refreshViewer();
 	}, [refreshViewer]);
 
@@ -519,6 +530,7 @@ export function useOpenFile({
 		openFile,
 		openFileViewerKind,
 		fileContent,
+		fileSha,
 		fileRevision,
 		fileLoading,
 		editing,

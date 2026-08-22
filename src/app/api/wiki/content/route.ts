@@ -32,6 +32,11 @@ function isMarkdownFile(filename: string): boolean {
 	return MARKDOWN_EXTS.has(ext);
 }
 
+function isCanvasFile(filename: string): boolean {
+	const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+	return ext === "excalidraw";
+}
+
 function sha256content(content: string): string {
 	return "sha256:" + createHash("sha256").update(content, "utf8").digest("hex");
 }
@@ -60,6 +65,9 @@ export async function GET(request: Request) {
 			);
 		const content = buffer.toString("utf-8");
 		const headers: Record<string, string> = {};
+		if (isCanvasFile(path.basename(filePath))) {
+			headers["X-Wiki-Sha256"] = sha256content(content);
+		}
 		if (isMarkdownFile(path.basename(filePath))) {
 			const sc = await readSidecar(rootDir, rel);
 			if (sc) {
@@ -80,8 +88,12 @@ export async function PUT(request: Request) {
 	if (!ctx.ok) return NextResponse.json({ error: ctx.code }, { status: ctx.status });
 	const { rootDir } = ctx;
 
-	const body: { path?: string; content?: string; baseRevision?: number } =
-		await request.json();
+	const body: {
+		path?: string;
+		content?: string;
+		baseRevision?: number;
+		baseSha?: string;
+	} = await request.json();
 	const rel = body.path;
 	const content = body.content;
 	if (!rel || typeof rel !== "string")
@@ -97,6 +109,52 @@ export async function PUT(request: Request) {
 	const filePath = fileRes.absolutePath;
 	if (!isTextFile(path.basename(filePath)))
 		return NextResponse.json({ error: "Not a text file" }, { status: 400 });
+
+	if (isCanvasFile(path.basename(filePath))) {
+		return withFileMutex(workspaceLockKey(rootDir, rel), async () => {
+			if (typeof body.baseSha !== "string") {
+				return NextResponse.json(
+					{
+						error: "BASE_SHA_REQUIRED",
+						message: "baseSha is required when saving canvas files.",
+					},
+					{ status: 400 },
+				);
+			}
+			if (Buffer.byteLength(content, "utf8") > MAX_EDIT_SIZE) {
+				return NextResponse.json(
+					{ error: "File too large (max 1MB)" },
+					{ status: 413 },
+				);
+			}
+
+			let currentContent: string | null = null;
+			try {
+				currentContent = await readFile(filePath, "utf-8");
+			} catch {
+				// A missing file has no current hash and cannot match a string baseSha.
+			}
+			const currentSha = currentContent === null ? null : sha256content(currentContent);
+			if (body.baseSha !== currentSha) {
+				return NextResponse.json(
+					{
+						error: "STALE_SHA",
+						currentSha,
+						message: "File was modified since your last read. Reload and retry.",
+					},
+					{ status: 409 },
+				);
+			}
+
+			try {
+				await mkdir(path.dirname(filePath), { recursive: true });
+				await writeFile(filePath, content, "utf-8");
+			} catch {
+				return NextResponse.json({ error: "Failed to save" }, { status: 500 });
+			}
+			return NextResponse.json({ ok: true, sha: sha256content(content) });
+		});
+	}
 
 	// Non-markdown files: plain write, no revision tracking.
 	if (!isMarkdownFile(path.basename(filePath))) {

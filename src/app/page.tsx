@@ -405,6 +405,7 @@ export default function Page() {
 							<ViewerPane
 								openFile={doc.openFile}
 								fileContent={doc.fileContent}
+								fileSha={doc.fileSha}
 								fileRevision={doc.fileRevision}
 								fileLoading={doc.fileLoading}
 								editing={doc.editing}
