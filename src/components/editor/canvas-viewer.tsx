@@ -36,6 +36,7 @@ interface CanvasViewerProps {
 	initialSha: string | null;
 	path: string;
 	title: string;
+	readOnly?: boolean;
 }
 
 interface ParsedScene {
@@ -89,7 +90,13 @@ function normalizeScene(scene: ParsedScene): string {
 	return JSON.stringify(obj, null, 2);
 }
 
-export function CanvasViewer({ content, initialSha, path, title }: CanvasViewerProps) {
+export function CanvasViewer({
+	content,
+	initialSha,
+	path,
+	title,
+	readOnly = false,
+}: CanvasViewerProps) {
 	const theme =
 		typeof document !== "undefined" &&
 		document.documentElement.classList.contains("dark")
@@ -240,7 +247,15 @@ export function CanvasViewer({ content, initialSha, path, title }: CanvasViewerP
 			<ViewerToolbar path={path} badge="CANVAS">
 				<span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
 					<PencilRuler className="h-3.5 w-3.5 text-violet-500" />
-					{status === "saving" ? "Saving…" : status === "saved" ? "Saved" : status === "reloaded" ? "Reloaded" : "Editable"}
+					{readOnly
+						? "Read-only"
+						: status === "saving"
+							? "Saving…"
+							: status === "saved"
+								? "Saved"
+								: status === "reloaded"
+									? "Reloaded"
+									: "Editable"}
 				</span>
 			</ViewerToolbar>
 			{scene.error ? (
@@ -261,8 +276,9 @@ export function CanvasViewer({ content, initialSha, path, title }: CanvasViewerP
 							setApi(instance);
 						}}
 						onChange={() => {
-							if (api) scheduleSave();
+							if (!readOnly && api) scheduleSave();
 						}}
+						viewModeEnabled={readOnly}
 						theme={theme}
 						name={title}
 						autoFocus={false}

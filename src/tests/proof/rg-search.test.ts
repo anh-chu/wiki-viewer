@@ -300,6 +300,20 @@ test(".git and .proof contents never appear", async (t) => {
 	assert.ok(!paths.find((p) => p.includes(".proof")), ".proof should be excluded");
 });
 
+test("excalidraw scene files are excluded from full-text search", async (t) => {
+	if (!rgAvailable) { t.skip(); return; }
+	await seed({
+		"canvas.excalidraw": "canvas-only-search-needle",
+		"nested/diagram.excalidraw": "canvas-only-search-needle",
+		"canvas-note.txt": "canvas-only-search-needle",
+	});
+	const result = await rgLiteralSearch(rootDir, "canvas-only-search-needle", { limit: 10 });
+	assert.ok(result.ok);
+	if (!result.ok) throw new Error("expected ok");
+	const paths = (result.results as RgFileHit[]).map((hit) => hit.path);
+	assert.deepEqual(paths, ["canvas-note.txt"]);
+});
+
 test("file with null byte is skipped", async (t) => {
 	if (!rgAvailable) { t.skip(); return; }
 	await seed({ "good.txt": "hello world" });
@@ -447,6 +461,20 @@ test("rgListFiles returns relative paths", async (t) => {
 	assert.ok(paths.includes("sub/baz.ts"));
 	// .git should be excluded
 	assert.ok(!paths.find((p) => p.includes(".git")));
+});
+
+test("rgListFiles still lists .excalidraw (filename search keeps canvas files)", async (t) => {
+	if (!rgAvailable) { t.skip(); return; }
+	await seed({
+		"diagram.excalidraw": "{\"elements\":[]}",
+		"nested/board.excalidraw": "{\"elements\":[]}",
+	});
+	const result = await rgListFiles(rootDir, { limit: 100 });
+	assert.ok(result.ok);
+	if (!result.ok) throw new Error("expected ok");
+	const paths = result.results as string[];
+	assert.ok(paths.includes("diagram.excalidraw"));
+	assert.ok(paths.includes("nested/board.excalidraw"));
 });
 
 // ── package.json check ───────────────────────────────────────────────────────

@@ -118,6 +118,10 @@ async function buildPrefixArgs(rootDir: string): Promise<string[]> {
 		args.push("--no-mmap");
 	}
 	args.push(...(await exclusionGlobs(rootDir)));
+	// Canvas scene JSON is embedded/binary data, not searchable prose. Exclude it
+	// from full-text CONTENT search only (buildPrefixArgs feeds rgLiteralSearch /
+	// rgRegexSearch); rgListFiles/filename search still lists .excalidraw.
+	args.push("--glob", "!*.excalidraw");
 	return args;
 }
 

@@ -168,6 +168,7 @@ export interface ViewerPaneProps {
 	contentAlignClass: string;
 	isMobile: boolean;
 	sidebarCollapsed: boolean;
+	readOnly?: boolean;
 }
 
 export function ViewerPane({
@@ -215,6 +216,7 @@ export function ViewerPane({
 	contentAlignClass,
 	isMobile,
 	sidebarCollapsed,
+	readOnly = false,
 }: ViewerPaneProps) {
 	// Portal target for merging viewer toolbar content into single header row
 	const [toolbarSlotEl, setToolbarSlotEl] = useState<HTMLElement | null>(null);
@@ -697,6 +699,7 @@ export function ViewerPane({
 							initialSha={fileSha}
 							path={openFile.path}
 							title={openFile.name}
+							readOnly={readOnly}
 						/>
 					) : viewerKind === "csv" ? (
 						<CsvViewer path={openFile.path} title={openFile.name} />

@@ -457,6 +457,11 @@ export default function Page() {
 								contentAlignClass={contentAlignClass}
 								isMobile={isMobile}
 								sidebarCollapsed={sidebarCollapsed}
+								readOnly={
+									workspace.workspaces.find(
+										(w) => w.id === workspace.activeWorkspaceId,
+									)?.readOnly ?? false
+								}
 							/>
 						) : (
 							<div

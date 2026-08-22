@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import path from "node:path";
 import { checkOrigin } from "@/lib/auth/csrf";
 import { requireUser } from "@/lib/auth/server";
 
@@ -17,13 +18,17 @@ import {
 } from "@/lib/shared-docs/access-grant";
 
 const MAX_DISPLAY_SIZE = 1 * 1024 * 1024; // 1MB
+const MAX_CANVAS_DISPLAY_SIZE = 10 * 1024 * 1024; // 10MB
 const PRIVATE_NO_STORE = { "Cache-Control": "private, no-store" };
 
 async function readShareContent(absPath: string): Promise<string | null> {
 	const { readFile, stat } = await import("node:fs/promises");
 	try {
 		const info = await stat(absPath);
-		if (info.size > MAX_DISPLAY_SIZE) return null;
+		const maxSize = path.extname(absPath).toLowerCase() === ".excalidraw"
+			? MAX_CANVAS_DISPLAY_SIZE
+			: MAX_DISPLAY_SIZE;
+		if (info.size > maxSize) return null;
 		const buffer = await readFile(absPath);
 		return buffer.toString("utf-8");
 	} catch (err: unknown) {

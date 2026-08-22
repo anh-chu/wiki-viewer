@@ -3,11 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { Download, FileText, Play, Ban } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { CanvasViewer } from "@/components/editor/canvas-viewer";
 import { apiUrl } from "@/lib/url-prefix";
 import { markdownToHtml } from "@/lib/markdown/to-html";
 
 type SharedFileKind =
 	| "markdown"
+	| "canvas"
 	| "source"
 	| "text"
 	| "csv"
@@ -25,6 +27,7 @@ function fileExt(filename: string): string {
 export function sharedFileKind(filename: string): SharedFileKind {
 	const e = fileExt(filename);
 	if (["md", "markdown"].includes(e)) return "markdown";
+	if (e === "excalidraw") return "canvas";
 	if (["csv", "tsv"].includes(e)) return "csv";
 	if (["pdf"].includes(e)) return "pdf";
 	if (["html", "htm"].includes(e)) return "html";
@@ -62,6 +65,16 @@ export function SharedContentViewer({
 	switch (kind) {
 		case "markdown":
 			return <SharedMarkdownViewer content={content} />;
+		case "canvas":
+			return (
+				<CanvasViewer
+					content={content}
+					initialSha={null}
+					path={filePath}
+					title={filename}
+					readOnly
+				/>
+			);
 		case "image":
 			return <SharedImageViewer filename={filename} token={token} />;
 		case "pdf":

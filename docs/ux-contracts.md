@@ -258,7 +258,9 @@ every open.
 
 **Why it matters:** The gate prevents a multi-GB file from freezing the editor
 parser on open; the safe-kind allowlist is the only thing that keeps large media
-usable.
+usable. Canvas is intentionally unsafe here, so `.excalidraw` files over 5 MB
+require an explicit **Open anyway** before loading the whole scene into the
+editor.
 
 **Verification pointer:** `src/components/editor/large-file-gate.tsx`,
 `src/components/wiki/viewer-pane.tsx`
@@ -352,9 +354,9 @@ escape.
 
 ### 3.6 Canvas viewer
 
-**Contract:** Opening a valid `.excalidraw` file loads its scene JSON from disk into a lazily loaded, editable Excalidraw surface. Changes autosave after an 800ms debounce through `PUT /api/wiki/content` with an `X-Wiki-Sha256`/`baseSha` concurrency precondition; stale saves are rejected and reload the current canvas in place. Theme, scroll, zoom, and selection state are not persisted. Pasted or dropped images are embedded in the scene JSON. Canvas files may grow to 10MB (vs 1MB for plain text edits) so embedded images fit. A new canvas is created from the sidebar "New" menu via "New canvas", which seeds the inline new-file input with `untitled.excalidraw`, creates an empty file through the existing new-file path (409 on name collision), opens it, and treats the empty/new file as a fresh blank scene whose first save writes valid scene JSON. Fonts are served from the local `/excalidraw-assets/` path. Invalid or unreadable scene JSON shows a clear "Could not render canvas" error instead of a blank pane.
+**Contract:** Opening a valid `.excalidraw` file loads its scene JSON from disk into a lazily loaded, editable Excalidraw surface. Changes autosave after an 800ms debounce through `PUT /api/wiki/content` with an `X-Wiki-Sha256`/`baseSha` concurrency precondition; stale saves are rejected and reload the current canvas in place. Theme, scroll, zoom, and selection state are not persisted. Pasted or dropped images are embedded in the scene JSON. Canvas files may grow to 10MB (vs 1MB for plain text edits) so embedded images fit. A new canvas is created from the sidebar "New" menu via "New canvas", which seeds the inline new-file input with `untitled.excalidraw`, creates an empty file through the existing new-file path (409 on name collision), opens it, and treats the empty/new file as a fresh blank scene whose first save writes valid scene JSON. Fonts are served from the local `/excalidraw-assets/` path. Invalid or unreadable scene JSON shows a clear "Could not render canvas" error instead of a blank pane. Read-only git workspaces and public share links load the same scene in Excalidraw view mode without autosave or write attempts; public shares allow canvas content up to 10MB. Large canvases remain behind the 5MB confirmation gate in the authenticated workbench.
 
-**Why it matters:** An editable local canvas keeps diagrams viewable and mutable offline without loading Excalidraw for unrelated files, while sha256 guards prevent autosave from clobbering concurrent changes and parse errors remain diagnosable.
+**Why it matters:** An editable local canvas keeps diagrams viewable and mutable offline without loading Excalidraw for unrelated files, while sha256 guards prevent autosave from clobbering concurrent changes and parse errors remain diagnosable. View mode keeps canvases usable on read-only and public surfaces without failed save requests.
 
 **Verification pointer:** `src/components/editor/canvas-viewer.tsx`, `src/components/wiki/viewer-pane.tsx`, `src/lib/viewer-kind.ts`, `src/app/api/wiki/content/route.ts`, `src/components/wiki/sidebar.tsx`, `src/components/wiki/sidebar-shell.tsx`, `scripts/copy-excalidraw-assets.mjs`
 
@@ -602,7 +604,8 @@ on each keystroke with ArrowUp/Down wrap and Enter-to-open.
 (hard cap 200), ranks filename matches first (score 2000) then rg content matches
 deduped, and reports `truncated` / `degraded:"rg-unavailable"`. Ripgrep spawns
 per query (`--max-filesize 2M`, max 8 tokens, 10 s timeout, SIGTERM→SIGKILL after
-2 s). Backlinks are rg-prefiltered (limit 400) then parse-verified (limit 50,
+2 s) and excludes `.excalidraw` scene files from full-text matches. Backlinks are
+rg-prefiltered (limit 400) then parse-verified (limit 50,
 hard cap 200).
 
 **Why it matters:** The `<mark>` regex (not innerHTML) and the 30/200/2M caps are
@@ -669,15 +672,18 @@ revocation and expiry are the only lifetime controls.
 
 **Contract:** `GET /api/share/[token]` is public, rate-limited (1 per window),
 and returns 404 / 410 (revoked or expired) / 401 (`protected`) / 500 (read
-failure or >`MAX_DISPLAY_SIZE` 1 MB). Password unlock (`POST`) returns 403
-`wrong_password` on mismatch. A successful unlock sets an HMAC-SHA256 cookie
-(`wv_share_<12-hex>`, `HttpOnly; SameSite=Strict`, `Max-Age=900`, path-scoped),
-derived from the stored password hash (never the plaintext). The `/s/[token]`
-page shows a password card, error states, and per-kind viewers (markdown
-sanitized, source 500-line cap, HTML sandboxed with scripts off by default).
+failure or >`MAX_DISPLAY_SIZE` 1 MB; `.excalidraw` allows 10 MB). Password
+unlock (`POST`) returns 403 `wrong_password` on mismatch. A successful unlock
+sets an HMAC-SHA256 cookie (`wv_share_<12-hex>`, `HttpOnly; SameSite=Strict`,
+`Max-Age=900`, path-scoped), derived from the stored password hash (never the
+plaintext). The `/s/[token]` page shows a password card, error states, and
+per-kind viewers (markdown sanitized, source 500-line cap, HTML sandboxed with
+scripts off by default, `.excalidraw` in read-only Excalidraw view mode).
 
-**Why it matters:** The scoped 15-min cookie and the 1 MB read cap are the share
-security/robustness boundary; the password must never appear in a URL or log.
+**Why it matters:** The scoped 15-min cookie and the 1 MB read cap for ordinary
+content are the share security/robustness boundary; the 10 MB canvas cap permits
+shared diagrams while bounding scene parsing. The password must never appear in
+a URL or log.
 
 **Verification pointer:** `src/lib/shared-docs/access-grant.ts`,
 `src/lib/shared-docs/db.ts`, `src/app/api/share/[token]/route.ts`,
