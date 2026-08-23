@@ -987,6 +987,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 										<ViewModeCommentButton
 											containerRef={scrollContainerRef}
 											onComment={openCommentForSelection}
+											onSuggest={openSuggestForSelection}
 										/>
 									)}
 									{/* AI Edit Prompt + slash hint */}

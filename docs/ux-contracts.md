@@ -523,10 +523,13 @@ file revision.
 
 ### 5.2 View-mode and source-line comments
 
-**Contract:** In read-only mode a floating **Comment**
-button appears over a non-collapsed selection; in the source viewer, comments
-anchor to `lineStart:lineEnd:12-hex-SHA-256-of-selected-text`, with pips keyed by
-that triple and the active thread's lines highlighted `bg-amber-400/25`.
+**Contract:** In read-only markdown mode, floating **Comment** and **Suggest**
+buttons appear over a non-collapsed selection (the Suggest button opens the same
+suggest-edit popover as edit mode and posts a sidecar-only `suggestion.add`; it
+renders only when a suggest handler is wired, so the source viewer stays
+comment-only). In the source viewer, comments anchor to
+`lineStart:lineEnd:12-hex-SHA-256-of-selected-text`, with pips keyed by that
+triple and the active thread's lines highlighted `bg-amber-400/25`.
 
 **Why it matters:** The selection hash anchors comments to content, so they
 survive line shifts; losing the hash breaks comment placement after any edit.
