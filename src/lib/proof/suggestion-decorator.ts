@@ -87,28 +87,47 @@ export function mapSuggestionDecorations(
 		if (!position) continue;
 
 		if (suggestion.kind === "replace" || suggestion.kind === "delete") {
-			descriptors.push({
-				suggestionId: suggestion.id,
-				kind: suggestion.kind,
-				role: "block",
-				type: "node",
-				from: position.from,
-				to: position.to,
-				className:
-					suggestion.kind === "delete"
-						? "suggestion-tracked-change border-l-2 border-destructive line-through"
-						: "suggestion-tracked-change border-l-2 border-success",
-				attrs: {
-					"data-suggestion-id": suggestion.id,
-					"data-suggestion-kind": suggestion.kind,
-				},
-			});
-
-			if (
+			const canInlineRedline =
 				suggestion.kind === "replace" &&
-				suggestion.markdown &&
-				position.node.content.size === position.node.textContent.length
-			) {
+				!!suggestion.markdown &&
+				position.node.content.size === position.node.textContent.length;
+
+			// A delete strikes the whole block inline. A replace that can be mapped
+			// to an inline word-level redline needs no block-level decoration at all
+			// (the struck/inserted words are the marker). Only the fallback replace
+			// (inline atoms / empty proposal, no inline redline) keeps a subtle,
+			// no-fill left marker so the pending change is still visible + clickable.
+			if (suggestion.kind === "delete") {
+				descriptors.push({
+					suggestionId: suggestion.id,
+					kind: suggestion.kind,
+					role: "block",
+					type: "node",
+					from: position.from,
+					to: position.to,
+					className: "suggestion-tracked-change text-destructive line-through decoration-destructive",
+					attrs: {
+						"data-suggestion-id": suggestion.id,
+						"data-suggestion-kind": suggestion.kind,
+					},
+				});
+			} else if (!canInlineRedline) {
+				descriptors.push({
+					suggestionId: suggestion.id,
+					kind: suggestion.kind,
+					role: "block",
+					type: "node",
+					from: position.from,
+					to: position.to,
+					className: "suggestion-tracked-change border-l-2 border-success/50",
+					attrs: {
+						"data-suggestion-id": suggestion.id,
+						"data-suggestion-kind": suggestion.kind,
+					},
+				});
+			}
+
+			if (canInlineRedline && suggestion.markdown) {
 				const contentStart = position.from + 1;
 				let cursor = 0;
 				for (const part of diffWords(position.node.textContent, suggestion.markdown)) {
@@ -137,6 +156,7 @@ export function mapSuggestionDecorations(
 							side: 1,
 							text: part.text,
 						});
+						// insert does not advance the current-text cursor.
 					} else {
 						cursor += part.text.length;
 					}

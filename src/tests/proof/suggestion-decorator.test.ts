@@ -36,20 +36,21 @@ test("maps replace to inline redline and delete to struck block", () => {
 		doc,
 		blocks,
 	);
+	// A mappable replace emits ONLY the inline redline (no block-level marker);
+	// delete strikes the whole block.
 	assert.deepEqual(
 		descriptors.map(({ role, type, kind }) => ({ role, type, kind })),
 		[
-			{ role: "block", type: "node", kind: "replace" },
 			{ role: "inline-delete", type: "inline", kind: "replace" },
 			{ role: "insert", type: "widget", kind: "replace" },
 			{ role: "block", type: "node", kind: "delete" },
 		],
 	);
-	const replaceMarker = descriptors.find(
-		(descriptor) => descriptor.type === "node" && descriptor.kind === "replace",
+	assert.equal(
+		descriptors.some((descriptor) => descriptor.type === "node" && descriptor.kind === "replace"),
+		false,
+		"mappable replace must not emit a block-level marker",
 	);
-	if (!replaceMarker || replaceMarker.type !== "node") throw new Error("missing replace marker");
-	assert.doesNotMatch(replaceMarker.className, /bg-/);
 	const inlineDelete = descriptors.find((descriptor) => descriptor.type === "inline");
 	if (!inlineDelete || inlineDelete.type !== "inline") throw new Error("missing inline deletion");
 	assert.deepEqual(

@@ -26,6 +26,7 @@ import { resolveWikiLink } from "./link-navigation";
 import { useDocumentPresence } from "./hooks/use-document-presence";
 import { useDocumentWatch } from "./hooks/use-document-watch";
 import { CommentPip } from "./comment-pip";
+import { SuggestionPip } from "./suggestion-pip";
 import { CommentThread } from "./comment-thread";
 import { SuggestEditPopover } from "./suggest-edit-popover";
 import { SuggestionReviewPopover } from "./suggestion-review-popover";
@@ -957,33 +958,24 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 										className="relative pointer-events-none"
 										style={{ height: 0 }}
 									>
-										{/* Suggestion markers — one per block with pending suggestions */}
+										{/* Suggestion pips — one per block with pending suggestions,
+										    stacked just below the comment pip when a block has both. */}
 										{Array.from(pendingSuggestionsByRef.entries()).map(([blockRef, blockSuggestions]) => {
 											const pos = blockRefPositions.get(blockRef);
 											if (!pos) return null;
 											const hasCommentPip = (commentsByRef[blockRef]?.length ?? 0) > 0;
 											const firstSuggestion = blockSuggestions[0];
 											return (
-												<button
+												<SuggestionPip
 													key={`suggestion-pip-${blockRef}`}
-													type="button"
-													data-suggestion-gutter="true"
-													data-suggestion-id={firstSuggestion.id}
-													aria-label={`Review ${blockSuggestions.length} suggestion${blockSuggestions.length === 1 ? "" : "s"}`}
+													top={pos.top + 4 + (hasCommentPip ? 20 : 0)}
+													left={Math.max(0, pos.left - 20)}
+													count={blockSuggestions.length}
+													aria-label={`Review ${blockSuggestions.length} suggestion${blockSuggestions.length === 1 ? "" : "s"} on this block`}
 													onClick={(event) =>
 														openSuggestionReview(firstSuggestion.id, event.currentTarget)
 													}
-													style={{
-														position: "absolute",
-														top: pos.top + 4,
-														left: Math.max(0, pos.left - (hasCommentPip ? 52 : 20)),
-														transform: "translateY(2px)",
-														pointerEvents: "auto",
-													}}
-													className="z-10 rounded bg-success-soft px-1.5 py-1 text-[10px] leading-none text-success ring-1 ring-success/30 transition-colors hover:bg-success-soft/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-success"
-												>
-													{blockSuggestions.length > 1 ? `▾${blockSuggestions.length}` : "▾"}
-												</button>
+												/>
 											);
 										})}
 
