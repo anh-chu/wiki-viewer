@@ -825,6 +825,7 @@ export async function applyOps(args: {
 						status: "pending",
 						by,
 						markdown: op.markdown,
+						range: op.range,
 						basis: op.basis as Suggestion["basis"],
 						basisDetail: op.basisDetail,
 						createdAt: at,

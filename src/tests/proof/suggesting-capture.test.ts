@@ -18,7 +18,7 @@ test("suggesting capture decides replace, delete, and insertAfter operations", a
 	assert.deepEqual(
 		decisions,
 		[
-			{ ref: "replace-ref", kind: "replace", markdown: "Updated" },
+			{ ref: "replace-ref", kind: "replace", markdown: "Updated", range: { start: 0, end: 8 } },
 			{ ref: "delete-ref", kind: "delete" },
 			{ ref: "delete-ref", kind: "insertAfter", markdown: "Appended" },
 		],

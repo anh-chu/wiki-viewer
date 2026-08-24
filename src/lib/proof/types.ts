@@ -76,6 +76,11 @@ export type SuggestionKind =
 	| "delete";
 export type SuggestionStatus = "pending" | "accepted" | "rejected";
 
+export interface SuggestionRange {
+	start: number;
+	end: number;
+}
+
 export interface Suggestion {
 	id: string; // "s" + 4-hex
 	ref: string;
@@ -83,6 +88,7 @@ export interface Suggestion {
 	status: SuggestionStatus;
 	by: string;
 	markdown?: string; // omitted for kind=delete
+	range?: SuggestionRange;
 	basis?: ProvenanceMeta["basis"];
 	basisDetail?: string;
 	createdAt: string;
@@ -191,6 +197,7 @@ export type Op =
 			ref: string;
 			kind: SuggestionKind;
 			markdown?: string;
+			range?: SuggestionRange;
 			basis?: string;
 			basisDetail?: string;
 			status?: SuggestionStatus;

@@ -1,6 +1,6 @@
 import { clientId } from "@/lib/client-id";
 import { authHeaders } from "./client-auth";
-import type { SuggestionKind } from "./types";
+import type { SuggestionKind, SuggestionRange } from "./types";
 import { apiUrl } from "@/lib/url-prefix";
 
 interface PostResult {
@@ -48,11 +48,12 @@ export async function captureSuggestion(args: {
 	ref: string;
 	kind: SuggestionKind;
 	markdown?: string;
+	range?: SuggestionRange;
 	basisDetail?: string;
 	getRevision: () => number;
 	refresh: () => Promise<void>;
 }): Promise<boolean> {
-	const { path, ref, kind, markdown, basisDetail, getRevision, refresh } = args;
+	const { path, ref, kind, markdown, range, basisDetail, getRevision, refresh } = args;
 	const op: Record<string, unknown> = {
 		type: "suggestion.add",
 		ref,
@@ -60,6 +61,7 @@ export async function captureSuggestion(args: {
 		basis: "suggested",
 	};
 	if (kind !== "delete") op.markdown = markdown ?? "";
+	if (range) op.range = range;
 	if (basisDetail) op.basisDetail = basisDetail;
 
 	let result = await postSuggestionOp(path, getRevision(), op);
