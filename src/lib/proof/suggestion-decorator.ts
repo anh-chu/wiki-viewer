@@ -3,6 +3,7 @@ import type { EditorState, Transaction } from "@tiptap/pm/state";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import { diffWords } from "./word-diff";
 import type { Block, Suggestion } from "./types";
 
 export const SUGGESTION_DECORATOR_KEY = new PluginKey<DecorationSet>(
@@ -24,12 +25,39 @@ export type SuggestionDecorationDescriptor =
 	| {
 			suggestionId: string;
 			kind: Suggestion["kind"];
-			role: "ghost" | "badge";
+			role: "inline-delete";
+			type: "inline";
+			from: number;
+			to: number;
+			className: string;
+			attrs: Record<string, string>;
+		}
+	| {
+			suggestionId: string;
+			kind: Suggestion["kind"];
+			role: "ghost";
+			type: "widget";
+			from: number;
+			side: -1 | 1;
+			markdown: string;
+		}
+	| {
+			suggestionId: string;
+			kind: Suggestion["kind"];
+			role: "badge";
 			type: "widget";
 			from: number;
 			side: -1 | 1;
 			count?: number;
-			markdown?: string;
+		}
+	| {
+			suggestionId: string;
+			kind: Suggestion["kind"];
+			role: "insert";
+			type: "widget";
+			from: number;
+			side: -1 | 1;
+			text: string;
 		};
 
 export interface SuggestionDecoratorData {
@@ -53,11 +81,11 @@ export function mapSuggestionDecorations(
 	doc: PMNode,
 	blocks: readonly Block[],
 ): SuggestionDecorationDescriptor[] {
-	const positions = new Map<string, { from: number; to: number }>();
+	const positions = new Map<string, { from: number; to: number; node: PMNode }>();
 	let index = 0;
 	doc.forEach((node, offset) => {
 		const block = blocks[index];
-		if (block) positions.set(block.ref, { from: offset, to: offset + node.nodeSize });
+		if (block) positions.set(block.ref, { from: offset, to: offset + node.nodeSize, node });
 		index += 1;
 	});
 
@@ -77,13 +105,52 @@ export function mapSuggestionDecorations(
 				to: position.to,
 				className:
 					suggestion.kind === "delete"
-						? "suggestion-tracked-change bg-destructive-soft border-l-2 border-destructive line-through"
-						: "suggestion-tracked-change bg-success-soft border-l-2 border-success",
+						? "suggestion-tracked-change border-l-2 border-destructive line-through"
+						: "suggestion-tracked-change border-l-2 border-success",
 				attrs: {
 					"data-suggestion-id": suggestion.id,
 					"data-suggestion-kind": suggestion.kind,
 				},
 			});
+
+			if (
+				suggestion.kind === "replace" &&
+				suggestion.markdown &&
+				position.node.content.size === position.node.textContent.length
+			) {
+				const contentStart = position.from + 1;
+				let cursor = 0;
+				for (const part of diffWords(position.node.textContent, suggestion.markdown)) {
+					if (part.type === "delete") {
+						descriptors.push({
+							suggestionId: suggestion.id,
+							kind: suggestion.kind,
+							role: "inline-delete",
+							type: "inline",
+							from: contentStart + cursor,
+							to: contentStart + cursor + part.text.length,
+							className: "line-through text-destructive",
+							attrs: {
+								"data-suggestion-id": suggestion.id,
+								"data-suggestion-kind": suggestion.kind,
+							},
+						});
+						cursor += part.text.length;
+					} else if (part.type === "insert") {
+						descriptors.push({
+							suggestionId: suggestion.id,
+							kind: suggestion.kind,
+							role: "insert",
+							type: "widget",
+							from: contentStart + cursor,
+							side: 1,
+							text: part.text,
+						});
+					} else {
+						cursor += part.text.length;
+					}
+				}
+			}
 		}
 
 		const isBefore = suggestion.kind === "insertBefore";
@@ -126,7 +193,7 @@ function widgetElement(
 		badge.type = "button";
 		badge.textContent = descriptor.count && descriptor.count > 1 ? `▾${descriptor.count}` : "▾";
 		badge.className =
-			"inline-flex min-h-11 min-w-11 items-center justify-center align-middle text-base text-primary hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+			"inline-flex min-h-11 min-w-11 items-center justify-center rounded bg-primary/10 px-1 align-middle text-base text-primary hover:bg-primary/15 hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 		badge.setAttribute(
 			"aria-label",
 			descriptor.count && descriptor.count > 1
@@ -141,9 +208,19 @@ function widgetElement(
 		return badge;
 	}
 
-	const ghost = document.createElement("div");
+	if (descriptor.role === "insert") {
+		const inserted = document.createElement("span");
+		inserted.className = "text-success underline";
+		inserted.textContent = descriptor.text ?? "";
+		inserted.setAttribute("data-suggestion-id", suggestion.id);
+		inserted.setAttribute("data-suggestion-insert", "true");
+		inserted.contentEditable = "false";
+		return inserted;
+	}
+
+	const ghost = document.createElement("span");
 	ghost.className =
-		"my-1 rounded border border-dashed border-success bg-success-soft px-3 py-2 text-sm text-foreground/80 whitespace-pre-wrap";
+		"mx-1 inline rounded border border-dashed border-success/60 px-1 text-sm text-success underline decoration-dashed underline-offset-2 whitespace-pre-wrap";
 	ghost.textContent = descriptor.markdown || "(empty suggestion)";
 	ghost.setAttribute("data-suggestion-id", suggestion.id);
 	ghost.setAttribute("data-suggestion-ghost", "true");
@@ -173,6 +250,12 @@ function buildDecorations(
 				...descriptor.attrs,
 			});
 		}
+		if (descriptor.type === "inline") {
+			return Decoration.inline(descriptor.from, descriptor.to, {
+				class: descriptor.className,
+				...descriptor.attrs,
+			});
+		}
 		return Decoration.widget(
 			descriptor.from,
 			() =>
@@ -183,7 +266,10 @@ function buildDecorations(
 					suggestion,
 					onBadgeClick,
 				),
-			{ side: descriptor.side, key: `${descriptor.suggestionId}:${descriptor.role}` },
+			{
+				side: descriptor.side,
+				key: `${descriptor.suggestionId}:${descriptor.role}:${descriptor.from}`,
+			},
 		);
 	});
 	return DecorationSet.create(state.doc, decorations.filter((decoration): decoration is Decoration => decoration !== null));

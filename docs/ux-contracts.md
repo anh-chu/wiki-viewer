@@ -556,10 +556,17 @@ kind are what let the reviewer see exactly what changed without touching the fil
 ### 6.2 Suggestion inline redline + review popover
 
 **Contract:** Pending suggestions render as inline tracked-change **decorations
-inside** the document (ProseMirror decorations, never written to the `.md`): a
-replace/delete target block gets a left bar + soft wash (`--success-soft` /
-`--destructive-soft`, delete adds strikethrough); insertAfter/insertBefore render
-a dashed **ghost block** of the proposed text via a widget with explicit side.
+inside** the document (ProseMirror decorations, never written to the `.md`). A
+**replace** shows a true inline **word-level redline**: the changed words are
+struck in `--destructive` and the new words appear as underlined `--success`
+widgets in place, computed from `diffWords(blockText, proposedMarkdown)`; the
+unchanged words stay normal and readable (no whole-block wash). The block also
+gets a thin left bar (`--success`) to flag it. A **delete** strikes the whole
+block with a `--destructive` left bar. If the block can't be mapped 1:1 to text
+positions (inline atoms like images/hard-breaks, or empty proposed text) it
+falls back to the left-bar marker only and the diff is read in the popover.
+insertAfter/insertBefore render a compact dashed **ghost** of the proposed text
+via a widget with explicit side.
 Each suggestion carries a caret **▾ badge** (44px touch slop) that opens a
 viewport-clamped **review popover** showing current vs proposed with **Accept**
 (`suggestion.accept`, retries once on 409 with the latest revision) and
