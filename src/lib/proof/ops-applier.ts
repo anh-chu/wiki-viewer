@@ -9,6 +9,7 @@ import { readSidecar, writeSidecar, emptySidecar } from "./sidecar";
 import { withFileMutex, workspaceLockKey } from "./mutex";
 import { emitEvents, trimEvents } from "./event-bus";
 import { SIDECAR_EVENT_TRIM_SIZE, SIDECAR_TRIM_EVERY_N_MUTATIONS } from "../proof-config";
+import { mergeBlock } from "./block-merge";
 
 function sha256file(content: string): string {
 	return "sha256:" + createHash("sha256").update(content, "utf8").digest("hex");
@@ -826,6 +827,7 @@ export async function applyOps(args: {
 						by,
 						markdown: op.markdown,
 						range: op.range,
+						baseMarkdown: op.baseMarkdown,
 						basis: op.basis as Suggestion["basis"],
 						basisDetail: op.basisDetail,
 						createdAt: at,
@@ -869,6 +871,26 @@ export async function applyOps(args: {
 						};
 					}
 					const sug = workingSidecar.suggestions[sugIdx];
+					let acceptedMarkdown = sug.markdown ?? "";
+					if (sug.range && sug.baseMarkdown !== undefined) {
+						const blockIdx = findBlockIndex(sug.ref);
+						if (blockIdx !== -1) {
+							const currentMarkdown = workingBlocks[blockIdx].markdown;
+							if (currentMarkdown !== sug.baseMarkdown) {
+								const merged = mergeBlock(sug.baseMarkdown, acceptedMarkdown, currentMarkdown);
+								if (!merged.ok) {
+									return {
+										ok: false,
+										status: 409,
+										code: "STALE_REVISION",
+										message: "Suggestion conflicts with a concurrent block edit.",
+										snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar),
+									};
+								}
+								acceptedMarkdown = merged.merged;
+							}
+						}
+					}
 					sug.status = "accepted";
 					sug.resolvedAt = at;
 					sug.resolvedBy = by;
@@ -896,7 +918,7 @@ export async function applyOps(args: {
 
 					// Apply as block op
 					const applyOp: Op = sug.kind === "replace"
-						? { type: "block.replace", ref: sug.ref, markdown: sug.markdown ?? "" }
+						? { type: "block.replace", ref: sug.ref, markdown: acceptedMarkdown }
 						: sug.kind === "insertAfter"
 						? { type: "block.insertAfter", ref: sug.ref, markdown: sug.markdown ?? "" }
 						: sug.kind === "insertBefore"

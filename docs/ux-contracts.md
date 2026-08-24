@@ -576,6 +576,13 @@ shown one (Accept supersedes the rest server-side). A status-bar **“✎ N
 suggestions”** chip (shown only when N>0) cycles to the next pending suggestion,
 opening its popover and scrolling it into view.
 
+When a suggestion carries a text **range** + its base block, Accept performs a
+word-level **3-way merge** against the current block: a concurrent edit
+*elsewhere* in the block is preserved and the suggested span still applies; a
+concurrent edit that *overlaps* the suggested span refuses with the usual
+`409` drift (no write). Suggestions without a range, or where the block has not
+diverged from the base, keep the plain whole-block accept.
+
 **Why it matters:** Accept is the only human path that applies a suggestion;
 its single-retry-then-fail on drift is the guard against clobbering concurrent
 edits. Rendering as decorations (not doc marks) keeps the proposal out of the

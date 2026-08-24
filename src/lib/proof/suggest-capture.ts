@@ -49,11 +49,12 @@ export async function captureSuggestion(args: {
 	kind: SuggestionKind;
 	markdown?: string;
 	range?: SuggestionRange;
+	baseMarkdown?: string;
 	basisDetail?: string;
 	getRevision: () => number;
 	refresh: () => Promise<void>;
 }): Promise<boolean> {
-	const { path, ref, kind, markdown, range, basisDetail, getRevision, refresh } = args;
+	const { path, ref, kind, markdown, range, baseMarkdown, basisDetail, getRevision, refresh } = args;
 	const op: Record<string, unknown> = {
 		type: "suggestion.add",
 		ref,
@@ -62,6 +63,7 @@ export async function captureSuggestion(args: {
 	};
 	if (kind !== "delete") op.markdown = markdown ?? "";
 	if (range) op.range = range;
+	if (range && baseMarkdown !== undefined) op.baseMarkdown = baseMarkdown;
 	if (basisDetail) op.basisDetail = basisDetail;
 
 	let result = await postSuggestionOp(path, getRevision(), op);

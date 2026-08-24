@@ -89,6 +89,8 @@ export interface Suggestion {
 	by: string;
 	markdown?: string; // omitted for kind=delete
 	range?: SuggestionRange;
+	/** Snapshot block markdown used as the 3-way merge base for ranged suggestions. */
+	baseMarkdown?: string;
 	basis?: ProvenanceMeta["basis"];
 	basisDetail?: string;
 	createdAt: string;
@@ -198,6 +200,7 @@ export type Op =
 			kind: SuggestionKind;
 			markdown?: string;
 			range?: SuggestionRange;
+			baseMarkdown?: string;
 			basis?: string;
 			basisDetail?: string;
 			status?: SuggestionStatus;

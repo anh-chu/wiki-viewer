@@ -21,6 +21,7 @@ export interface SuggestionCaptureDecision {
 	kind: "replace" | "delete" | "insertAfter";
 	markdown?: string;
 	range?: SuggestionRange;
+	baseMarkdown?: string;
 }
 
 export interface SuggestionCaptureBatchResult {
@@ -125,6 +126,7 @@ type CaptureSuggestion = typeof captureSuggestion;
 export async function captureSuggestionBatch(args: {
 	path: string;
 	decisions: readonly SuggestionCaptureDecision[];
+	snapshotBlocks?: readonly SuggestionCaptureBlock[];
 	getRevision: () => number;
 	refresh: () => Promise<void>;
 	capture?: CaptureSuggestion;
@@ -134,13 +136,18 @@ export async function captureSuggestionBatch(args: {
 	const capture = args.capture ?? captureSuggestion;
 	for (const decision of args.decisions) {
 		try {
+			const snapshot = args.snapshotBlocks?.find((block) => block.ref === decision.ref);
+			const captureDecision =
+				decision.range && decision.baseMarkdown === undefined && snapshot
+					? { ...decision, baseMarkdown: snapshot.markdown }
+					: decision;
 			const ok = await capture({
 				path: args.path,
-				...decision,
+				...captureDecision,
 				getRevision: args.getRevision,
 				refresh: args.refresh,
 			});
-			(ok ? captured : failed).push(decision);
+			(ok ? captured : failed).push(captureDecision);
 		} catch {
 			failed.push(decision);
 		}
@@ -272,6 +279,7 @@ export function useSuggestionCapture({
 			const result = await captureSuggestionBatch({
 				path: activePath,
 				decisions,
+				snapshotBlocks: snapBlocks,
 				getRevision,
 				refresh,
 			});
