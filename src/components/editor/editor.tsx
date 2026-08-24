@@ -234,24 +234,33 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		() => suggestionsRaw?.filter((sg) => sg.status === "pending" && !sg.stale) ?? [],
 		[suggestionsRaw],
 	);
+	const pendingSuggestionsByRef = useMemo(() => {
+		const grouped = new Map<string, typeof pendingSuggestions>();
+		for (const suggestion of pendingSuggestions) {
+			const byRef = grouped.get(suggestion.ref) ?? [];
+			byRef.push(suggestion);
+			grouped.set(suggestion.ref, byRef);
+		}
+		return grouped;
+	}, [pendingSuggestions]);
 	const [reviewTarget, setReviewTarget] = useState<{
 		suggestionId: string;
 		anchor: { top: number; left: number };
 	} | null>(null);
 	const openSuggestionReview = useCallback(
 		(suggestionId: string, element?: HTMLElement, shouldScroll = false) => {
-			const badge =
+			const marker =
 				element ??
 				Array.from(
 					scrollContainerRef.current?.querySelectorAll<HTMLElement>(
-						"[data-suggestion-badge]",
+						"[data-suggestion-gutter]",
 					) ?? [],
 				).find((candidate) => candidate.dataset.suggestionId === suggestionId);
-			if (!badge) return;
+			if (!marker) return;
 			if (shouldScroll) {
-				badge.scrollIntoView({ block: "center" });
+				marker.scrollIntoView({ block: "center" });
 			}
-			const rect = badge.getBoundingClientRect();
+			const rect = marker.getBoundingClientRect();
 			setReviewTarget({
 				suggestionId,
 				anchor: { top: rect.bottom, left: rect.left },
@@ -261,10 +270,10 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	);
 	const suggestionDecoratorRef = useRef<SuggestionDecoratorController | null>(null);
 	if (!suggestionDecoratorRef.current) {
-		suggestionDecoratorRef.current = createSuggestionDecoratorPlugin(
-			{ suggestions: [], blocks: [] },
-			(suggestionId, element) => openSuggestionReview(suggestionId, element),
-		);
+		suggestionDecoratorRef.current = createSuggestionDecoratorPlugin({
+			suggestions: [],
+			blocks: [],
+		});
 	}
 	const suggestionBlocks = useMemo(
 		() => snapshotBlocks.slice(snapshotBlockOffset),
@@ -948,6 +957,36 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 										className="relative pointer-events-none"
 										style={{ height: 0 }}
 									>
+										{/* Suggestion markers — one per block with pending suggestions */}
+										{Array.from(pendingSuggestionsByRef.entries()).map(([blockRef, blockSuggestions]) => {
+											const pos = blockRefPositions.get(blockRef);
+											if (!pos) return null;
+											const hasCommentPip = (commentsByRef[blockRef]?.length ?? 0) > 0;
+											const firstSuggestion = blockSuggestions[0];
+											return (
+												<button
+													key={`suggestion-pip-${blockRef}`}
+													type="button"
+													data-suggestion-gutter="true"
+													data-suggestion-id={firstSuggestion.id}
+													aria-label={`Review ${blockSuggestions.length} suggestion${blockSuggestions.length === 1 ? "" : "s"}`}
+													onClick={(event) =>
+														openSuggestionReview(firstSuggestion.id, event.currentTarget)
+													}
+													style={{
+														position: "absolute",
+														top: pos.top + 4,
+														left: Math.max(0, pos.left - (hasCommentPip ? 52 : 20)),
+														transform: "translateY(2px)",
+														pointerEvents: "auto",
+													}}
+													className="z-10 rounded bg-success-soft px-1.5 py-1 text-[10px] leading-none text-success ring-1 ring-success/30 transition-colors hover:bg-success-soft/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-success"
+												>
+													{blockSuggestions.length > 1 ? `▾${blockSuggestions.length}` : "▾"}
+												</button>
+											);
+										})}
+
 										{/* Comment pips — one per block with at least one comment */}
 										{Object.entries(commentsByRef).map(([blockRef, blockComments]) => {
 											const pos = blockRefPositions.get(blockRef);

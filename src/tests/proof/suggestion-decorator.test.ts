@@ -42,9 +42,7 @@ test("maps replace to inline redline and delete to struck block", () => {
 			{ role: "block", type: "node", kind: "replace" },
 			{ role: "inline-delete", type: "inline", kind: "replace" },
 			{ role: "insert", type: "widget", kind: "replace" },
-			{ role: "badge", type: "widget", kind: "replace" },
 			{ role: "block", type: "node", kind: "delete" },
-			{ role: "badge", type: "widget", kind: "delete" },
 		],
 	);
 	const replaceMarker = descriptors.find(
@@ -81,26 +79,14 @@ test("falls back to border-only marker for inline atoms", () => {
 	const descriptors = mapSuggestionDecorations([suggestion("replace")], atomDoc, blocks);
 	assert.deepEqual(
 		descriptors.map(({ role, type }) => ({ role, type })),
-		[
-			{ role: "block", type: "node" },
-			{ role: "badge", type: "widget" },
-		],
+		[{ role: "block", type: "node" }],
 	);
 	const marker = descriptors.find((descriptor) => descriptor.type === "node");
 	assert.ok(marker);
 	assert.doesNotMatch(marker.className, /bg-/);
 });
 
-test("counts overlapping suggestions on same block badge", () => {
-	const descriptors = mapSuggestionDecorations(
-		[suggestion("replace", "s-one"), suggestion("replace", "s-two")],
-		doc,
-		blocks,
-	);
-	assert.equal(descriptors.filter((descriptor) => descriptor.role === "badge").length, 2);
-});
-
-test("maps inserts to explicit-side ghost and review badge widgets", () => {
+test("maps inserts to explicit-side ghost widgets", () => {
 	const descriptors = mapSuggestionDecorations(
 		[suggestion("insertBefore"), suggestion("insertAfter")],
 		doc,
@@ -115,9 +101,7 @@ test("maps inserts to explicit-side ghost and review badge widgets", () => {
 		})), 
 		[
 			{ role: "ghost", type: "widget", side: -1, kind: "insertBefore" },
-			{ role: "badge", type: "widget", side: -1, kind: "insertBefore" },
 			{ role: "ghost", type: "widget", side: 1, kind: "insertAfter" },
-			{ role: "badge", type: "widget", side: 1, kind: "insertAfter" },
 		],
 	);
 });

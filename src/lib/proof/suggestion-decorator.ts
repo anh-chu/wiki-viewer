@@ -44,15 +44,6 @@ export type SuggestionDecorationDescriptor =
 	| {
 			suggestionId: string;
 			kind: Suggestion["kind"];
-			role: "badge";
-			type: "widget";
-			from: number;
-			side: -1 | 1;
-			count?: number;
-		}
-	| {
-			suggestionId: string;
-			kind: Suggestion["kind"];
 			role: "insert";
 			type: "widget";
 			from: number;
@@ -169,16 +160,6 @@ export function mapSuggestionDecorations(
 				markdown: suggestion.markdown ?? "",
 			});
 		}
-		// Badge remains a separate keyed widget so it survives mapping and can be
-		// activated without making proposed content part of the PM document.
-		descriptors.push({
-			suggestionId: suggestion.id,
-			kind: suggestion.kind,
-			role: "badge",
-			type: "widget",
-			from: anchor,
-			side,
-		});
 	}
 	return descriptors;
 }
@@ -186,31 +167,10 @@ export function mapSuggestionDecorations(
 function widgetElement(
 	descriptor: Extract<SuggestionDecorationDescriptor, { type: "widget" }>,
 	suggestion: Suggestion,
-	onBadgeClick?: (suggestionId: string, element: HTMLElement) => void,
 ): HTMLElement {
-	if (descriptor.role === "badge") {
-		const badge = document.createElement("button");
-		badge.type = "button";
-		badge.textContent = descriptor.count && descriptor.count > 1 ? `▾${descriptor.count}` : "▾";
-		badge.className =
-			"inline-flex min-h-11 min-w-11 items-center justify-center rounded bg-primary/10 px-1 align-middle text-base text-primary hover:bg-primary/15 hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
-		badge.setAttribute(
-			"aria-label",
-			descriptor.count && descriptor.count > 1
-				? `Review ${descriptor.count} suggestions by ${suggestion.by}`
-				: `Review suggestion by ${suggestion.by}`,
-		);
-		badge.setAttribute("data-suggestion-id", suggestion.id);
-		badge.setAttribute("data-suggestion-badge", "true");
-		badge.contentEditable = "false";
-		badge.addEventListener("mousedown", (event) => event.preventDefault());
-		badge.addEventListener("click", () => onBadgeClick?.(suggestion.id, badge));
-		return badge;
-	}
-
 	if (descriptor.role === "insert") {
 		const inserted = document.createElement("span");
-		inserted.className = "text-success underline";
+		inserted.className = "mx-0.5 text-success underline";
 		inserted.textContent = descriptor.text ?? "";
 		inserted.setAttribute("data-suggestion-id", suggestion.id);
 		inserted.setAttribute("data-suggestion-insert", "true");
@@ -231,15 +191,8 @@ function widgetElement(
 function buildDecorations(
 	state: EditorState,
 	data: SuggestionDecoratorData,
-	onBadgeClick?: (suggestionId: string, element: HTMLElement) => void,
 ): DecorationSet {
 	const descriptors = mapSuggestionDecorations(data.suggestions, state.doc, data.blocks);
-	const countByRef = new Map<string, number>();
-	for (const suggestion of data.suggestions) {
-		if (suggestion.status === "pending" && !suggestion.stale) {
-			countByRef.set(suggestion.ref, (countByRef.get(suggestion.ref) ?? 0) + 1);
-		}
-	}
 	const byId = new Map(data.suggestions.map((suggestion) => [suggestion.id, suggestion]));
 	const decorations = descriptors.map((descriptor) => {
 		const suggestion = byId.get(descriptor.suggestionId);
@@ -258,14 +211,7 @@ function buildDecorations(
 		}
 		return Decoration.widget(
 			descriptor.from,
-			() =>
-				widgetElement(
-					descriptor.role === "badge"
-						? { ...descriptor, count: countByRef.get(suggestion.ref) ?? 1 }
-						: descriptor,
-					suggestion,
-					onBadgeClick,
-				),
+			() => widgetElement(descriptor, suggestion),
 			{
 				side: descriptor.side,
 				key: `${descriptor.suggestionId}:${descriptor.role}:${descriptor.from}`,
@@ -280,16 +226,15 @@ export const buildSuggestionDecorations = mapSuggestionDecorations;
 
 export function createSuggestionDecoratorPlugin(
 	initial: SuggestionDecoratorData = { suggestions: [], blocks: [] },
-	onBadgeClick?: (suggestionId: string, element: HTMLElement) => void,
 ): SuggestionDecoratorController {
 	let data = initial;
 	const plugin = new Plugin<DecorationSet>({
 		key: SUGGESTION_DECORATOR_KEY,
 		state: {
-			init: (_config, state) => buildDecorations(state, data, onBadgeClick),
+			init: (_config, state) => buildDecorations(state, data),
 			apply(tr: Transaction, old: DecorationSet, _oldState, newState) {
 				if (tr.getMeta(SUGGESTION_DECORATOR_REFRESH_META)) {
-					return buildDecorations(newState, data, onBadgeClick);
+					return buildDecorations(newState, data);
 				}
 				if (!tr.docChanged) return old;
 				return old.map(tr.mapping, tr.doc);
