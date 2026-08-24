@@ -25,7 +25,6 @@ import { editorExtensions } from "./extensions";
 import { resolveWikiLink } from "./link-navigation";
 import { useDocumentPresence } from "./hooks/use-document-presence";
 import { useDocumentWatch } from "./hooks/use-document-watch";
-import { useSuggestionCapture } from "./hooks/use-suggestion-capture";
 import { CommentPip } from "./comment-pip";
 import { CommentThread } from "./comment-thread";
 import { SuggestEditPopover } from "./suggest-edit-popover";
@@ -103,7 +102,7 @@ function findElementByFragment(
 	return null;
 }
 
-type KBEditorMode = "viewing" | "editing" | "suggesting";
+type KBEditorMode = "viewing" | "editing";
 
 interface KBEditorProps {
 	mode?: KBEditorMode;
@@ -118,12 +117,9 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		isLoading,
 		loadStatus,
 		createMissingPage,
-		editMode,
-		setEditMode,
 	} = useEditorStore();
-	const effectiveMode = mode ?? editMode;
+	const effectiveMode = mode ?? "editing";
 	const isViewing = effectiveMode === "viewing";
-	const isSuggesting = effectiveMode === "suggesting";
 	const parsedViewingContent = useMemo(
 		() => (isViewing ? parseFrontmatter(content) : { data: {}, body: content }),
 		[content, isViewing],
@@ -446,17 +442,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		setThreadTarget({ blockRef: resolved.blockRef, el: resolved.blockEl });
 	}, [resolveSelectionBlock]);
 
-
-	// Suggesting-mode dirty block tracking, flush, and snapshot refresh.
-	const { markDirty, flush: flushSuggestions, onSelectionUpdate } =
-		useSuggestionCapture({
-			path: currentPath,
-			editorRef,
-			scrollContainerRef,
-			isLoadingRef,
-			isViewingRef,
-		});
-
 	// Load snapshot (ordered block list) when path changes so suggestion cards
 	// can look up block content by ref.
 	useEffect(() => {
@@ -502,10 +487,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	const handleUpdate = useCallback(
 		({ editor }: { editor: ReturnType<typeof useEditor> }) => {
 			if (isLoadingRef.current || isViewingRef.current || !editor) return;
-			// In suggesting mode, mark the edit dirty so the next block-change or
-			// blur flushes it into suggestions. Still push content to the store so
-			// the store guard (no autosave in suggesting mode) keeps it in sync.
-			markDirty();
 			const html = editor.getHTML();
 			const md = htmlToMarkdown(
 				html,
@@ -521,12 +502,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		content: "",
 		editable: !isViewing,
 		onUpdate: handleUpdate,
-		onBlur: () => {
-			void flushSuggestions();
-		},
-		onSelectionUpdate: ({ editor: ed }) => {
-			onSelectionUpdate(ed);
-		},
 		editorProps: {
 			attributes: {
 				class:
@@ -954,18 +929,11 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 							</div>
 						) : (
 							<div className="flex-1 relative" dir={isRtl ? "rtl" : undefined}>
-								{isSuggesting && (
-									<div className="absolute top-0 inset-x-0 z-20 flex items-center justify-center gap-2 px-3 py-1 bg-primary/10 border-b border-primary/20 text-[11px] text-primary pointer-events-none">
-										Suggesting mode · your edits become suggestions for review
-									</div>
-								)}
 								<DocumentOutline editor={editor} scrollContainerRef={scrollContainerRef} />
 								<ReadingExperiments editor={editor} scrollContainerRef={scrollContainerRef} />
 								<div
 									ref={scrollContainerRef}
-									className={`absolute inset-0 overflow-y-auto ${
-										isSuggesting ? "pt-7" : ""
-								}`}
+									className="absolute inset-0 overflow-y-auto"
 									style={{
 										["--editor-max-w" as string]: editorMaxW,
 										["--editor-ml" as string]: editorMl,
@@ -1144,39 +1112,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 										✎ {pendingSuggestions.length} suggestions
 									</button>
 								)}
-								{/* Mode toggle */}
-								<div
-									className="flex items-center rounded-md border border-border overflow-hidden text-[10.5px]"
-									role="radiogroup"
-									aria-label="Edit mode"
-								>
-									<button
-										type="button"
-										role="radio"
-										aria-checked={editMode === "editing"}
-										onClick={() => setEditMode("editing")}
-										className={`px-2 py-0.5 transition-colors ${
-											editMode === "editing"
-												? "bg-primary text-primary-foreground"
-												: "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-										}`}
-									>
-										Editing
-									</button>
-									<button
-										type="button"
-										role="radio"
-										aria-checked={editMode === "suggesting"}
-										onClick={() => setEditMode("suggesting")}
-										className={`px-2 py-0.5 transition-colors ${
-											editMode === "suggesting"
-												? "bg-primary text-primary-foreground"
-												: "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-										}`}
-									>
-										Suggesting
-									</button>
-								</div>
 								<span
 									className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] transition-all duration-300 ${
 										saveStatus === "idle"

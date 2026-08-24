@@ -6,7 +6,7 @@
   "stats": [
     { "value": "60,395", "label": "source LOC" },
     { "value": "79", "label": "API routes" },
-    { "value": "72", "label": "test files" },
+    { "value": "71", "label": "test files" },
     { "value": "1", "label": "deployed service" }
   ],
   "groups": [
@@ -101,7 +101,7 @@
       { "code": "EM", "name": "Embeds", "h": 4, "what": "Detect supported external media and document embeds.", "how": "lib/embeds detects supported external media and document embeds." }
     ] },
     { "id": "scratch", "code": "SC", "name": "Scratchpad", "group": "domain", "loc": "355 LOC", "gx": 8, "gy": 13, "w": 2, "d": 2, "h": 4, "what": "Captures quick snippets before they become normal workspace files.", "how": "Scratch config and detection modules create, sweep, and promote temporary captures.", "talks": ["wiki-api", "path", "state"] },
-    { "id": "tests", "code": "TS", "name": "Proof test suite", "group": "delivery", "loc": "14,849 LOC", "gx": 12, "gy": 13, "w": 2, "d": 2, "h": 5, "what": "Exercises the filesystem, auth, collaboration, and agent safety contracts.", "how": "72 proof test files run through scripts/test-floor.mjs, which enforces a 674-test minimum.", "talks": ["proof", "agent-api", "wiki-api", "ci"] },
+    { "id": "tests", "code": "TS", "name": "Proof test suite", "group": "delivery", "loc": "14,849 LOC", "gx": 12, "gy": 13, "w": 2, "d": 2, "h": 5, "what": "Exercises the filesystem, auth, collaboration, and agent safety contracts.", "how": "71 proof test files run through scripts/test-floor.mjs, which enforces a 672-test minimum.", "talks": ["proof", "agent-api", "wiki-api", "ci"] },
     { "id": "ci", "code": "CI", "name": "Build and publish", "group": "delivery", "loc": "3 workflow files", "gx": 15, "gy": 13, "w": 3, "d": 2, "h": 3, "what": "Checks changes and prepares the standalone package for release.", "how": "Versioned workflows run formatting, tests, builds, and npm publishing around the one server artifact.", "talks": ["cli", "editor", "agent-api", "tests"] },
     { "id": "auth-store", "code": "DB", "name": "Auth store", "group": "data", "loc": "role", "gx": 0, "gy": 16, "w": 3, "d": 2, "h": 1, "slab": true, "what": "Durable users, sessions, and account records.", "how": "Better Auth uses a local SQLite store through the project database adapter.", "talks": ["auth", "system-api", "proof"] },
     { "id": "share-store", "code": "DB", "name": "Share store", "group": "data", "loc": "role", "gx": 4, "gy": 16, "w": 3, "d": 2, "h": 1, "slab": true, "what": "Durable public-share grants, expiry data, and view counts.", "how": "shared-docs/db.ts persists opaque share metadata in SQLite.", "talks": ["share-api"] },

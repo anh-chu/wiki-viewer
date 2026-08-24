@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { wsFetch } from "@/lib/workspace-client";
 
-export type DocumentPresenceMode = "viewing" | "editing" | "suggesting";
+export type DocumentPresenceMode = "viewing" | "editing";
 
 interface UseDocumentPresenceOptions {
 	/** Workspace-scoped root-relative document path. */
@@ -26,9 +26,8 @@ export function useDocumentPresence({
 	mode,
 	enabled = true,
 }: UseDocumentPresenceOptions): void {
-	// Editing and suggesting share the same human-open lease; only viewing
-	// should stop the heartbeat. Depend on the boolean so toggling between
-	// edit and suggest does not close/reopen the lease.
+	// Editing holds the human-open lease; only viewing stops the heartbeat.
+	// Depend on the boolean so toggling view/edit does not close/reopen the lease.
 	const isViewingMode = mode === "viewing";
 
 	useEffect(() => {

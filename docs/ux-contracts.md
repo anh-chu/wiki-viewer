@@ -60,7 +60,7 @@ down turns "did we regress the loop?" into a diff against this file.
 - [6. Suggestions](#6-suggestions)
   - [6.1 Suggest-edit popover](#61-suggest-edit-popover)
   - [6.2 Suggestion cards](#62-suggestion-cards)
-  - [6.3 Suggesting-mode capture](#63-suggesting-mode-capture)
+  - [6.3 Creating a suggestion](#63-creating-a-suggestion)
 - [7. Search](#7-search)
   - [7.1 Command palette and sidebar search](#71-command-palette-and-sidebar-search)
   - [7.2 Snippet rendering and backend](#72-snippet-rendering-and-backend)
@@ -376,16 +376,16 @@ check out anything.
 
 ### 4.1 Modes and state
 
-**Contract:** Three modes: `viewing | editing | suggesting`. The status bar
-shows an Editing/Suggesting radio (edit modes only) and a save pill
-(Saving… / Saved / Save failed; hidden when idle). Suggesting mode shows the
-banner "Suggesting mode · your edits become suggestions for review" and adds
-`pt-7` to the scroll container; viewing mode forces non-editable and disables
-task checkboxes. Autosave debounces 500 ms and is **disabled in suggesting mode**
-(edits are captured as suggestions, never written directly).
+**Contract:** Two modes: `viewing | editing`. The status bar shows a save pill
+(Saving… / Saved / Save failed; hidden when idle). Viewing mode forces
+non-editable and disables task checkboxes; editing mode autosaves (debounced
+500 ms). There is **no separate "suggesting" mode**: a suggestion is created
+deliberately by selecting text and choosing **Suggest** (see §5.2 and §6),
+never by a global typing mode.
 
-**Why it matters:** The "no autosave in suggesting mode" guard is what keeps a
-suggesting session from clobbering the file with un-reviewed edits.
+**Why it matters:** Collapsing to a single edit surface removes the fragile
+live-capture path; suggestions are discrete, reviewed items rather than a
+mode that silently reroutes every keystroke.
 
 **Verification pointer:** `src/components/editor/editor.tsx`,
 `src/stores/editor-store.ts`
@@ -592,24 +592,25 @@ saved file until Accept.
 `src/components/editor/suggestion-review-popover.tsx`,
 `src/lib/proof/word-diff.ts`
 
-### 6.3 Suggesting-mode capture
+### 6.3 Creating a suggestion
 
-**Contract:** In suggesting mode, on blur / block-change / selection move, each
-top-level block is diffed against the snapshot: changed → `replace`, deleted →
-`delete`, appended → `insertAfter` on the last snapshot ref. On **success** every
-captured block resolves to the snapshot + its pending-suggestion redline (a brief
-`--motion-base` settle, reduced-motion aware); nothing is written to the file.
-On **failure** (offline / non-2xx / 409) the typed text is **never reverted**:
-it is kept as an ordinary dirty draft (a `suggestionDraftFallback` allows it to
-autosave so it survives refresh) and a toast surfaces a **Retry** that re-posts
-the failed ops. Normal (non-failed) suggesting drafts still never PUT the file.
+**Contract:** Suggestions are created by one deliberate action, never by a
+typing mode. Select text, then choose **Suggest** — from the selection bubble
+menu in editing, or the view-mode Suggest button (§5.2) in viewing. That opens
+the suggest-edit popover scoped to the selection's block; on submit it posts a
+single sidecar-only `suggestion.add` to `/api/agent/files/<path>` and the
+proposal renders as an inline redline (§6.1–6.2) until Accept/Reject. Nothing is
+written to the document before Accept. There is no live block-capture and no
+auto-suggestion from raw typing.
 
-**Why it matters:** This is the capture that turns raw typing into reviewable
-suggestions; the old silent revert-on-failure discarded the user's text, so
-failure must preserve work, not lose it.
+**Why it matters:** One intentional action = one well-formed suggestion. This
+replaces the removed "suggesting mode" live capture (block-diff on blur, revert,
+failed-capture autosave fallback), which was the source of cursor jumps,
+flicker, and un-reviewed edits leaking to disk.
 
-**Verification pointer:** `src/components/editor/hooks/use-suggestion-capture.ts`,
-`src/stores/editor-store.ts`
+**Verification pointer:** `src/components/editor/suggest-edit-popover.tsx`,
+`src/components/editor/bubble-menu.tsx`,
+`src/components/editor/view-mode-comment-button.tsx`
 
 ### 6.4 Copy as prompt
 

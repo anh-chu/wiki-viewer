@@ -160,15 +160,6 @@ function saveCachedPage(page: CachedPage) {
 
 export type LoadStatus = "idle" | "loading" | "ok" | "missing" | "error";
 
-/**
- * Editor interaction mode.
- * - "editing": human edits write directly to the file (full-file PUT).
- * - "suggesting": human block edits are captured as suggestions (block ops,
- *   by: "human") and the editor resolves to the snapshot only after success.
- *   Failed captures remain ordinary local drafts.
- */
-export type EditMode = "editing" | "suggesting";
-
 interface EditorState {
 	currentPath: string | null;
 	content: string;
@@ -180,11 +171,6 @@ interface EditorState {
 	lastSavedAt: number | null;
 	/** Last confirmed revision from the server. null until first save/sync. */
 	currentRevision: number | null;
-	/** Current interaction mode. Persisted in localStorage. */
-	editMode: EditMode;
-	/** True after failed suggesting capture, allowing the draft to autosave. */
-	suggestionDraftFallback: boolean;
-
 	loadPage: (path: string) => Promise<void>;
 	updateContent: (content: string) => void;
 	updateFrontmatter: (updates: Partial<FrontMatter>) => void;
@@ -193,21 +179,6 @@ interface EditorState {
 	clear: () => void;
 	/** Sync the known revision from an external source (e.g. proof-store snapshot). */
 	syncRevision: (revision: number) => void;
-	/** Switch interaction mode (editing | suggesting). */
-	setEditMode: (mode: EditMode) => void;
-	/** Preserve a failed suggesting draft as an ordinary dirty edit. */
-	promoteSuggestionDraft: () => void;
-	/** Resolve a captured draft back to committed snapshot content. */
-	resolveSuggestionDraft: (content: string) => void;
-}
-
-const EDIT_MODE_KEY = "kb-edit-mode";
-
-function loadEditMode(): EditMode {
-	if (typeof window === "undefined") return "editing";
-	return localStorage.getItem(EDIT_MODE_KEY) === "suggesting"
-		? "suggesting"
-		: "editing";
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -226,19 +197,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 	isLoading: false,
 	lastSavedAt: null,
 	currentRevision: null,
-	editMode: loadEditMode(),
-	suggestionDraftFallback: false,
-
-	setEditMode: (mode: EditMode) => {
-		if (typeof window !== "undefined") {
-			localStorage.setItem(EDIT_MODE_KEY, mode);
-		}
-		set({
-			editMode: mode,
-			suggestionDraftFallback:
-				mode === get().editMode ? get().suggestionDraftFallback : false,
-		});
-	},
 
 	loadPage: async (path: string) => {
 		const currentState = get();
@@ -258,7 +216,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 			isDirty: false,
 			content: "",
 			currentRevision: null,
-			suggestionDraftFallback: false,
 		});
 
 		// Paint from cache immediately so the editor feels instant. In-memory LRU
@@ -333,15 +290,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 	},
 
 	updateContent: (content: string) => {
-		// Before a failed capture, suggesting mode keeps the draft as a normal
-		// local edit so it can autosave while the suggestion post is retried.
-		if (
-			get().editMode === "suggesting" &&
-			!get().suggestionDraftFallback
-		) {
-			set({ content });
-			return;
-		}
 		set({ content, isDirty: true });
 
 		// Auto-save after 500 ms of inactivity.
@@ -369,13 +317,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 			content,
 			isDirty,
 			currentRevision,
-			editMode,
-			suggestionDraftFallback,
 		} = get();
 		if (!currentPath || !isDirty) return;
-		// Normal suggesting drafts never write the file. A failed capture is
-		// explicitly promoted so the user's text can persist and be retried.
-		if (editMode === "suggesting" && !suggestionDraftFallback) return;
 
 		set({ saveStatus: "saving" });
 		try {
@@ -422,25 +365,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 		}
 	},
 
-	promoteSuggestionDraft: () => {
-		if (get().editMode !== "suggesting") return;
-		set({ isDirty: true, suggestionDraftFallback: true });
-		if (saveTimer) clearTimeout(saveTimer);
-		saveTimer = setTimeout(() => {
-			void get().save();
-		}, 500);
-	},
-
-	resolveSuggestionDraft: (content: string) => {
-		if (saveTimer) clearTimeout(saveTimer);
-		set({
-			content,
-			isDirty: false,
-			suggestionDraftFallback: false,
-			saveStatus: "idle",
-		});
-	},
-
 	createMissingPage: async (title: string) => {
 		const { currentPath } = get();
 		if (!currentPath) return;
@@ -471,7 +395,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 			isLoading: false,
 			lastSavedAt: null,
 			currentRevision: null,
-			suggestionDraftFallback: false,
 		});
 	},
 

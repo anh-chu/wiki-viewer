@@ -3,10 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import {
-	computeSuggestionRange,
-	decideSuggestionCaptures,
-} from "../../components/editor/hooks/use-suggestion-capture.js";
+import { computeSuggestionRange } from "../../lib/proof/suggestion-range.js";
 import { applyOps, readSnapshot } from "../../lib/proof/ops-applier.js";
 import { readSidecar } from "../../lib/proof/sidecar.js";
 
@@ -33,13 +30,6 @@ test("trims common prefix and suffix to one tight range", () => {
 
 test("identical blocks produce no range", () => {
 	assert.equal(computeSuggestionRange("Same text", "Same text"), undefined);
-	assert.deepEqual(
-		decideSuggestionCaptures(
-			["Same text"],
-			[{ ref: "b000001", markdown: "Same text" }],
-		),
-		[],
-	);
 });
 
 test("multiple separated edits omit range", () => {
