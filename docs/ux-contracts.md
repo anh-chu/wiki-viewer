@@ -589,13 +589,20 @@ saved file until Accept.
 
 **Contract:** In suggesting mode, on blur / block-change / selection move, each
 top-level block is diffed against the snapshot: changed → `replace`, deleted →
-`delete`, appended → `insertAfter` on the last snapshot ref. The editor then
-re-renders from the snapshot; nothing is written to the file.
+`delete`, appended → `insertAfter` on the last snapshot ref. On **success** every
+captured block resolves to the snapshot + its pending-suggestion redline (a brief
+`--motion-base` settle, reduced-motion aware); nothing is written to the file.
+On **failure** (offline / non-2xx / 409) the typed text is **never reverted**:
+it is kept as an ordinary dirty draft (a `suggestionDraftFallback` allows it to
+autosave so it survives refresh) and a toast surfaces a **Retry** that re-posts
+the failed ops. Normal (non-failed) suggesting drafts still never PUT the file.
 
 **Why it matters:** This is the capture that turns raw typing into reviewable
-suggestions; a wrong diff flushes garbage suggestions to the sidecar.
+suggestions; the old silent revert-on-failure discarded the user's text, so
+failure must preserve work, not lose it.
 
-**Verification pointer:** `src/components/editor/hooks/use-suggestion-capture.ts`
+**Verification pointer:** `src/components/editor/hooks/use-suggestion-capture.ts`,
+`src/stores/editor-store.ts`
 
 ### 6.4 Copy as prompt
 
