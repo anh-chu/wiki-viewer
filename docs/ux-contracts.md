@@ -59,7 +59,7 @@ down turns "did we regress the loop?" into a diff against this file.
   - [5.2 View-mode and source-line comments](#52-view-mode-and-source-line-comments)
 - [6. Suggestions](#6-suggestions)
   - [6.1 Suggest-edit popover](#61-suggest-edit-popover)
-  - [6.2 Suggestion cards](#62-suggestion-cards)
+  - [6.2 Suggestion inline redline + review popover](#62-suggestion-inline-redline--review-popover)
   - [6.3 Creating a suggestion](#63-creating-a-suggestion)
 - [7. Search](#7-search)
   - [7.1 Command palette and sidebar search](#71-command-palette-and-sidebar-search)
@@ -557,17 +557,24 @@ kind are what let the reviewer see exactly what changed without touching the fil
 
 **Contract:** Pending suggestions render as inline tracked-change **decorations
 inside** the document (ProseMirror decorations, never written to the `.md`). A
-**replace** shows a true inline **word-level redline**: the changed words are
-struck in `--destructive` and the new words appear as underlined `--success`
-widgets in place, computed from `diffWords(blockText, proposedMarkdown)`; the
-unchanged words stay normal and readable (no whole-block wash). The block also
-gets a thin left bar (`--success`) to flag it. A **delete** strikes the whole
-block with a `--destructive` left bar. If the block can't be mapped 1:1 to text
-positions (inline atoms like images/hard-breaks, or empty proposed text) it
-falls back to the left-bar marker only and the diff is read in the popover.
-insertAfter/insertBefore render a compact dashed **ghost** of the proposed text
-via a widget with explicit side.
-Each suggestion carries a caret **▾ badge** (44px touch slop) that opens a
+**replace** shows a true inline **word-level redline** computed from
+`diffWords(blockText, proposedMarkdown)`. Emphasis is deliberate: deletions
+**recede** (struck, dimmed `--destructive/50`) while the inserted words read
+**louder** (underlined `--success`, medium weight) and sit in place, with
+horizontal spacing so a struck word and its replacement never run together;
+unchanged words stay normal and readable. There is **no whole-block wash and no
+left bar** for a mappable replace — the inline redline is the only marker. A
+**delete** strikes the whole block (`--destructive`, line-through). If the block
+can't be mapped 1:1 to text positions (inline atoms like images/hard-breaks, or
+empty proposed text) it falls back to a single understated `--success/50`
+left-bar marker and the diff is read in the popover. insertAfter/insertBefore
+render a compact dashed **ghost** of the proposed text via a widget with
+explicit side.
+Each block with pending suggestions gets a **gutter pip** — a small pencil
+(`SquarePen`) icon in the left gutter that matches the comment pip's visual
+language (muted, no fill, tap padding), placed just left of the comment pip on
+the same line when a block has both so the two never overlap. Clicking it (or
+the status-bar chip below) opens a
 viewport-clamped **review popover** showing current vs proposed with **Accept**
 (`suggestion.accept`, retries once on 409 with the latest revision) and
 **Reject** (`suggestion.reject`, no retry); both reload sidecar + snapshot on
@@ -576,8 +583,8 @@ lifecycle: build from doc + suggestions, map through local transactions, rebuild
 on a meta refresh when the sidecar/snapshot changes, and force a full rebuild
 after any `setContent`. The review popover shows a **word-level diff** (deleted
 words struck in `--destructive`, inserted words underlined in `--success`).
-When more than one pending suggestion targets the same block, its badge shows a
-count (`▾N`) and the popover gains an **N of M** overlap switcher (`◂`/`▸`) that
+When more than one pending suggestion targets the same block, its gutter pip
+shows a small superscript count and the popover gains an **N of M** overlap switcher (`◂`/`▸`) that
 cycles those suggestions with the diff updating live; Accept/Reject act on the
 shown one (Accept supersedes the rest server-side). A status-bar **“✎ N
 suggestions”** chip (shown only when N>0) cycles to the next pending suggestion,
@@ -596,6 +603,8 @@ edits. Rendering as decorations (not doc marks) keeps the proposal out of the
 saved file until Accept.
 
 **Verification pointer:** `src/lib/proof/suggestion-decorator.ts`,
+`src/components/editor/suggestion-pip.tsx`, the gutter overlay in
+`src/components/editor/editor.tsx`,
 `src/components/editor/suggestion-review-popover.tsx`,
 `src/lib/proof/word-diff.ts`
 
