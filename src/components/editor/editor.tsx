@@ -959,7 +959,8 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 										style={{ height: 0 }}
 									>
 										{/* Suggestion pips — one per block with pending suggestions,
-										    stacked just below the comment pip when a block has both. */}
+										    placed just left of the comment pip (same line) when a block has
+										    both, so gutter icons never overlap across adjacent blocks. */}
 										{Array.from(pendingSuggestionsByRef.entries()).map(([blockRef, blockSuggestions]) => {
 											const pos = blockRefPositions.get(blockRef);
 											if (!pos) return null;
@@ -968,8 +969,8 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 											return (
 												<SuggestionPip
 													key={`suggestion-pip-${blockRef}`}
-													top={pos.top + 4 + (hasCommentPip ? 20 : 0)}
-													left={Math.max(0, pos.left - 20)}
+													top={pos.top + 4}
+													left={Math.max(0, pos.left - (hasCommentPip ? 40 : 20))}
 													count={blockSuggestions.length}
 													aria-label={`Review ${blockSuggestions.length} suggestion${blockSuggestions.length === 1 ? "" : "s"} on this block`}
 													onClick={(event) =>

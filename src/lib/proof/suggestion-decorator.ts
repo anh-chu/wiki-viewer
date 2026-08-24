@@ -139,7 +139,8 @@ export function mapSuggestionDecorations(
 							type: "inline",
 							from: contentStart + cursor,
 							to: contentStart + cursor + part.text.length,
-							className: "line-through text-destructive",
+							// Deletion recedes: dimmed + struck, so the inserted suggestion reads louder.
+							className: "line-through text-destructive/50 mr-0.5",
 							attrs: {
 								"data-suggestion-id": suggestion.id,
 								"data-suggestion-kind": suggestion.kind,
@@ -190,7 +191,9 @@ function widgetElement(
 ): HTMLElement {
 	if (descriptor.role === "insert") {
 		const inserted = document.createElement("span");
-		inserted.className = "mx-0.5 text-success underline";
+		// Insertion is the star: brighter/heavier than the struck text, with real breathing room.
+		inserted.className =
+			"mx-1 text-success font-medium underline decoration-success/70 underline-offset-2";
 		inserted.textContent = descriptor.text ?? "";
 		inserted.setAttribute("data-suggestion-id", suggestion.id);
 		inserted.setAttribute("data-suggestion-insert", "true");
