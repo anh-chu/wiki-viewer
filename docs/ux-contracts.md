@@ -567,8 +567,14 @@ viewport-clamped **review popover** showing current vs proposed with **Accept**
 settle. `esc` closes; read-only hides Accept/Reject. Decorations follow a fixed
 lifecycle: build from doc + suggestions, map through local transactions, rebuild
 on a meta refresh when the sidecar/snapshot changes, and force a full rebuild
-after any `setContent`. Word-level diff, an overlap switcher, and a status-bar
-navigation chip are separate follow-ups.
+after any `setContent`. The review popover shows a **word-level diff** (deleted
+words struck in `--destructive`, inserted words underlined in `--success`).
+When more than one pending suggestion targets the same block, its badge shows a
+count (`▾N`) and the popover gains an **N of M** overlap switcher (`◂`/`▸`) that
+cycles those suggestions with the diff updating live; Accept/Reject act on the
+shown one (Accept supersedes the rest server-side). A status-bar **“✎ N
+suggestions”** chip (shown only when N>0) cycles to the next pending suggestion,
+opening its popover and scrolling it into view.
 
 **Why it matters:** Accept is the only human path that applies a suggestion;
 its single-retry-then-fail on drift is the guard against clobbering concurrent
@@ -576,7 +582,8 @@ edits. Rendering as decorations (not doc marks) keeps the proposal out of the
 saved file until Accept.
 
 **Verification pointer:** `src/lib/proof/suggestion-decorator.ts`,
-`src/components/editor/suggestion-review-popover.tsx`
+`src/components/editor/suggestion-review-popover.tsx`,
+`src/lib/proof/word-diff.ts`
 
 ### 6.3 Suggesting-mode capture
 

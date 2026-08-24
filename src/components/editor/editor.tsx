@@ -235,24 +235,39 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	}, [content, isViewing, parsedViewingContent.body, parsedViewingContent.data, snapshotBlocks]);
 	const comments = useMemo(() => commentsRaw ?? [], [commentsRaw]);
 	const pendingSuggestions = useMemo(
-		() => suggestionsRaw?.filter((sg) => sg.status === "pending") ?? [],
+		() => suggestionsRaw?.filter((sg) => sg.status === "pending" && !sg.stale) ?? [],
 		[suggestionsRaw],
 	);
 	const [reviewTarget, setReviewTarget] = useState<{
 		suggestionId: string;
 		anchor: { top: number; left: number };
 	} | null>(null);
+	const openSuggestionReview = useCallback(
+		(suggestionId: string, element?: HTMLElement, shouldScroll = false) => {
+			const badge =
+				element ??
+				Array.from(
+					scrollContainerRef.current?.querySelectorAll<HTMLElement>(
+						"[data-suggestion-badge]",
+					) ?? [],
+				).find((candidate) => candidate.dataset.suggestionId === suggestionId);
+			if (!badge) return;
+			if (shouldScroll) {
+				badge.scrollIntoView({ block: "center" });
+			}
+			const rect = badge.getBoundingClientRect();
+			setReviewTarget({
+				suggestionId,
+				anchor: { top: rect.bottom, left: rect.left },
+			});
+		},
+		[],
+	);
 	const suggestionDecoratorRef = useRef<SuggestionDecoratorController | null>(null);
 	if (!suggestionDecoratorRef.current) {
 		suggestionDecoratorRef.current = createSuggestionDecoratorPlugin(
 			{ suggestions: [], blocks: [] },
-			(suggestionId, element) => {
-				const rect = element.getBoundingClientRect();
-				setReviewTarget({
-					suggestionId,
-					anchor: { top: rect.bottom, left: rect.left },
-				});
-			},
+			(suggestionId, element) => openSuggestionReview(suggestionId, element),
 		);
 	}
 	const suggestionBlocks = useMemo(
@@ -805,6 +820,17 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	const reviewBlock = reviewSuggestion
 		? snapshotBlocks.find((block) => block.ref === reviewSuggestion.ref)
 		: undefined;
+	const overlapSuggestions = reviewSuggestion
+		? pendingSuggestions.filter(({ ref }) => ref === reviewSuggestion.ref)
+		: [];
+	const openNextSuggestion = useCallback(() => {
+		if (pendingSuggestions.length === 0) return;
+		const currentIndex = reviewTarget
+			? pendingSuggestions.findIndex(({ id }) => id === reviewTarget.suggestionId)
+			: -1;
+		const next = pendingSuggestions[(currentIndex + 1) % pendingSuggestions.length];
+		openSuggestionReview(next.id, undefined, true);
+	}, [openSuggestionReview, pendingSuggestions, reviewTarget]);
 	const isLoadingState =
 		currentPath !== null && (isLoading || renderedPath !== currentPath);
 	// Don't flash a spinner for fast/cached opens: only reveal the overlay if the
@@ -1009,10 +1035,12 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 										<SuggestionReviewPopover
 											path={currentPath}
 											suggestion={reviewSuggestion}
+											overlapSuggestions={overlapSuggestions}
 											currentMarkdown={reviewBlock.markdown}
 											baseRevision={snapshotRevision}
 											anchor={reviewTarget.anchor}
 											onClose={() => setReviewTarget(null)}
+											onNavigate={(suggestionId) => openSuggestionReview(suggestionId)}
 											onSettled={() => {
 												setReviewTarget(null);
 												void useProofStore.getState().loadSidecar(currentPath);
@@ -1106,6 +1134,16 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 									suggestions={pendingSuggestions}
 									resolveSnippet={resolvePromptSnippet}
 								/>
+								{pendingSuggestions.length > 0 && (
+									<button
+										type="button"
+										onClick={openNextSuggestion}
+										className="rounded-full px-2 py-0.5 text-[10.5px] text-primary hover:bg-primary/10"
+										aria-label={`Review ${pendingSuggestions.length} suggestions`}
+									>
+										✎ {pendingSuggestions.length} suggestions
+									</button>
+								)}
 								{/* Mode toggle */}
 								<div
 									className="flex items-center rounded-md border border-border overflow-hidden text-[10.5px]"

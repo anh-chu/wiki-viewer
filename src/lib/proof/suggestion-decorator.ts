@@ -28,6 +28,7 @@ export type SuggestionDecorationDescriptor =
 			type: "widget";
 			from: number;
 			side: -1 | 1;
+			count?: number;
 			markdown?: string;
 		};
 
@@ -123,10 +124,15 @@ function widgetElement(
 	if (descriptor.role === "badge") {
 		const badge = document.createElement("button");
 		badge.type = "button";
-		badge.textContent = "▾";
+		badge.textContent = descriptor.count && descriptor.count > 1 ? `▾${descriptor.count}` : "▾";
 		badge.className =
 			"inline-flex min-h-11 min-w-11 items-center justify-center align-middle text-base text-primary hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
-		badge.setAttribute("aria-label", `Review suggestion by ${suggestion.by}`);
+		badge.setAttribute(
+			"aria-label",
+			descriptor.count && descriptor.count > 1
+				? `Review ${descriptor.count} suggestions by ${suggestion.by}`
+				: `Review suggestion by ${suggestion.by}`,
+		);
 		badge.setAttribute("data-suggestion-id", suggestion.id);
 		badge.setAttribute("data-suggestion-badge", "true");
 		badge.contentEditable = "false";
@@ -151,6 +157,12 @@ function buildDecorations(
 	onBadgeClick?: (suggestionId: string, element: HTMLElement) => void,
 ): DecorationSet {
 	const descriptors = mapSuggestionDecorations(data.suggestions, state.doc, data.blocks);
+	const countByRef = new Map<string, number>();
+	for (const suggestion of data.suggestions) {
+		if (suggestion.status === "pending" && !suggestion.stale) {
+			countByRef.set(suggestion.ref, (countByRef.get(suggestion.ref) ?? 0) + 1);
+		}
+	}
 	const byId = new Map(data.suggestions.map((suggestion) => [suggestion.id, suggestion]));
 	const decorations = descriptors.map((descriptor) => {
 		const suggestion = byId.get(descriptor.suggestionId);
@@ -163,7 +175,14 @@ function buildDecorations(
 		}
 		return Decoration.widget(
 			descriptor.from,
-			() => widgetElement(descriptor, suggestion, onBadgeClick),
+			() =>
+				widgetElement(
+					descriptor.role === "badge"
+						? { ...descriptor, count: countByRef.get(suggestion.ref) ?? 1 }
+						: descriptor,
+					suggestion,
+					onBadgeClick,
+				),
 			{ side: descriptor.side, key: `${descriptor.suggestionId}:${descriptor.role}` },
 		);
 	});

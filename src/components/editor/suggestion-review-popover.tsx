@@ -1,20 +1,23 @@
 "use client";
 
 import * as Popover from "@radix-ui/react-popover";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { clientId } from "@/lib/client-id";
 import { authHeaders } from "@/lib/proof/client-auth";
 import { useProofStore } from "@/stores/proof-store";
 import { wsFetch } from "@/lib/workspace-client";
+import { diffWords, type WordDiffPart } from "@/lib/proof/word-diff";
 import type { Suggestion } from "@/lib/proof/types";
 
 interface Props {
 	path: string;
 	suggestion: Suggestion;
+	overlapSuggestions: readonly Suggestion[];
 	currentMarkdown: string;
 	baseRevision: number;
 	anchor: { top: number; left: number };
 	onClose: () => void;
+	onNavigate: (suggestionId: string) => void;
 	onSettled: () => void;
 	readOnly?: boolean;
 }
@@ -45,14 +48,26 @@ async function postOp(
 export function SuggestionReviewPopover({
 	path,
 	suggestion,
+	overlapSuggestions,
 	currentMarkdown,
 	baseRevision,
 	anchor,
 	onClose,
+	onNavigate,
 	onSettled,
 	readOnly,
 }: Props) {
 	const [busy, setBusy] = useState(false);
+	const overlapIndex = overlapSuggestions.findIndex(({ id }) => id === suggestion.id);
+	const changes = useMemo<WordDiffPart[]>(() => {
+		if (suggestion.kind === "delete") {
+			return [{ text: currentMarkdown || "(empty)", type: "delete" }];
+		}
+		if (suggestion.kind === "insertBefore" || suggestion.kind === "insertAfter") {
+			return [{ text: suggestion.markdown || "(empty)", type: "insert" }];
+		}
+		return diffWords(currentMarkdown, suggestion.markdown ?? "");
+	}, [currentMarkdown, suggestion]);
 
 	useEffect(() => {
 		const onKeyDown = (event: KeyboardEvent) => {
@@ -109,23 +124,63 @@ export function SuggestionReviewPopover({
 							{suggestion.by}
 						</span>
 					</div>
-					<div className="mt-2 space-y-2">
-						<div>
-							<p className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground/60">
-								Current
-							</p>
-							<pre className="max-h-32 overflow-y-auto whitespace-pre-wrap rounded bg-destructive/5 px-2 py-1 font-mono text-[11px] text-muted-foreground">
-								{currentMarkdown || "(empty)"}
-							</pre>
+					{overlapSuggestions.length > 1 && (
+						<div className="mt-2 flex items-center justify-between rounded bg-muted/50 px-2 py-1">
+							<span className="text-[10px] text-muted-foreground">
+								{overlapIndex + 1} of {overlapSuggestions.length}
+							</span>
+							<div className="flex items-center gap-1">
+								<button
+									type="button"
+									aria-label="Previous overlapping suggestion"
+									disabled={busy}
+									onClick={() =>
+										onNavigate(
+											overlapSuggestions[
+												(overlapIndex - 1 + overlapSuggestions.length) % overlapSuggestions.length
+											].id,
+										)
+									}
+									className="rounded px-1.5 text-sm text-muted-foreground hover:bg-accent disabled:opacity-50"
+								>
+									◂
+								</button>
+								<button
+									type="button"
+									aria-label="Next overlapping suggestion"
+									disabled={busy}
+									onClick={() =>
+										onNavigate(
+											overlapSuggestions[(overlapIndex + 1) % overlapSuggestions.length].id,
+										)
+									}
+									className="rounded px-1.5 text-sm text-muted-foreground hover:bg-accent disabled:opacity-50"
+								>
+									▸
+								</button>
+							</div>
 						</div>
-						<div>
-							<p className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground/60">
-								Proposed
-							</p>
-							<pre className="max-h-32 overflow-y-auto whitespace-pre-wrap rounded bg-success/5 px-2 py-1 font-mono text-[11px] text-foreground">
-								{suggestion.markdown ?? (suggestion.kind === "delete" ? "(delete block)" : "(empty)")}
-							</pre>
-						</div>
+					)}
+					<div className="mt-2">
+						<p className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground/60">
+							Changes
+						</p>
+						<pre className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded bg-muted/30 px-2 py-1 font-mono text-[11px] text-foreground">
+							{changes.map((part, index) => (
+								<span
+									key={`${part.type}-${index}`}
+									className={
+										part.type === "delete"
+											? "text-destructive line-through"
+											: part.type === "insert"
+												? "text-success underline decoration-success"
+												: "text-muted-foreground"
+									}
+								>
+									{part.text}
+								</span>
+							))}
+						</pre>
 					</div>
 					{suggestion.basisDetail && (
 						<p className="mt-2 italic text-[11px] text-muted-foreground/70">
