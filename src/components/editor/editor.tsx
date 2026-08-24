@@ -28,8 +28,12 @@ import { useDocumentWatch } from "./hooks/use-document-watch";
 import { useSuggestionCapture } from "./hooks/use-suggestion-capture";
 import { CommentPip } from "./comment-pip";
 import { CommentThread } from "./comment-thread";
-import { SuggestionCard } from "./suggestion-card";
 import { SuggestEditPopover } from "./suggest-edit-popover";
+import { SuggestionReviewPopover } from "./suggestion-review-popover";
+import {
+	createSuggestionDecoratorPlugin,
+	type SuggestionDecoratorController,
+} from "@/lib/proof/suggestion-decorator";
 import { SlashCommands } from "./slash-commands";
 import { DocumentOutline } from "./document-outline";
 import { ReadingExperiments } from "./experiments";
@@ -233,6 +237,27 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	const pendingSuggestions = useMemo(
 		() => suggestionsRaw?.filter((sg) => sg.status === "pending") ?? [],
 		[suggestionsRaw],
+	);
+	const [reviewTarget, setReviewTarget] = useState<{
+		suggestionId: string;
+		anchor: { top: number; left: number };
+	} | null>(null);
+	const suggestionDecoratorRef = useRef<SuggestionDecoratorController | null>(null);
+	if (!suggestionDecoratorRef.current) {
+		suggestionDecoratorRef.current = createSuggestionDecoratorPlugin(
+			{ suggestions: [], blocks: [] },
+			(suggestionId, element) => {
+				const rect = element.getBoundingClientRect();
+				setReviewTarget({
+					suggestionId,
+					anchor: { top: rect.bottom, left: rect.left },
+				});
+			},
+		);
+	}
+	const suggestionBlocks = useMemo(
+		() => snapshotBlocks.slice(snapshotBlockOffset),
+		[snapshotBlockOffset, snapshotBlocks],
 	);
 
 	/**
@@ -687,6 +712,23 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	editorRef.current = editor;
 
 	useEffect(() => {
+		if (!editor || !suggestionDecoratorRef.current) return;
+		editor.registerPlugin(suggestionDecoratorRef.current.plugin);
+		return () => {
+			if (!editor.isDestroyed) editor.unregisterPlugin("suggestionDecorator");
+		};
+	}, [editor]);
+
+	useEffect(() => {
+		if (!editor || !suggestionDecoratorRef.current) return;
+		suggestionDecoratorRef.current.update({
+			suggestions: pendingSuggestions,
+			blocks: suggestionBlocks,
+		});
+		suggestionDecoratorRef.current.refresh(editor.view);
+	}, [editor, pendingSuggestions, suggestionBlocks]);
+
+	useEffect(() => {
 		editor?.setEditable(!isViewing);
 		if (isViewing) setSourceMode(false);
 	}, [editor, isViewing]);
@@ -732,6 +774,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 				return;
 			}
 			editor.commands.setContent(html);
+			suggestionDecoratorRef.current?.refresh(editor.view);
 			renderedKeyRef.current = key;
 			setRenderedPath(currentPath);
 			setTimeout(() => {
@@ -756,6 +799,12 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 			});
 	}, [isViewing, renderedPath, parsedViewingContent.body]);
 
+	const reviewSuggestion = reviewTarget
+		? pendingSuggestions.find((suggestion) => suggestion.id === reviewTarget.suggestionId)
+		: undefined;
+	const reviewBlock = reviewSuggestion
+		? snapshotBlocks.find((block) => block.ref === reviewSuggestion.ref)
+		: undefined;
 	const isLoadingState =
 		currentPath !== null && (isLoading || renderedPath !== currentPath);
 	// Don't flash a spinner for fast/cached opens: only reveal the overlay if the
@@ -834,6 +883,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 				isLoadingRef.current = true;
 				const html = await markdownToHtml(sourceText, currentPath ?? undefined);
 				editor.commands.setContent(html);
+				suggestionDecoratorRef.current?.refresh(editor.view);
 				setTimeout(() => {
 					isLoadingRef.current = false;
 				}, 50);
@@ -927,37 +977,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 											);
 										})}
 
-						{/* Suggestion cards — one per pending suggestion */}
-										{currentPath && pendingSuggestions.map((sg) => {
-											const pos = blockRefPositions.get(sg.ref);
-											const currentBlock = snapshotBlocks.find((b) => b.ref === sg.ref);
-											if (!pos || !currentBlock) return null;
-											const cardTop =
-												sg.kind === "insertAfter" ? pos.bottom + 4 :
-												sg.kind === "insertBefore" ? Math.max(0, pos.top - 80) :
-												pos.top;
-											return (
-												<div key={`sug-${sg.id}`} style={{ pointerEvents: "auto" }}>
-													<SuggestionCard
-														path={currentPath}
-														suggestion={sg}
-														currentMarkdown={currentBlock.markdown}
-														baseRevision={snapshotRevision}
-														getLatestRevision={() =>
-															useProofStore.getState().byPath[currentPath]?.snapshotRevision ?? 0
-														}
-														top={cardTop}
-														left={pos.left}
-														width={pos.width}
-														onSettled={() => {
-															void useProofStore.getState().loadSidecar(currentPath);
-															void useProofStore.getState().loadSnapshot(currentPath);
-														}}
-														readOnly={isViewing}
-													/>
-												</div>
-											);
-										})}
 									</div>
 
 									{/* Comment thread — Portal-rendered, driven by threadTarget */}
@@ -984,6 +1003,22 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 											currentMarkdown={suggestTarget.markdown}
 											anchor={suggestTarget.anchor}
 											onClose={() => setSuggestTarget(null)}
+										/>
+									)}
+									{reviewTarget && reviewSuggestion && reviewBlock && currentPath && (
+										<SuggestionReviewPopover
+											path={currentPath}
+											suggestion={reviewSuggestion}
+											currentMarkdown={reviewBlock.markdown}
+											baseRevision={snapshotRevision}
+											anchor={reviewTarget.anchor}
+											onClose={() => setReviewTarget(null)}
+											onSettled={() => {
+												setReviewTarget(null);
+												void useProofStore.getState().loadSidecar(currentPath);
+												void useProofStore.getState().loadSnapshot(currentPath);
+											}}
+											readOnly={isViewing}
 										/>
 									)}
 									{isViewing && Object.keys(parsedViewingContent.data).length > 0 && (

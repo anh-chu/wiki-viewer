@@ -553,20 +553,30 @@ kind are what let the reviewer see exactly what changed without touching the fil
 
 **Verification pointer:** `src/components/editor/suggest-edit-popover.tsx`
 
-### 6.2 Suggestion cards
+### 6.2 Suggestion inline redline + review popover
 
-**Contract:** Each pending suggestion renders a card ("`<by>` suggests replacing/
-inserting after/inserting before/deleting this block") with current/proposed
-panes and an optional "Reason: …". **Accept** applies via
-`suggestion.accept` (retries once on 409 with the latest revision); **Reject** is
-`suggestion.reject` (no retry). Both reload sidecar + snapshot on settle. Cards
-are hidden in read-only mode.
+**Contract:** Pending suggestions render as inline tracked-change **decorations
+inside** the document (ProseMirror decorations, never written to the `.md`): a
+replace/delete target block gets a left bar + soft wash (`--success-soft` /
+`--destructive-soft`, delete adds strikethrough); insertAfter/insertBefore render
+a dashed **ghost block** of the proposed text via a widget with explicit side.
+Each suggestion carries a caret **▾ badge** (44px touch slop) that opens a
+viewport-clamped **review popover** showing current vs proposed with **Accept**
+(`suggestion.accept`, retries once on 409 with the latest revision) and
+**Reject** (`suggestion.reject`, no retry); both reload sidecar + snapshot on
+settle. `esc` closes; read-only hides Accept/Reject. Decorations follow a fixed
+lifecycle: build from doc + suggestions, map through local transactions, rebuild
+on a meta refresh when the sidecar/snapshot changes, and force a full rebuild
+after any `setContent`. Word-level diff, an overlap switcher, and a status-bar
+navigation chip are separate follow-ups.
 
 **Why it matters:** Accept is the only human path that applies a suggestion;
 its single-retry-then-fail on drift is the guard against clobbering concurrent
-edits.
+edits. Rendering as decorations (not doc marks) keeps the proposal out of the
+saved file until Accept.
 
-**Verification pointer:** `src/components/editor/suggestion-card.tsx`
+**Verification pointer:** `src/lib/proof/suggestion-decorator.ts`,
+`src/components/editor/suggestion-review-popover.tsx`
 
 ### 6.3 Suggesting-mode capture
 
