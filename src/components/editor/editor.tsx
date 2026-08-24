@@ -42,6 +42,7 @@ import {
 import { WikiLinkPicker } from "./wiki-link-picker";
 import { FrontmatterHeader } from "@/components/wiki/frontmatter-header";
 import { ViewModeCommentButton } from "./view-mode-comment-button";
+import { CopyAsPrompt } from "./copy-as-prompt";
 
 async function uploadFile(
 	pagePath: string,
@@ -233,6 +234,34 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		() => suggestionsRaw?.filter((sg) => sg.status === "pending") ?? [],
 		[suggestionsRaw],
 	);
+
+	/**
+	 * Resolve a block `ref` to a short human-readable snippet (the block's
+	 * leading words) for the Copy-as-prompt surface, so prompts read
+	 * `The rendering pipeline…` instead of the opaque ref id.
+	 */
+	const promptComments = useMemo(
+		() => comments.filter((c) => c.kind !== "instruction"),
+		[comments],
+	);
+	const resolvePromptSnippet = useMemo(() => {
+		const byRef = new Map(snapshotBlocks.map((b) => [b.ref, b.markdown]));
+		const shorten = (md: string) => {
+			const text = md
+				.replace(/^[#>\s]*/, "")
+				.replace(/^[-*+]\s+/, "")
+				.replace(/^\d+\.\s+/, "")
+				.replace(/[*_`#>]/g, "")
+				.replace(/\s+/g, " ")
+				.trim();
+			return text.length > 48 ? `${text.slice(0, 48).trimEnd()}…` : text;
+		};
+		return (annotation: { ref?: string }) => {
+			const md = annotation.ref ? byRef.get(annotation.ref) : undefined;
+			const snip = md ? shorten(md) : "";
+			return snip || undefined;
+		};
+	}, [snapshotBlocks]);
 
 	/** Group human comments by block ref for pip rendering (excludes instructions). */
 	const commentsByRef = useMemo(() => {
@@ -1036,6 +1065,12 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 								commands
 							</span>
 							<div className="flex items-center gap-3">
+								<CopyAsPrompt
+									path={currentPath ?? ""}
+									comments={promptComments}
+									suggestions={pendingSuggestions}
+									resolveSnippet={resolvePromptSnippet}
+								/>
 								{/* Mode toggle */}
 								<div
 									className="flex items-center rounded-md border border-border overflow-hidden text-[10.5px]"

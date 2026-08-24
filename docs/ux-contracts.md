@@ -580,6 +580,31 @@ suggestions; a wrong diff flushes garbage suggestions to the sidecar.
 
 **Verification pointer:** `src/components/editor/hooks/use-suggestion-capture.ts`
 
+### 6.4 Copy as prompt
+
+**Contract:** A compact **Copy as prompt** control in the editor status bar
+(shown only when the document has ≥1 open comment or pending suggestion; a count
+badge shows how many). It opens a popover listing those items and serializes
+them into a prompt the user can paste into their own agent, without creating or
+writing anything. Format, numbered from 1:
+`Edit the file \`<path>\` (a Markdown document). Apply these changes:` then a
+blank line then per item `N. \`<snippet>\`: <body>` — comments use the original
+(first) turn's text; suggestions phrase by kind (`replace with "…"`,
+`insert "…"`, `delete this`). The snippet is the block's readable leading text
+(resolved from the snapshot), not the ref id; line-anchored comments use
+`line N` / `lines N-M`. Per-item ⎘ copies one item; **Copy all** copies the
+whole prompt; each shows a ~1500ms copied flip. When the clipboard is
+unavailable (non-secure context) a **Show text** read-only textarea is the
+manual-copy fallback. Instruction-kind and resolved/accepted/rejected items are
+excluded. `esc` / outside-click closes; empty set renders no control.
+
+**Why it matters:** It is the no-agent escape hatch — the same durable comments
+and suggestions, exported as a prompt — so the collaboration data has one home
+and copy-as-prompt is just another surface over it, never a separate artifact.
+
+**Verification pointer:** `src/components/editor/copy-as-prompt.tsx`,
+`src/lib/proof/prompt-serialize.ts`
+
 ## 7. Search
 
 ### 7.1 Command palette and sidebar search
