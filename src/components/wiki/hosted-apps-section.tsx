@@ -7,7 +7,9 @@ import {
 	Copy,
 	Globe,
 	Loader2,
+	Play,
 	Server,
+	Square,
 	Terminal,
 	X,
 } from "lucide-react";
@@ -34,6 +36,8 @@ export function HostedAppsSection() {
 	const loading = useHostedAppsStore((s) => s.loading);
 	const loaded = useHostedAppsStore((s) => s.loaded);
 	const remove = useHostedAppsStore((s) => s.remove);
+	const start = useHostedAppsStore((s) => s.start);
+	const stop = useHostedAppsStore((s) => s.stop);
 	const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
 
 	const copyUrl = async (slug: string) => {
@@ -96,12 +100,47 @@ export function HostedAppsSection() {
 								) : (
 									<Globe className="h-3.5 w-3.5 shrink-0 text-sky-500" />
 								)}
-								<span className="min-w-0 flex-1 truncate text-xs">
+								{app.type === "node" && (
+									<span
+										className={cn(
+											"h-2 w-2 shrink-0 rounded-full",
+											app.status === "running"
+												? "bg-emerald-500"
+												: app.status === "error"
+													? "bg-destructive"
+													: "bg-muted-foreground/50",
+										)}
+										title={app.status ?? "stopped"}
+									/>
+								)}
+								<span
+									className={cn(
+										"min-w-0 flex-1 truncate text-xs",
+										app.type === "node" && app.status === "error" && "text-destructive",
+									)}
+								>
 									{displayName(app)}
 								</span>
 								<span className="max-w-[90px] truncate text-[10px] text-muted-foreground/60">
 									/{app.slug}
 								</span>
+								{app.type === "node" && (
+									<button
+										type="button"
+										className="hover-reveal shrink-0 rounded p-0.5 text-muted-foreground/50 opacity-0 transition-colors hover:bg-muted hover:text-foreground group-hover:opacity-100 focus:opacity-100"
+										title={app.status === "running" ? "Stop app" : "Start app"}
+										onClick={(e) => {
+											e.stopPropagation();
+											void (app.status === "running" ? stop(app.slug) : start(app.slug));
+										}}
+									>
+										{app.status === "running" ? (
+											<Square className="h-3 w-3" />
+										) : (
+											<Play className="h-3 w-3" />
+										)}
+									</button>
+								)}
 								<button
 									type="button"
 									className="hover-reveal shrink-0 rounded p-0.5 text-muted-foreground/50 opacity-0 transition-colors hover:bg-muted hover:text-foreground group-hover:opacity-100 focus:opacity-100"

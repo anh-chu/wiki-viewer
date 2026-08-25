@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { wsFetch } from "@/lib/workspace-client";
 import { useHostedAppsStore } from "@/stores/hosted-apps-store";
 
 // Client-side mirrors of the server validation (src/lib/hosted-apps.ts). The
@@ -38,15 +39,32 @@ export function HostAppDialog() {
 	const closeHostDialog = useHostedAppsStore((s) => s.closeHostDialog);
 
 	const [slug, setSlug] = useState("");
+	const [script, setScript] = useState("");
+	const [scripts, setScripts] = useState<string[]>([]);
 	const [submitting, setSubmitting] = useState(false);
 	const [serverError, setServerError] = useState<string | null>(null);
 
 	// Ensure the known-slug set is fresh for uniqueness hints when opening.
 	useEffect(() => {
-		if (dialog) {
-			setSlug(dialog.defaultSlug);
-			setServerError(null);
-			void refresh();
+		if (!dialog) return;
+		setSlug(dialog.defaultSlug);
+		setScript("");
+		setScripts([]);
+		setServerError(null);
+		void refresh();
+		if (dialog.type === "node") {
+			void wsFetch(`/api/wiki/app?path=${encodeURIComponent(dialog.relPath)}`)
+				.then(async (res) => {
+					if (!res.ok) return;
+					const data = (await res.json()) as {
+						scripts?: string[];
+						defaultScript?: string | null;
+					};
+					const available = data.scripts ?? [];
+					setScripts(available);
+					setScript(data.defaultScript ?? available[0] ?? "");
+				})
+				.catch(() => {});
 		}
 	}, [dialog, refresh]);
 
@@ -60,7 +78,12 @@ export function HostAppDialog() {
 		if (inlineError) return;
 		setSubmitting(true);
 		setServerError(null);
-		const result = await create({ slug: slug.trim(), relPath: dialog.relPath });
+		const result = await create({
+			slug: slug.trim(),
+			relPath: dialog.relPath,
+			type: dialog.type ?? "html",
+			script: dialog.type === "node" && script ? script : undefined,
+		});
 		setSubmitting(false);
 		if (result.ok) {
 			closeHostDialog();
@@ -96,6 +119,21 @@ export function HostAppDialog() {
 						placeholder="my-app"
 						aria-invalid={!!(inlineError || serverError)}
 					/>
+					{dialog.type === "node" && scripts.length > 0 && (
+						<div className="space-y-2">
+							<Label htmlFor="host-script">Start script</Label>
+							<select
+								id="host-script"
+								className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
+								value={script}
+							onChange={(e) => setScript(e.target.value)}
+							>
+								{scripts.map((name) => (
+									<option key={name} value={name}>{name}</option>
+								))}
+							</select>
+						</div>
+					)}
 					<p className="min-h-[1rem] text-xs text-muted-foreground">
 						<span className="truncate">{dialog.relPath || "(workspace root)"}</span>
 					</p>

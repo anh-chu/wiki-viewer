@@ -1,13 +1,19 @@
 "use client";
 import { create } from "zustand";
 import { wsFetch } from "@/lib/workspace-client";
+import type { AppStatus } from "@/lib/app-runner";
 
 export interface HostedApp {
 	slug: string;
 	type: "node" | "html";
 	workspaceId: string;
 	relPath: string;
+	script?: string;
 	createdAt: string;
+	status?: AppStatus;
+	port?: number;
+	error?: string;
+	logs?: string[];
 }
 
 export interface HostDialogRequest {
@@ -15,6 +21,8 @@ export interface HostDialogRequest {
 	relPath: string;
 	/** Pre-filled, editable slug (kebab-cased directory name). */
 	defaultSlug: string;
+	/** Hosted app runtime; HTML remains the default for existing callers. */
+	type?: "html" | "node";
 }
 
 export interface CreateResult {
@@ -31,9 +39,11 @@ interface HostedAppsState {
 	dialog: HostDialogRequest | null;
 	toggleCollapsed: () => void;
 	refresh: () => Promise<void>;
-	create: (input: { slug: string; relPath: string }) => Promise<CreateResult>;
+	create: (input: { slug: string; relPath: string; type?: "html" | "node"; script?: string }) => Promise<CreateResult>;
+	start: (slug: string) => Promise<void>;
+	stop: (slug: string) => Promise<void>;
 	remove: (slug: string) => Promise<void>;
-	openHostDialog: (relPath: string, defaultSlug: string) => void;
+	openHostDialog: (relPath: string, defaultSlug: string, type?: "html" | "node") => void;
 	closeHostDialog: () => void;
 }
 
@@ -75,12 +85,12 @@ export const useHostedAppsStore = create<HostedAppsState>((set, get) => ({
 		}
 	},
 
-	create: async ({ slug, relPath }) => {
+	create: async ({ slug, relPath, type = "html", script }) => {
 		try {
 			const res = await wsFetch("/api/wiki/hosted-apps", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ slug, type: "html", path: relPath }),
+				body: JSON.stringify({ slug, type, path: relPath, script }),
 			});
 			if (!res.ok) {
 				const body = (await res.json().catch(() => ({}))) as {
@@ -96,6 +106,30 @@ export const useHostedAppsStore = create<HostedAppsState>((set, get) => ({
 		}
 	},
 
+	start: async (slug) => {
+		try {
+			await wsFetch(`/api/wiki/hosted-apps/${encodeURIComponent(slug)}`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ action: "start" }),
+			});
+		} finally {
+			await get().refresh();
+		}
+	},
+
+	stop: async (slug) => {
+		try {
+			await wsFetch(`/api/wiki/hosted-apps/${encodeURIComponent(slug)}`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ action: "stop" }),
+			});
+		} finally {
+			await get().refresh();
+		}
+	},
+
 	remove: async (slug) => {
 		try {
 			await wsFetch("/api/wiki/hosted-apps", {
@@ -108,6 +142,7 @@ export const useHostedAppsStore = create<HostedAppsState>((set, get) => ({
 		}
 	},
 
-	openHostDialog: (relPath, defaultSlug) => set({ dialog: { relPath, defaultSlug } }),
+	openHostDialog: (relPath, defaultSlug, type = "html") =>
+		set({ dialog: { relPath, defaultSlug, type } }),
 	closeHostDialog: () => set({ dialog: null }),
 }));

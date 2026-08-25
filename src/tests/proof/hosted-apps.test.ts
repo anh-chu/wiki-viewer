@@ -103,6 +103,45 @@ test("create with a valid slug returns 201", async () => {
 	assert.equal(body.app.workspaceId, wsA.workspace.id);
 });
 
+test("node create/list/delete preserves node type and script", async () => {
+	const create = await hostedPOST(
+		createReq(
+			wsA.workspace.id,
+			{ slug: "node-site", type: "node", path: "site", script: "dev" },
+			adminUser.cookies,
+		),
+	);
+	assert.equal(create.status, 201);
+	const listed = await hostedGET(
+		new Request(hostedUrl(wsA.workspace.id), { headers: { Cookie: adminUser.cookies } }),
+	);
+	const body = (await listed.json()) as {
+		apps: Array<{ slug: string; type: string; workspaceId: string; relPath: string; script?: string; createdAt: string; status?: string; logs?: string[] }>;
+	};
+	assert.deepEqual(body.apps.find((app) => app.slug === "node-site"), {
+		slug: "node-site",
+		type: "node",
+		workspaceId: wsA.workspace.id,
+		relPath: "site",
+		script: "dev",
+		createdAt: body.apps.find((app) => app.slug === "node-site")?.createdAt,
+		status: "stopped",
+		logs: [],
+	});
+	const del = await hostedDELETE(
+		new Request(hostedUrl(wsA.workspace.id), {
+			method: "DELETE",
+			headers: {
+				Cookie: adminUser.cookies,
+				Origin: "http://localhost:3000",
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({ slug: "node-site" }),
+		}),
+	);
+	assert.equal(del.status, 200);
+});
+
 test("reject duplicate slug and name the owning workspace", async () => {
 	await hostedPOST(
 		createReq(wsA.workspace.id, { slug: "dup", type: "html", path: "site" }, adminUser.cookies),

@@ -872,13 +872,16 @@ boundary; breaking it leaks tokens to `ps`.
 polls every 800 ms while `installing`/`starting`; statuses are `stopped |
 installing | starting | running | error` with a mono log panel. Its iframe
 sandbox is `allow-scripts allow-same-origin …` (a trusted app, unlike HTML
-previews).
+previews). The viewer toolbar offers **Host this app**, opening the hosted-app
+dialog in node mode so a directory can receive a short slug and selected npm
+script.
 
 **Why it matters:** The same-origin sandbox is a deliberate privilege grant to
 the app runner, distinct from the scripts-off HTML preview; confusing the two
 is a security regression.
 
-**Verification pointer:** `src/components/editor/node-app-viewer.tsx`
+**Verification pointer:** `src/components/editor/node-app-viewer.tsx`,
+`src/components/wiki/host-app-dialog.tsx`
 
 ### 13.2 Proxy and lifecycle
 
@@ -896,7 +899,7 @@ credentials from leaking into the child app; the 30 s readiness and 2 s SIGKILL
 are the start/stop liveness bounds.
 
 **Verification pointer:** `src/app/api/app-proxy/[...path]/route.ts`,
-`src/lib/app-runner.ts`
+`src/lib/app-proxy-core.ts`, `src/lib/app-runner.ts`
 
 ### 13.3 Hosted apps registry and management API
 
@@ -936,9 +939,12 @@ for an `html` entry, serves the mapped directory **dir-aware**: it authenticates
 the user, enforces access to the entry's owning workspace, then reads the file
 under `relPath` through the same path-containment used by `/api/assets`,
 defaulting to `index.html` for the directory root and for any sub-directory hit.
-Because the slug prefix is stable, relative assets inside the page resolve back
-through the same route without a query-string scope. An unknown slug (or a
-`node` entry, until the node ticket lands) returns `404 APP_NOT_FOUND`.
+For a `node` entry, every request resolves the current runner port and forwards
+through the shared proxy core; stopped apps return `502 APP_NOT_RUNNING`. A
+restart may choose a new port without changing the slug URL or cached client
+state. Because the slug prefix is stable, relative assets inside either app
+resolve back through the same route without a query-string scope. An unknown
+slug returns `404 APP_NOT_FOUND`.
 
 **Why it matters:** This is the short, stable, shareable link that hides how deep
 or which workspace the source directory lives in; reusing the assets path keeps
@@ -957,16 +963,21 @@ and unhost actions.
 
 A **host dialog** (shadcn Dialog) collects the required slug, pre-filled with the
 kebab-cased directory name and editable, with inline format/reserved/uniqueness
-validation before submit (the server remains authoritative). It launches from the
-website (HTML) viewer toolbar ("Host this app") and from a "Host this app" item
-in the file-tree context menu for directories.
+validation before submit (the server remains authoritative). For node directories
+it fetches available npm scripts and lets the user choose one. It launches from the
+website (HTML) viewer toolbar, node-app viewer toolbar, and from a "Host this app"
+item in the file-tree context menu for directories. Node rows expose an on-demand
+status dot and start/stop control; start and stop use the same app-runner
+authorization gate as direct node-app controls.
 
 **Why it matters:** One place lists everything hosted and turns a deep directory
 into a one-click stable link; on-demand fetching avoids a persistent polling load
 from the always-mounted sidebar.
 
 **Verification pointer:** `src/components/wiki/hosted-apps-section.tsx`,
-`src/components/wiki/host-app-dialog.tsx`, `src/stores/hosted-apps-store.ts`
+`src/components/wiki/host-app-dialog.tsx`,
+`src/components/editor/node-app-viewer.tsx`, `src/stores/hosted-apps-store.ts`,
+`src/app/api/wiki/hosted-apps/[slug]/route.ts`
 
 ## 14. Settings and system config
 

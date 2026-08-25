@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { AppStatus } from "@/lib/app-runner";
 import { wsFetch, withWs } from "@/lib/workspace-client";
+import { kebabCase, useHostedAppsStore } from "@/stores/hosted-apps-store";
 
 interface Props {
 	path: string;
@@ -155,6 +156,19 @@ export function NodeAppViewer({ path, title }: Props) {
 	return (
 		<div className="flex-1 flex flex-col overflow-hidden">
 			<ViewerToolbar path={path} badge="Node app">
+				<Button
+					variant="ghost"
+					size="sm"
+					className="h-7 gap-1.5 text-xs"
+					onClick={() =>
+						useHostedAppsStore
+							.getState()
+							.openHostDialog(path, kebabCase(path.split("/").pop() ?? path), "node")
+					}
+				>
+					<Terminal className="h-3.5 w-3.5" />
+					Host this app
+				</Button>
 				{status === "running" && (
 					<>
 						<Button

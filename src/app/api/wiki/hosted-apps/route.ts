@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { checkOrigin } from "@/lib/auth/csrf";
+import { getStatus } from "@/lib/app-runner";
 import {
 	createHostedApp,
 	deleteHostedApp,
@@ -32,7 +33,12 @@ export async function GET(request: Request) {
 	if (!ctx.ok) return NextResponse.json({ error: ctx.code }, { status: ctx.status });
 
 	const apps = await listHostedApps();
-	return NextResponse.json({ apps });
+	const enriched = apps.map((app) =>
+		app.type === "node"
+			? { ...app, ...getStatus(app.workspaceId, app.relPath) }
+			: app,
+	);
+	return NextResponse.json({ apps: enriched });
 }
 
 // POST /api/wiki/hosted-apps  { slug, type?, path, script?, persist? }
