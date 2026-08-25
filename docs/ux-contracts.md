@@ -81,6 +81,10 @@ down turns "did we regress the loop?" into a diff against this file.
 - [13. App runner and node apps](#13-app-runner-and-node-apps)
   - [13.1 Node-app viewer](#131-node-app-viewer)
   - [13.2 Proxy and lifecycle](#132-proxy-and-lifecycle)
+  - [13.3 Persisted-app crash supervision](#133-persisted-app-crash-supervision)
+  - [13.4 Hosted apps registry and management API](#134-hosted-apps-registry-and-management-api)
+  - [13.5 Hosted app slug route (`/app/<slug>`)](#135-hosted-app-slug-route-appslug)
+  - [13.6 Hosted Apps sidebar section and host dialog](#136-hosted-apps-sidebar-section-and-host-dialog)
 - [14. Settings and system config](#14-settings-and-system-config)
   - [14.1 Workspace management](#141-workspace-management)
   - [14.2 Config precedence](#142-config-precedence)
@@ -901,7 +905,33 @@ are the start/stop liveness bounds.
 **Verification pointer:** `src/app/api/app-proxy/[...path]/route.ts`,
 `src/lib/app-proxy-core.ts`, `src/lib/app-runner.ts`
 
-### 13.3 Hosted apps registry and management API
+### 13.3 Persisted-app crash supervision (state logic)
+
+**Contract:** Persisted (pinned) node apps are supervised by a pure state machine,
+`reduceSupervision`. An unexpected child exit (`crash`) increments a plain crash
+counter and, while the counter stays within `DEFAULT_CRASH_RESTART_CAP` (**5**),
+requests an automatic restart with backoff. Exceeding the cap sets status `error`
+and records a message with the crash count; further automatic crashes are inert.
+A manual `restart` resets the crash counter and clears the error. Debounced source
+file changes restart pinned apps while counting separately in
+`fileWatchRestartCount`, never consuming the crash cap; changes while errored do
+not resurrect the app. Pinning enables boot restore when the configured unattended
+app-runner gate is enabled; unpinning stops future restore.
+
+**Contract:** Hosted Apps sidebar rows sort pinned node apps first. Node rows expose
+pin/unpin, start/stop, and status controls. Error and missing-source dots open a
+compact popover with the last error, recent log tail, and **Restart now** (manual
+restart); missing sources remain disabled until restored. The node-app viewer shows
+an error label including its crash count.
+
+**Why it matters:** The crash cap prevents broken pinned apps from looping forever,
+while pinned-first status controls make unattended recovery visible and actionable.
+
+**Verification pointer:** `src/lib/app-supervisor.ts`, `src/tests/proof/app-supervisor.test.ts`,
+`src/lib/app-runner.ts`, `src/components/wiki/hosted-apps-section.tsx`,
+`src/components/editor/node-app-viewer.tsx`, `src/stores/hosted-apps-store.ts`
+
+### 13.4 Hosted apps registry and management API
 
 **Contract:** A hosted app maps a short, user-chosen **slug** to a directory in
 a workspace. The registry persists to `~/.wiki-viewer/hosted-apps.json`
@@ -932,7 +962,7 @@ surface builds on; global-unique slugs plus the reserved-name blocklist keep the
 **Verification pointer:** `src/lib/hosted-apps.ts`,
 `src/app/api/wiki/hosted-apps/route.ts`, `src/tests/proof/hosted-apps.test.ts`
 
-### 13.4 Hosted app slug route (`/app/<slug>`)
+### 13.5 Hosted app slug route (`/app/<slug>`)
 
 **Contract:** `GET /app/<slug>/<...rest>` resolves the slug in the registry and,
 for an `html` entry, serves the mapped directory **dir-aware**: it authenticates
@@ -952,7 +982,7 @@ workspace scoping and traversal protection intact.
 
 **Verification pointer:** `src/app/app/[slug]/[[...rest]]/route.ts`
 
-### 13.5 Hosted Apps sidebar section and host dialog
+### 13.6 Hosted Apps sidebar section and host dialog
 
 **Contract:** A collapsible **Hosted Apps** section sits in the left sidebar,
 styled like Favorites/Recent. It is **fetched on demand** — on section expand and

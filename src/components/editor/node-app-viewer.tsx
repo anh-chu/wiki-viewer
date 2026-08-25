@@ -34,6 +34,8 @@ interface StatusResponse {
 	status: AppStatus;
 	port?: number;
 	error?: string;
+	lastError?: string;
+	restartCount?: number;
 	logs: string[];
 	scripts?: string[];
 	defaultScript?: string | null;
@@ -52,6 +54,7 @@ export function NodeAppViewer({ path, title }: Props) {
 	const [port, setPort] = useState<number | null>(null);
 	const [logs, setLogs] = useState<string[]>([]);
 	const [error, setError] = useState<string | null>(null);
+	const [restartCount, setRestartCount] = useState(0);
 	const [showLogs, setShowLogs] = useState(false);
 	const [iframeKey, setIframeKey] = useState(0);
 	const [scripts, setScripts] = useState<string[]>([]);
@@ -76,6 +79,8 @@ export function NodeAppViewer({ path, title }: Props) {
 			const data: StatusResponse = await res.json();
 			setStatus(data.status);
 			setLogs(data.logs ?? []);
+			setRestartCount(data.restartCount ?? 0);
+			setError(data.error ?? data.lastError ?? null);
 			if (data.scripts) setScripts(data.scripts);
 			if (data.defaultScript !== undefined) setDefaultScript(data.defaultScript);
 			if (data.port) setPort(data.port);
@@ -317,7 +322,9 @@ export function NodeAppViewer({ path, title }: Props) {
 						<AlertCircle className="h-8 w-8 text-destructive" />
 						<div className="text-center space-y-1 max-w-md">
 							<p className="text-sm font-medium text-destructive">
-								Failed to start app
+								{restartCount > 0
+									? `App stopped after ${restartCount} crash${restartCount === 1 ? "" : "es"}`
+									: "Failed to start app"}
 							</p>
 							<p className="text-xs text-muted-foreground break-words">
 								{error ?? "Unknown error"}

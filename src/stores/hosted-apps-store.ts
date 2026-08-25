@@ -10,10 +10,14 @@ export interface HostedApp {
 	relPath: string;
 	script?: string;
 	createdAt: string;
-	status?: AppStatus;
+	status?: AppStatus | "restarting" | "missing";
 	port?: number;
 	error?: string;
+	lastError?: string;
+	restartCount?: number;
+	fileWatchRestartCount?: number;
 	logs?: string[];
+	persist?: boolean;
 }
 
 export interface HostDialogRequest {
@@ -42,6 +46,9 @@ interface HostedAppsState {
 	create: (input: { slug: string; relPath: string; type?: "html" | "node"; script?: string }) => Promise<CreateResult>;
 	start: (slug: string) => Promise<void>;
 	stop: (slug: string) => Promise<void>;
+	pin: (slug: string) => Promise<void>;
+	unpin: (slug: string) => Promise<void>;
+	restart: (slug: string) => Promise<void>;
 	remove: (slug: string) => Promise<void>;
 	openHostDialog: (relPath: string, defaultSlug: string, type?: "html" | "node") => void;
 	closeHostDialog: () => void;
@@ -124,6 +131,42 @@ export const useHostedAppsStore = create<HostedAppsState>((set, get) => ({
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ action: "stop" }),
+			});
+		} finally {
+			await get().refresh();
+		}
+	},
+
+	pin: async (slug) => {
+		try {
+			await wsFetch(`/api/wiki/hosted-apps/${encodeURIComponent(slug)}`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ action: "pin" }),
+			});
+		} finally {
+			await get().refresh();
+		}
+	},
+
+	unpin: async (slug) => {
+		try {
+			await wsFetch(`/api/wiki/hosted-apps/${encodeURIComponent(slug)}`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ action: "unpin" }),
+			});
+		} finally {
+			await get().refresh();
+		}
+	},
+
+	restart: async (slug) => {
+		try {
+			await wsFetch(`/api/wiki/hosted-apps/${encodeURIComponent(slug)}`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ action: "restart" }),
 			});
 		} finally {
 			await get().refresh();

@@ -7,13 +7,18 @@ import {
 	Copy,
 	Globe,
 	Loader2,
+	Pin,
+	PinOff,
 	Play,
+	RefreshCw,
 	Server,
 	Square,
 	Terminal,
 	X,
 } from "lucide-react";
+import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
 import { apiUrl } from "@/lib/url-prefix";
 import { cn } from "@/lib/utils";
 import { type HostedApp, useHostedAppsStore } from "@/stores/hosted-apps-store";
@@ -38,7 +43,11 @@ export function HostedAppsSection() {
 	const remove = useHostedAppsStore((s) => s.remove);
 	const start = useHostedAppsStore((s) => s.start);
 	const stop = useHostedAppsStore((s) => s.stop);
+	const pin = useHostedAppsStore((s) => s.pin);
+	const unpin = useHostedAppsStore((s) => s.unpin);
+	const restart = useHostedAppsStore((s) => s.restart);
 	const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
+	const [errorSlug, setErrorSlug] = useState<string | null>(null);
 
 	const copyUrl = async (slug: string) => {
 		try {
@@ -81,7 +90,9 @@ export function HostedAppsSection() {
 							directory.
 						</p>
 					) : (
-						apps.map((app) => (
+						[...apps]
+							.sort((a, b) => Number(Boolean(b.persist)) - Number(Boolean(a.persist)))
+							.map((app) => (
 							<div
 								key={app.slug}
 								role="button"
@@ -100,23 +111,77 @@ export function HostedAppsSection() {
 								) : (
 									<Globe className="h-3.5 w-3.5 shrink-0 text-sky-500" />
 								)}
-								{app.type === "node" && (
-									<span
-										className={cn(
-											"h-2 w-2 shrink-0 rounded-full",
-											app.status === "running"
-												? "bg-emerald-500"
-												: app.status === "error"
-													? "bg-destructive"
-													: "bg-muted-foreground/50",
-										)}
-										title={app.status ?? "stopped"}
-									/>
-								)}
+								{app.type === "node" && (() => {
+									const faulted = app.status === "error" || app.status === "missing";
+									const dot = (
+										<span
+											className={cn(
+												"h-2 w-2 shrink-0 rounded-full",
+												app.status === "running"
+													? "bg-emerald-500"
+													: faulted
+														? "bg-destructive"
+														: "bg-muted-foreground/50",
+											)}
+											title={app.status ?? "stopped"}
+										/>
+									);
+									if (!faulted) return dot;
+									return (
+										<PopoverPrimitive.Root
+											open={errorSlug === app.slug}
+											onOpenChange={(open) => setErrorSlug(open ? app.slug : null)}
+										>
+											<PopoverPrimitive.Trigger asChild>
+												<button
+													type="button"
+													className="rounded-full focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+													onClick={(e) => e.stopPropagation()}
+													aria-label={`Show ${app.status} details for ${app.slug}`}
+												>
+													{dot}
+												</button>
+											</PopoverPrimitive.Trigger>
+											<PopoverPrimitive.Portal>
+												<PopoverPrimitive.Content
+													side="right"
+													align="start"
+													className="z-50 w-72 rounded-md border bg-popover p-3 text-popover-foreground shadow-md outline-none"
+													onClick={(e) => e.stopPropagation()}
+												>
+													<p className="text-xs font-medium text-destructive">
+														{app.status === "missing" ? "Source directory missing" : "App stopped after repeated crashes"}
+													</p>
+													<p className="mt-1 text-xs text-muted-foreground break-words">
+														{app.lastError ?? app.error ?? "No error details available."}
+													</p>
+													{(app.logs?.length ?? 0) > 0 && (
+														<pre className="mt-2 max-h-28 overflow-auto rounded bg-muted p-2 text-[10px] leading-4 whitespace-pre-wrap">
+															{app.logs?.slice(-8).join("\n")}
+														</pre>
+													)}
+													<Button
+														size="sm"
+														variant="outline"
+														className="mt-2 h-7 gap-1.5 text-xs"
+														disabled={app.status === "missing"}
+														onClick={() => {
+															setErrorSlug(null);
+															void restart(app.slug);
+														}}
+													>
+														<RefreshCw className="h-3 w-3" />
+														Restart now
+													</Button>
+												</PopoverPrimitive.Content>
+											</PopoverPrimitive.Portal>
+										</PopoverPrimitive.Root>
+									);
+								})()}
 								<span
 									className={cn(
 										"min-w-0 flex-1 truncate text-xs",
-										app.type === "node" && app.status === "error" && "text-destructive",
+										app.type === "node" && (app.status === "error" || app.status === "missing") && "text-destructive",
 									)}
 								>
 									{displayName(app)}
@@ -125,21 +190,34 @@ export function HostedAppsSection() {
 									/{app.slug}
 								</span>
 								{app.type === "node" && (
-									<button
-										type="button"
-										className="hover-reveal shrink-0 rounded p-0.5 text-muted-foreground/50 opacity-0 transition-colors hover:bg-muted hover:text-foreground group-hover:opacity-100 focus:opacity-100"
-										title={app.status === "running" ? "Stop app" : "Start app"}
-										onClick={(e) => {
-											e.stopPropagation();
-											void (app.status === "running" ? stop(app.slug) : start(app.slug));
-										}}
-									>
-										{app.status === "running" ? (
-											<Square className="h-3 w-3" />
-										) : (
-											<Play className="h-3 w-3" />
-										)}
-									</button>
+									<>
+										<button
+											type="button"
+											className="hover-reveal shrink-0 rounded p-0.5 text-muted-foreground/50 opacity-0 transition-colors hover:bg-muted hover:text-foreground group-hover:opacity-100 focus:opacity-100"
+											title={app.persist ? "Unpin app (disable boot restore)" : "Pin app (restore on boot)"}
+											onClick={(e) => {
+												e.stopPropagation();
+												void (app.persist ? unpin(app.slug) : pin(app.slug));
+											}}
+										>
+											{app.persist ? <Pin className="h-3 w-3 text-primary" /> : <PinOff className="h-3 w-3" />}
+										</button>
+										<button
+											type="button"
+											className="hover-reveal shrink-0 rounded p-0.5 text-muted-foreground/50 opacity-0 transition-colors hover:bg-muted hover:text-foreground group-hover:opacity-100 focus:opacity-100"
+											title={app.status === "running" ? "Stop app" : "Start app"}
+											onClick={(e) => {
+												e.stopPropagation();
+												void (app.status === "running" ? stop(app.slug) : start(app.slug));
+											}}
+										>
+											{app.status === "running" ? (
+												<Square className="h-3 w-3" />
+											) : (
+												<Play className="h-3 w-3" />
+											)}
+										</button>
+									</>
 								)}
 								<button
 									type="button"
