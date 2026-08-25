@@ -75,6 +75,7 @@
     { "id": "app-runner", "code": "AR", "name": "Node app runner", "group": "compute", "loc": "738 LOC", "gx": 14, "gy": 7, "w": 3, "d": 2, "h": 5, "what": "Runs trusted node-app folders and proxies their local web surface.", "how": "app-runner.ts manages child processes, readiness probes, ports, logs, and access-checked forwarding.", "talks": ["wiki-api", "path", "web-shell"] },
     { "id": "git", "code": "GT", "name": "Git integration", "group": "domain", "loc": "871 LOC", "gx": 18, "gy": 7, "w": 2, "d": 2, "h": 5, "what": "Shows repository history and supports safe branch-oriented workspace actions.", "how": "git.ts wraps the system binary, scans for leaked credentials, and backs history, diff, branch, and clone routes.", "talks": ["wiki-api", "path", "workspace"] },
     { "id": "sshfs", "code": "SF", "name": "SSHFS remotes", "group": "domain", "loc": "464 LOC", "gx": 21, "gy": 7, "w": 2, "d": 2, "h": 4, "what": "Makes remote folders appear as workspaces through a local mount boundary.", "how": "sshfs.ts and mount helpers manage remote lifecycle, reconnects, and mount hazards.", "talks": ["workspace", "path", "cli"] },
+    { "id": "hosted-apps", "code": "HA", "name": "Hosted apps", "group": "compute", "loc": "520 LOC", "gx": 24, "gy": 7, "w": 2, "d": 2, "h": 4, "what": "Maps short user-chosen slugs to workspace directories reachable at /app/<slug>.", "how": "hosted-apps.ts persists the slug registry (~/.wiki-viewer/hosted-apps.json); /api/wiki/hosted-apps manages entries with CSRF and the app-runner gate; the /app/<slug> route serves html dirs dir-aware.", "talks": ["wiki-api", "path", "workspace", "web-shell"] },
     { "id": "proof", "code": "PR", "name": "Proof core", "group": "domain", "loc": "1,397 LOC", "gx": 1, "gy": 10, "w": 4, "d": 3, "h": 10, "what": "Applies structured Markdown edits while preserving revisions, references, comments, and suggestions.", "how": "ops-applier.ts parses blocks, checks base revisions, applies operations, writes atomically, and updates sidecar metadata.", "talks": ["safety", "markdown", "auth-store", "audit-store"], "children": [
       { "code": "OP", "name": "Block operations", "h": 9, "what": "Apply insert, replace, delete, and annotation operations.", "how": "ops-applier.ts applies insert, replace, delete, and annotation operations against parsed blocks." },
       { "code": "RF", "name": "Reference map", "h": 5, "what": "Keeps stable block references across edits.", "how": "block-refs.ts keeps stable block references valid across edits." },
@@ -132,6 +133,8 @@
     { "f": "wiki-api", "t": "scratch", "flow": 1, "pay": "Quick capture" },
     { "f": "wiki-api", "t": "app-runner", "flow": 1, "pay": "Trusted app launch" },
     { "f": "app-runner", "t": "web-shell", "flow": 1, "pay": "Proxied preview" },
+    { "f": "wiki-api", "t": "hosted-apps", "flow": 1, "pay": "Hosted app registry" },
+    { "f": "hosted-apps", "t": "web-shell", "flow": 1, "pay": "Slug-served app" },
     { "f": "mcp", "t": "agent-api", "flow": 1, "pay": "MCP tool call" },
     { "f": "ai-panel", "t": "agent-api", "flow": 1, "pay": "Agent management" },
     { "f": "state", "t": "editor", "flow": 1, "pay": "Page state" },

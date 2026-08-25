@@ -20,12 +20,14 @@ import {
 	PencilRuler,
 	Star,
 	RefreshCw,
+	Server,
 	Terminal,
 	Trash2,
 	Upload,
 	X,
 } from "lucide-react";
 import { memo, useCallback, useMemo, useRef } from "react";
+import { kebabCase, useHostedAppsStore } from "@/stores/hosted-apps-store";
 
 import { BranchDropdown } from "@/components/wiki/branch-dropdown";
 import { Button } from "@/components/ui/button";
@@ -314,6 +316,16 @@ export function FileContextMenuItems({
 					<ContextMenuItem onSelect={() => ctx.triggerUpload(node.path)}>
 						<Upload className="mr-2 h-3.5 w-3.5" />
 						Upload here
+					</ContextMenuItem>
+					<ContextMenuItem
+						onSelect={() =>
+							useHostedAppsStore
+								.getState()
+								.openHostDialog(node.path, kebabCase(node.name))
+						}
+					>
+						<Server className="mr-2 h-3.5 w-3.5" />
+						Host this app
 					</ContextMenuItem>
 					<ContextMenuItem
 						onSelect={() => {

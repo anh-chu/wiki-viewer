@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowLeft, ExternalLink, Play, Ban } from "lucide-react";
+import { ArrowLeft, ExternalLink, Play, Ban, Server } from "lucide-react";
 import { ViewerToolbar } from "@/components/layout/viewer-toolbar";
 import { Button } from "@/components/ui/button";
 import { assetPreviewUrl } from "@/lib/workspace-client";
+import { kebabCase, useHostedAppsStore } from "@/stores/hosted-apps-store";
 
 interface WebsiteViewerProps {
 	path: string;
@@ -94,6 +95,20 @@ export function WebsiteViewer({
 							Enable scripts
 						</>
 					)}
+				</Button>
+				<Button
+					variant="ghost"
+					size="sm"
+					className="h-7 gap-1.5 text-xs"
+					onClick={() =>
+						useHostedAppsStore
+							.getState()
+							.openHostDialog(path, kebabCase(path.split("/").pop() ?? path))
+					}
+					title="Host this app under a short slug"
+				>
+					<Server className="h-3.5 w-3.5" />
+					Host this app
 				</Button>
 				<Button
 					variant="ghost"

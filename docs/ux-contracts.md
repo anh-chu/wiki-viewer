@@ -898,6 +898,76 @@ are the start/stop liveness bounds.
 **Verification pointer:** `src/app/api/app-proxy/[...path]/route.ts`,
 `src/lib/app-runner.ts`
 
+### 13.3 Hosted apps registry and management API
+
+**Contract:** A hosted app maps a short, user-chosen **slug** to a directory in
+a workspace. The registry persists to `~/.wiki-viewer/hosted-apps.json`
+(mirroring `agents.json`): a single in-memory source of truth with write-through
+to disk, serialized through a file mutex. Each entry stores `slug`, `type`
+(`html` | `node`), `workspaceId`, `relPath`, `createdAt`, plus node-only
+`script`/`persist` (reserved for later tickets). Slugs are **globally unique**
+across all workspaces for this cut.
+
+Slug validation: format must match `^[a-z0-9][a-z0-9-]*$` (lowercase
+alphanumeric plus hyphen, `SLUG_INVALID`), must not be a reserved name
+(`api`, `app`, `apps`, `s`, `signin`, `_next`, `assets`, and other top-level
+segments; `SLUG_RESERVED`), and must be globally unique (`SLUG_TAKEN`). A
+duplicate error **names the workspace that already owns the slug**.
+
+The session-gated `/api/wiki/hosted-apps` endpoint supports `GET` (list, global),
+`POST` (create), and `DELETE` (unhost by slug). State-changing calls perform the
+CSRF Origin check and the app-runner authorization gate: allowed when
+`WIKI_NO_AUTH=1`, `WIKI_ALLOW_APP_RUNNER=1`, or the caller is admin; otherwise
+`403 ADMIN_REQUIRED`. Unauthenticated calls are `401`; cross-origin cookie calls
+are `403`. Create returns `201 {app}`; duplicate returns
+`409 {error:"SLUG_TAKEN", message}`.
+
+**Why it matters:** The registry is the durable spine every later Hosted Apps
+surface builds on; global-unique slugs plus the reserved-name blocklist keep the
+`/app/<slug>` namespace unambiguous and free of route collisions.
+
+**Verification pointer:** `src/lib/hosted-apps.ts`,
+`src/app/api/wiki/hosted-apps/route.ts`, `src/tests/proof/hosted-apps.test.ts`
+
+### 13.4 Hosted app slug route (`/app/<slug>`)
+
+**Contract:** `GET /app/<slug>/<...rest>` resolves the slug in the registry and,
+for an `html` entry, serves the mapped directory **dir-aware**: it authenticates
+the user, enforces access to the entry's owning workspace, then reads the file
+under `relPath` through the same path-containment used by `/api/assets`,
+defaulting to `index.html` for the directory root and for any sub-directory hit.
+Because the slug prefix is stable, relative assets inside the page resolve back
+through the same route without a query-string scope. An unknown slug (or a
+`node` entry, until the node ticket lands) returns `404 APP_NOT_FOUND`.
+
+**Why it matters:** This is the short, stable, shareable link that hides how deep
+or which workspace the source directory lives in; reusing the assets path keeps
+workspace scoping and traversal protection intact.
+
+**Verification pointer:** `src/app/app/[slug]/[[...rest]]/route.ts`
+
+### 13.5 Hosted Apps sidebar section and host dialog
+
+**Contract:** A collapsible **Hosted Apps** section sits in the left sidebar,
+styled like Favorites/Recent. It is **fetched on demand** — on section expand and
+after create/unhost — never background-polled. Each row shows a type icon
+(`html` globe / `node` terminal), the directory name, and a muted `/slug`;
+clicking the row opens the slug URL in a new tab, and hovering reveals copy-URL
+and unhost actions.
+
+A **host dialog** (shadcn Dialog) collects the required slug, pre-filled with the
+kebab-cased directory name and editable, with inline format/reserved/uniqueness
+validation before submit (the server remains authoritative). It launches from the
+website (HTML) viewer toolbar ("Host this app") and from a "Host this app" item
+in the file-tree context menu for directories.
+
+**Why it matters:** One place lists everything hosted and turns a deep directory
+into a one-click stable link; on-demand fetching avoids a persistent polling load
+from the always-mounted sidebar.
+
+**Verification pointer:** `src/components/wiki/hosted-apps-section.tsx`,
+`src/components/wiki/host-app-dialog.tsx`, `src/stores/hosted-apps-store.ts`
+
 ## 14. Settings and system config
 
 ### 14.1 Workspace management

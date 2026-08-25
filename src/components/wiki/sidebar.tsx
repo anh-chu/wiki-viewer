@@ -51,6 +51,8 @@ import {
 	FileTypeIcon,
 	type TreeCtx,
 } from "@/components/wiki/file-tree";
+import { HostAppDialog } from "@/components/wiki/host-app-dialog";
+import { HostedAppsSection } from "@/components/wiki/hosted-apps-section";
 import { WorkspaceMenu } from "@/components/wiki/workspace-menu";
 import type { FileTreeApi } from "@/hooks/use-file-tree";
 import { useOpenFile } from "@/hooks/use-open-file";
@@ -786,6 +788,7 @@ export function Sidebar({
 											))}
 									</div>
 								)}
+								<HostedAppsSection />
 								{fileTree.rootLoading ? (
 									<div className="flex justify-center py-6">
 										<Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -933,6 +936,7 @@ export function Sidebar({
 							/>
 						</Card>
 					)}
+					<HostAppDialog />
 					</>
 	);
 }
