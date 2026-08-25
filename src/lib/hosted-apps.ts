@@ -204,6 +204,19 @@ export async function createHostedApp(input: CreateHostedAppInput): Promise<Crea
 	});
 }
 
+export async function setHostedAppPersist(slug: string, persist: boolean): Promise<HostedApp | null> {
+	return withFileMutex(HOSTED_APPS_MUTEX_KEY, async () => {
+		const r = await readRegistry();
+		if (!r) return null;
+		const app = r.apps.find((candidate) => candidate.slug === slug);
+		if (!app || app.type !== "node") return null;
+		if (persist) app.persist = true;
+		else delete app.persist;
+		await _writeUnsafe(r);
+		return app;
+	});
+}
+
 export async function deleteHostedApp(slug: string): Promise<boolean> {
 	return withFileMutex(HOSTED_APPS_MUTEX_KEY, async () => {
 		const r = await readRegistry();

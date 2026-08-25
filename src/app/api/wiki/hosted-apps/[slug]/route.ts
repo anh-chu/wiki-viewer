@@ -11,8 +11,8 @@
 import { existsSync } from "node:fs";
 import { NextResponse } from "next/server";
 import { checkOrigin } from "@/lib/auth/csrf";
-import { startApp, stopApp } from "@/lib/app-runner";
-import { getBySlug } from "@/lib/hosted-apps";
+import { restartApp, setAppPersistence, startApp, stopApp } from "@/lib/app-runner";
+import { getBySlug, setHostedAppPersist } from "@/lib/hosted-apps";
 import { isAdmin } from "@/lib/auth/admin";
 import { requireUser } from "@/lib/auth/server";
 import { getWorkspace, safeWorkspacePath, userCanAccess } from "@/lib/workspaces";
@@ -68,13 +68,40 @@ export async function POST(
 		return NextResponse.json({ ok: true, status: "stopped" });
 	}
 
+	if (action === "pin" || action === "unpin") {
+		if (entry.type !== "node") {
+			return NextResponse.json({ error: "NOT_A_NODE_APP" }, { status: 400 });
+		}
+		const persist = action === "pin";
+		const updated = await setHostedAppPersist(entry.slug, persist);
+		if (!updated) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+		const abs = safeWorkspacePath(ws.rootDir, entry.relPath);
+		if (abs) setAppPersistence(entry.workspaceId, entry.relPath, abs, persist);
+		return NextResponse.json({ ok: true, persist });
+	}
+
+	if (action === "restart") {
+		const abs = safeWorkspacePath(ws.rootDir, entry.relPath);
+		if (!abs || !existsSync(abs)) {
+			return NextResponse.json({ error: "MISSING_DIR" }, { status: 409 });
+		}
+		try {
+			const result = await restartApp(entry.workspaceId, entry.relPath, abs, entry.script, entry.persist === true);
+			return NextResponse.json({ ok: true, status: "restarting", port: result.port });
+		} catch (e) {
+			return NextResponse.json({ error: String(e) }, { status: 500 });
+		}
+	}
+
 	if (action === "start") {
 		const abs = safeWorkspacePath(ws.rootDir, entry.relPath);
 		if (!abs || !existsSync(abs)) {
 			return NextResponse.json({ error: "MISSING_DIR" }, { status: 409 });
 		}
 		try {
-			const result = await startApp(entry.workspaceId, entry.relPath, abs, entry.script);
+			const result = await startApp(entry.workspaceId, entry.relPath, abs, entry.script, {
+				persist: entry.persist === true,
+			});
 			return NextResponse.json({ ok: true, status: "starting", port: result.port });
 		} catch (e) {
 			return NextResponse.json({ error: String(e) }, { status: 500 });

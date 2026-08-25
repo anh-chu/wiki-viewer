@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { NextResponse } from "next/server";
 import { checkOrigin } from "@/lib/auth/csrf";
 import { getStatus } from "@/lib/app-runner";
@@ -8,7 +9,7 @@ import {
 	listHostedApps,
 } from "@/lib/hosted-apps";
 import { resolveWorkspaceForUser } from "@/lib/workspace-context";
-import { getWorkspace } from "@/lib/workspaces";
+import { getWorkspace, safeWorkspacePath } from "@/lib/workspaces";
 
 /**
  * Registry-backed management layer for hosted apps.
@@ -33,11 +34,22 @@ export async function GET(request: Request) {
 	if (!ctx.ok) return NextResponse.json({ error: ctx.code }, { status: ctx.status });
 
 	const apps = await listHostedApps();
-	const enriched = apps.map((app) =>
-		app.type === "node"
-			? { ...app, ...getStatus(app.workspaceId, app.relPath) }
-			: app,
-	);
+	const enriched = await Promise.all(apps.map(async (app) => {
+		if (app.type !== "node") return app;
+		const status = getStatus(app.workspaceId, app.relPath);
+		const ws = await getWorkspace(app.workspaceId);
+		const abs = ws ? safeWorkspacePath(ws.rootDir, app.relPath) : null;
+		if (!abs || !existsSync(abs)) {
+			return {
+				...app,
+				...status,
+				status: "missing" as const,
+				error: "Hosted app source directory is missing",
+				lastError: "Hosted app source directory is missing",
+			};
+		}
+		return { ...app, ...status };
+	}));
 	return NextResponse.json({ apps: enriched });
 }
 

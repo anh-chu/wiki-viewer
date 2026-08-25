@@ -8,7 +8,7 @@
  * the app runner on every call — never persisted, never baked into a URL — so a
  * restart that changes the port is picked up on the next request.
  */
-import { getStatus, type AppStatus } from "@/lib/app-runner";
+import { getStatus } from "@/lib/app-runner";
 import { getBySlug, type HostedApp } from "@/lib/hosted-apps";
 
 export type HostedTarget =
@@ -25,7 +25,7 @@ export type HostedTarget =
 			relPath: string;
 			/** Fresh per call from the app runner; undefined when not running. */
 			port: number | undefined;
-			status: AppStatus;
+			status: ReturnType<typeof getStatus>["status"];
 	  };
 
 /**
