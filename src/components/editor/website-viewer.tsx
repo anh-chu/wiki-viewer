@@ -108,6 +108,7 @@ export function WebsiteViewer({
 
 			<div className="relative flex-1 flex overflow-hidden">
 				<iframe
+					key={scriptsEnabled ? "scripts-on" : "scripts-off"}
 					src={iframeSrc}
 					className="flex-1 w-full border-0 bg-card"
 					title={title}

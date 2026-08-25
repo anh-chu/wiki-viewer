@@ -191,6 +191,7 @@ function SharedHtmlViewer({ content, filename }: { content: string; filename: st
 				</Button>
 			</div>
 			<iframe
+				key={scriptsEnabled ? "scripts-on" : "scripts-off"}
 				srcDoc={content}
 				title={filename}
 				className="flex-1 w-full border-0 bg-white"

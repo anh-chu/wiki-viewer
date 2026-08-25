@@ -289,7 +289,9 @@ allow-top-navigation-by-user-activation` (no scripts by default); "Enable script
 adds `allow-scripts`. A "Show source"/"Show preview" toggle and an editable HTML
 source textarea exist. Fullscreen mode ("App") hides the breadcrumb and offers an
 "Exit app" button. The scripts toggle resets on file/external-URL change; Refresh
-remounts the iframe. Sandbox never combines `allow-scripts` with
+remounts the iframe. Toggling scripts remounts the iframe (via a
+`scriptsEnabled`-keyed element) so the new sandbox takes effect without a
+manual Refresh. Sandbox never combines `allow-scripts` with
 `allow-same-origin`.
 
 **Why it matters:** The scripts-off default and the no-same-origin rule are the
