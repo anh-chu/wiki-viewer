@@ -4,7 +4,7 @@ import { useState } from "react";
 import { ArrowLeft, ExternalLink, Play, Ban } from "lucide-react";
 import { ViewerToolbar } from "@/components/layout/viewer-toolbar";
 import { Button } from "@/components/ui/button";
-import { withWs } from "@/lib/workspace-client";
+import { assetPreviewUrl } from "@/lib/workspace-client";
 
 interface WebsiteViewerProps {
 	path: string;
@@ -35,7 +35,7 @@ export function WebsiteViewer({
 	const [scriptsEnabledState, setScriptsEnabledState] = useState(false);
 	const scriptsEnabled = scriptsEnabledProp ?? scriptsEnabledState;
 	const toggleScripts = onToggleScripts ?? (() => setScriptsEnabledState((s) => !s));
-	const iframeSrc = withWs(src ?? `/api/assets/${path}/index.html`);
+	const iframeSrc = src ?? assetPreviewUrl(`${path}/index.html`);
 
 	const sandbox = scriptsEnabled
 		? "allow-scripts allow-forms allow-popups allow-top-navigation-by-user-activation"

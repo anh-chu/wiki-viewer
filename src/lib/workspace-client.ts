@@ -130,3 +130,39 @@ export function withWs(url: string): string {
 export function wsFetch(input: string, init?: RequestInit): Promise<Response> {
 	return fetch(withWs(input), init);
 }
+
+/** base64url (no padding) of an ASCII string, for use as a single path segment. */
+function toBase64Url(input: string): string {
+	const b64 = typeof btoa === "function" ? btoa(input) : Buffer.from(input).toString("base64");
+	return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/**
+ * Build the iframe src for an HTML/website preview so that the workspace scope
+ * lives in the URL *path*, not the query string.
+ *
+ * Query-string scope (?ws= / ?root=) is dropped by the browser the moment the
+ * previewed page follows a relative link (e.g. `href="blog.html"`), which then
+ * loses workspace context and 404s. Encoding the scope as a leading path
+ * sentinel (`_ws/<id>` or `_root/<b64url>`) makes it survive relative
+ * navigation, because the browser preserves the path prefix.
+ *
+ * Only the preview iframe uses this. Single-asset viewers (image/pdf/csv/...)
+ * keep `withWs`, since they never do relative in-document navigation.
+ */
+export function assetPreviewUrl(relPath: string): string {
+	const encodedPath = relPath
+		.split("/")
+		.map((seg) => encodeURIComponent(seg))
+		.join("/");
+	const root = getEphemeralRoot();
+	if (root) {
+		return apiUrl(`/api/assets/_root/${toBase64Url(root)}/${encodedPath}`);
+	}
+	const wsId = getActiveWorkspaceId();
+	if (wsId) {
+		return apiUrl(`/api/assets/_ws/${encodeURIComponent(wsId)}/${encodedPath}`);
+	}
+	// No explicit scope in the page URL: let the server pick the default.
+	return apiUrl(`/api/assets/${encodedPath}`);
+}

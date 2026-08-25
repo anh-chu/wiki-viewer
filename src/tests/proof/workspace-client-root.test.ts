@@ -12,6 +12,7 @@ import assert from "node:assert/strict";
 import {
 	toRootRelative,
 	withWs,
+	assetPreviewUrl,
 	getEphemeralRoot,
 	getActiveWorkspaceId,
 } from "../../lib/workspace-client.js";
@@ -152,5 +153,44 @@ describe("withWs url prefix", () => {
 		setSearch("?ws=ws_abc");
 		// Ensure __WIKI_PREFIX is not set
 		assert.equal(withWs("/api/wiki"), "/api/wiki?ws=ws_abc");
+	});
+});
+
+describe("assetPreviewUrl", () => {
+	test("encodes ws id in the path so relative nav keeps scope", () => {
+		setSearch("?ws=ws_abc");
+		assert.equal(
+			assetPreviewUrl("index.html"),
+			"/api/assets/_ws/ws_abc/index.html",
+		);
+		assert.equal(
+			assetPreviewUrl("sub dir/blog.html"),
+			"/api/assets/_ws/ws_abc/sub%20dir/blog.html",
+		);
+	});
+
+	test("encodes ephemeral root as base64url path segment (root wins over ws)", () => {
+		setSearch("?root=%2Ftmp%2Fr&ws=ws_abc");
+		// btoa("/tmp/r") = "L3RtcC9y" -> base64url identical (no +/ / =).
+		assert.equal(
+			assetPreviewUrl("index.html"),
+			"/api/assets/_root/L3RtcC9y/index.html",
+		);
+	});
+
+	test("falls back to unscoped path when no ws/root in page url", () => {
+		setSearch("");
+		assert.equal(assetPreviewUrl("index.html"), "/api/assets/index.html");
+	});
+
+	test("applies the lite url prefix", () => {
+		(globalThis as unknown as { window?: Record<string, unknown> }).window = {
+			location: { search: "?ws=ws_abc" },
+			__WIKI_PREFIX: "/wiki",
+		};
+		assert.equal(
+			assetPreviewUrl("index.html"),
+			"/wiki/api/assets/_ws/ws_abc/index.html",
+		);
 	});
 });

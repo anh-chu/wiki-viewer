@@ -294,11 +294,25 @@ remounts the iframe. Toggling scripts remounts the iframe (via a
 manual Refresh. Sandbox never combines `allow-scripts` with
 `allow-same-origin`.
 
+The preview iframe carries the workspace scope in the URL *path*
+(`/api/assets/_ws/<id>/<path>`, or `/api/assets/_root/<base64url-root>/<path>`
+for host-supplied ephemeral roots) rather than a `?ws=`/`?root=` query string.
+This is what lets a previewed page follow its own relative links (e.g. a site's
+`Journal` nav pointing at `blog.html`): the browser drops the query string on
+relative navigation but preserves the path prefix, so workspace context survives
+and the linked page resolves instead of 404-ing. Root-absolute links
+(`/favicon.ico`) still resolve against the origin, not the asset route.
+
 **Why it matters:** The scripts-off default and the no-same-origin rule are the
 HTML-preview security boundary; either one relaxed lets arbitrary page JS escape.
+The path-encoded scope keeps in-page relative navigation working without
+reopening the `?root=` api-key gate (the sentinel is translated back into the
+same query param `resolveWorkspaceForUser` already validates).
 
 **Verification pointer:** `src/components/editor/website-viewer.tsx`,
-`src/components/wiki/viewer-pane.tsx`
+`src/components/wiki/viewer-pane.tsx`,
+`src/lib/workspace-client.ts` (`assetPreviewUrl`),
+`src/app/api/assets/[...path]/route.ts`
 
 ### 3.3 CSV viewer
 

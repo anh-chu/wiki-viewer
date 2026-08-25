@@ -29,7 +29,7 @@ import {
 	DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { withWs } from "@/lib/workspace-client";
+import { assetPreviewUrl } from "@/lib/workspace-client";
 import type { OpenFile } from "@/types/wiki";
 import {
 	VIEW_ALIGN_CLASS,
@@ -244,8 +244,10 @@ export function ViewerPane({
 	const websiteSrc = openFile.externalUrl
 		? openFile.externalUrl
 		: viewerKind === "html"
-			? withWs(`/api/assets/${openFile.path}`)
-			: undefined;
+			? assetPreviewUrl(openFile.path)
+			: viewerKind === "app"
+				? assetPreviewUrl(`${openFile.path}/index.html`)
+				: undefined;
 
 	if (viewerKind === "app" || viewerKind === "html") {
 		if (appFullscreen) {
