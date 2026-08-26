@@ -68,6 +68,9 @@ before(async () => {
 	await makeFile(wsA.rootDir, "site/index.html", "<h1>home</h1>");
 	await makeFile(wsA.rootDir, "site/style.css", "body{color:red}");
 	await makeFile(wsA.rootDir, "site/blog/index.html", "<h1>blog</h1>");
+	// A single standalone HTML file (the "Host this" flow on a file, not a dir).
+	await makeFile(wsA.rootDir, "drafts/mockup.html", "<h1>mockup</h1>");
+	await makeFile(wsA.rootDir, "drafts/mockup.css", "body{color:blue}");
 });
 
 beforeEach(clearRegistry);
@@ -269,6 +272,31 @@ test("html slug resolves to dir-served content", async () => {
 	const blogRes = await slugGET(blogReq, slugCtx("site", ["blog"]));
 	assert.equal(blogRes.status, 200);
 	assert.match(await blogRes.text(), /blog/);
+});
+
+test("single-file html slug serves the file and its siblings", async () => {
+	await hostedPOST(
+		createReq(
+			wsA.workspace.id,
+			{ slug: "mock", type: "html", path: "drafts/mockup.html" },
+			adminUser.cookies,
+		),
+	);
+	// Root hit serves the file itself, not <file>/index.html.
+	const rootReq = new Request("http://localhost:3000/app/mock", {
+		headers: { Cookie: adminUser.cookies },
+	});
+	const rootRes = await slugGET(rootReq, slugCtx("mock", []));
+	assert.equal(rootRes.status, 200);
+	assert.match(await rootRes.text(), /mockup/);
+
+	// A sibling asset resolves relative to the file's parent directory.
+	const cssReq = new Request("http://localhost:3000/app/mock/mockup.css", {
+		headers: { Cookie: adminUser.cookies },
+	});
+	const cssRes = await slugGET(cssReq, slugCtx("mock", ["mockup.css"]));
+	assert.equal(cssRes.status, 200);
+	assert.match(await cssRes.text(), /color:blue/);
 });
 
 test("unknown slug returns 404", async () => {

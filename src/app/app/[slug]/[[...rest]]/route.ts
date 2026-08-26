@@ -62,9 +62,24 @@ async function serveHtml(
 	restSegments: string[],
 ): Promise<Response> {
 	const sub = restSegments.filter(Boolean).join("/");
-	// Default document for the directory root.
-	const joined = [relPath, sub].filter(Boolean).join("/");
-	const rel = sub === "" || sub.endsWith("/") ? `${joined}/index.html`.replace(/\/+/g, "/") : joined;
+
+	// The hosted target may be a directory (serve dir-aware, default index.html)
+	// or a single HTML file (serve the file at the root; sub-paths resolve as
+	// siblings relative to the file's parent directory). Resolve the target
+	// itself first to learn which it is.
+	const base = await resolveWorkspacePath(rootDir, relPath, { deniedSegments: DENIED_SEGMENTS });
+	if (!base) return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+	let targetIsFile = false;
+	try {
+		targetIsFile = (await stat(base.absolutePath)).isFile();
+	} catch {
+		return NextResponse.json({ error: "File not found" }, { status: 404 });
+	}
+
+	// Base directory for sub-path lookups and the default document for a root hit.
+	const baseDir = targetIsFile ? relPath.split("/").slice(0, -1).join("/") : relPath;
+	const rootDoc = targetIsFile ? relPath : `${relPath}/index.html`.replace(/\/+/g, "/").replace(/^\//, "");
+	const rel = sub === "" ? rootDoc : [baseDir, sub].filter(Boolean).join("/");
 
 	const resolved = await resolveWorkspacePath(rootDir, rel, { deniedSegments: DENIED_SEGMENTS });
 	if (!resolved) return NextResponse.json({ error: "Invalid path" }, { status: 400 });
