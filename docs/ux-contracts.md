@@ -976,22 +976,34 @@ surface builds on; global-unique slugs plus the reserved-name blocklist keep the
 ### 13.5 Hosted app slug route (`/app/<slug>`)
 
 **Contract:** `GET /app/<slug>/<...rest>` resolves the slug in the registry and,
-for an `html` entry, serves the mapped directory **dir-aware**: it authenticates
-the user, enforces access to the entry's owning workspace, then reads the file
-under `relPath` through the same path-containment used by `/api/assets`,
-defaulting to `index.html` for the directory root and for any sub-directory hit.
-For a `node` entry, every request resolves the current runner port and forwards
-through the shared proxy core; stopped apps return `502 APP_NOT_RUNNING`. A
-restart may choose a new port without changing the slug URL or cached client
-state. Because the slug prefix is stable, relative assets inside either app
-resolve back through the same route without a query-string scope. An unknown
+for an `html` entry, serves the mapped target: it authenticates the user,
+enforces access to the entry's owning workspace, then reads through the same
+path-containment used by `/api/assets`. If `relPath` is a **directory** it is
+served **dir-aware**, defaulting to `index.html` for the directory root and for
+any sub-directory hit. If `relPath` is a **single file** (the "Host this" flow on
+an HTML file), the root URL serves that file directly and sub-paths resolve as
+siblings in the file's parent directory. For a `node` entry, every request
+resolves the current runner port and forwards through the shared proxy core; a
+stopped app returns a `503` "app is not running" page. A restart may choose a new
+port without changing the slug URL or cached client state.
+
+The `/app/<slug>` prefix is the app's **real, reloadable URL** and stays in the
+address bar — the proxy never rewrites the URL to the child's root. To keep an
+app working under that prefix, the proxy core rewrites root-absolute URLs in
+served HTML/CSS, `fetch`/`XHR` calls, and redirect `Location` headers back under
+`/app/<slug>`, injects `<base href="/app/<slug>/">`, and exposes
+`window.__WIKI_APP_BASE__` for a client router to adopt as its `basename`.
+Genuinely external redirects and absolute URLs are left untouched. An unknown
 slug returns `404 APP_NOT_FOUND`.
 
 **Why it matters:** This is the short, stable, shareable link that hides how deep
 or which workspace the source directory lives in; reusing the assets path keeps
-workspace scoping and traversal protection intact.
+workspace scoping and traversal protection intact. Keeping the prefix in the URL
+is what lets reloads and in-app links survive instead of collapsing to the bare
+wiki-viewer root.
 
-**Verification pointer:** `src/app/app/[slug]/[[...rest]]/route.ts`
+**Verification pointer:** `src/app/app/[slug]/[[...rest]]/route.ts`,
+`src/lib/app-proxy-core.ts`, `src/tests/proof/app-proxy-redirect.test.ts`
 
 ### 13.6 Hosted Apps sidebar section and host dialog
 

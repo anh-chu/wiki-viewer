@@ -117,8 +117,13 @@ function rewriteHtml(html: string, proxyBase: string): string {
 	out = out.replace(/(<head(?:\s[^>]*)?>)/i, `$1\n<base href="${proxyBase}/">`);
 	// Inject before </head>. Works without service workers (non-localhost HTTP):
 	//
-	// 1. replaceState — strips the proxy prefix from the initial URL so
-	//    BrowserRouter sees "/" instead of the proxy path
+	// The proxy prefix (/app/<slug>) is the app's REAL public URL and must stay
+	// in the address bar so reloads and shared links keep working. We therefore do
+	// NOT rewrite the URL to the child's root. Instead we expose the base path so a
+	// client router can adopt it as its basename, and rewrite root-absolute network
+	// calls back through the proxy.
+	//
+	// 1. window.__WIKI_APP_BASE__ — the base path apps should use as router basename
 	// 2. fetch/XHR overrides — rewrite absolute-path calls (/api/...) through
 	//    the proxy so they reach the upstream app, not wiki-viewer
 	// 3. SW — best-effort (only works on localhost/HTTPS), provides navigation
@@ -126,11 +131,9 @@ function rewriteHtml(html: string, proxyBase: string): string {
 	const patches = `<script>
 (function(){
   var BASE = ${JSON.stringify(proxyBase)};
-  // 1. Normalize initial URL: BrowserRouter will see "/" not the proxy path
-  var _loc = location.pathname;
-  if (_loc.startsWith(BASE)) {
-    history.replaceState(history.state, '', _loc.slice(BASE.length) || '/');
-  }
+  // 1. Expose the base path; the proxy prefix stays in the URL bar so /app/<slug>
+  //    remains the real, reloadable app URL.
+  window.__WIKI_APP_BASE__ = BASE;
   // 2. Rewrite fetch() absolute paths through proxy (works on non-localhost HTTP)
   var _fetch = window.fetch;
   window.fetch = function(input, init) {
@@ -167,6 +170,31 @@ function rewriteCss(css: string, proxyBase: string): string {
 	return css.replace(/url\((['"]?)\/(?!\/)/g, `url($1${proxyBase}/`);
 }
 
+// Redirect Location headers from the child are relative to the child's own root,
+// not the public proxy path. Left untouched, `Location: /foo` sends the browser
+// to the wiki-viewer root (dropping the /app/<slug> prefix) and
+// `Location: http://localhost:<port>/foo` points at the private child port.
+// Rewrite both back under proxyBase so reloads and app-issued redirects stay on
+// the app's real public URL.
+function rewriteLocation(loc: string, proxyBase: string, port: number): string {
+	try {
+		const u = new URL(loc);
+		// Absolute URL aimed at the private child → swap origin for the proxy path.
+		if (u.hostname === "localhost" && String(u.port) === String(port)) {
+			return `${proxyBase}${u.pathname}${u.search}${u.hash}`;
+		}
+		// Any other absolute URL is genuinely external; leave it alone.
+		return loc;
+	} catch {
+		// Not an absolute URL — fall through to relative handling.
+	}
+	// Root-absolute path (but not protocol-relative //host, and not already prefixed).
+	if (loc.startsWith("/") && !loc.startsWith("//") && loc !== proxyBase && !loc.startsWith(`${proxyBase}/`)) {
+		return `${proxyBase}${loc}`;
+	}
+	return loc;
+}
+
 // ── header helpers ────────────────────────────────────────────────────────────
 
 function upstreamHeaders(
@@ -189,12 +217,19 @@ function upstreamHeaders(
 	return out;
 }
 
-function buildResHeaders(raw: Dispatcher.ResponseData["headers"]): Headers {
+function buildResHeaders(
+	raw: Dispatcher.ResponseData["headers"],
+	proxyBase: string,
+	port: number,
+): Headers {
 	const out = new Headers();
 	for (const [k, v] of Object.entries(raw)) {
 		if (!v || HOP_BY_HOP.has(k.toLowerCase())) continue;
+		const kl = k.toLowerCase();
 		const vals = Array.isArray(v) ? v : [v];
-		for (const val of vals) out.append(k, val);
+		for (const val of vals) {
+			out.append(k, kl === "location" ? rewriteLocation(val, proxyBase, port) : val);
+		}
 	}
 	return out;
 }
@@ -255,7 +290,7 @@ export async function forwardToChild(request: Request, target: ForwardTarget): P
 				body: null,
 			});
 			const text = await second.body.text();
-			const resHeaders = buildResHeaders(second.headers);
+			const resHeaders = buildResHeaders(second.headers, proxyBase, port);
 			// Body changed size after rewriting — drop these or client truncates
 			resHeaders.delete("content-encoding");
 			resHeaders.delete("content-length");
@@ -281,7 +316,7 @@ export async function forwardToChild(request: Request, target: ForwardTarget): P
 				body: null,
 			});
 			const fallbackText = await fallback.body.text();
-			const fallbackHeaders = buildResHeaders(fallback.headers);
+			const fallbackHeaders = buildResHeaders(fallback.headers, proxyBase, port);
 			fallbackHeaders.delete("content-encoding");
 			fallbackHeaders.delete("content-length");
 			fallbackHeaders.set("content-type", "text/html; charset=utf-8");
@@ -294,13 +329,16 @@ export async function forwardToChild(request: Request, target: ForwardTarget): P
 		// 304/204/205: null-body statuses — Response constructor rejects a stream body
 		if (new Set([101, 204, 205, 304]).has(first.statusCode)) {
 			first.body.resume();
-			return new Response(null, { status: first.statusCode, headers: buildResHeaders(first.headers) });
+			return new Response(null, {
+				status: first.statusCode,
+				headers: buildResHeaders(first.headers, proxyBase, port),
+			});
 		}
 
 		// Stream everything else — compressed bytes + Content-Encoding flow through intact
 		return new Response(Readable.toWeb(first.body) as ReadableStream, {
 			status: first.statusCode,
-			headers: buildResHeaders(first.headers),
+			headers: buildResHeaders(first.headers, proxyBase, port),
 		});
 	} catch (e) {
 		const { NextResponse } = await import("next/server");
