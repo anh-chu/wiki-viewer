@@ -573,6 +573,29 @@ export function resolveByPrefix(
 	return null;
 }
 
+/**
+ * URL segment that stands in for a workspace-root node app (relPath "") in the
+ * reverse-proxy path. A root app has no path prefix of its own, so it cannot be
+ * matched by `resolveByPrefix`; this reserved segment gives it a stable,
+ * non-empty proxy base (`/api/app-proxy/~root`) and keeps URL rewriting clean.
+ */
+export const ROOT_APP_PROXY_SEGMENT = "~root";
+
+/**
+ * Resolve the running workspace-root app (relPath "") for reverse proxying.
+ * `rest` are the URL segments after the root sentinel.
+ */
+export function resolveRootApp(
+	workspaceId: string,
+	rest: string[],
+): { relPath: string; port: number; rest: string } | null {
+	const app = apps.get(keyOf({ workspaceId, relPath: "" }));
+	if (app && app.status === "running" && app.port) {
+		return { relPath: "", port: app.port, rest: "/" + rest.filter(Boolean).join("/") };
+	}
+	return null;
+}
+
 /** Restore pinned node apps only when unattended host-code execution is opted in. */
 export async function restorePersistedApps(): Promise<void> {
 	if (process.env.WIKI_NO_AUTH !== "1" && process.env.WIKI_ALLOW_APP_RUNNER !== "1") return;

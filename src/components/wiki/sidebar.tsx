@@ -53,6 +53,7 @@ import {
 } from "@/components/wiki/file-tree";
 import { HostAppDialog } from "@/components/wiki/host-app-dialog";
 import { HostedAppsSection } from "@/components/wiki/hosted-apps-section";
+import { RootAppBar } from "@/components/wiki/root-app-bar";
 import { WorkspaceMenu } from "@/components/wiki/workspace-menu";
 import type { FileTreeApi } from "@/hooks/use-file-tree";
 import { useOpenFile } from "@/hooks/use-open-file";
@@ -788,6 +789,27 @@ export function Sidebar({
 											))}
 									</div>
 								)}
+								<RootAppBar
+									activeWorkspaceId={workspace.activeWorkspaceId}
+									workspaceName={
+										workspace.workspaces.find(
+											(w) => w.id === workspace.activeWorkspaceId,
+										)?.name ?? "App"
+									}
+									openPath={doc.openFile?.path ?? null}
+									onOpen={() => {
+										void doc.openViewer({
+											path: "",
+											name:
+												workspace.workspaces.find(
+													(w) => w.id === workspace.activeWorkspaceId,
+												)?.name ?? "App",
+											type: "node-app",
+											modifiedAt: "",
+										} as TreeNodeAlias);
+										if (isMobile) setSidebarCollapsed(true);
+									}}
+								/>
 								<HostedAppsSection />
 								{fileTree.rootLoading ? (
 									<div className="flex justify-center py-6">

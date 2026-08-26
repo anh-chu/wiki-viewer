@@ -62,8 +62,10 @@ export function NodeAppViewer({ path, title }: Props) {
 	const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 	const logsEndRef = useRef<HTMLDivElement>(null);
 
-	// Proxy URL — all traffic flows through wiki-viewer (works remotely)
-	const proxyUrl = withWs(`/api/app-proxy/${path}/`);
+	// Proxy URL — all traffic flows through wiki-viewer (works remotely).
+	// A workspace-root app (path "") has no path prefix, so it is proxied via the
+	// reserved `~root` sentinel (see ROOT_APP_PROXY_SEGMENT in app-runner.ts).
+	const proxyUrl = withWs(path ? `/api/app-proxy/${path}/` : `/api/app-proxy/~root/`);
 
 	const stopPolling = () => {
 		if (pollRef.current) {
@@ -168,7 +170,11 @@ export function NodeAppViewer({ path, title }: Props) {
 					onClick={() =>
 						useHostedAppsStore
 							.getState()
-							.openHostDialog(path, kebabCase(path.split("/").pop() ?? path), "node")
+							.openHostDialog(
+								path,
+								kebabCase(path ? (path.split("/").pop() ?? path) : title),
+								"node",
+							)
 					}
 				>
 					<Terminal className="h-3.5 w-3.5" />

@@ -4,6 +4,7 @@ import { checkOrigin } from "@/lib/auth/csrf";
 import { resolveWorkspaceForUser } from "@/lib/workspace-context";
 import { safeWorkspacePath } from "@/lib/workspaces";
 import { getScripts, getStatus, startApp, stopApp } from "@/lib/app-runner";
+import { isNodeApp } from "@/lib/wiki-helpers";
 
 function canLaunchApp(ctx: { isAdmin: boolean }): boolean {
 	// WIKI_NO_AUTH=1 keeps local single-user behavior.
@@ -25,7 +26,8 @@ export async function GET(request: Request) {
 	const status = getStatus(ctx.ws.id, rel);
 	const abs = safeWorkspacePath(ctx.rootDir, rel);
 	const scripts = abs ? getScripts(abs) : { scripts: [], defaultScript: null };
-	return NextResponse.json({ ...status, ...scripts });
+	const nodeApp = await isNodeApp(ctx.rootDir, rel);
+	return NextResponse.json({ ...status, ...scripts, isNodeApp: nodeApp });
 }
 
 // POST /api/wiki/app  { path: "relative/path" }
@@ -42,7 +44,8 @@ export async function POST(request: Request) {
 
 	const body: { path?: string; script?: string } = await request.json();
 	const rel = body.path;
-	if (!rel || typeof rel !== "string")
+	// "" is valid: it targets the workspace root itself as a node app.
+	if (typeof rel !== "string")
 		return NextResponse.json({ error: "Missing path" }, { status: 400 });
 
 	const abs = safeWorkspacePath(rootDir, rel);
@@ -72,7 +75,8 @@ export async function DELETE(request: Request) {
 
 	const body: { path?: string } = await request.json();
 	const rel = body.path;
-	if (!rel || typeof rel !== "string")
+	// "" is valid: it targets the workspace root itself as a node app.
+	if (typeof rel !== "string")
 		return NextResponse.json({ error: "Missing path" }, { status: 400 });
 
 	stopApp(ctx.ws.id, rel);

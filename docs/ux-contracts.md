@@ -880,17 +880,28 @@ previews). The viewer toolbar offers **Host this app**, opening the hosted-app
 dialog in node mode so a directory can receive a short slug and selected npm
 script.
 
+**Workspace-root app:** When the workspace root directory is itself a node app
+(`package.json` at the root), it has no tree entry of its own. A **root-app bar**
+sits above the Hosted Apps section (only when `/api/wiki/app?path=` reports
+`isNodeApp:true`), labelled with the workspace name and showing a running dot or
+a play glyph. Clicking it opens the node-app viewer for the root (path `""`),
+which supports the same launch/logs/host controls. A root app is proxied via the
+reserved `~root` sentinel segment (`withWs(/api/app-proxy/~root/)`), since it has
+no path prefix of its own; **Host this app** defaults the slug from the workspace
+name.
+
 **Why it matters:** The same-origin sandbox is a deliberate privilege grant to
 the app runner, distinct from the scripts-off HTML preview; confusing the two
 is a security regression.
 
 **Verification pointer:** `src/components/editor/node-app-viewer.tsx`,
-`src/components/wiki/host-app-dialog.tsx`
+`src/components/wiki/host-app-dialog.tsx`, `src/components/wiki/root-app-bar.tsx`
 
 ### 13.2 Proxy and lifecycle
 
 **Contract:** `ALL` verbs on `/api/app-proxy/…` resolve the longest running-app
-prefix (404 `APP_NOT_FOUND` otherwise) and stream via undici, stripping upstream
+prefix (404 `APP_NOT_FOUND` otherwise); a leading `~root` segment instead
+resolves the workspace-root app (relPath `""`) and streams via undici, stripping upstream
 `cookie/authorization/x-agent-id/x-workspace/origin`. HTML/CSS are re-fetched
 identity-encoded and patched (`<base href>`, fetch/XHR rewrite); SPA 404s
 re-fetch `/`. App lifecycle: install if `node_modules` missing (logs capped

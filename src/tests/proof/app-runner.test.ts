@@ -15,7 +15,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { POST as appPOST } from "../../app/api/wiki/app/route.js";
-import { startApp, stopApp, getStatus } from "../../lib/app-runner.js";
+import {
+	startApp,
+	stopApp,
+	getStatus,
+	resolveByPrefix,
+	resolveRootApp,
+} from "../../lib/app-runner.js";
 import { makeTestUser } from "./helpers/session.js";
 import { createTestWorkspace } from "./helpers/workspace.js";
 
@@ -25,6 +31,7 @@ let plainUser: Awaited<ReturnType<typeof makeTestUser>>;
 let wsA: Awaited<ReturnType<typeof createTestWorkspace>>;
 let wsB: Awaited<ReturnType<typeof createTestWorkspace>>;
 let wsApp: Awaited<ReturnType<typeof createTestWorkspace>>;
+let wsRoot: Awaited<ReturnType<typeof createTestWorkspace>>;
 let appDirA: string;
 let appDirB: string;
 let crashDir: string;
@@ -97,6 +104,13 @@ before(async () => {
 		creatorUserId: plainUser.userId,
 		allowedUserIds: [plainUser.userId],
 	});
+	// A workspace whose ROOT directory is itself a node app (relPath "").
+	wsRoot = await createTestWorkspace({
+		name: "app-runner-root",
+		creatorUserId: adminUser.userId,
+		allowedUserIds: [adminUser.userId],
+	});
+	await writeNodeApp(wsRoot.rootDir, { skipInstall: true, response: "root-app" });
 
 	appDirA = await mkdtemp(path.join(tmpdir(), "wiki-app-a-"));
 	appDirB = await mkdtemp(path.join(tmpdir(), "wiki-app-b-"));
@@ -118,6 +132,7 @@ after(async () => {
 	stopApp(wsApp.workspace.id, "appAdmin");
 	stopApp(wsApp.workspace.id, "appCrash");
 	stopApp(wsApp.workspace.id, "appInstall");
+	stopApp(wsRoot.workspace.id, "");
 	await rm(tmpHome, { recursive: true, force: true });
 	await rm(appDirA, { recursive: true, force: true });
 	await rm(appDirB, { recursive: true, force: true });
@@ -168,6 +183,47 @@ test("stop cancels readiness: stopped app cannot later become error", async () =
 	delete process.env.CRASH_AFTER_MS;
 	const status = getStatus(wsApp.workspace.id, "appCrash");
 	assert.equal(status.status, "stopped", "stopped app must not later become error");
+});
+
+test("workspace-root app (relPath '') runs and resolves via the ~root sentinel", async () => {
+	await startApp(wsRoot.workspace.id, "", wsRoot.rootDir);
+	await waitForRunning(wsRoot.workspace.id, "");
+
+	const resolved = resolveRootApp(wsRoot.workspace.id, ["assets", "x.js"]);
+	assert.ok(resolved, "root app must resolve via the ~root sentinel");
+	assert.equal(resolved.relPath, "");
+	assert.equal(resolved.rest, "/assets/x.js");
+	assert.ok(resolved.port);
+
+	// Prefix resolution must not accidentally match the root app.
+	assert.equal(
+		resolveByPrefix(wsRoot.workspace.id, ["assets", "x.js"]),
+		null,
+		"a root app must not be matched by ordinary prefix resolution",
+	);
+
+	stopApp(wsRoot.workspace.id, "");
+});
+
+test("POST /api/wiki/app accepts empty path (workspace-root app)", async () => {
+	const req = new Request(
+		`http://localhost:3000/api/wiki/app?ws=${wsRoot.workspace.id}`,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: adminUser.cookies,
+				Origin: "http://localhost:3000",
+			},
+			body: JSON.stringify({ path: "" }),
+		},
+	);
+	const res = await appPOST(req);
+	const body = (await res.json()) as { error?: string; port?: number };
+	assert.notEqual(body.error, "Missing path", "empty path must not be rejected as missing");
+	assert.equal(res.status, 200, "root node app must launch");
+	assert.ok(body.port, "a port must be assigned");
+	stopApp(wsRoot.workspace.id, "");
 });
 
 test("install output is drained into the app log buffer", async () => {

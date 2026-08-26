@@ -7,7 +7,7 @@
  * by URL-prefix within the requested workspace, then delegates forwarding.
  */
 import { NextResponse } from "next/server";
-import { resolveByPrefix } from "@/lib/app-runner";
+import { ROOT_APP_PROXY_SEGMENT, resolveByPrefix, resolveRootApp } from "@/lib/app-runner";
 import { forwardToChild } from "@/lib/app-proxy-core";
 import { resolveWorkspaceForUser } from "@/lib/workspace-context";
 
@@ -22,7 +22,12 @@ async function handleProxy(
 
 	const segments = (await params).path ?? [];
 
-	const resolved = resolveByPrefix(ctx.ws.id, segments);
+	// A workspace-root app is addressed via the reserved `~root` sentinel, since
+	// it has no path prefix of its own to match on.
+	const isRoot = segments[0] === ROOT_APP_PROXY_SEGMENT;
+	const resolved = isRoot
+		? resolveRootApp(ctx.ws.id, segments.slice(1))
+		: resolveByPrefix(ctx.ws.id, segments);
 	if (!resolved) {
 		return NextResponse.json({ error: "APP_NOT_FOUND" }, { status: 404 });
 	}
@@ -31,7 +36,7 @@ async function handleProxy(
 	return forwardToChild(request, {
 		port,
 		rest,
-		proxyBase: `/api/app-proxy/${relPath}`,
+		proxyBase: isRoot ? `/api/app-proxy/${ROOT_APP_PROXY_SEGMENT}` : `/api/app-proxy/${relPath}`,
 	});
 }
 
