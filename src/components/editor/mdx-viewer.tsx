@@ -64,6 +64,7 @@ function buildSrcDoc(compiled: string): string {
 <script type="module">
 import React from 'react';
 import { createRoot } from 'react-dom/client';
+${compiled}
 function reportError(e) {
   const root = document.getElementById('root');
   if (root) root.innerHTML = '<pre class="mdx-error">' + String(e && e.stack ? e.stack : e) + '</pre>';
@@ -79,7 +80,6 @@ class ErrorBoundary extends React.Component {
   }
 }
 try {
-${compiled}
   createRoot(document.getElementById('root')).render(
     React.createElement(ErrorBoundary, null, React.createElement(MDXContent))
   );
