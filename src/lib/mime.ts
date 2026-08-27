@@ -3,6 +3,7 @@ import path from "node:path";
 const MIME_MAP: Record<string, string> = {
 	".md": "text/markdown; charset=utf-8",
 	".markdown": "text/markdown; charset=utf-8",
+	".mdx": "text/markdown; charset=utf-8",
 	".txt": "text/plain; charset=utf-8",
 	".json": "application/json; charset=utf-8",
 	".jsonc": "application/json; charset=utf-8",

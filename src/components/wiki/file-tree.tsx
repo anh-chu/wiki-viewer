@@ -104,7 +104,7 @@ const TEXT_EDITABLE_EXTS = new Set([
 
 export function isText(name: string) {
 	const kind = viewerKindFor(name, "file");
-	if (kind === "editor" || kind === "text") return true;
+	if (kind === "editor" || kind === "text" || kind === "mdx") return true;
 	return TEXT_EDITABLE_EXTS.has(ext(name));
 }
 

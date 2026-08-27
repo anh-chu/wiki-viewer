@@ -47,6 +47,7 @@ import { LargeFileGate } from "@/components/editor/large-file-gate";
 import { ImageViewer } from "@/components/editor/image-viewer";
 import { MediaViewer } from "@/components/editor/media-viewer";
 import { MermaidViewer } from "@/components/editor/mermaid-viewer";
+import { MdxViewer } from "@/components/editor/mdx-viewer";
 import { NotebookViewer } from "@/components/editor/notebook-viewer";
 import { DocxViewer } from "@/components/editor/office/docx-viewer";
 import { PptxViewer } from "@/components/editor/office/pptx-viewer";
@@ -678,6 +679,7 @@ export function ViewerPane({
 			  viewerKind === "pdf" ||
 			  viewerKind === "mermaid" ||
 			  viewerKind === "notebook" ||
+			  viewerKind === "mdx" ||
 			  viewerKind === "image" ||
 			  viewerKind === "media" ||
 			  viewerKind === "docx" ||
@@ -711,6 +713,8 @@ export function ViewerPane({
 						<MermaidViewer path={openFile.path} title={openFile.name} />
 					) : viewerKind === "notebook" ? (
 						<NotebookViewer path={openFile.path} title={openFile.name} />
+					) : viewerKind === "mdx" ? (
+						<MdxViewer path={openFile.path} title={openFile.name} />
 					) : viewerKind === "image" ? (
 						<ImageViewer path={openFile.path} title={openFile.name} />
 					) : viewerKind === "media" ? (

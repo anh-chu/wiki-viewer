@@ -16,6 +16,10 @@ export function viewerKindFor(
 	// No extension at all ("Makefile", "LICENSE", "Dockerfile"): assume text.
 	if (!fileExt) return "source";
 	if (["md", "markdown"].includes(fileExt)) return "editor";
+	// MDX is Markdown + JSX. It cannot go through the clean-markdown block/collab
+	// editor (remark would mangle JSX on round-trip), so it gets its own viewer
+	// that compiles and executes the JSX in a sandboxed iframe.
+	if (fileExt === "mdx") return "mdx";
 	if (fileExt === "txt") return "text";
 	if (["csv", "tsv"].includes(fileExt)) return "csv";
 	if (fileExt === "pdf") return "pdf";

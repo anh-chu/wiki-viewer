@@ -78,7 +78,11 @@ export function _setBacklinkReaderForTest(fn: BacklinkReader | null): void {
 
 function isMarkdownExt(p: string): boolean {
 	const lower = p.toLowerCase();
-	return lower.endsWith(".md") || lower.endsWith(".markdown");
+	return (
+		lower.endsWith(".md") ||
+		lower.endsWith(".markdown") ||
+		lower.endsWith(".mdx")
+	);
 }
 
 /** Compute byte offsets for the entire [[…]] span from a WikiLinkOccurrence. */

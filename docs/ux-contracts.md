@@ -44,6 +44,7 @@ down turns "did we regress the loop?" into a diff against this file.
   - [3.4 PDF viewer](#34-pdf-viewer)
   - [3.5 Mermaid, notebook, source, image/media, office, fallback](#35-mermaid-notebook-source-imagemedia-office-fallback)
   - [3.6 Canvas viewer](#36-canvas-viewer)
+  - [3.8 MDX viewer](#38-mdx-viewer)
   - [3.7 History panel](#37-history-panel)
 - [4. Markdown editor](#4-markdown-editor)
   - [4.1 Modes and state](#41-modes-and-state)
@@ -207,7 +208,7 @@ a11y navigation.
 
 ### 2.3 Viewer-kind mapping
 
-**Contract:** Extension → viewer kind: `md/markdown`→editor; `txt`→text;
+**Contract:** Extension → viewer kind: `md/markdown`→editor; `mdx`→mdx; `txt`→text;
 `csv/tsv`→csv; `pdf`→pdf; `mmd/mermaid`→mermaid; `ipynb`→notebook;
 `png/jpg/jpeg/gif/webp/svg/avif/ico/bmp`→image; `mp4/webm/mov/m4v/mp3/wav/ogg/m4a/aac`→media;
 `docx`→docx; `xlsx/xlsm`→xlsx; `pptx`→pptx; `html`→html; `excalidraw`→canvas; a leading-dot file with
@@ -391,6 +392,38 @@ check out anything.
 
 **Verification pointer:** `src/components/wiki/viewer-pane.tsx`,
 `src/hooks/use-git-history.ts`
+
+### 3.8 MDX viewer
+
+**Contract:** `.mdx` files open in a dedicated MDX viewer (kind `mdx`), never the
+Markdown block/collab editor, because MDX embeds JSX that the clean-markdown
+pipeline would mangle on round-trip. The viewer has a Source/Preview toggle and
+an Enable/Disable scripts toggle; scripts are OFF by default and Preview shows a
+consent prompt until the user enables them. When enabled, the source is compiled
+in-browser via `@mdx-js/mdx` (`outputFormat:"program"`, `remark-gfm`,
+`remark-frontmatter` stripping YAML/TOML) and executed inside a null-origin
+`sandbox="allow-scripts"` iframe. React `19.2.5` (matching the app) plus
+`react-dom/client` and `react/jsx-runtime` load cross-origin from `esm.sh` via an
+import map; a CSP limits `connect-src`/`script-src` to `esm.sh`. Bare npm imports
+inside the MDX resolve through `esm.sh` (so rendering arbitrary-import MDX
+requires network); relative imports do not resolve. Compile errors render inline
+as text; runtime and component render errors surface via a window error handler
+and a React error boundary inside the frame. `.mdx` is treated as a
+markdown-family file for the mime type (`text/markdown`), text/editable status,
+sidebar icon, and wiki-link backlink scanning, but is intentionally excluded from
+the tier-2 collab/block editor (`isMarkdown()` in `raw-fs`, `collab-state`,
+`ops-applier` still matches only `.md`/`.markdown`). Editing `.mdx` uses the
+generic plain-text source textarea and Save path, not TipTap.
+
+**Why it matters:** MDX executes JavaScript. Running it in a null-origin
+sandboxed frame with a CSP and default-off consent keeps arbitrary component code
+away from the user's session, while routing `.mdx` around the block editor
+prevents silent JSX corruption on save.
+
+**Verification pointer:** `src/components/editor/mdx-viewer.tsx`,
+`src/components/wiki/viewer-pane.tsx`, `src/lib/viewer-kind.ts`,
+`src/lib/mime.ts`, `src/lib/search/backlinks.ts`,
+`src/tests/proof/viewer-kind.test.ts`
 
 ## 4. Markdown editor
 
