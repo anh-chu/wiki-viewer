@@ -161,14 +161,19 @@ large workspace's tree responsive without hammering the server.
 ### 1.4 Embed and lite mode
 
 **Contract:** `?embed=1` (without `?chrome=1`) hides chrome; `WIKI_LITE=1`
-(`window.__WIKI_LITE`) hides settings and skips the SSE watcher entirely (the
-`/api/wiki/watch` route returns `503` in lite). `window.__WIKI_PREFIX` carries a
-runtime URL prefix for reverse-proxy deployments. Mobile (≤767 px) collapses the
-sidebar on mount and overlays it when reopened.
+(`window.__WIKI_LITE`) skips the SSE watcher entirely (the `/api/wiki/watch`
+route returns `503` in lite). The settings panel is decoupled from lite/embed
+mode: the `AuthSettingsSheet` mounts regardless of `WIKI_LITE`, so the sidebar
+Settings trigger works in lite and embedded surfaces (e.g. termyard). The
+sensitive sections inside it still depend on session/admin-gated `/api/system/*`
+routes and degrade gracefully when those are unavailable. `window.__WIKI_PREFIX`
+carries a runtime URL prefix for reverse-proxy deployments. Mobile (≤767 px)
+collapses the sidebar on mount and overlays it when reopened.
 
-**Why it matters:** Lite mode and embed mode are the no-watch, no-settings
-surfaces third parties mount; they must not assume the watcher or system config
-routes exist.
+**Why it matters:** Lite mode and embed mode are the no-watch surfaces third
+parties mount; they must not assume the watcher exists. Settings availability is
+no longer coupled to these modes; server-side auth on `/api/system/*` remains the
+security boundary for the panel's admin controls.
 
 **Verification pointer:** `src/app/layout.tsx`, `src/app/page.tsx`,
 `src/lib/url-prefix.ts`, `src/app/api/wiki/watch/route.ts`

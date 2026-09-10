@@ -37,7 +37,6 @@ import { SaveScratchDialog } from "@/components/wiki/save-scratch-dialog";
 import { useUpload } from "@/hooks/use-upload";
 import { useWorkspaces } from "@/hooks/use-workspaces";
 import { useFileTree } from "@/hooks/use-file-tree";
-import { isLite } from "@/lib/url-prefix";
 import { withWs } from "@/lib/workspace-client";
 import { useAIPanelStore } from "@/stores/ai-panel-store";
 import { useEditorStore, prefetchPage } from "@/stores/editor-store";
@@ -507,17 +506,15 @@ export default function Page() {
 						}
 						filePath={doc.openFile?.path ?? ""}
 					/>
-					{!isLite() && (
-						<AuthSettingsSheet
-							open={dialogs.settingsOpen}
-							onOpenChange={(open) =>
-								setDialogs((d) => ({
-									...d,
-									settingsOpen: open,
-								}))
-							}
-						/>
-					)}
+					<AuthSettingsSheet
+						open={dialogs.settingsOpen}
+						onOpenChange={(open) =>
+							setDialogs((d) => ({
+								...d,
+								settingsOpen: open,
+							}))
+						}
+					/>
 					<AIPanel currentPath={doc.openFile?.path} />
 					<input
 						ref={upload.fileInputRef}
