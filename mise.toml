@@ -7,9 +7,16 @@ node = "22"
 # `latest`. This task bumps the version and pushes ONLY the single new tag.
 [tasks.release]
 description = "Bump version and release via CI (usage: mise run release [patch|minor|major])"
+usage = '''
+arg "[level]" {
+  help "Version bump level (default: patch)"
+  default "patch"
+  choices "patch" "minor" "major"
+}
+'''
 run = """
 set -euo pipefail
-level="${1:-patch}"
+level="${usage_level?}"
 case "$level" in patch|minor|major) ;; *) echo "usage: mise run release [patch|minor|major]" >&2; exit 1 ;; esac
 
 # Must be on main with a clean tree, in sync with origin.
