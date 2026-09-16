@@ -98,6 +98,7 @@ export default function Page() {
 		openScratchByPath: doc.openScratchByPath,
 		openExternalUrl: doc.openExternalUrl,
 		promoteScratch: doc.promoteScratch,
+		openByPath: doc.openByPath,
 	});
 
 	// Cmd/Ctrl+Shift+N opens the scratchpad create surface.
@@ -398,6 +399,8 @@ export default function Page() {
 								onText={(t) => void scratchpad.createFromText(t)}
 								onFile={(f) => void scratchpad.createFromFile(f)}
 								onUrl={(u) => scratchpad.openUrl(u)}
+								onOpenPath={(p) => void scratchpad.openPath(p)}
+								onCanvas={() => void scratchpad.createCanvas()}
 								onCancel={scratchpad.closeCreateSurface}
 							/>
 						) : doc.openFile ? (

@@ -1,6 +1,13 @@
 "use client";
 
-import { FileText, Globe, Upload, X } from "lucide-react";
+import {
+	FileText,
+	Globe,
+	PencilRuler,
+	Search,
+	Upload,
+	X,
+} from "lucide-react";
 import { useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -10,6 +17,8 @@ interface ScratchpadCreateProps {
 	onText: (text: string) => void;
 	onFile: (file: File) => void;
 	onUrl: (url: string) => void;
+	onOpenPath: (path: string) => void;
+	onCanvas: () => void;
 	onCancel: () => void;
 }
 
@@ -17,10 +26,13 @@ export function ScratchpadCreate({
 	onText,
 	onFile,
 	onUrl,
+	onOpenPath,
+	onCanvas,
 	onCancel,
 }: ScratchpadCreateProps) {
 	const [text, setText] = useState("");
 	const [url, setUrl] = useState("");
+	const [path, setPath] = useState("");
 	const [dragOver, setDragOver] = useState(false);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -110,6 +122,37 @@ export function ScratchpadCreate({
 
 				<div className="flex flex-col gap-2">
 					<div className="flex items-center gap-2 text-xs text-muted-foreground">
+						<Search className="h-3.5 w-3.5" />
+						Open a workspace file by path
+					</div>
+					<div className="flex gap-2">
+						<input
+							type="text"
+							value={path}
+							onChange={(e) => setPath(e.target.value)}
+							placeholder="notes/ideas.md"
+							spellCheck={false}
+							className="flex-1 rounded-md border bg-background px-3 py-1.5 text-sm outline-none"
+							onKeyDown={(e) => {
+								if (e.key === "Enter") {
+									e.preventDefault();
+									onOpenPath(path);
+								}
+							}}
+						/>
+						<Button
+							size="sm"
+							variant="secondary"
+							onClick={() => onOpenPath(path)}
+							disabled={!path.trim()}
+						>
+							Open
+						</Button>
+					</div>
+				</div>
+
+				<div className="flex flex-col gap-2">
+					<div className="flex items-center gap-2 text-xs text-muted-foreground">
 						<Upload className="h-3.5 w-3.5" />
 						Drop a file anywhere here, or
 					</div>
@@ -130,6 +173,18 @@ export function ScratchpadCreate({
 								if (f) onFile(f);
 							}}
 						/>
+					</div>
+				</div>
+
+				<div className="flex flex-col gap-2">
+					<div className="flex items-center gap-2 text-xs text-muted-foreground">
+						<PencilRuler className="h-3.5 w-3.5" />
+						Start a blank canvas (Excalidraw)
+					</div>
+					<div>
+						<Button size="sm" variant="outline" onClick={onCanvas}>
+							New canvas
+						</Button>
 					</div>
 				</div>
 			</div>

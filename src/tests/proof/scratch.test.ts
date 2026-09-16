@@ -86,6 +86,17 @@ test("newScratchRelPath lives under .scratch and is contained", async () => {
 	assert.ok(res.absolutePath.startsWith(root));
 });
 
+test("newScratchRelPath keeps the excalidraw extension for canvas scratches", async () => {
+	const rel = newScratchRelPath("excalidraw");
+	assert.ok(rel.startsWith(`${SCRATCH_DIR}/scratch-`));
+	assert.ok(rel.endsWith(".excalidraw"));
+	const res = await resolveWorkspacePath(root, rel, {
+		allowMissing: true,
+		deniedSegments: [".proof", ".git"],
+	});
+	assert.ok(res, "canvas scratch path must resolve inside workspace");
+});
+
 test("traversal scratch path is rejected", async () => {
 	const res = await resolveWorkspacePath(root, "../escape.md", {
 		allowMissing: true,

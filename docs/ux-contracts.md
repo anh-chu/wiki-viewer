@@ -771,10 +771,18 @@ cap regression silently rejects legit uploads or admits oversized ones.
 ### 9.1 Create, detect, and save
 
 **Contract:** **Cmd/Ctrl+Shift+N** opens the scratchpad surface (Text / URL /
-File). Text submits on **Cmd/Ctrl+Enter**; URL prepends `https://` when no
-scheme; a dropped file uses the first file. Creation is `POST /api/wiki/scratch`
+Path / File / Canvas). Text submits on **Cmd/Ctrl+Enter**; URL prepends
+`https://` when no scheme; the Path row opens a workspace file by typed
+root-relative (or absolute-under-root) path — **Enter** or Open submits, and a
+missing target shows a "File not found" toast while the surface stays open; a
+dropped file uses the first file; **New canvas** creates an empty
+`.scratch/scratch-*.excalidraw` and opens it in the canvas editor as a blank
+scene (an empty file is a valid blank canvas; the first autosave writes scene
+JSON; promote works through the usual "Save to file…"). Creation is
+`POST /api/wiki/scratch`
 (JSON `{ext, content}` or multipart); the extension is detected from the first
-4096 chars (HTML → md → code → txt, code shebang-first). Scratch files live in
+4096 chars (HTML → md → code → txt, code shebang-first) or passed explicitly
+for canvas. Scratch files live in
 `.scratch/`, are swept after `SCRATCH_TTL_MS` (7 days), capped at
 `SCRATCH_MAX_BYTES` (50 MB). The "Save to file…" dialog (only for `.scratch/`
 paths) promotes via `POST /api/wiki/move`.
@@ -783,7 +791,8 @@ paths) promotes via `POST /api/wiki/move`.
 50 MB cap are what keep it from filling disk, and promotion is the only path out.
 
 **Verification pointer:** `src/components/wiki/scratchpad-create.tsx`,
-`src/components/wiki/save-scratch-dialog.tsx`, `src/lib/scratch/detect.ts`,
+`src/components/wiki/save-scratch-dialog.tsx`, `src/hooks/use-scratchpad.ts`,
+`src/hooks/use-open-file.ts`, `src/lib/scratch/detect.ts`,
 `src/lib/scratch/config.ts`, `src/app/api/wiki/scratch/route.ts`
 
 ## 10. Public share links

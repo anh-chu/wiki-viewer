@@ -272,29 +272,29 @@ export function useOpenFile({
 	);
 
 	const navigateToPath = useCallback(
-		async (target: string | null) => {
+		async (target: string | null): Promise<boolean> => {
 			if (!target) {
 				setOpenFile(null);
-				return;
+				return true;
 			}
 			const rel = toRootRelative(
 				target,
 				getEphemeralRoot() ?? rootPath,
 			);
-			if (rel === null) return;
+			if (rel === null) return false;
 			target = rel;
-			if (!target) return;
+			if (!target) return false;
 			const parts = target.split("/");
 			const name = parts[parts.length - 1];
 			const parentDir = parts.slice(0, -1).join("/");
 			const siblings = await fetchDir(parentDir);
 			const match = siblings.find((s) => s.path === target);
-			if (!match) return;
+			if (!match) return false;
 			if (match.type === "dir") {
 				await treeApi.revealPath(target);
 				await treeApi.toggleFolder(match);
 				setOpenFile(null);
-				return;
+				return true;
 			}
 			await treeApi.revealPath(target);
 			void openViewer({
@@ -303,8 +303,20 @@ export function useOpenFile({
 				type: match.type,
 				modifiedAt: match.modifiedAt,
 			} as TreeNode);
+			return true;
 		},
 		[openViewer, rootPath, treeApi],
+	);
+
+	// Open a file by typed path (root-relative or absolute under the root).
+	// Returns whether the target existed, so callers can show feedback.
+	const openByPath = useCallback(
+		async (raw: string): Promise<boolean> => {
+			const target = raw.trim();
+			if (!target) return false;
+			return navigateToPath(target);
+		},
+		[navigateToPath],
 	);
 
 	// Persist the open file to the URL so reloads restore it. File-backed views
@@ -556,6 +568,7 @@ export function useOpenFile({
 		openFromSearch,
 		openFavoriteEntry,
 		navigateToPath,
+		openByPath,
 		handleSave,
 		refreshViewer,
 		handleRefresh,
