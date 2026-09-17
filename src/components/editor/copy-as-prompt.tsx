@@ -16,6 +16,8 @@ export interface CopyAsPromptProps {
 	comments: readonly PromptComment[];
 	suggestions: readonly Suggestion[];
 	resolveSnippet?: SnippetResolver;
+	suggestionCount?: number;
+	onReviewSuggestions?: () => void;
 }
 
 type CopiedTarget = number | "all" | null;
@@ -29,7 +31,7 @@ function chipFor(kind: unknown) {
 	return { label: "Comment", className: "bg-muted text-muted-foreground" };
 }
 
-export function CopyAsPrompt({ path, comments, suggestions, resolveSnippet }: CopyAsPromptProps) {
+export function CopyAsPrompt({ path, comments, suggestions, resolveSnippet, suggestionCount = 0, onReviewSuggestions }: CopyAsPromptProps) {
 	const items = mapAnnotationsToPromptItems(comments, suggestions, resolveSnippet);
 	const prompt = buildPromptFromAnnotations(path, items);
 	const [open, setOpen] = useState(false);
@@ -68,7 +70,7 @@ export function CopyAsPrompt({ path, comments, suggestions, resolveSnippet }: Co
 		const timer = window.setTimeout(() => window.addEventListener("mousedown", onDown), 10);
 		return () => { window.clearTimeout(timer); window.removeEventListener("resize", anchorDialog); window.removeEventListener("keydown", onKey); window.removeEventListener("mousedown", onDown); };
 	}, [open]);
-	if (items.length === 0) return null;
+	if (items.length === 0 && suggestionCount <= 0) return null;
 	function showCopied(target: CopiedTarget) {
 		setCopiedTarget(target);
 		if (copiedTimer.current) window.clearTimeout(copiedTimer.current);
@@ -78,8 +80,11 @@ export function CopyAsPrompt({ path, comments, suggestions, resolveSnippet }: Co
 		if (!clipboardAvailable) { setShowText(true); return; }
 		try { await navigator.clipboard.writeText(text); showCopied(target); } catch { setClipboardAvailable(false); setShowText(true); }
 	}
-	return <div className="relative" ref={rootRef}>
-		<button ref={triggerRef} type="button" onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open} title="Copy comments and suggestions as a prompt" className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10.5px] text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground [@media(pointer:coarse)]:min-h-11"><ClipboardCopy className="h-2.5 w-2.5" />Copy as prompt<span className="rounded-full bg-muted px-1 text-[9.5px] text-foreground">{items.length}</span></button>
+	return <div className="fixed bottom-4 left-1/2 z-40 -translate-x-1/2" ref={rootRef}>
+		<div className="flex h-11 items-center gap-2 rounded-full border border-border bg-popover/95 px-4 py-2.5 shadow-lg backdrop-blur">
+			<button ref={triggerRef} type="button" onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open} title="Copy comments and suggestions as a prompt" className="inline-flex min-h-8 items-center gap-2 rounded-full text-[13px] font-medium text-foreground"><ClipboardCopy className="h-4 w-4 text-muted-foreground" />Copy as prompt<span className="rounded-full bg-primary px-1.5 text-[10px] leading-5 text-primary-foreground">{items.length}</span></button>
+			{suggestionCount > 0 && <><span aria-hidden="true" className="h-5 w-px bg-border" /><button type="button" onClick={onReviewSuggestions} className="rounded-full px-2.5 py-1 text-primary hover:bg-primary/10">✎ {suggestionCount} suggestions</button></>}
+		</div>
 		{open && dialogPosition && createPortal(<div ref={dialogRef} role="dialog" aria-label="Copy as prompt" style={{ position: "fixed", top: dialogPosition.top, right: dialogPosition.right, width: "min(416px, calc(100vw - 2rem))", transform: "translateY(-100%)" }} className="z-[60] overflow-hidden rounded-xl border border-border bg-background p-0 shadow-lg">
 			<div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2.5"><div className="flex min-w-0 items-center gap-2"><h2 className="text-[13px] font-medium text-foreground">Copy as prompt</h2><span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{items.length}</span></div><button type="button" onClick={() => void copy(prompt, "all")} className="shrink-0 rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{copiedTarget === "all" ? "Copied" : "Copy all"}</button></div>
 			<ol className="max-h-72 overflow-y-auto py-1">{items.map((raw, index) => { const item = raw as DisplayItem; const chip = chipFor(item.kind); const count = replies(item); return <li key={`${String(item.kind)}-${index}`} className="group flex items-start gap-2 px-3 py-2 transition-colors hover:bg-accent/40"><div className="min-w-0 flex-1"><div className="mb-0.5 flex items-center gap-1.5"><span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${chip.className}`}>{chip.label}</span><span className="line-clamp-2 text-[12px] italic text-muted-foreground">“{str(item.blockText) || str(item.snippet)}”</span></div>{str(item.currentText) && <div className="line-clamp-2 text-[12px] italic text-muted-foreground">from “{str(item.currentText)}”</div>}<div className="text-[13px] text-foreground">{str(item.text) || str(item.proposed)}{count > 0 && <span className="ml-1.5 text-[11px] text-muted-foreground">+{count} {count === 1 ? "reply" : "replies"}</span>}</div></div><button type="button" aria-label={`Copy item ${index + 1} as prompt`} title="Copy item" onClick={() => void copy(buildPromptFromAnnotations(path, [raw]), index)} className="mt-0.5 shrink-0 rounded p-1 text-sm leading-none text-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-accent focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11">{copiedTarget === index ? "✓" : "⎘"}</button></li>; })}</ol>

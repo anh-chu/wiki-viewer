@@ -563,7 +563,7 @@ cosmetic but user-visible.
 
 ### 5.1 Comment pips and thread
 
-**Contract:** One pip per block with ≥1 comment, positioned at the block top. Draft
+**Contract:** One pip per block with ≥1 comment, positioned at the block top. Hovering a pip highlights the exact annotated block text rect (falling back to the legacy strip when the block cannot be found). Draft
 instructions get an amber instruction pip variant; routed (`queued` / `sent` /
 `answered`) instructions are excluded. Ordinary pip variants: all-resolved → faded
 check; last turn by `ai:` → filled primary dot; else human ring. Clicking opens a
@@ -702,10 +702,7 @@ flicker, and un-reviewed edits leaking to disk.
 
 ### 6.4 Copy as prompt
 
-**Contract:** A compact **Copy as prompt** control in the editor's annotation
-bar, rendered in **both view and edit mode** (all annotation ops are
-sidecar-only; the save hint and save-status chip are the edit-only parts of
-that bar). Shown only when the document has ≥1 open comment or pending
+**Contract:** A floating **Copy as prompt** dock pill is fixed bottom-center with a dark elevated rounded surface, count badge, and integrated `✎ N suggestions` review button. It is rendered in **both view and edit mode** (all annotation ops are sidecar-only; the save hint and save-status chip are the edit-only parts of the annotation bar). Shown only when the document has ≥1 open comment or pending
 suggestion; a count badge shows how many. It opens a popover listing those items and serializes
 them into a prompt the user can paste into their own agent, without creating or
 writing anything. Format, numbered from 1:

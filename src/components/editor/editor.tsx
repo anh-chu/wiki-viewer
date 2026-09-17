@@ -1163,9 +1163,16 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 							</div>
 						)}
 
-						{/* Annotation bar — Copy as prompt + suggestion chip are
-						    mode-agnostic (all annotation ops are sidecar-only); the
-						    save hint and save status are edit-mode-only. */}
+						<CopyAsPrompt
+							path={currentPath ?? ""}
+							comments={promptComments}
+							suggestions={pendingSuggestions}
+							resolveSnippet={resolvePromptSnippet}
+							suggestionCount={pendingSuggestions.length}
+							onReviewSuggestions={() => openSuggestionReview(pendingSuggestions[0]?.id ?? "", undefined, true)}
+						/>
+
+						{/* Annotation bar — save hint and save status are edit-mode-only. */}
 						<div className="flex items-center justify-between px-4 py-1 border-t border-border text-xs text-muted-foreground/60">
 							{!isViewing && (
 							<span className="text-[10.5px] text-muted-foreground/30 select-none hidden sm:block">
@@ -1181,22 +1188,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 							</span>
 							)}
 							<div className="flex items-center gap-3">
-								<CopyAsPrompt
-									path={currentPath ?? ""}
-									comments={promptComments}
-									suggestions={pendingSuggestions}
-									resolveSnippet={resolvePromptSnippet}
-								/>
-								{pendingSuggestions.length > 0 && (
-									<button
-										type="button"
-										onClick={openNextSuggestion}
-										className="rounded-full px-2 py-0.5 text-[10.5px] text-primary hover:bg-primary/10"
-										aria-label={`Review ${pendingSuggestions.length} suggestions`}
-									>
-										✎ {pendingSuggestions.length} suggestions
-									</button>
-								)}
 								{!isViewing && (
 								<span
 									className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] transition-all duration-300 ${
