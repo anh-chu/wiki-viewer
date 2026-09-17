@@ -119,8 +119,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 		mcpAdapter: {
 			package: "wiki-viewer-mcp",
 			invoke: "npx wiki-viewer-mcp",
-			env: ["WIKI_VIEWER_URL", "WIKI_VIEWER_TOKEN", "WIKI_VIEWER_AGENT_ID", "WIKI_VIEWER_WORKSPACE"],
-			description: "Thin MCP adapter mapping standard MCP filesystem tools onto these endpoints. Set WIKI_VIEWER_WORKSPACE to target a specific workspace (sends X-Workspace on every call). Reads X-Collab-State and blocks or warns on raw writes to active .md files.",
+			env: ["WIKI_VIEWER_URL", "WIKI_VIEWER_TOKEN", "WIKI_VIEWER_AGENT_ID", "WIKI_VIEWER_WORKSPACE", "WIKI_VIEWER_SERVICE_TOKEN"],
+			description: "Thin MCP adapter mapping standard MCP filesystem tools onto these endpoints. Set WIKI_VIEWER_WORKSPACE to target a specific workspace (sends X-Workspace on every call). Its register command auto-approves when WIKI_VIEWER_SERVICE_TOKEN is set (or ~/.wiki-viewer/service-token is readable). Reads X-Collab-State and blocks or warns on raw writes to active .md files.",
 		},
 		ops: [
 			"block.replace",

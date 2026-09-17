@@ -178,8 +178,9 @@ export function AIPanel({ currentPath }: { currentPath?: string | null }) {
 								1 · Set up an assistant
 							</p>
 							<p className="text-xs leading-relaxed text-muted-foreground">
-								Pick one way to connect. You approve it in step 2 before it can touch
-								anything.
+								Pick one way to connect. You approve it (step 2) before it can touch
+								anything — unless it registers with the service token, which
+								auto-approves with a scoped account.
 							</p>
 						</div>
 
@@ -204,7 +205,7 @@ export function AIPanel({ currentPath }: { currentPath?: string | null }) {
 							</p>
 							<p className="text-[10px] text-muted-foreground/70">
 								Claude Code, Cursor, Codex, etc. get native read/edit tools over MCP.
-								Run this to request access, then copy the config:
+								Run this to connect (auto-approved instantly on this machine), then copy the config:
 							</p>
 							<div className="flex items-center gap-2">
 								<code className="flex-1 text-[10px] font-mono text-foreground/80 truncate bg-muted rounded px-1 py-0.5">

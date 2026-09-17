@@ -6,7 +6,7 @@
  * Kept as a build-time constant — not a runtime file read — so it works in dev,
  * production standalone builds, and global installs regardless of process.cwd().
  */
-export const BOOTSTRAP_PROMPT = `You are connecting to a running wiki-viewer instance at $WIKI_URL (e.g. \`http://localhost:3000\`). Fetch \`$WIKI_URL/api/agents/install\` and follow the instructions there to register, wait for human approval, then work with files via its HTTP API.
+export const BOOTSTRAP_PROMPT = `You are connecting to a running wiki-viewer instance at $WIKI_URL (e.g. \`http://localhost:3000\`). Fetch \`$WIKI_URL/api/agents/install\` and follow the instructions there to register, wait for human approval, then work with files via its HTTP API. Fast path: when running directly on the wiki-viewer host, include the header \`X-Service-Token: <contents of ~/.wiki-viewer/service-token>\` on the register POST — registration auto-approves and the response carries your bearer token immediately (no approval wait).
 
 **Two tiers — pick by \`X-Collab-State\`:**
 
