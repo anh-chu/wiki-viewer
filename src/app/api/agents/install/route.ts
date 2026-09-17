@@ -3,6 +3,7 @@ export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { BOOTSTRAP_PROMPT } from "@/lib/agents/bootstrap-prompt";
 
 const MAX_FILE_BYTES = 50_000_000; // 50 MB
 
@@ -28,10 +29,7 @@ function deriveEndpoint(req: NextRequest): string {
 }
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
-	const [bootstrapPrompt, version] = await Promise.all([
-		readFile(path.resolve(process.cwd(), "agents/bootstrap-prompt.md"), "utf-8").catch(() => ""),
-		readVersion(),
-	]);
+	const version = await readVersion();
 
 	const endpoint = deriveEndpoint(req);
 	const hostHeader = req.headers.get("host") ?? "";
@@ -54,7 +52,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 				? "This host is trusted for owner cookie issuance. Open the AI Panel in a browser and approve pending registrations."
 				: `This host (${hostname}) is not in the owner-trust allowlist, so the AI Panel cannot bootstrap an owner cookie. Restart the server with WIKI_OWNER_HOSTS=${hostname} or access via localhost.`,
 		},
-		bootstrapPrompt,
+		bootstrapPrompt: BOOTSTRAP_PROMPT,
 		skillTarball: "/api/agents/skill.tar.gz",
 		skillRaw: "/api/agents/skill",
 		skillCli: "npx skills add anh-chu/wiki-viewer/agents/wiki-viewer-skill",

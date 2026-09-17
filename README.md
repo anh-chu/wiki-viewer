@@ -855,9 +855,6 @@ For real deployments, run wiki-viewer on plain HTTP behind nginx or Caddy with a
 
 ```
 wiki-viewer/
-├── agents/                       Installable Agent Skill + bootstrap prompt
-│   ├── wiki-viewer-skill/        SKILL.md and assets
-│   └── bootstrap-prompt.md       One-paragraph prompt for any chat agent
 ├── bin/
 │   └── wiki-viewer.js            CLI entry point
 ├── docs/

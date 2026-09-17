@@ -25,6 +25,9 @@ test("GET /api/agents/install returns 200 with expected shape", async () => {
 	assert.ok(Array.isArray(body.routes) && (body.routes as unknown[]).length > 0);
 	assert.ok(typeof body.skillTarball === "string");
 	assert.ok(typeof body.bootstrapPrompt === "string" && body.bootstrapPrompt.length > 0);
+	// The prompt is a build-time constant, not a cwd-relative file read — it must
+	// contain the self-discovery instruction regardless of where the server started.
+	assert.ok(body.bootstrapPrompt.includes("/api/agents/install"));
 	assert.ok(typeof body.humanInstructions === "string" && body.humanInstructions.length > 0);
 	assert.ok(Array.isArray(body.ops) && (body.ops as unknown[]).length > 0);
 });

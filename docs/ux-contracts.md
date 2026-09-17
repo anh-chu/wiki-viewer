@@ -1191,7 +1191,9 @@ contract; the `after`/`lastEventId` semantics are what prevent replay and loss.
 ### 15.5 Install manifest
 
 **Contract:** `GET /api/agents/install` (no auth) advertises name/version/
-endpoint, human instructions, the bootstrap prompt, the skill tarball
+endpoint, human instructions, the bootstrap prompt (a build-time constant in
+`src/lib/agents/bootstrap-prompt.ts` — always non-empty, never read from
+`process.cwd()`), the skill tarball
 (`/api/agents/skill.tar.gz`), the workspace header contract (`X-Workspace`,
 `?ws=`, MRU default), capabilities (maxFileBytes 50 MB, collab states,
 `If-Collab-Match`), and the MCP adapter (`wiki-viewer-mcp`). `/api/agents/skill`

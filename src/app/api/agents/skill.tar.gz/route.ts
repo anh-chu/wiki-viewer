@@ -1,9 +1,8 @@
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
-import { readdir, readFile } from "node:fs/promises";
 import { gzipSync } from "node:zlib";
-import path from "node:path";
+import { SKILL_MD } from "@/lib/agents/skill-md";
 
 function encodeOctal(n: number, length: number): string {
 	return n.toString(8).padStart(length - 1, "0") + "\0";
@@ -61,17 +60,11 @@ function buildTar(entries: Array<{ name: string; content: Buffer; mtime: number 
 }
 
 export async function GET(_req: NextRequest): Promise<NextResponse> {
-	const skillDir = path.resolve(process.cwd(), "agents/wiki-viewer-skill");
-	const files = await readdir(skillDir, { withFileTypes: true });
 	const mtime = Math.floor(Date.now() / 1000);
 
-	const entries: Array<{ name: string; content: Buffer; mtime: number }> = [];
-
-	for (const f of files) {
-		if (!f.isFile()) continue;
-		const content = await readFile(path.join(skillDir, f.name));
-		entries.push({ name: `wiki-viewer-skill/${f.name}`, content, mtime });
-	}
+	const entries: Array<{ name: string; content: Buffer; mtime: number }> = [
+		{ name: "wiki-viewer-skill/SKILL.md", content: Buffer.from(SKILL_MD, "utf-8"), mtime },
+	];
 
 	const tar = buildTar(entries);
 	const gz = gzipSync(tar);
