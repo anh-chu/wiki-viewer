@@ -563,11 +563,12 @@ cosmetic but user-visible.
 
 ### 5.1 Comment pips and thread
 
-**Contract:** One pip per block with ≥1 comment (instruction-kind excluded),
-positioned at the block top. Pip variants: all-resolved → faded check; last turn
-by `ai:` → filled primary dot; else human ring. Clicking opens a thread popover
-(width `min(18rem, 100vw-1rem)`) with turn timestamps (relative time), a
-`⌘↵ send` reply box, and buttons "Turn into an instruction", Resolve/Reopen.
+**Contract:** One pip per block with ≥1 comment, positioned at the block top. Draft
+instructions get an amber instruction pip variant; routed (`queued` / `sent` /
+`answered`) instructions are excluded. Ordinary pip variants: all-resolved → faded
+check; last turn by `ai:` → filled primary dot; else human ring. Clicking opens a
+thread popover (width `min(18rem, 100vw-1rem)`) with turn timestamps (relative
+ time), a `⌘↵ send` reply box, and buttons "Turn into an instruction", Resolve/Reopen.
 Send uses `comment.reply` (open thread) or `comment.add`; Escalate creates an
 `instruction` comment with all turns joined and a `fromCommentId` backlink.
 The thread also exposes **Edit** and **Delete** for the comment body: Edit

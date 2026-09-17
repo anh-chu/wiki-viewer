@@ -145,7 +145,6 @@ export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnc
 			if (result.ok) {
 				applyLocalResult(path, sendOp, result.snapshot);
 				setText("");
-				onClose();
 			}
 		} finally {
 			setBusy(false);
@@ -176,7 +175,6 @@ export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnc
 			}
 			if (result.ok) {
 				applyLocalResult(path, op, result.snapshot);
-				onClose();
 			}
 		} finally {
 			setBusy(false);
@@ -223,7 +221,6 @@ export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnc
 			}
 			if (result.ok) {
 				applyLocalResult(path, { type: opType, commentId: activeComment.id }, result.snapshot);
-				onClose();
 			}
 		} finally {
 			setBusy(false);
@@ -317,8 +314,7 @@ export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnc
 					)}
 
 					{/* Reply / new comment footer */}
-					{(!activeComment?.resolved || comments.length === 0) && (
-						<div className="space-y-1.5 pt-1">
+					<div className="space-y-1.5 pt-1">
 							<textarea
 								ref={textareaRef}
 								value={text}
@@ -346,7 +342,6 @@ export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnc
 								</button>
 							</div>
 						</div>
-					)}
 
 					<Popover.Arrow className="fill-border" />
 				</Popover.Content>

@@ -142,6 +142,7 @@ test("maps open comments and pending suggestions only", () => {
 
 	assert.equal(items.length, 3);
 	assert.equal(items[0].text, "Keep this request");
+	assert.equal(items[0].blockText, undefined);
 	assert.equal(items[1].snippet, "lines 4-6");
 	assert.equal(items[1].lineStart, 4);
 	assert.equal(items[1].lineEnd, 6);
@@ -158,6 +159,7 @@ test("excludes routed instructions and resolved plain comments", () => {
 		{ ref: "open", resolved: false, text: "Open" },
 	]);
 	assert.deepEqual(items.map((item) => item.text), ["Draft", "Open"]);
+	assert.deepEqual(items.map((item) => item.kind), ["instruction", "comment"]);
 });
 
 test("serializes empty item sets with no numbered changes", () => {

@@ -300,7 +300,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		};
 	}, [snapshotBlocks]);
 
-	/** Group human comments by block ref for pip rendering (excludes instructions). */
+	/** Group human comments by block ref for pip rendering (instructions have their own variant). */
 	const commentsByRef = useMemo(() => {
 		const map: Record<string, typeof comments> = {};
 		for (const c of comments) {
@@ -309,7 +309,21 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		}
 		return map;
 	}, [comments]);
-
+	const draftInstructionsByRef = useMemo(() => {
+		const map: Record<string, typeof comments> = {};
+		for (const c of comments) {
+			if (!c.ref || c.kind !== "instruction" || c.instructionState !== "draft") continue;
+			(map[c.ref] ??= []).push(c);
+		}
+		return map;
+	}, [comments]);
+	const threadCommentsByRef = useMemo(() => {
+		const map: Record<string, typeof comments> = {};
+		for (const c of comments) {
+			if (c.ref && (c.kind !== "instruction" || c.instructionState === "draft")) (map[c.ref] ??= []).push(c);
+		}
+		return map;
+	}, [comments]);
 
 	/** Tracks which block's comment thread is open and its anchor element. */
 	const [threadTarget, setThreadTarget] = useState<
@@ -958,7 +972,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 										{Array.from(pendingSuggestionsByRef.entries()).map(([blockRef, blockSuggestions]) => {
 											const pos = blockRefPositions.get(blockRef);
 											if (!pos) return null;
-											const hasCommentPip = (commentsByRef[blockRef]?.length ?? 0) > 0;
+											const hasCommentPip = (threadCommentsByRef[blockRef]?.length ?? 0) > 0;
 											const firstSuggestion = blockSuggestions[0];
 											return (
 												<SuggestionPip
@@ -977,6 +991,33 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 														)
 													}
 												/>
+											);
+										})}
+
+										{/* Draft instruction pips — routed instructions stay invisible. */}
+										{Object.entries(draftInstructionsByRef).map(([blockRef, blockComments]) => {
+											const pos = blockRefPositions.get(blockRef);
+											if (!pos) return null;
+											const hasCommentPip = (commentsByRef[blockRef]?.length ?? 0) > 0;
+											return (
+												<div key={`instruction-pip-${blockRef}`} style={{ pointerEvents: "auto" }}>
+													<CommentPip
+														anchorKey={blockRef}
+														anchorLabel={blockRef}
+														comments={blockComments}
+														top={pos.top + 4}
+														left={Math.max(0, pos.left - (hasCommentPip ? 40 : 20))}
+														variant="instruction"
+														onClick={() => {
+															const el = (scrollContainerRef.current?.querySelector(
+																`[data-annotation-span="${blockRef}"]`,
+																) as HTMLElement | null) ?? (scrollContainerRef.current?.querySelector(
+																`[data-block-ref="${blockRef}"]`,
+																) as HTMLElement | null);
+															if (el) setThreadTarget({ blockRef, el });
+														}}
+													/>
+												</div>
 											);
 										})}
 
@@ -1020,7 +1061,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 							anchorRef={threadTarget.blockRef}
 							anchorLabel={threadTarget.blockRef}
 							comments={
-								(commentsByRef[threadTarget.blockRef]) ?? []
+								(threadCommentsByRef[threadTarget.blockRef]) ?? []
 							}
 							anchorEl={threadTarget.el}
 							onClose={() => setThreadTarget(null)}

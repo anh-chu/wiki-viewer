@@ -5,7 +5,7 @@ import type {
 	SuggestionKind,
 } from "./types";
 
-export type PromptItemKind = "comment" | "suggestion";
+export type PromptItemKind = "comment" | "instruction" | "suggestion";
 
 export interface PromptAnchor {
 	/** Full readable block text (not an opaque block ref). */
@@ -32,9 +32,11 @@ export interface PromptItem {
 export type PromptComment = {
 	ref?: Comment["ref"];
 	lineAnchor?: Comment["lineAnchor"];
+	id?: Comment["id"];
 	resolved?: boolean;
 	kind?: Comment["kind"];
 	instructionState?: Comment["instructionState"];
+	fromCommentId?: Comment["fromCommentId"];
 	text?: string;
 	by?: string;
 	turns?: ReadonlyArray<{ text: string; by?: string }>;
@@ -85,7 +87,7 @@ function quoteIndented(value: string): string {
 /** Convert one prompt item to its numbered-item body, without its number. */
 export function formatPromptItem(item: PromptItem): string {
 	const anchor = `"${readableText(item)}"${lineSuffix(item)}`;
-	if (item.kind === "comment") {
+	if (item.kind === "comment" || item.kind === "instruction") {
 		const turns = item.turns ?? [{ text: item.text ?? "" }];
 		const [first, ...replies] = turns;
 		const lines = [`Comment on paragraph ${anchor}:`, `   "${first?.text ?? ""}"`];
@@ -148,10 +150,26 @@ export function mapAnnotationsToPromptItems(
 		return { snippet: annotationSnippet(annotation) };
 	};
 
+	// A comment that has already been escalated into a draft instruction is
+	// represented by that instruction (same ask) — serialize it once, not twice.
+	const escalatedToDraft = new Set(
+		comments
+			.filter(
+				(c) =>
+					c.kind === "instruction" &&
+					c.instructionState === "draft" &&
+					typeof c.fromCommentId === "string",
+			)
+			.map((c) => c.fromCommentId as string),
+	);
+
 	const commentItems: PromptItem[] = comments
 		.filter(
 			(comment) =>
 				comment.resolved !== true &&
+				!(comment.kind !== "instruction" &&
+					comment.id !== undefined &&
+					escalatedToDraft.has(comment.id)) &&
 				(comment.kind !== "instruction" ||
 					(comment.instructionState !== "queued" &&
 						comment.instructionState !== "sent" &&
@@ -161,7 +179,7 @@ export function mapAnnotationsToPromptItems(
 			const anchor = anchorFor(comment);
 			return {
 				...anchor,
-				kind: "comment" as const,
+				kind: comment.kind === "instruction" ? ("instruction" as const) : ("comment" as const),
 				text: commentText(comment),
 				turns: commentTurns(comment),
 			};
