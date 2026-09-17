@@ -26,7 +26,7 @@ function relTime(iso: string): string {
 function applyLocalResult(path: string, op: Record<string, unknown>, snapshot?: Snapshot): void {
 	if (!snapshot) return;
 	const type = String(op.type);
-	const event: ProofEvent = { id: snapshot.lastEventId, type: type.replace("comment.", "comment.").replace("comment.add", "comment.added").replace("comment.reply", "comment.replied").replace("comment.edit", "comment.edited").replace("comment.delete", "comment.deleted").replace("comment.resolve", "comment.resolved").replace("comment.reopen", "comment.reopened"), at: new Date().toISOString(), by: "human" };
+	const event: ProofEvent = { id: snapshot.lastEventId, type: type.replace("comment.", "comment.").replace("comment.add", "comment.added").replace("comment.reply", "comment.replied").replace("comment.edit", "comment.edited").replace("comment.delete", "comment.deleted").replace("comment.resolve", "comment.resolved").replace("comment.reopen", "comment.reopened"), at: new Date().toISOString(), by: "human", revision: snapshot.revision };
 	const commentId = typeof op.commentId === "string" ? op.commentId : undefined;
 	if (commentId) event.commentId = commentId;
 	if (typeof op.text === "string") event.text = op.text;

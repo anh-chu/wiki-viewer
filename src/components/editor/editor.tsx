@@ -484,6 +484,10 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		const proseMirror = container.querySelector(".ProseMirror");
 		if (!proseMirror) return;
 		const children = Array.from(proseMirror.children) as HTMLElement[];
+		// A viewing-mode filesystem refresh briefly clears ProseMirror before the
+		// replacement HTML is stamped in. Keep the last known positions during that
+		// gap so annotation pips and an open thread do not disappear and reappear.
+		if (children.length === 0) return;
 		const containerRect = container.getBoundingClientRect();
 		const next = new Map<string, { top: number; left: number; width: number; bottom: number }>();
 		for (let i = 0; i < Math.min(children.length, snapshotBlocks.length - snapshotBlockOffset); i++) {

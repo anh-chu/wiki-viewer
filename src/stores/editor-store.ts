@@ -209,13 +209,19 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 			await get().save();
 		}
 
+		const samePath = currentState.currentPath === path;
+		// Refreshes triggered by sidecar-backed annotation writes must not blank the
+		// active editor. Clearing content causes ProseMirror (and its annotation
+		// overlay) to unmount for a frame, which also invalidates open thread anchors.
+		// Keep the current content for same-path reloads; the fetched response below
+		// still replaces it when the markdown actually changed.
 		set({
 			currentPath: path,
 			isLoading: true,
 			loadStatus: "loading",
 			isDirty: false,
-			content: "",
-			currentRevision: null,
+			content: samePath ? currentState.content : "",
+			currentRevision: samePath ? currentState.currentRevision : null,
 		});
 
 		// Paint from cache immediately so the editor feels instant. In-memory LRU

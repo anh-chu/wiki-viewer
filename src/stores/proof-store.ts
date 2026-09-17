@@ -37,17 +37,23 @@ export const useProofStore = create<ProofState>((set, get) => ({
 			});
 			if (!res.ok) return;
 			const sidecar = (await res.json()) as Sidecar;
-			set((s) => ({
-				byPath: {
-					...s.byPath,
-					[path]: {
-						...(s.byPath[path] ?? defaultEntry()),
-						sidecar,
-						snapshotRevision: sidecar.revision,
-						lastEventId: sidecar.nextEventId - 1,
+			set((s) => {
+				const current = s.byPath[path];
+				// A delayed initial load can finish after a local annotation op. Do not
+				// replace the newer in-memory sidecar (and its pips) with that stale read.
+				if (current?.sidecar && current.sidecar.revision > sidecar.revision) return s;
+				return {
+					byPath: {
+						...s.byPath,
+						[path]: {
+							...(current ?? defaultEntry()),
+							sidecar,
+							snapshotRevision: Math.max(current?.snapshotRevision ?? 0, sidecar.revision),
+							lastEventId: Math.max(current?.lastEventId ?? 0, sidecar.nextEventId - 1),
+						},
 					},
-				},
-			}));
+				};
+			});
 		} catch {
 			// network error — leave stale
 		}
