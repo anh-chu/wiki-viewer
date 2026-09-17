@@ -5,6 +5,7 @@
  * auth/server; this is handled by src/tests/proof/preload.ts.
  */
 import { auth, authReady } from "../../../lib/auth/server.js";
+import { assertIsolatedTestHome } from "./guard.js";
 
 export interface TestUser {
 	userId: string;

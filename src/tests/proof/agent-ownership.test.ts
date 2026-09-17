@@ -15,6 +15,7 @@ let tmpHome: string;
 before(async () => {
 	tmpHome = await mkdtemp(path.join(tmpdir(), "agent-ownership-test-"));
 	process.env.HOME = tmpHome;
+	process.env.WIKI_TEST_HOME = process.env.WIKI_TEST_HOME ?? tmpHome;
 });
 
 after(async () => {
@@ -33,6 +34,8 @@ beforeEach(async () => {
 });
 
 async function makeUserCookie(tag: string): Promise<string> {
+	const { assertIsolatedTestHome } = await import("./helpers/guard.js");
+	assertIsolatedTestHome();
 	await ensureRegistry();
 	const { auth, authReady } = await import("../../lib/auth/server.js");
 	await authReady();

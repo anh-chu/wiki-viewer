@@ -19,6 +19,7 @@ let tmpRoot: string;
 before(async () => {
 	tmpHome = await mkdtemp(path.join(tmpdir(), "wiki-put-test-"));
 	process.env.HOME = tmpHome;
+	process.env.WIKI_TEST_HOME = process.env.WIKI_TEST_HOME ?? tmpHome;
 
 	const { rootDir } = await createTestWorkspace({ name: "wiki-put-test" });
 	tmpRoot = rootDir;
@@ -32,6 +33,8 @@ after(async () => {
 import { PUT, GET } from "../../app/api/wiki/content/route.js";
 
 async function makeUserCookie(): Promise<string> {
+	const { assertIsolatedTestHome } = await import("../proof/helpers/guard.js");
+	assertIsolatedTestHome();
 	const { auth, authReady } = await import("../../lib/auth/server.js");
 	await authReady();
 	const res = await auth.api.signUpEmail({

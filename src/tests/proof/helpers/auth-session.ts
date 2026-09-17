@@ -4,6 +4,8 @@
  */
 
 export async function makeUserSession(): Promise<string> {
+	const { assertIsolatedTestHome } = await import("./guard.js");
+	assertIsolatedTestHome();
 	const { auth, authReady } = await import("../../../lib/auth/server.js");
 	await authReady();
 	const res = await auth.api.signUpEmail({

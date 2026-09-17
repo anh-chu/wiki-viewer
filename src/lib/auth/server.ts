@@ -43,7 +43,29 @@ if (
 	}
 }
 
-const DATA_DIR = path.join(process.env.HOME ?? os.homedir(), ".wiki-viewer");
+// Test isolation: scripts/test-floor.mjs sets WIKI_TEST_HOME + HOME to a
+// throwaway tmpdir via src/tests/proof/preload.ts. Prefer WIKI_TEST_HOME so
+// later in-process HOME overrides (some before() hooks set their own tmpHome)
+// can never redirect an already-registered test suite to the real DB root.
+// History: direct `tsx --test` runs without the preload once signed dozens of
+// @test.local users into the live ~/.wiki-viewer/auth.db — see
+// src/tests/proof/helpers/guard.ts for the signup-side choke point.
+
+/** True when the process was launched by, or looks like, a node test runner. */
+function isTestRunnerProcess(): boolean {
+	if (process.env.NODE_ENV === "test") return true;
+	return process.execArgv.some((arg) => arg.includes("--test") || arg.includes("preload.ts"));
+}
+
+if (!process.env.WIKI_TEST_HOME && isTestRunnerProcess()) {
+	throw new Error(
+		"Test-runner process detected without WIKI_TEST_HOME: refusing to open the real ~/.wiki-viewer/auth.db. " +
+			"Run tests via `pnpm test` (scripts/test-floor.mjs), or set WIKI_TEST_HOME + HOME to an isolated tmp dir before importing auth/server.",
+	);
+}
+const DATA_DIR = process.env.WIKI_TEST_HOME
+	? path.join(process.env.WIKI_TEST_HOME, ".wiki-viewer")
+	: path.join(process.env.HOME ?? os.homedir(), ".wiki-viewer");
 mkdirSync(DATA_DIR, { recursive: true });
 const DB_PATH = path.join(DATA_DIR, "auth.db");
 const SECRET_PATH = path.join(DATA_DIR, "auth.secret");

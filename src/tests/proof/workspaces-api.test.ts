@@ -21,6 +21,7 @@ before(async () => {
 	tmpHome = await mkdtemp(path.join(tmpdir(), "ws-api-home-"));
 	tmpDir = await mkdtemp(path.join(tmpdir(), "ws-api-dir-"));
 	process.env.HOME = tmpHome;
+	process.env.WIKI_TEST_HOME = process.env.WIKI_TEST_HOME ?? tmpHome;
 });
 
 after(async () => {
@@ -34,6 +35,8 @@ import { POST as openPOST } from "../../app/api/system/workspaces/[id]/open/rout
 import { GET as adminsGET, POST as adminsPOST, DELETE as adminsDELETE } from "../../app/api/system/admins/route.js";
 
 async function signUp(tag: string): Promise<{ cookie: string; id: string; email: string }> {
+	const { assertIsolatedTestHome } = await import("./helpers/guard.js");
+	assertIsolatedTestHome();
 	const { auth, authReady } = await import("../../lib/auth/server.js");
 	await authReady();
 	const email = `${tag}${Date.now()}@test.local`;

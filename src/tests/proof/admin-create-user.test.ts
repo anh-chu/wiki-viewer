@@ -5,7 +5,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 test("admin create-user: bypasses allowlist, returns temp password, dup 409, unauth 401", async () => {
-  process.env.HOME = mkdtempSync(path.join(tmpdir(), "adduser-"));
+  const tmpHome = mkdtempSync(path.join(tmpdir(), "adduser-"));
+  process.env.HOME = tmpHome;
+  process.env.WIKI_TEST_HOME = process.env.WIKI_TEST_HOME ?? tmpHome;
+  const { assertIsolatedTestHome } = await import("./helpers/guard.js");
+  assertIsolatedTestHome();
   process.env.WIKI_OWNER_HOSTS = "localhost";
   const { writeConfig } = await import("../../lib/config.js");
   const { auth, authReady } = await import("../../lib/auth/server.js");

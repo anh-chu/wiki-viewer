@@ -25,3 +25,6 @@ certificates
 TODO.md
 .handoffs/
 .pi/
+
+# Live auth DB backup from test-user cleanup (blocker: never commit)
+.backup-authdb/
