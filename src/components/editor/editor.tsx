@@ -282,27 +282,21 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	);
 
 	/**
-	 * Resolve a block `ref` to a short human-readable snippet (the block's
-	 * leading words) for the Copy-as-prompt surface, so prompts read
-	 * `The rendering pipeline…` instead of the opaque ref id.
+	 * Resolve a block `ref` to its full canonical markdown for the
+	 * Copy-as-prompt surface, so the exported prompt quotes the text the
+	 * annotation is anchored to (the serializer caps the quoted length).
 	 */
 	const promptComments = useMemo(() => comments, [comments]);
 	const resolvePromptSnippet = useMemo(() => {
 		const byRef = new Map(snapshotBlocks.map((b) => [b.ref, b.markdown]));
-		const shorten = (md: string) => {
-			const text = md
-				.replace(/^[#>\s]*/, "")
-				.replace(/^[-*+]\s+/, "")
-				.replace(/^\d+\.\s+/, "")
-				.replace(/[*_`#>]/g, "")
-				.replace(/\s+/g, " ")
-				.trim();
-			return text.length > 48 ? `${text.slice(0, 48).trimEnd()}…` : text;
-		};
+		// Full canonical block markdown: the receiving agent locates the anchor
+		// by its actual text (the serializer caps the quoted length). Line
+		// ranges are unavailable for ref anchors here, so they are omitted —
+		// line-anchored comments carry their own LineAnchor.
 		return (annotation: { ref?: string }) => {
 			const md = annotation.ref ? byRef.get(annotation.ref) : undefined;
-			const snip = md ? shorten(md) : "";
-			return snip || undefined;
+			const text = md?.replace(/\s+/g, " ").trim();
+			return text ? { text } : undefined;
 		};
 	}, [snapshotBlocks]);
 
@@ -446,7 +440,10 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	const openCommentForSelection = useCallback(() => {
 		const resolved = resolveSelectionBlock();
 		if (!resolved) return;
-		setThreadTarget({ blockRef: resolved.blockRef, el: resolved.blockEl });
+		const spanEl = scrollContainerRef.current?.querySelector(
+			`[data-annotation-span="${resolved.blockRef}"]`,
+		) as HTMLElement | null;
+		setThreadTarget({ blockRef: resolved.blockRef, el: spanEl ?? resolved.blockEl });
 	}, [resolveSelectionBlock]);
 
 	// Load snapshot (ordered block list) when path changes so suggestion cards
@@ -969,9 +966,15 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 													top={pos.top + 4}
 													left={Math.max(0, pos.left - (hasCommentPip ? 40 : 20))}
 													count={blockSuggestions.length}
+													anchorKey={blockRef}
 													aria-label={`Review ${blockSuggestions.length} suggestion${blockSuggestions.length === 1 ? "" : "s"} on this block`}
 													onClick={(event) =>
-														openSuggestionReview(firstSuggestion.id, event.currentTarget)
+														openSuggestionReview(
+															firstSuggestion.id,
+															(scrollContainerRef.current?.querySelector(
+																`[data-annotation-span="${blockRef}"]`,
+															) as HTMLElement | null) ?? event.currentTarget,
+														)
 													}
 												/>
 											);
@@ -990,9 +993,16 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 								top={pos.top + 4}
 								left={Math.max(0, pos.left - 20)}
 								onClick={() => {
-									const el = scrollContainerRef.current?.querySelector(
-										`[data-block-ref="${blockRef}"]`,
-									) as HTMLElement | null;
+									// Prefer the annotation span (the measured text
+									// element) so the thread anchors to the commented
+									// text, not the line-start pip.
+									const el =
+										(scrollContainerRef.current?.querySelector(
+											`[data-annotation-span="${blockRef}"]`,
+										) as HTMLElement | null) ??
+										(scrollContainerRef.current?.querySelector(
+											`[data-block-ref="${blockRef}"]`,
+										) as HTMLElement | null);
 									if (el) setThreadTarget({ blockRef, el });
 								}}
 							/>
@@ -1014,7 +1024,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 							}
 							anchorEl={threadTarget.el}
 							onClose={() => setThreadTarget(null)}
-							readOnly={isViewing}
 						/>
 									)}
 
@@ -1043,7 +1052,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 												void useProofStore.getState().loadSidecar(currentPath);
 												void useProofStore.getState().loadSnapshot(currentPath);
 											}}
-											readOnly={isViewing}
 										/>
 									)}
 									{isViewing && Object.keys(parsedViewingContent.data).length > 0 && (
@@ -1110,9 +1118,11 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 							</div>
 						)}
 
-						{!isViewing && (
-						/* Status bar */
+						{/* Annotation bar — Copy as prompt + suggestion chip are
+						    mode-agnostic (all annotation ops are sidecar-only); the
+						    save hint and save status are edit-mode-only. */}
 						<div className="flex items-center justify-between px-4 py-1 border-t border-border text-xs text-muted-foreground/60">
+							{!isViewing && (
 							<span className="text-[10.5px] text-muted-foreground/30 select-none hidden sm:block">
 								<kbd className="rounded px-1 font-mono text-[9.5px] ring-1 ring-foreground/10">
 									⌘S
@@ -1124,6 +1134,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 								</kbd>{" "}
 								commands
 							</span>
+							)}
 							<div className="flex items-center gap-3">
 								<CopyAsPrompt
 									path={currentPath ?? ""}
@@ -1141,6 +1152,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 										✎ {pendingSuggestions.length} suggestions
 									</button>
 								)}
+								{!isViewing && (
 								<span
 									className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] transition-all duration-300 ${
 										saveStatus === "idle"
@@ -1166,9 +1178,9 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 										<><AlertCircle className="h-2.5 w-2.5" />Save failed</>
 									)}
 								</span>
+							)}
 							</div>
 						</div>
-						)}
 		</div>
 		{WikiCreateDialog}
 	</>

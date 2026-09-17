@@ -574,7 +574,10 @@ The thread also exposes **Edit** and **Delete** for the comment body: Edit
 replaces the first turn's text (replies stay immutable; `comment.edit`, works on
 resolved comments too); Delete removes the comment and its thread entirely
 (`comment.delete`, confirm-gated; the pip disappears with no tombstone). On
-`409 STALE_REVISION` the sidecar reloads and retries once.
+`409 STALE_REVISION` the sidecar reloads and retries once. Every thread
+affordance (reply, Edit, Delete, Escalate, Resolve/Reopen) is available in
+**view mode** too — comment ops are sidecar-only and never touch the file, so
+there is no read-only stripping on the thread.
 
 **Why it matters:** Comment ops never change file content (revision stays
 fixed), so the pip/thread loop is the safe annotation path that must not bump the
@@ -643,8 +646,10 @@ viewport-clamped **review popover** showing current vs proposed with **Accept**
 settle. The popover also exposes **Edit** (`suggestion.edit`, pending only —
 changes the proposed text/kind inline) and **Delete** (`suggestion.delete`,
 pending only, confirm-gated — removes the suggestion from the sidecar with no
-tombstone, unlike Reject which keeps a rejected record). `esc` closes;
-read-only hides Accept/Reject. Decorations follow a fixed
+tombstone, unlike Reject which keeps a rejected record). `esc` closes.
+Every affordance above (Accept/Reject/Edit/Delete) is available in **view mode**
+too — annotation ops are sidecar-only and never touch the file, so this
+popover has no read-only stripping. Decorations follow a fixed
 lifecycle: build from doc + suggestions, map through local transactions, rebuild
 on a meta refresh when the sidecar/snapshot changes, and force a full rebuild
 after any `setContent`. The review popover shows a **word-level diff** (deleted
@@ -696,17 +701,23 @@ flicker, and un-reviewed edits leaking to disk.
 
 ### 6.4 Copy as prompt
 
-**Contract:** A compact **Copy as prompt** control in the editor status bar
-(shown only when the document has ≥1 open comment or pending suggestion; a count
-badge shows how many). It opens a popover listing those items and serializes
+**Contract:** A compact **Copy as prompt** control in the editor's annotation
+bar, rendered in **both view and edit mode** (all annotation ops are
+sidecar-only; the save hint and save-status chip are the edit-only parts of
+that bar). Shown only when the document has ≥1 open comment or pending
+suggestion; a count badge shows how many. It opens a popover listing those items and serializes
 them into a prompt the user can paste into their own agent, without creating or
 writing anything. Format, numbered from 1:
 `Edit the file \`<path>\` (a Markdown document). Apply these changes:` then a
-blank line then per item `N. \`<snippet>\`: <body>` — comments use the original
-(first) turn's text; suggestions phrase by kind (`replace with "…"`,
-`insert "…"`, `delete this`). The snippet is the block's readable leading text
-(resolved from the snapshot), not the ref id; line-anchored comments use
-`line N` / `lines N-M`. Per-item ⎘ copies one item; **Copy all** copies the
+blank line, then per item:
+`N. Comment on "<FULL BLOCK TEXT>" (lines X-Y): "<original ask>"` followed by
+each reply as an indented `- <by>: <text>` line; suggestions phrase by kind
+(`Suggestion on "<current block text>": replace with "<proposed>"`,
+`insert after "<block text>": "<proposed>"`, `delete this block`). The quoted
+anchor is the block's full canonical markdown (resolved from the snapshot,
+capped at ~200 chars with `…`), never the ref id; ref-anchored comments omit
+the line range when no line metadata is available, while line-anchored
+comments use `line N` / `lines N-M`. Per-item ⎘ copies one item; **Copy all** copies the
 whole prompt; each shows a ~1500ms copied flip. When the clipboard is
 unavailable (non-secure context) a **Show text** read-only textarea is the
 manual-copy fallback. Instructions that already entered the agent route

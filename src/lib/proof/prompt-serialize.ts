@@ -7,12 +7,25 @@ import type {
 
 export type PromptItemKind = "comment" | "suggestion";
 
+export interface PromptAnchor {
+	/** Full readable block text (not an opaque block ref). */
+	text: string;
+	lineStart?: number;
+	lineEnd?: number;
+}
+
 export interface PromptItem {
-	snippet: string;
+	/** Legacy fallback when no readable anchor can be resolved. */
+	snippet?: string;
 	kind: PromptItemKind;
 	text?: string;
+	turns?: ReadonlyArray<{ text: string; by?: string }>;
 	proposed?: string;
 	suggestionKind?: SuggestionKind;
+	blockText?: string;
+	currentText?: string;
+	lineStart?: number;
+	lineEnd?: number;
 }
 
 /** Minimal comment shape accepted by the mapper, including legacy snapshots. */
@@ -40,50 +53,75 @@ function annotationSnippet(annotation: {
 	return annotation.ref ?? (annotation.lineAnchor ? lineAnchorSnippet(annotation.lineAnchor) : "document");
 }
 
+function commentTurns(comment: PromptComment): ReadonlyArray<{ text: string; by?: string }> {
+	if (comment.turns?.length) return comment.turns;
+	return [{ text: comment.text ?? "", by: comment.by }];
+}
+
 function commentText(comment: PromptComment): string {
-	// The original ask (first turn) is what belongs in a prompt, not the whole
-	// discussion thread. Fall back to a legacy flat `text` field.
-	const firstTurn = comment.turns?.[0]?.text;
-	if (firstTurn !== undefined) return firstTurn;
-	return comment.text ?? "";
+	return commentTurns(comment)[0]?.text ?? "";
+}
+
+function capBlockText(text: string): string {
+	const normalized = text.replace(/\s+/g, " ").trim();
+	return normalized.length > 200 ? `${normalized.slice(0, 199).trimEnd()}…` : normalized;
+}
+
+function readableText(item: PromptItem): string {
+	return capBlockText(item.blockText ?? item.currentText ?? item.snippet ?? "document");
+}
+
+function lineSuffix(item: PromptItem): string {
+	if (item.lineStart === undefined) return "";
+	const end = item.lineEnd ?? item.lineStart;
+	return end === item.lineStart ? ` (line ${item.lineStart})` : ` (lines ${item.lineStart}-${end})`;
+}
+
+function quoteIndented(value: string): string {
+	const lines = value.split("\n");
+	return lines.map((line) => `   "${line}"`).join("\n");
 }
 
 /** Convert one prompt item to its numbered-item body, without its number. */
 export function formatPromptItem(item: PromptItem): string {
+	const anchor = `"${readableText(item)}"${lineSuffix(item)}`;
 	if (item.kind === "comment") {
-		return `\`${item.snippet}\`: ${item.text ?? ""}`;
+		const turns = item.turns ?? [{ text: item.text ?? "" }];
+		const [first, ...replies] = turns;
+		const lines = [`Comment on paragraph ${anchor}:`, `   "${first?.text ?? ""}"`];
+		for (const turn of replies) {
+			lines.push(`   - ${turn.by ?? "unknown"}: ${turn.text}`);
+		}
+		return lines.join("\n");
 	}
 
 	switch (item.suggestionKind) {
 		case "delete":
-			return `\`${item.snippet}\`: delete this`;
+			return `Suggestion on ${anchor}: delete this block`;
 		case "insertAfter":
+			return `Suggestion on ${anchor}: insert after ${anchor}\n${quoteIndented(item.proposed ?? "")}`;
 		case "insertBefore":
-			return `\`${item.snippet}\`: insert "${item.proposed ?? ""}"`;
+			return `Suggestion on ${anchor}: insert before ${anchor}\n${quoteIndented(item.proposed ?? "")}`;
 		case "replace":
 		default:
-			return `\`${item.snippet}\`: replace with "${item.proposed ?? ""}"`;
+			return `Suggestion on ${anchor}: replace with\n${quoteIndented(item.proposed ?? "")}`;
 	}
 }
 
-/**
- * Serialize existing annotations into a prompt. This function has no side
- * effects and intentionally only reads its arguments.
- */
+/** Serialize existing annotations into a prompt. This function has no side effects. */
 export function buildPromptFromAnnotations(path: string, items: PromptItem[]): string {
 	const header = `Edit the file \`${path}\` (a Markdown document). Apply these changes:`;
 	return [header, "", ...items.map((item, index) => `${index + 1}. ${formatPromptItem(item)}`)].join("\n");
 }
 
-/**
- * Resolve a human-readable snippet for an annotation. Given the block `ref` (or
- * line anchor), return short readable text (e.g. the block's leading words)
- * instead of the opaque ref id. Return undefined to fall back to the ref id.
- */
+/** Resolve an annotation to full readable text and, when available, its line range. */
 export type SnippetResolver = (annotation: {
 	ref?: string;
 	lineAnchor?: LineAnchor;
-}) => string | undefined;
+}) => PromptAnchor | string | undefined;
+
+const normalizeAnchor = (value: PromptAnchor | string | undefined): PromptAnchor | undefined =>
+	typeof value === "string" ? { text: value } : value;
 
 /** Map unresolved comments and pending suggestions into prompt items. */
 export function mapAnnotationsToPromptItems(
@@ -91,8 +129,24 @@ export function mapAnnotationsToPromptItems(
 	suggestions: readonly Suggestion[] = [],
 	resolveSnippet?: SnippetResolver,
 ): PromptItem[] {
-	const snippetFor = (annotation: { ref?: string; lineAnchor?: LineAnchor }) =>
-		resolveSnippet?.(annotation) ?? annotationSnippet(annotation);
+	const anchorFor = (annotation: { ref?: string; lineAnchor?: LineAnchor }) => {
+		const resolved = normalizeAnchor(resolveSnippet?.(annotation));
+		if (resolved) {
+			return {
+				blockText: resolved.text,
+				lineStart: resolved.lineStart,
+				lineEnd: resolved.lineEnd,
+			};
+		}
+		if (annotation.lineAnchor) {
+			return {
+				snippet: annotationSnippet(annotation),
+				lineStart: annotation.lineAnchor.lineStart,
+				lineEnd: annotation.lineAnchor.lineEnd,
+			};
+		}
+		return { snippet: annotationSnippet(annotation) };
+	};
 
 	const commentItems: PromptItem[] = comments
 		.filter(
@@ -103,20 +157,28 @@ export function mapAnnotationsToPromptItems(
 						comment.instructionState !== "sent" &&
 						comment.instructionState !== "answered")),
 		)
-		.map((comment) => ({
-			snippet: snippetFor(comment),
-			kind: "comment" as const,
-			text: commentText(comment),
-		}));
+		.map((comment) => {
+			const anchor = anchorFor(comment);
+			return {
+				...anchor,
+				kind: "comment" as const,
+				text: commentText(comment),
+				turns: commentTurns(comment),
+			};
+		});
 
 	const suggestionItems: PromptItem[] = suggestions
 		.filter((suggestion) => suggestion.status === "pending")
-		.map((suggestion) => ({
-			snippet: snippetFor({ ref: suggestion.ref }),
-			kind: "suggestion" as const,
-			proposed: suggestion.markdown,
-			suggestionKind: suggestion.kind,
-		}));
+		.map((suggestion) => {
+			const anchor = anchorFor({ ref: suggestion.ref });
+			return {
+				...anchor,
+				kind: "suggestion" as const,
+				proposed: suggestion.markdown,
+				currentText: suggestion.baseMarkdown,
+				suggestionKind: suggestion.kind,
+			};
+		});
 
 	return [...commentItems, ...suggestionItems];
 }

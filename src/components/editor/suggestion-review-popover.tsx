@@ -19,7 +19,6 @@ interface Props {
 	onClose: () => void;
 	onNavigate: (suggestionId: string) => void;
 	onSettled: () => void;
-	readOnly?: boolean;
 }
 
 async function postOp(
@@ -55,7 +54,6 @@ export function SuggestionReviewPopover({
 	onClose,
 	onNavigate,
 	onSettled,
-	readOnly,
 }: Props) {
 	const [busy, setBusy] = useState(false);
 	const [editing, setEditing] = useState(false);
@@ -81,7 +79,7 @@ export function SuggestionReviewPopover({
 	}, [onClose]);
 
 	async function settle(op: Extract<Op, { type: "suggestion.accept" | "suggestion.reject" | "suggestion.delete" | "suggestion.edit" }>) {
-		if (busy || readOnly) return;
+		if (busy) return;
 		setBusy(true);
 		try {
 			let result = await postOp(path, baseRevision, op);
@@ -191,7 +189,7 @@ export function SuggestionReviewPopover({
 							{suggestion.basisDetail}
 						</p>
 					)}
-					{!readOnly && (
+					{(
 						<div className="mt-3 flex items-center justify-end gap-2 border-t border-border pt-2">
 							{suggestion.status === "pending" && <>
 								<button type="button" disabled={busy} onClick={() => { setEditing((v) => !v); setEditMarkdown(suggestion.markdown ?? ""); setEditKind(suggestion.kind); }} className="rounded-md border border-border px-2.5 py-1 text-[11px] font-medium hover:bg-accent disabled:opacity-50">Edit</button>

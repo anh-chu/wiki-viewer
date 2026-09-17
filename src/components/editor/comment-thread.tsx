@@ -76,10 +76,11 @@ interface Props {
 	comments: Comment[];
 	anchorEl: HTMLElement | null;
 	onClose: () => void;
-	readOnly?: boolean;
 }
 
-export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnchor, comments, anchorEl, onClose, readOnly }: Props) {
+// Annotation ops are sidecar-only (they never touch the file), so the thread
+// keeps full Edit/Delete/Escalate/Resolve affordances in view mode too.
+export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnchor, comments, anchorEl, onClose }: Props) {
 	const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
 	const [text, setText] = useState("");
 	const [busy, setBusy] = useState(false);
@@ -270,7 +271,7 @@ export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnc
 								{anchorLabel ?? anchorKey}
 							</span>
 						</span>
-						{activeComment && !readOnly && (
+						{activeComment && (
 							<span className="ml-2 shrink-0 flex items-center gap-1">
 								{activeComment.turns[0] && (
 									<button type="button" disabled={busy} onClick={() => { setEditing(true); setEditText(activeComment.turns[0].text); }} className="text-[10px] px-1.5 py-0.5 rounded border border-border hover:bg-accent disabled:opacity-50">Edit</button>
