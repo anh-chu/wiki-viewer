@@ -7,7 +7,7 @@ import { authHeaders } from "@/lib/proof/client-auth";
 import { useProofStore } from "@/stores/proof-store";
 import { wsFetch } from "@/lib/workspace-client";
 import { diffWords, type WordDiffPart } from "@/lib/proof/word-diff";
-import type { Suggestion } from "@/lib/proof/types";
+import type { Op, Suggestion } from "@/lib/proof/types";
 
 interface Props {
 	path: string;
@@ -25,8 +25,8 @@ interface Props {
 async function postOp(
 	path: string,
 	baseRevision: number,
-	opType: "suggestion.accept" | "suggestion.reject",
-	suggestionId: string,
+	op: Extract<Op, { type: "suggestion.accept" | "suggestion.reject" | "suggestion.delete" | "suggestion.edit" }>,
+
 ): Promise<{ ok: boolean; status: number }> {
 	const encodedPath = encodeURIComponent(path).replace(/%2F/g, "/");
 	const response = await wsFetch(`/api/agent/files/${encodedPath}`, {
@@ -39,7 +39,7 @@ async function postOp(
 		body: JSON.stringify({
 			baseRevision,
 			by: "human",
-			ops: [{ type: opType, suggestionId }],
+			ops: [op],
 		}),
 	});
 	return { ok: response.ok, status: response.status };
@@ -58,6 +58,9 @@ export function SuggestionReviewPopover({
 	readOnly,
 }: Props) {
 	const [busy, setBusy] = useState(false);
+	const [editing, setEditing] = useState(false);
+	const [editMarkdown, setEditMarkdown] = useState(suggestion.markdown ?? "");
+	const [editKind, setEditKind] = useState(suggestion.kind);
 	const overlapIndex = overlapSuggestions.findIndex(({ id }) => id === suggestion.id);
 	const changes = useMemo<WordDiffPart[]>(() => {
 		if (suggestion.kind === "delete") {
@@ -77,15 +80,15 @@ export function SuggestionReviewPopover({
 		return () => window.removeEventListener("keydown", onKeyDown);
 	}, [onClose]);
 
-	async function settle(opType: "suggestion.accept" | "suggestion.reject") {
+	async function settle(op: Extract<Op, { type: "suggestion.accept" | "suggestion.reject" | "suggestion.delete" | "suggestion.edit" }>) {
 		if (busy || readOnly) return;
 		setBusy(true);
 		try {
-			let result = await postOp(path, baseRevision, opType, suggestion.id);
-			if (!result.ok && result.status === 409 && opType === "suggestion.accept") {
+			let result = await postOp(path, baseRevision, op);
+			if (!result.ok && result.status === 409 && op.type === "suggestion.accept") {
 				const latestRevision =
 					useProofStore.getState().byPath[path]?.snapshotRevision ?? baseRevision;
-				result = await postOp(path, latestRevision, opType, suggestion.id);
+				result = await postOp(path, latestRevision, op);
 			}
 		} finally {
 			setBusy(false);
@@ -182,6 +185,7 @@ export function SuggestionReviewPopover({
 							))}
 						</pre>
 					</div>
+					{editing && <div className="mt-2 space-y-1.5"><select value={editKind} onChange={(e) => setEditKind(e.target.value as Suggestion["kind"])} className="w-full rounded border border-border bg-background px-2 py-1 text-[11px]"><option value="replace">Replace</option><option value="insertBefore">Insert before</option><option value="insertAfter">Insert after</option><option value="delete">Delete</option></select><textarea value={editMarkdown} onChange={(e) => setEditMarkdown(e.target.value)} rows={3} className="w-full rounded border border-border bg-background px-2 py-1 text-[11px]" /><button type="button" disabled={busy} onClick={() => void settle({ type: "suggestion.edit", suggestionId: suggestion.id, kind: editKind, markdown: editMarkdown })} className="rounded bg-primary px-2 py-1 text-[10px] text-primary-foreground">Save</button></div>}
 					{suggestion.basisDetail && (
 						<p className="mt-2 italic text-[11px] text-muted-foreground/70">
 							{suggestion.basisDetail}
@@ -189,10 +193,14 @@ export function SuggestionReviewPopover({
 					)}
 					{!readOnly && (
 						<div className="mt-3 flex items-center justify-end gap-2 border-t border-border pt-2">
+							{suggestion.status === "pending" && <>
+								<button type="button" disabled={busy} onClick={() => { setEditing((v) => !v); setEditMarkdown(suggestion.markdown ?? ""); setEditKind(suggestion.kind); }} className="rounded-md border border-border px-2.5 py-1 text-[11px] font-medium hover:bg-accent disabled:opacity-50">Edit</button>
+								<button type="button" disabled={busy} onClick={() => { if (window.confirm("Delete this suggestion?")) void settle({ type: "suggestion.delete", suggestionId: suggestion.id }); }} className="rounded-md border border-destructive/40 px-2.5 py-1 text-[11px] font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50">Delete</button>
+							</>}
 							<button
 								type="button"
 								disabled={busy}
-								onClick={() => void settle("suggestion.reject")}
+								onClick={() => void settle({ type: "suggestion.reject", suggestionId: suggestion.id })}
 								className="rounded-md border border-border px-2.5 py-1 text-[11px] font-medium hover:bg-accent disabled:opacity-50"
 							>
 								Reject
@@ -200,7 +208,7 @@ export function SuggestionReviewPopover({
 							<button
 								type="button"
 								disabled={busy}
-								onClick={() => void settle("suggestion.accept")}
+								onClick={() => void settle({ type: "suggestion.accept", suggestionId: suggestion.id })}
 								className="rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
 							>
 								Accept

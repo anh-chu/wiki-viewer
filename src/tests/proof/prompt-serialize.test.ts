@@ -91,6 +91,35 @@ test("maps open comments and pending suggestions only", () => {
 	]);
 });
 
+test("includes draft instructions and excludes routed instructions", () => {
+	const routedStates = ["queued", "sent", "answered"] as const;
+	const items = mapAnnotationsToPromptItems([
+			{ ref: "draft", kind: "instruction", instructionState: "draft", text: "Draft" },
+			...routedStates.map((instructionState) => ({
+				ref: instructionState,
+				kind: "instruction" as const,
+				instructionState,
+				text: instructionState,
+			})),
+			{ ref: "legacy", kind: "instruction", text: "Missing state" },
+		]);
+
+	assert.deepEqual(items, [
+		{ snippet: "draft", kind: "comment", text: "Draft" },
+		{ snippet: "legacy", kind: "comment", text: "Missing state" },
+	]);
+});
+
+test("excludes resolved plain comments", () => {
+	assert.deepEqual(
+		mapAnnotationsToPromptItems([
+			{ ref: "resolved", resolved: true, text: "Resolved" },
+			{ ref: "open", resolved: false, text: "Open" },
+		]),
+		[{ snippet: "open", kind: "comment", text: "Open" }],
+	);
+});
+
 test("serializes empty item sets with no numbered changes", () => {
 	assert.equal(
 		buildPromptFromAnnotations("empty.md", []),

@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { authHeaders } from "@/lib/proof/client-auth";
 import { useProofStore } from "@/stores/proof-store";
 import { wsFetch } from "@/lib/workspace-client";
-import type { Comment, LineAnchor } from "@/lib/proof/types";
+import type { Comment, LineAnchor, ProofEvent, Snapshot } from "@/lib/proof/types";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -23,12 +23,26 @@ function relTime(iso: string): string {
 	return rtf.format(-Math.round(hrs / 24), "day");
 }
 
+function applyLocalResult(path: string, op: Record<string, unknown>, snapshot?: Snapshot): void {
+	if (!snapshot) return;
+	const type = String(op.type);
+	const event: ProofEvent = { id: snapshot.lastEventId, type: type.replace("comment.", "comment.").replace("comment.add", "comment.added").replace("comment.reply", "comment.replied").replace("comment.edit", "comment.edited").replace("comment.delete", "comment.deleted").replace("comment.resolve", "comment.resolved").replace("comment.reopen", "comment.reopened"), at: new Date().toISOString(), by: "human" };
+	const commentId = typeof op.commentId === "string" ? op.commentId : undefined;
+	if (commentId) event.commentId = commentId;
+	if (typeof op.text === "string") event.text = op.text;
+	if (type === "comment.add") {
+		const comment = snapshot.comments.at(-1);
+		if (comment) event.comment = comment;
+	}
+	useProofStore.getState().applyEvent(path, event);
+}
+
 async function postOp(
 	path: string,
 	baseRevision: number,
 	by: string,
 	ops: object[],
-): Promise<{ ok: boolean; stale: boolean; newRevision?: number }> {
+): Promise<{ ok: boolean; stale: boolean; newRevision?: number; snapshot?: Snapshot }> {
 	const encoded = encodeURIComponent(path).replace(/%2F/g, "/");
 	const res = await wsFetch(`/api/agent/files/${encoded}`, {
 		method: "POST",
@@ -47,7 +61,7 @@ async function postOp(
 		return { ok: false, stale: false };
 	}
 	if (!res.ok) return { ok: false, stale: false };
-	return { ok: true, stale: false };
+	return { ok: true, stale: false, snapshot: (await res.json()) as Snapshot };
 }
 
 // ── component ────────────────────────────────────────────────────────────────
@@ -69,6 +83,8 @@ export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnc
 	const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
 	const [text, setText] = useState("");
 	const [busy, setBusy] = useState(false);
+	const [editing, setEditing] = useState(false);
+	const [editText, setEditText] = useState("");
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 
 	const openComments = comments.filter((c) => !c.resolved);
@@ -126,7 +142,7 @@ export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnc
 				result = await postOp(path, rev, "human", [sendOp]);
 			}
 			if (result.ok) {
-				await useProofStore.getState().loadSidecar(path);
+				applyLocalResult(path, sendOp, result.snapshot);
 				setText("");
 				onClose();
 			}
@@ -158,12 +174,34 @@ export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnc
 				result = await postOp(path, rev, "human", [op]);
 			}
 			if (result.ok) {
-				await useProofStore.getState().loadSidecar(path);
+				applyLocalResult(path, op, result.snapshot);
 				onClose();
 			}
 		} finally {
 			setBusy(false);
 		}
+	}
+
+	async function handleEdit() {
+		if (!activeComment || !editText.trim() || busy) return;
+		setBusy(true);
+		try {
+			const op = { type: "comment.edit", commentId: activeComment.id, text: editText.trim() };
+			const result = await postOp(path, getRevision(), "human", [op]);
+			if (result.ok) {
+				await useProofStore.getState().loadSidecar(path);
+				setEditing(false);
+			}
+		} finally { setBusy(false); }
+	}
+
+	async function handleDelete() {
+		if (!activeComment || busy || !window.confirm("Delete this comment thread?")) return;
+		setBusy(true);
+		try {
+			const result = await postOp(path, getRevision(), "human", [{ type: "comment.delete", commentId: activeComment.id }]);
+			if (result.ok) { await useProofStore.getState().loadSidecar(path); onClose(); }
+		} finally { setBusy(false); }
 	}
 
 	async function handleResolveToggle() {
@@ -183,7 +221,7 @@ export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnc
 				]);
 			}
 			if (result.ok) {
-				await useProofStore.getState().loadSidecar(path);
+				applyLocalResult(path, { type: opType, commentId: activeComment.id }, result.snapshot);
 				onClose();
 			}
 		} finally {
@@ -234,6 +272,10 @@ export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnc
 						</span>
 						{activeComment && !readOnly && (
 							<span className="ml-2 shrink-0 flex items-center gap-1">
+								{activeComment.turns[0] && (
+									<button type="button" disabled={busy} onClick={() => { setEditing(true); setEditText(activeComment.turns[0].text); }} className="text-[10px] px-1.5 py-0.5 rounded border border-border hover:bg-accent disabled:opacity-50">Edit</button>
+								)}
+								<button type="button" disabled={busy} onClick={() => void handleDelete()} className="text-[10px] px-1.5 py-0.5 rounded border border-destructive/40 text-destructive hover:bg-destructive/10 disabled:opacity-50">Delete</button>
 								{activeComment.kind !== "instruction" && (
 									<button
 										type="button"
@@ -265,7 +307,9 @@ export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnc
 									<p className="text-[10px] text-muted-foreground/60">
 										{t.by} · {relTime(t.at)}
 									</p>
-									<p className="text-foreground leading-snug whitespace-pre-wrap">{t.text}</p>
+									{editing && t.commentId === activeComment?.id && i === 0 ? (
+										<div className="space-y-1"><textarea ref={editing ? textareaRef : undefined} value={editText} onChange={(e) => setEditText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void handleEdit(); }} rows={2} className="w-full resize-none rounded-md border border-border bg-background px-2 py-1 text-[12px]" /><button type="button" disabled={busy || !editText.trim()} onClick={() => void handleEdit()} className="px-2 py-1 rounded bg-primary text-primary-foreground text-[10px]">Save</button></div>
+									) : <p className="text-foreground leading-snug whitespace-pre-wrap">{t.text}</p>}
 								</div>
 							))}
 						</div>

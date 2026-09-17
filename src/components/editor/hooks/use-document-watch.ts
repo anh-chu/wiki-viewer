@@ -76,7 +76,13 @@ export function useDocumentWatch({
 				if (!activePath) return;
 
 				if (data.type === "rescan") {
+					// Rescan indicates events may have been missed while degraded.
 					refreshOpen(activePath);
+					return;
+				}
+				// Parent-directory sidecar/unrelated events must not reload the document.
+				if ((data.type === "change" || data.type === "add") && data.path !== activePath) {
+					if (data.path.endsWith(".proof")) void useProofStore.getState().loadSidecar(activePath);
 					return;
 				}
 				if (

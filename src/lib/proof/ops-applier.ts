@@ -403,6 +403,24 @@ async function applyTextCommentOps(args: {
 					workingEvents.push({ type: "comment.replied", at, by, commentId: op.commentId, text: op.text });
 					break;
 				}
+				case "comment.edit": {
+					const comment = workingSidecar.comments.find((c) => c.id === op.commentId);
+					if (!comment || comment.turns.length === 0) {
+						return { ok: false, status: 409, code: "COMMENT_NOT_FOUND", message: `Comment "${op.commentId}" not found.`, snapshot: buildSnapshot(mdPath, [], workingSidecar) };
+					}
+					comment.turns[0].text = op.text;
+					workingEvents.push({ type: "comment.edited", at, by, commentId: op.commentId, text: op.text });
+					break;
+				}
+				case "comment.delete": {
+					const commentIdx = workingSidecar.comments.findIndex((c) => c.id === op.commentId);
+					if (commentIdx === -1) {
+						return { ok: false, status: 409, code: "COMMENT_NOT_FOUND", message: `Comment "${op.commentId}" not found.`, snapshot: buildSnapshot(mdPath, [], workingSidecar) };
+					}
+					workingSidecar.comments.splice(commentIdx, 1);
+					workingEvents.push({ type: "comment.deleted", at, by, commentId: op.commentId });
+					break;
+				}
 				case "comment.resolve": {
 					const comment = workingSidecar.comments.find((c) => c.id === op.commentId);
 					if (!comment) {
@@ -774,6 +792,24 @@ export async function applyOps(args: {
 					break;
 				}
 
+				case "comment.edit": {
+					const comment = workingSidecar.comments.find((c) => c.id === op.commentId);
+					if (!comment || comment.turns.length === 0) {
+						return { ok: false, status: 409, code: "COMMENT_NOT_FOUND", message: `Comment "${op.commentId}" not found.`, snapshot: buildSnapshot(mdPath, [], workingSidecar) };
+					}
+					comment.turns[0].text = op.text;
+					workingEvents.push({ type: "comment.edited", at, by, commentId: op.commentId, text: op.text });
+					break;
+				}
+				case "comment.delete": {
+					const commentIdx = workingSidecar.comments.findIndex((c) => c.id === op.commentId);
+					if (commentIdx === -1) {
+						return { ok: false, status: 409, code: "COMMENT_NOT_FOUND", message: `Comment "${op.commentId}" not found.`, snapshot: buildSnapshot(mdPath, [], workingSidecar) };
+					}
+					workingSidecar.comments.splice(commentIdx, 1);
+					workingEvents.push({ type: "comment.deleted", at, by, commentId: op.commentId });
+					break;
+				}
 				case "comment.resolve": {
 					const comment = workingSidecar.comments.find((c) => c.id === op.commentId);
 					if (!comment) {
@@ -859,6 +895,26 @@ export async function applyOps(args: {
 					break;
 				}
 
+				case "suggestion.edit": {
+					const sug = workingSidecar.suggestions.find((s) => s.id === op.suggestionId);
+					if (!sug || sug.status !== "pending") {
+						return { ok: false, status: 409, code: "SUGGESTION_NOT_FOUND", message: `Suggestion "${op.suggestionId}" not found or is no longer pending.`, snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar) };
+					}
+					if (op.kind !== undefined) sug.kind = op.kind;
+					if (op.markdown !== undefined) sug.markdown = op.markdown;
+					if (op.range !== undefined) sug.range = op.range;
+					workingEvents.push({ type: "suggestion.edited", at, by, suggestionId: op.suggestionId, kind: op.kind, markdown: op.markdown, range: op.range });
+					break;
+				}
+				case "suggestion.delete": {
+					const sugIdx = workingSidecar.suggestions.findIndex((s) => s.id === op.suggestionId);
+					if (sugIdx === -1 || workingSidecar.suggestions[sugIdx].status !== "pending") {
+						return { ok: false, status: 409, code: "SUGGESTION_NOT_FOUND", message: `Suggestion "${op.suggestionId}" not found or is no longer pending.`, snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar) };
+					}
+					workingSidecar.suggestions.splice(sugIdx, 1);
+					workingEvents.push({ type: "suggestion.deleted", at, by, suggestionId: op.suggestionId });
+					break;
+				}
 				case "suggestion.accept": {
 					const sugIdx = workingSidecar.suggestions.findIndex((s) => s.id === op.suggestionId);
 					if (sugIdx === -1) {

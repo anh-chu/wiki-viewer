@@ -286,10 +286,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	 * leading words) for the Copy-as-prompt surface, so prompts read
 	 * `The rendering pipeline…` instead of the opaque ref id.
 	 */
-	const promptComments = useMemo(
-		() => comments.filter((c) => c.kind !== "instruction"),
-		[comments],
-	);
+	const promptComments = useMemo(() => comments, [comments]);
 	const resolvePromptSnippet = useMemo(() => {
 		const byRef = new Map(snapshotBlocks.map((b) => [b.ref, b.markdown]));
 		const shorten = (md: string) => {
