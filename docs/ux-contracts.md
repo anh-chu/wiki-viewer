@@ -570,7 +570,11 @@ by `ai:` → filled primary dot; else human ring. Clicking opens a thread popove
 `⌘↵ send` reply box, and buttons "Turn into an instruction", Resolve/Reopen.
 Send uses `comment.reply` (open thread) or `comment.add`; Escalate creates an
 `instruction` comment with all turns joined and a `fromCommentId` backlink.
-On `409 STALE_REVISION` the sidecar reloads and retries once.
+The thread also exposes **Edit** and **Delete** for the comment body: Edit
+replaces the first turn's text (replies stay immutable; `comment.edit`, works on
+resolved comments too); Delete removes the comment and its thread entirely
+(`comment.delete`, confirm-gated; the pip disappears with no tombstone). On
+`409 STALE_REVISION` the sidecar reloads and retries once.
 
 **Why it matters:** Comment ops never change file content (revision stays
 fixed), so the pip/thread loop is the safe annotation path that must not bump the
@@ -636,7 +640,11 @@ the status-bar chip below) opens a
 viewport-clamped **review popover** showing current vs proposed with **Accept**
 (`suggestion.accept`, retries once on 409 with the latest revision) and
 **Reject** (`suggestion.reject`, no retry); both reload sidecar + snapshot on
-settle. `esc` closes; read-only hides Accept/Reject. Decorations follow a fixed
+settle. The popover also exposes **Edit** (`suggestion.edit`, pending only —
+changes the proposed text/kind inline) and **Delete** (`suggestion.delete`,
+pending only, confirm-gated — removes the suggestion from the sidecar with no
+tombstone, unlike Reject which keeps a rejected record). `esc` closes;
+read-only hides Accept/Reject. Decorations follow a fixed
 lifecycle: build from doc + suggestions, map through local transactions, rebuild
 on a meta refresh when the sidecar/snapshot changes, and force a full rebuild
 after any `setContent`. The review popover shows a **word-level diff** (deleted
@@ -701,8 +709,10 @@ blank line then per item `N. \`<snippet>\`: <body>` — comments use the origina
 `line N` / `lines N-M`. Per-item ⎘ copies one item; **Copy all** copies the
 whole prompt; each shows a ~1500ms copied flip. When the clipboard is
 unavailable (non-secure context) a **Show text** read-only textarea is the
-manual-copy fallback. Instruction-kind and resolved/accepted/rejected items are
-excluded. `esc` / outside-click closes; empty set renders no control.
+manual-copy fallback. Instructions that already entered the agent route
+(`queued` / `sent` / `answered`) and resolved/accepted/rejected items are
+excluded; **draft** instructions are collected like ordinary comments.
+`esc` / outside-click closes; empty set renders no control.
 
 **Why it matters:** It is the no-agent escape hatch — the same durable comments
 and suggestions, exported as a prompt — so the collaboration data has one home

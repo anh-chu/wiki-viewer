@@ -105,8 +105,8 @@ export interface ProofEvent {
 	/**
 	 * Known event types:
 	 *   block.replaced | block.inserted | block.deleted
-	 *   comment.added | comment.replied | comment.resolved | comment.reopened
-	 *   suggestion.added | suggestion.accepted | suggestion.rejected
+	 *   comment.added | comment.replied | comment.edited | comment.deleted | comment.resolved | comment.reopened
+	 *   suggestion.added | suggestion.edited | suggestion.deleted | suggestion.accepted | suggestion.rejected
 	 *   file.externallyEdited  — writer unknown (chokidar / external tool)
 	 *   file.rawWritten        — writer known (by: "ai:<id>"), emitted by Tier-1 raw-fs write
 	 */
@@ -186,6 +186,8 @@ export type Op =
 			fromCommentId?: string;
 	  }
 	| { type: "comment.reply"; commentId: string; text: string }
+	| { type: "comment.edit"; commentId: string; text: string }
+	| { type: "comment.delete"; commentId: string }
 	| {
 			type: "comment.mark";
 			commentId: string;
@@ -206,7 +208,15 @@ export type Op =
 			status?: SuggestionStatus;
 	  }
 	| { type: "suggestion.accept"; suggestionId: string }
-	| { type: "suggestion.reject"; suggestionId: string };
+	| { type: "suggestion.reject"; suggestionId: string }
+	| {
+			type: "suggestion.edit";
+			suggestionId: string;
+			kind?: SuggestionKind;
+			markdown?: string;
+			range?: SuggestionRange;
+	  }
+	| { type: "suggestion.delete"; suggestionId: string };
 
 export interface Snapshot {
 	path: string;

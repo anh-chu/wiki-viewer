@@ -21,6 +21,7 @@ export type PromptComment = {
 	lineAnchor?: Comment["lineAnchor"];
 	resolved?: boolean;
 	kind?: Comment["kind"];
+	instructionState?: Comment["instructionState"];
 	text?: string;
 	by?: string;
 	turns?: ReadonlyArray<{ text: string; by?: string }>;
@@ -94,7 +95,14 @@ export function mapAnnotationsToPromptItems(
 		resolveSnippet?.(annotation) ?? annotationSnippet(annotation);
 
 	const commentItems: PromptItem[] = comments
-		.filter((comment) => comment.resolved !== true)
+		.filter(
+			(comment) =>
+				comment.resolved !== true &&
+				(comment.kind !== "instruction" ||
+					(comment.instructionState !== "queued" &&
+						comment.instructionState !== "sent" &&
+						comment.instructionState !== "answered")),
+		)
 		.map((comment) => ({
 			snippet: snippetFor(comment),
 			kind: "comment" as const,

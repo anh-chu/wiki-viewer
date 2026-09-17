@@ -6,13 +6,13 @@ import { useEffect, useRef, useState } from "react";
 import { authHeaders } from "@/lib/proof/client-auth";
 import { useProofStore } from "@/stores/proof-store";
 import { wsFetch } from "@/lib/workspace-client";
-import type { SuggestionKind } from "@/lib/proof/types";
+import type { ProofEvent, Snapshot, SuggestionKind } from "@/lib/proof/types";
 
 async function postOp(
 	path: string,
 	baseRevision: number,
 	ops: object[],
-): Promise<{ ok: boolean; stale: boolean; newRevision?: number }> {
+): Promise<{ ok: boolean; stale: boolean; newRevision?: number; snapshot?: Snapshot }> {
 	const encoded = encodeURIComponent(path).replace(/%2F/g, "/");
 	const res = await wsFetch(`/api/agent/files/${encoded}`, {
 		method: "POST",
@@ -31,7 +31,7 @@ async function postOp(
 		return { ok: false, stale: false };
 	}
 	if (!res.ok) return { ok: false, stale: false };
-	return { ok: true, stale: false };
+	return { ok: true, stale: false, snapshot: (await res.json()) as Snapshot };
 }
 
 interface Props {
@@ -103,9 +103,12 @@ export function SuggestEditPopover({ path, blockRef, currentMarkdown, anchor, on
 				rev = result.newRevision;
 				result = await postOp(path, rev, [op]);
 			}
-			if (result.ok) {
-				await useProofStore.getState().loadSidecar(path);
-				await useProofStore.getState().loadSnapshot(path);
+			if (result.ok && result.snapshot) {
+				const suggestion = result.snapshot.suggestions.at(-1);
+				if (suggestion) {
+					const event: ProofEvent = { id: result.snapshot.lastEventId, type: "suggestion.added", at: new Date().toISOString(), by: "human", suggestionId: suggestion.id, suggestion };
+					useProofStore.getState().applyEvent(path, event);
+				}
 				onClose();
 			}
 		} finally {

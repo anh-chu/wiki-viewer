@@ -102,17 +102,46 @@ export const useProofStore = create<ProofState>((set, get) => ({
 	applyEvent: (path: string, e: ProofEvent) => {
 		set((s) => {
 			const prev = s.byPath[path] ?? defaultEntry();
-			return {
-				byPath: {
-					...s.byPath,
-					[path]: {
-						...prev,
-						lastEventId: Math.max(prev.lastEventId, e.id),
-					},
-				},
-			};
+			const sidecar = prev.sidecar ? { ...prev.sidecar } : null;
+			if (sidecar) {
+				sidecar.comments = [...sidecar.comments];
+				sidecar.suggestions = [...sidecar.suggestions];
+				sidecar.archivedSuggestions = [...sidecar.archivedSuggestions];
+				const commentId = typeof e.commentId === "string" ? e.commentId : undefined;
+				const suggestionId = typeof e.suggestionId === "string" ? e.suggestionId : undefined;
+				if (e.type === "comment.added" && e.comment && typeof e.comment === "object") {
+					sidecar.comments.push(e.comment as Sidecar["comments"][number]);
+				} else if (e.type === "comment.replied" && commentId) {
+					const comment = sidecar.comments.find((c) => c.id === commentId);
+					if (comment && typeof e.text === "string") comment.turns = [...comment.turns, { by: e.by, text: e.text, at: e.at }];
+				} else if (e.type === "comment.edited" && commentId && typeof e.text === "string") {
+					const comment = sidecar.comments.find((c) => c.id === commentId);
+					if (comment?.turns[0]) comment.turns = [{ ...comment.turns[0], text: e.text }, ...comment.turns.slice(1)];
+				} else if (e.type === "comment.deleted" && commentId) {
+					sidecar.comments = sidecar.comments.filter((c) => c.id !== commentId);
+				} else if ((e.type === "comment.resolved" || e.type === "comment.reopened") && commentId) {
+					const comment = sidecar.comments.find((c) => c.id === commentId);
+					if (comment) comment.resolved = e.type === "comment.resolved";
+				} else if (e.type === "suggestion.added" && e.suggestion && typeof e.suggestion === "object") {
+					sidecar.suggestions.push(e.suggestion as Sidecar["suggestions"][number]);
+				} else if (e.type === "suggestion.edited" && suggestionId) {
+					const suggestion = sidecar.suggestions.find((item) => item.id === suggestionId);
+					if (suggestion) {
+						if (e.kind !== undefined) suggestion.kind = e.kind as typeof suggestion.kind;
+						if (e.markdown !== undefined) suggestion.markdown = e.markdown as string;
+						if (e.range !== undefined) suggestion.range = e.range as typeof suggestion.range;
+					}
+				} else if (e.type === "suggestion.deleted" && suggestionId) {
+					sidecar.suggestions = sidecar.suggestions.filter((item) => item.id !== suggestionId);
+				}
+				sidecar.events = [...sidecar.events, e];
+				sidecar.nextEventId = Math.max(sidecar.nextEventId, e.id + 1);
+				sidecar.revision = typeof e.revision === "number" ? e.revision : sidecar.revision;
+				sidecar.updatedAt = e.at;
+			}
+			return { byPath: { ...s.byPath, [path]: { ...prev, sidecar, snapshotRevision: typeof e.revision === "number" ? e.revision : prev.snapshotRevision, lastEventId: Math.max(prev.lastEventId, e.id) } } };
 		});
-	},
+	}, 
 
 	reset: (path: string) => {
 		set((s) => {
