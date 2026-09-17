@@ -9,6 +9,10 @@ export async function register() {
 		const { ensureApiKey } = await import("./lib/auth/api-key");
 		ensureApiKey();
 
+		// Service token: bootstrap credential for automated agent registration.
+		const { ensureServiceToken } = await import("./lib/auth/service-token");
+		ensureServiceToken();
+
 		// Remove the obsolete SQLite search index (synchronous, never throws).
 		const { deleteLegacySearchDb } = await import("./lib/search/legacy-db-cleanup");
 		deleteLegacySearchDb();

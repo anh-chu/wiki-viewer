@@ -1,12 +1,18 @@
 /**
  * POST /api/agent/register
  *
- * Anonymous registration request. No auth required.
- * The registrationId returned acts as the agent's secret for polling.
+ * Registration request. Two paths:
+ *  1. Anonymous TOFU: no auth → 202 pending, owner approves in UI, agent polls.
+ *  2. Service-token bootstrap: valid X-Service-Token header → auto-approved.
+ *     Token is minted inline and returned in the 200 response (no polling,
+ *     no pickup, no UI step).
  */
 import { NextResponse } from "next/server";
+import { randomBytes } from "node:crypto";
 import { createRegistration } from "@/lib/proof/pending";
 import type { AgentScope } from "@/lib/proof/registry";
+import { addAgent, hashToken, lookupAgentById } from "@/lib/proof/registry";
+import { isServiceTokenRequest } from "@/lib/auth/service-token";
 import { checkRegisterRateLimit } from "@/lib/proof/register-rate-limit";
 
 export const runtime = "nodejs";
@@ -104,6 +110,34 @@ export async function POST(req: Request): Promise<NextResponse> {
 		return NextResponse.json({ error: "INVALID_PAYLOAD", message: scopeResult.error }, { status: 400 });
 	}
 	const requestedScope: AgentScope = scopeResult;
+
+	// ── Service-token bootstrap: auto-approve, mint inline ─────────────────────
+	// A valid service token proves host trust (the token lives at
+	// ~/.wiki-viewer/service-token, 0600, same machine as the server), so the
+	// caller gets its requested scope without human approval. The minted
+	// per-agent token is returned once in this response — never persisted in
+	// plaintext by the server.
+	if (isServiceTokenRequest(req)) {
+		const existing = await lookupAgentById(body.id);
+		const tokenPlaintext = `wv_tok_${randomBytes(32).toString("hex")}`;
+		await addAgent({
+			id: body.id,
+			displayName,
+			tokenHash: hashToken(tokenPlaintext),
+			scope: requestedScope,
+			createdAt: new Date().toISOString(),
+			lastSeen: new Date().toISOString(),
+		});
+		return NextResponse.json(
+			{
+				status: "approved",
+				agentId: body.id,
+				token: tokenPlaintext,
+				...(existing ? { warning: `Replaced the existing token for ${body.id}; the previous token is now invalid.` } : {}),
+			},
+			{ status: 200 },
+		);
+	}
 
 	const reg = createRegistration({ agentId: body.id, displayName, requestedScope });
 

@@ -208,3 +208,64 @@ describe("register — POST failure", () => {
     );
   });
 });
+
+// ─── Service-token bootstrap ───────────────────────────────────────────────────
+
+describe("register — service-token bootstrap", () => {
+  test("sends X-Service-Token header and returns token from initial response", async () => {
+    let capturedInit: RequestInit | undefined;
+    const fetchFn = async (_url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      capturedInit = init;
+      return new Response(
+        JSON.stringify({ status: "approved", agentId: "ai:testbot", token: "tok-svc" }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    };
+
+    const result = await register({
+      ...BASE_OPTS,
+      serviceToken: "wv_svc_test",
+      fetch: fetchFn as unknown as typeof globalThis.fetch,
+    });
+
+    assert.equal(result.token, "tok-svc");
+    assert.equal(result.agentId, "ai:testbot");
+    const headers = new Headers(capturedInit?.headers);
+    assert.equal(headers.get("X-Service-Token"), "wv_svc_test");
+    // Exactly one fetch — no polling
+  });
+
+  test("401 on POST produces a rotation hint", async () => {
+    const fetchFn = async (): Promise<Response> =>
+      new Response("Unauthorized", { status: 401 });
+
+    await assert.rejects(
+      register({
+        ...BASE_OPTS,
+        serviceToken: "stale",
+        fetch: fetchFn as unknown as typeof globalThis.fetch,
+      }),
+      /rotated|Service token/,
+    );
+  });
+
+  test("fallback warning surfaces from initial response", async () => {
+    const fetchFn = async (): Promise<Response> =>
+      new Response(
+        JSON.stringify({
+          status: "approved",
+          agentId: "ai:testbot",
+          token: "tok-svc2",
+          warning: "Replaced the existing token for ai:testbot.",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+
+    const result = await register({
+      ...BASE_OPTS,
+      serviceToken: "wv_svc_test",
+      fetch: fetchFn as unknown as typeof globalThis.fetch,
+    });
+    assert.equal(result.warning, "Replaced the existing token for ai:testbot.");
+  });
+});
