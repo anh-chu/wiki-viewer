@@ -874,14 +874,18 @@ allowlist warns anyone can sign up. Admins (bootstrap promotes the first user
 when no `WIKI_ADMIN_EMAILS`) can promote/demote and create users (a 16-char
 grouped temp password shown once); removing the last admin with no env fallback
 is refused (`409 LAST_ADMIN`). The embed API key (64-char hex, chmod 600) can be
-rotated with a confirm dialog.
+rotated with a confirm dialog. The service token (agent-registration bootstrap,
+`~/.wiki-viewer/service-token`, 0600) shows in the same sheet with copy + rotate
+(confirm dialog); rotating it invalidates MCP configs that hold the old token
+(`WIKI_VIEWER_SERVICE_TOKEN` env or the file default).
 
 **Why it matters:** The bootstrap-admin rule and the last-admin guard are the
 only things preventing an accidental admin lockout.
 
 **Verification pointer:** `src/components/auth-settings-sheet.tsx`,
 `src/app/api/system/admins/route.ts`, `src/app/api/system/auth-settings/route.ts`,
-`src/app/api/system/api-key/route.ts`, `src/app/api/system/users/route.ts`
+`src/app/api/system/api-key/route.ts`, `src/app/api/system/service-token/route.ts`,
+`src/app/api/system/users/route.ts`, `src/app/api/agent/register/route.ts`
 
 ## 12. Git
 
@@ -1119,13 +1123,19 @@ the https boot guard is the deployment security floor.
 `/^ai:[a-z][a-z0-9-]{0,30}$/i`, scope `paths` 1–20 globs + `ops` ⊆
 read/mutate/delete) → `202 {registrationId, pollUrl, status:"pending"}`,
 rate-limited per-IP (10 cap, 1 token/6 s). Polling `GET /api/agent/register/:regId`
-returns the one-shot token on approval (regId is the secret). Requests use
+returns the one-shot token on approval (regId is the secret). Exception: a valid
+`X-Service-Token` header (`~/.wiki-viewer/service-token`, 0600 — written at
+startup, shown/rotated in Settings) auto-approves in the same response:
+`200 {status:"approved", agentId, token}`; re-registration rotates the token
+with a `warning`. Requests use
 `Authorization: Bearer <token>` + `X-Agent-Id`; `AGENT_BEARER_TOKEN` is dead.
 Only SHA-256 token hashes are stored; `enforceScope` returns `403 FORBIDDEN` on
 scope/path/op mismatch, and `verifyBy` constrains the `by` actor identity.
 
 **Why it matters:** TOFU + one-shot pickup + per-path scope is the entire agent
 trust model; a leak of the registration id or a scope bypass is full file access.
+The service token narrows the bootstrap credential: it can only mint scoped
+agent accounts, never touch files, and rotates independently of the embed API key.
 
 **Verification pointer:** `src/app/api/agent/register/route.ts`,
 `src/app/api/agent/register/[regId]/route.ts`, `src/lib/proof/auth.ts`,

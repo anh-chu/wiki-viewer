@@ -227,6 +227,11 @@ export function AuthSettingsSheet({
 	const [apiKeyCopied, setApiKeyCopied] = useState(false);
 	const [apiKeyRotating, setApiKeyRotating] = useState(false);
 
+	// Service token (agent registration bootstrap)
+	const [serviceToken, setServiceToken] = useState<string | null>(null);
+	const [serviceTokenCopied, setServiceTokenCopied] = useState(false);
+	const [serviceTokenRotating, setServiceTokenRotating] = useState(false);
+
 	const loadAdmins = useCallback(async () => {
 		try {
 			const res = await fetch(apiUrl("/api/system/admins"));
@@ -270,13 +275,25 @@ export function AuthSettingsSheet({
 		}
 	}, []);
 
+	const loadServiceToken = useCallback(async () => {
+		try {
+			const res = await fetch(apiUrl("/api/system/service-token"));
+			if (!res.ok) return;
+			const d: { key?: string } = await res.json();
+			setServiceToken(d.key ?? null);
+		} catch {
+			/* ignore */
+		}
+	}, []);
+
 	useEffect(() => {
 		if (open) {
 			void load();
 			void loadAdmins();
 			void loadApiKey();
+			void loadServiceToken();
 		}
-	}, [open, load, loadAdmins, loadApiKey]);
+	}, [open, load, loadAdmins, loadApiKey, loadServiceToken]);
 
 	async function handleSave() {
 		setSaving(true);
@@ -661,6 +678,71 @@ export function AuthSettingsSheet({
 								</div>
 								<p className="text-[10px] text-muted-foreground/60">
 									Stored at <code className="bg-muted px-0.5 rounded">~/.wiki-viewer/api-key</code>. Rotating immediately invalidates the old key.
+								</p>
+							</div>
+						</section>
+
+						{/* Service token (agent registration bootstrap) */}
+						<section className="space-y-2">
+							<h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+								Service Token
+							</h3>
+							<p className="text-xs leading-relaxed text-muted-foreground">
+								Lets automated agents register themselves without manual approval (MCP <code>WIKI_VIEWER_SERVICE_TOKEN</code>). It can only create scoped agent accounts, not access files.
+							</p>
+							<div className="rounded-md border border-border bg-muted/40 p-3 space-y-2">
+								<div className="flex items-center gap-2">
+									<Key className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+									<code className="flex-1 truncate rounded bg-muted px-2 py-1 font-mono text-xs select-all">
+										{serviceToken ?? "—"}
+									</code>
+									<button
+										type="button"
+										title="Copy service token"
+										className="shrink-0 rounded border border-border px-2 py-1 text-xs hover:bg-accent disabled:opacity-50 flex items-center gap-1"
+										disabled={!serviceToken}
+										onClick={() => {
+											if (!serviceToken) return;
+											void navigator.clipboard?.writeText(serviceToken).then(() => {
+												setServiceTokenCopied(true);
+												setTimeout(() => setServiceTokenCopied(false), 2000);
+											});
+										}}
+									>
+										{serviceTokenCopied ? (
+											<><Check className="h-3 w-3" /> Copied</>
+										) : (
+											"Copy"
+										)}
+									</button>
+									<button
+										type="button"
+										title="Rotate service token — MCP clients registered with the old token will need the new token"
+										className="shrink-0 rounded border border-border px-2 py-1 text-xs hover:bg-accent disabled:opacity-50 flex items-center gap-1"
+										disabled={serviceTokenRotating}
+										onClick={async () => {
+											if (!confirm("Rotate the service token? Any MCP client whose config holds the old token will fail registration until updated.")) return;
+											setServiceTokenRotating(true);
+											try {
+												const res = await fetch(apiUrl("/api/system/service-token"), { method: "POST" });
+												const d: { key?: string } = await res.json();
+												if (d.key) setServiceToken(d.key);
+											} catch {
+												/* ignore */
+											} finally {
+												setServiceTokenRotating(false);
+											}
+										}}
+									>
+										{serviceTokenRotating ? (
+											<Loader2 className="h-3 w-3 animate-spin" />
+										) : (
+											<><RotateCcw className="h-3 w-3" /> Rotate</>
+										)}
+									</button>
+								</div>
+								<p className="text-[10px] text-muted-foreground/60">
+									Stored at <code className="bg-muted px-0.5 rounded">~/.wiki-viewer/service-token</code>. Rotating immediately invalidates the old token.
 								</p>
 							</div>
 						</section>

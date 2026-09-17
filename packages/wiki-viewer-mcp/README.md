@@ -71,6 +71,34 @@ Paste this into your mcp.json:
 
 ---
 
+## Zero-touch setup (service token) {#service-token}
+
+If you run your agents on the same machine as the wiki-viewer server, you can skip
+the approval step entirely. The server writes a **service token** to
+`~/.wiki-viewer/service-token` at startup and shows it in
+**Settings → Service Token**. Anything holding that token can register scoped
+agents automatically — the minted per-agent bearer token comes back in the
+registration response and never goes into your MCP config by hand.
+
+```bash
+npx wiki-viewer-mcp register --url http://localhost:3081 --id ai:myagent --name "My Agent"
+```
+
+The CLI picks up the service token automatically (env `WIKI_VIEWER_SERVICE_TOKEN`
+first, then the file above) and prints the result immediately — no approval wait.
+
+Still paste `WIKI_VIEWER_TOKEN` + `WIKI_VIEWER_AGENT_ID` from its output into
+your mcp.json exactly as in the TOFU flow. Those are the agent's working
+credentials: revocable per agent from the AI Panel, and if one is ever revoked
+or rotated you just re-run `register` — the config never changes.
+
+What the service token can and cannot do: it can only create agent accounts
+(with the scope each registration declares). It grants no file access and no
+API access by itself, so it is safe to keep in a persistent config while the
+short-lived per-agent tokens stay internal.
+
+---
+
 ## Installation
 
 ```bash
@@ -96,6 +124,7 @@ Set three environment variables before starting the MCP server
 | `WIKI_VIEWER_TOKEN`     | Bearer token obtained via `wiki-viewer-mcp register`                                                                                                                                              |
 | `WIKI_VIEWER_AGENT_ID`  | Your agent ID (e.g. `ai:myagent`), sent as `X-Agent-Id` on every request                                                                                                                          |
 | `WIKI_VIEWER_WORKSPACE` | _Optional._ Workspace id, sent as `X-Workspace` on every request. Targets one root directory when the instance serves several. Omit for single-workspace instances (the server uses its default). |
+| `WIKI_VIEWER_SERVICE_TOKEN` | _Optional._ Only used by the `register` command: enables auto-approval ([see above](#service-token)). Defaults to reading `~/.wiki-viewer/service-token`.                                     |
 
 ## Usage in Claude Code / Cursor / Codex
 

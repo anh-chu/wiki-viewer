@@ -76,6 +76,26 @@ function readPackageVersion(): string {
   }
 }
 
+/**
+ * Read ~/.wiki-viewer/service-token — the file the wiki-viewer server writes
+ * at startup on the same machine. Returns null if missing/unreadable.
+ */
+function readDefaultServiceToken(): string | null {
+  try {
+    const { readFileSync } = require("node:fs") as typeof import("node:fs");
+    const os = require("node:os") as typeof import("node:os");
+    const path = require("node:path") as typeof import("node:path");
+    return (
+      readFileSync(
+        path.join(os.homedir(), ".wiki-viewer", "service-token"),
+        "utf-8",
+      ).trim() || null
+    );
+  } catch {
+    return null;
+  }
+}
+
 export async function main(): Promise<void> {
   await enableKeepAlive();
   const client = createClient();
@@ -145,8 +165,18 @@ async function runRegister(): Promise<void> {
   const scope: RegisterScope = { paths: scopePaths, ops };
   const timeoutMs = parseInt(values.timeout ?? "300", 10) * 1000;
 
+  // Service token: env var first, then the well-known file the server wrote.
+  // When present, registration is auto-approved — no AI Panel step.
+  const serviceToken =
+    process.env.WIKI_VIEWER_SERVICE_TOKEN ?? readDefaultServiceToken();
+
   console.log(`Registering agent ${values.id} with ${values.url} …`);
   console.log(`Scope: paths=${JSON.stringify(scopePaths)}, ops=${JSON.stringify(ops)}`);
+  console.log(
+    serviceToken
+      ? "Service token found — registration will be auto-approved."
+      : "",
+  );
   console.log();
 
   try {
@@ -156,6 +186,7 @@ async function runRegister(): Promise<void> {
       displayName: values.name,
       scope,
       timeoutMs,
+      serviceToken: serviceToken || undefined,
       onPending: (_id, attempt) => {
         if (attempt === 1) {
           console.log(
@@ -175,7 +206,7 @@ async function runRegister(): Promise<void> {
     }
     console.log();
     console.log(`Agent ID : ${result.agentId}`);
-    console.log(`Token    : ${result.token}`);
+    console.log(`Token    : ${result.token} (cached below — rotate/revoke freely, re-run register to re-mint)`);
     console.log();
     console.log("Paste this into your mcp.json:");
     console.log();

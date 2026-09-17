@@ -1,14 +1,18 @@
 /**
- * TOFU registration flow for wiki-viewer.
+ * Registration flow for wiki-viewer.
  *
  * Pure function `register()` is testable with a mock fetch.
  * The CLI wrapper lives in index.ts.
  *
- * Flow:
- *   POST /api/agent/register  → {registrationId, pollUrl, status:"pending"}
- *   human approves in AI Panel
- *   GET <pollUrl>             → 202 pending | 200 approved | 410 denied | 404 expired
- *   returns {token, agentId}
+ * Two flows:
+ *  1. Service-token bootstrap (preferred): pass `serviceToken`.
+ *     POST /api/agent/register with X-Service-Token → 200 {token, agentId}
+ *     immediately — no polling, no human approval.
+ *  2. TOFU fallback: no serviceToken.
+ *     POST /api/agent/register  → {registrationId, pollUrl, status:"pending"}
+ *     human approves in AI Panel
+ *     GET <pollUrl>             → 202 pending | 200 approved | 410 denied | 404 expired
+ *     returns {token, agentId}
  */
 
 export interface RegisterScope {
@@ -21,6 +25,12 @@ export interface RegisterOptions {
   id: string;           // must match ^ai:[a-z][a-z0-9-]{0,30}$
   displayName: string;
   scope: RegisterScope;
+  /**
+   * Service token (from WIKI_VIEWER_SERVICE_TOKEN or ~/.wiki-viewer/service-token).
+   * When set, registration is auto-approved server-side and the token comes
+   * back in the initial response — no polling, no human approval.
+   */
+  serviceToken?: string;
   /** Override fetch for testing */
   fetch?: typeof globalThis.fetch;
   /** How long to wait between polls (ms, default 3000) */
@@ -45,9 +55,14 @@ export async function register(opts: RegisterOptions): Promise<RegisterResult> {
   const base = opts.baseUrl.replace(/\/$/, "");
 
   // ── Step 1: POST registration ──────────────────────────────────────────────
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (opts.serviceToken) headers["X-Service-Token"] = opts.serviceToken;
+
   const postRes = await _fetch(`${base}/api/agent/register`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({
       id: opts.id,
       displayName: opts.displayName,
@@ -57,7 +72,29 @@ export async function register(opts: RegisterOptions): Promise<RegisterResult> {
 
   if (!postRes.ok) {
     const body = await postRes.text().catch(() => "");
+    if (postRes.status === 401 && opts.serviceToken) {
+      throw new Error(
+        `Service token rejected (401). It may have been rotated — fetch the ` +
+        `current token from wiki-viewer Settings → Service Token.`,
+      );
+    }
     throw new Error(`Registration request failed (${postRes.status}): ${body}`);
+  }
+
+  // ── Service-token bootstrap: token arrives in the initial response ─────────
+  if (opts.serviceToken) {
+    const body = await postRes.json() as {
+      status: string;
+      agentId?: string;
+      token?: string;
+      warning?: string;
+    };
+    if (body.status === "approved" && body.agentId && body.token) {
+      return { token: body.token, agentId: body.agentId, warning: body.warning };
+    }
+    throw new Error(
+      `Unexpected response to service-token registration: ${JSON.stringify(body)}`,
+    );
   }
 
   const { registrationId, pollUrl } = await postRes.json() as {
