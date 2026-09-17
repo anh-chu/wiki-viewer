@@ -702,7 +702,7 @@ flicker, and un-reviewed edits leaking to disk.
 
 ### 6.4 Copy as prompt
 
-**Contract:** A floating **Copy as prompt** dock pill is fixed bottom-center with a dark elevated rounded surface, count badge, and integrated `✎ N suggestions` review button. It is rendered in **both view and edit mode** (all annotation ops are sidecar-only; the save hint and save-status chip are the edit-only parts of the annotation bar). Shown only when the document has ≥1 open comment or pending
+**Contract:** A floating **Copy as prompt** dock pill is fixed bottom-center with a theme-token elevated rounded surface (`bg-popover`, `border-border`, `shadow-lg`), count badge, and integrated `✎ N suggestions` review button. It is rendered in **both view and edit mode** (all annotation ops are sidecar-only; the save hint and save-status chip are the edit-only parts of the annotation bar). Shown only when the document has ≥1 open comment or pending
 suggestion; a count badge shows how many. It opens a popover listing those items and serializes
 them into a prompt the user can paste into their own agent, without creating or
 writing anything. Format, numbered from 1:

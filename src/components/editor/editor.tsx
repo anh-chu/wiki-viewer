@@ -981,6 +981,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 											return (
 												<SuggestionPip
 													key={`suggestion-pip-${blockRef}`}
+													active={reviewTarget?.suggestionId !== undefined && blockSuggestions.some((sg) => sg.id === reviewTarget.suggestionId)}
 													top={pos.top + 4}
 													left={Math.max(0, pos.left - (hasCommentPip ? 40 : 20))}
 													count={blockSuggestions.length}
@@ -1006,6 +1007,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 											return (
 												<div key={`instruction-pip-${blockRef}`} style={{ pointerEvents: "auto" }}>
 													<CommentPip
+														active={threadTarget?.blockRef === blockRef}
 														anchorKey={blockRef}
 														anchorLabel={blockRef}
 														comments={blockComments}
@@ -1032,6 +1034,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 											return (
 												<div key={`pip-${blockRef}`} style={{ pointerEvents: "auto" }}>
 							<CommentPip
+								active={threadTarget?.blockRef === blockRef}
 								anchorKey={blockRef}
 								anchorLabel={blockRef}
 								comments={blockComments}
