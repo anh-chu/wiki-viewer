@@ -224,6 +224,19 @@ export type Op =
 	  }
 	| { type: "comment.resolve"; commentId: string }
 	| { type: "comment.reopen"; commentId: string }
+	/**
+	 * Re-anchor a stale comment after its block was orphaned (DoD #6, Phase 6).
+	 *
+	 * This is the RESET SITE for `stale`. Before this op existed, the only
+	 * un-stale paths were reachable via `lineAnchor`, so a block-ref comment
+	 * could never recover — the latch was one-way and the annotation was lost.
+	 */
+	| {
+			type: "comment.reanchor";
+			commentId: string;
+			ref: string;
+			textAnchor: TextRangeAnchor;
+	  }
 	| {
 			type: "suggestion.add";
 			ref: string;

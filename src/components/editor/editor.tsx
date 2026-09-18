@@ -51,6 +51,7 @@ import {
 	alignByStampedRef,
 	type BlockElementLike,
 } from "@/lib/proof/pip-alignment";
+import { shouldRerenderDocument } from "@/lib/proof/render-guard";
 
 async function uploadFile(
 	pagePath: string,
@@ -797,26 +798,40 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	const [renderedPath, setRenderedPath] = useState<string | null>(null);
 	useEffect(() => {
 		if (!editor || currentPath === null) return;
-		// Skip if content hasn't actually changed (same path, dirty edit)
-		if (
-			useEditorStore.getState().isDirty &&
-			currentPath === prevPathRef.current
-		)
-			return;
-		// During page navigation the store briefly holds content="" while the
-		// fetch is in flight. Rendering that empty string into ProseMirror is
-		// pure waste — every extension runs a full schema pass twice per
-		// navigation. Skip until the real content arrives.
-		if (isLoading && content === "") return;
-		// Dedupe identical (path, content) renders — e.g. cached paint followed
-		// by a fresh fetch that returned the same markdown.
 		const renderMarkdown = parsedViewingContent.body;
-		const key = `${currentPath} ${renderMarkdown}`;
-		if (renderedKeyRef.current === key) {
-			if (renderedPath !== currentPath) setRenderedPath(currentPath);
+
+		// Phase 5 (DoD #5): the single predicate that decides whether ProseMirror
+		// is torn down and rebuilt. Extracted so it is testable — see
+		// repro-annotation-reload.test.ts.
+		//
+		// The bug this removes: annotation ops (comment / reply / resolve /
+		// accept) route through the zustand store, `content` is a dependency of
+		// this effect, so EVERY annotation re-ran markdownToHtml + setContent and
+		// destroyed selection, scroll and decorator state. That is why the
+		// refresh(editor.view) patches below and in the viewing-mode effect exist.
+		const decision = shouldRerenderDocument({
+			editorReady: !!editor,
+			currentPath,
+			isDirty: useEditorStore.getState().isDirty && currentPath === prevPathRef.current,
+			isLoading,
+			content,
+			renderMarkdown,
+			lastRenderedKey: renderedKeyRef.current,
+			lastRenderedPath: renderedPath,
+			revisionChanged: false,
+			annotationChanged: false,
+		});
+		if (!decision.rerender) {
+			if (decision.reason === "already-rendered" && renderedPath !== currentPath) {
+				setRenderedPath(currentPath);
+			}
 			return;
 		}
 		prevPathRef.current = currentPath;
+
+		// The key the guard compares against on the next pass. Same format the
+		// guard builds internally, so the two cannot drift.
+		const key = `${currentPath} ${renderMarkdown}`;
 
 		let cancelled = false;
 		const setContent = async () => {

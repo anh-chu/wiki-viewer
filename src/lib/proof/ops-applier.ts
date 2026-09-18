@@ -877,6 +877,80 @@ export async function applyOps(args: {
 					break;
 				}
 
+				case "comment.reanchor": {
+					// Phase 6 / DoD #6: THE RESET SITE FOR `stale`.
+					//
+					// markOrphanedRefsStale() latches stale=true on an external edit.
+					// Before this op there was no path back for a block-ref comment —
+					// the two un-stale sites in reconcileTextCommentAnchors are
+					// reachable only via lineAnchor — so an orphaned annotation was
+					// permanently invisible with no signal. Recovery is possible now
+					// because the anchor carries selectedText to search for.
+					const comment = workingSidecar.comments.find((c) => c.id === op.commentId);
+					if (!comment) {
+						return {
+							ok: false,
+							status: 409,
+							code: "COMMENT_NOT_FOUND",
+							message: `Comment "${op.commentId}" not found.`,
+							snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar),
+						};
+					}
+					const reanchorRefs = currentRefs();
+					const targetRef = resolveRef(workingSidecar, op.ref, reanchorRefs);
+					if (!targetRef) {
+						return {
+							ok: false,
+							status: 409,
+							code: "BLOCK_NOT_FOUND",
+							message: `Block ref "${op.ref}" not found.`,
+							snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar),
+						};
+					}
+					// Same boundary validation as comment.add: the re-minted offsets
+					// must reproduce the anchored text in the block's CURRENT markdown.
+					const reanchorBlock = workingBlocks.find((b) => b.ref === targetRef);
+					const anchor = op.textAnchor;
+					const anchorValid =
+						Number.isInteger(anchor.start) &&
+						Number.isInteger(anchor.end) &&
+						anchor.start >= 0 &&
+						anchor.end > anchor.start &&
+						typeof anchor.selectedText === "string" &&
+						anchor.selectedText.length > 0 &&
+						!!reanchorBlock &&
+						anchor.end <= reanchorBlock.markdown.length &&
+						reanchorBlock.markdown.slice(anchor.start, anchor.end) === anchor.selectedText;
+					if (!anchorValid) {
+						return {
+							ok: false,
+							status: 400,
+							code: "INVALID_PAYLOAD",
+							message:
+								"textAnchor range must match selectedText within the block's current markdown",
+							snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar),
+						};
+					}
+					comment.ref = targetRef;
+					comment.textAnchor = {
+						start: anchor.start,
+						end: anchor.end,
+						selectedText: anchor.selectedText,
+						baseMarkdown: anchor.baseMarkdown ?? reanchorBlock.markdown,
+					};
+					// Clear the latch — this is the site that did not exist before.
+					delete comment.stale;
+					workingEvents.push({
+						type: "comment.reanchored",
+						at,
+						by,
+						commentId: comment.id,
+						ref: targetRef,
+						textAnchor: comment.textAnchor,
+					});
+					break;
+				}
+
 				case "suggestion.add": {
 					const refs = currentRefs();
 					const resolved = resolveRef(workingSidecar, op.ref, refs);
