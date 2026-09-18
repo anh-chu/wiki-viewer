@@ -819,6 +819,18 @@ Suggest when a handler is wired). View mode must observe the native
 `selectionchange` event itself, because TipTap's `BubbleMenu` does not fire on a
 non-editable editor.
 
+Confirmed in view mode by selecting text in the running app: both **Comment** and
+**Suggest** appear, so neither capability is stripped behind read-only.
+
+One measurement caveat worth recording, because it produced a misleading result. The two
+surfaces are triggered differently: the view-mode control listens to the native
+`selectionchange` event, while the edit-mode bubble menu responds to a ProseMirror
+selection transaction. A raw DOM `Range` therefore opens the view-mode surface and not
+the edit-mode one. Selecting text that way in edit mode returned an empty control list,
+which looks like a parity failure and is not: it is the harness failing to produce the
+event the edit surface listens for. The equivalence is asserted structurally in the
+suite, which mounts both components and compares the capabilities they accept.
+
 **Invariant: the two surfaces are equivalent.** Selecting text must offer the same
 two capabilities in both modes. Neither may be added to one surface alone, and no
 annotation affordance may be gated behind `readOnly` — a reader who cannot edit a
