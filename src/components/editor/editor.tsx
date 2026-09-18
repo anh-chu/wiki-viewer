@@ -458,6 +458,22 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	const [activeMarginRef, setActiveMarginRef] = useState<string | null>(
 		() => expandedMarginByPath.get(currentPath ?? "") ?? null,
 	);
+	// Record at the moment of the click as well as in the effect below.
+	//
+	// The effect runs after render, so a remount landing between the click and that run
+	// would find nothing stored and re-open collapsed. React runs effects before the
+	// browser paints, so that window is small — but this fix could not be confirmed in a
+	// browser, and a small window is not a reason to leave a silent failure open when the
+	// closure costs one line.
+	const setActiveMarginRefNow = useCallback(
+		(blockRef: string | null) => {
+			const key = currentPath ?? "";
+			if (blockRef) expandedMarginByPath.set(key, blockRef);
+			else expandedMarginByPath.delete(key);
+			setActiveMarginRef(blockRef);
+		},
+		[currentPath],
+	);
 	// The path the current `activeMarginRef` belongs to. Writing the ref under the
 	// CURRENT path without this would copy one document's expansion onto another when
 	// the reader navigates without a remount: the state still holds document A's ref
@@ -1636,11 +1652,11 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 											// control inside the expanded card. (An earlier
 											// comment here claimed a second click would collapse;
 											// it would not, and there was then no way out at all.)
-											setActiveMarginRef((prev) =>
-												prev === blockRef ? null : blockRef,
+											setActiveMarginRefNow(
+												activeMarginRef === blockRef ? null : blockRef,
 											)
 										}
-										onClose={() => setActiveMarginRef(null)}
+										onClose={() => setActiveMarginRefNow(null)}
 										onHoverChange={(blockRef, hovered) =>
 											setHoveredMarginRef(hovered ? blockRef : null)
 										}

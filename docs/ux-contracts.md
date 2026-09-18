@@ -633,14 +633,20 @@ restoring the flag alone would leave the toolbar reading "Suggesting" while the
 recreated plugin behaved as "editing", so the UI would claim edits were tracked when
 they were not. That is worse than the reset it replaced.
 
-**Expansion survives a remount.** The editor is unmounted and remounted on any
-external file change — `refreshViewer()` flips `fileLoading` and `viewer-pane.tsx`
-swaps the editor for a spinner and back. Writing the sidecar counts as such a change,
-so **sending a reply remounted the editor and collapsed the thread the reader was
-typing in**: the reply saved (the card gained "1 reply") while the thread vanished.
+**Expansion survives a remount.** Writing the sidecar counts as an external file
+change, so **sending a reply remounted the editor and collapsed the thread the reader
+was typing in**: the reply saved (the card gained "1 reply") while the thread vanished.
 The expanded card is therefore held at module scope keyed by path, not in component
-state. This is the mechanism behind the "successful ops keep the thread open" rule,
-and it is silent — everything renders and the reply saves, so only the collapse shows.
+state, which is the mechanism behind the "successful ops keep the thread open" rule.
+
+The failure is silent — everything renders and the reply saves, so only the collapse
+shows. It was observed directly in the browser (the reply stored, the card reading
+"1 reply", the thread closed). The *fix* has not been re-confirmed in a browser: the
+remote browser became unavailable partway through this work and could not be restored
+from here. It is covered by tests that were each checked to fail on the old code, and
+the root cause below was corrected after the observation, so the behaviour is expected
+to be right — but that is an expectation, not a measurement, and it is recorded as
+such rather than presented as verified.
 
 **Cards host their thread in place.** Clicking a card expands the thread inside that
 card at its anchor. Collapsing is the **× control** on the expanded card, not a second

@@ -130,10 +130,33 @@ describe("an expanded margin card can be collapsed again", () => {
 	});
 
 	test("the editor passes a real close handler to the column", () => {
+		// Routed through the helper that also updates the module-scope record, so the
+		// close survives alongside the expansion. Asserting the helper name rather than
+		// `setActiveMarginRef(null)` directly, which would now miss the real call.
 		assert.match(
 			EDITOR,
-			/onClose=\{\(\) => setActiveMarginRef\(null\)\}/,
+			/onClose=\{\(\) => setActiveMarginRefNow\(null\)\}/,
 			"the column's close must clear the expanded ref, not a different target",
+		);
+	});
+
+	test("both close paths record the change outside component state", () => {
+		// The expansion is stored at click time, not only in an effect, so a remount
+		// landing before the effect runs cannot re-open the card collapsed.
+		assert.match(
+			EDITOR,
+			/const setActiveMarginRefNow = useCallback\(/,
+			"expected a helper that writes through to the map",
+		);
+		assert.match(
+			EDITOR,
+			/if \(blockRef\) expandedMarginByPath\.set\(key, blockRef\);/,
+			"expanding must be recorded immediately",
+		);
+		assert.match(
+			EDITOR,
+			/else expandedMarginByPath\.delete\(key\);/,
+			"collapsing must be recorded immediately",
 		);
 	});
 
