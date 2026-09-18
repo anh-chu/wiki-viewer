@@ -57,7 +57,11 @@ import { shouldRerenderDocument } from "@/lib/proof/render-guard";
 import { commentHighlightExtension, refreshCommentHighlights } from "./extensions/comment-highlight";
 import { stripTrackChangesFromHTML } from "@/lib/proof/track-changes-strip";
 import { setEditMode } from "./extensions/track-changes";
-import { trackChangesExtension } from "./extensions/track-changes-behavior";
+import {
+	acceptTrackedChangesRange,
+	collectTrackedRanges,
+	trackChangesExtension,
+} from "./extensions/track-changes-behavior";
 
 async function uploadFile(
 	pagePath: string,
@@ -163,6 +167,24 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	 * previous value inside a transaction that fires in the same tick as the click.
 	 */
 	const [suggesting, setSuggesting] = useState(false);
+	/**
+	 * Whether any tracked change exists, so the Accept/Reject controls only appear
+	 * when there is a decision to make. Recomputed from the document on every
+	 * transaction rather than tracked in state, because a stale flag would hide the
+	 * controls while suggestions were still pending.
+	 */
+	const [trackedCount, setTrackedCount] = useState(0);
+	const hasTrackedChanges = trackedCount > 0;
+
+	/** Accept or reject every tracked change in the document, as one undo step. */
+	const resolveAllTracked = useCallback((decision: "accept" | "reject") => {
+		const editor = editorRef.current;
+		if (!editor) return;
+		const tr = acceptTrackedChangesRange(editor.state, decision);
+		if (tr) editor.view.dispatch(tr);
+		setTrackedCount(0);
+	}, []);
+
 	const toggleSuggestingMode = useCallback(() => {
 		setSuggesting((prev) => {
 			const next = !prev;
@@ -888,6 +910,24 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		refreshCommentHighlights(editor.view);
 	}, [editor, snapshotBlocks, comments, currentPath, hoveredMarginRef]);
 
+	// Keep the Accept/Reject controls in step with the document. Counted from the
+	// live document, so it cannot go stale the way a manually maintained flag can.
+	useEffect(() => {
+		if (!editor || editor.isDestroyed) return;
+		const count = () => {
+			const ranges = collectTrackedRanges(editor.state.doc);
+			setTrackedCount(
+				ranges.insertion.length + ranges.deletion.length + ranges.modification.length,
+			);
+		};
+		count();
+		editor.on("transaction", count);
+		return () => {
+			editor.off("transaction", count);
+		};
+	}, [editor]);
+
+
 	// Stable ref to the editor so callbacks with empty deps reach the live instance.
 	editorRef.current = editor;
 
@@ -1139,6 +1179,25 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 								<div className="flex-1 min-w-0">
 									{!sourceMode && <EditorToolbar editor={editor} />}
 								</div>
+								{!sourceMode && suggesting && hasTrackedChanges && (
+									<span className="flex items-center gap-1 mr-2">
+										<button
+											onClick={() => resolveAllTracked("accept")}
+											className="flex items-center gap-1 px-2.5 py-1 text-[11px] rounded-md border border-emerald-500/40 text-emerald-700 hover:bg-emerald-500/10 transition-colors"
+											title="Accept every suggestion in this document"
+										>
+											<Check className="h-3 w-3" />
+											Accept all
+										</button>
+										<button
+											onClick={() => resolveAllTracked("reject")}
+											className="px-2.5 py-1 text-[11px] rounded-md border border-border text-muted-foreground hover:bg-accent transition-colors"
+											title="Reject every suggestion in this document"
+										>
+											Reject all
+										</button>
+									</span>
+								)}
 								{!sourceMode && (
 									<button
 										onClick={toggleSuggestingMode}

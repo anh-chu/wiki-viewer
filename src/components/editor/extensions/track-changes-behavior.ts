@@ -190,54 +190,12 @@ export function trackChangesExtension(options: TrackChangesOptions = {}) {
 
 		addProseMirrorPlugins() {
 			const extension = this;
-
 			return [
-				new Plugin({
-					key: trackChangesKey,
-
-					filterTransaction(tr, state) {
-						if (!tr.docChanged) return true;
-						const mode = getEditMode({
-							storage: extension.editor.storage,
-						});
-						if (mode !== "suggesting") return true;
-						// A transaction that only removes marks is our own accept/reject
-						// pass; rewriting it would re-stamp what we just cleaned.
-						if (tr.getMeta(trackChangesKey)) return true;
-
-						const author = options.author?.() ?? "human";
-
-						// Deletion: replace the actual removal with a deletion mark.
-						if (tr.steps.length === 1 && isPlainDeletion(tr)) {
-							const mark = authorMark(state, "deletion", author);
-							if (!mark) return true;
-							const { from, to } = deletionRange(tr);
-							if (from === to) return true;
-							tr.addMark(from, to, mark);
-							options.onTrackedEdit?.({
-								markName: "deletion",
-								from,
-								to,
-								text: state.doc.textBetween(from, to, "\n"),
-							});
-							return true;
-						}
-
-						// Insertion: let the text land, then mark it.
-						const mark = authorMark(state, "insertion", author);
-						if (!mark) return true;
-						const ranges = insertedRanges(tr);
-						for (const range of ranges) {
-							tr.addMark(range.from, range.to, mark);
-							options.onTrackedEdit?.({
-								markName: "insertion",
-								from: range.from,
-								to: range.to,
-								text: tr.doc.textBetween(range.from, range.to, "\n"),
-							});
-						}
-						return true;
-					},
+				createTrackChangesPlugin({
+					getMode: () =>
+						getEditMode({ storage: extension.editor.storage }),
+					author: () => options.author?.() ?? "human",
+					onTrackedEdit: options.onTrackedEdit,
 				}),
 			];
 		},
@@ -262,10 +220,28 @@ export function trackChangesExtension(options: TrackChangesOptions = {}) {
 	});
 }
 
-/** True when the transaction is exactly one text deletion and nothing else. */
+/**
+ * True when the transaction is exactly one text DELETION and nothing else.
+ *
+ * Testing `from`/`to` being numeric is not enough, and getting that wrong was a
+ * real bug: an `insertText` step is also a ReplaceStep with numeric from/to (both
+ * equal to the caret position), so every insertion was misrouted into the deletion
+ * branch and silently vanished. A deletion is a step that CONSUMES document range
+ * while adding no text — so the slice being empty is the distinguishing fact.
+ */
 function isPlainDeletion(tr: Transaction): boolean {
-	const step = tr.steps[0] as unknown as { from?: number; to?: number };
-	return typeof step?.from === "number" && typeof step?.to === "number";
+	const step = tr.steps[0] as unknown as {
+		from?: number;
+		to?: number;
+		slice?: { content: { size: number } };
+	};
+	if (typeof step?.from !== "number" || typeof step?.to !== "number") return false;
+	// Nothing to delete when the range is empty.
+	if (step.to <= step.from) return false;
+	// Text being inserted alongside the removal is a replacement, not a deletion.
+	const added = step.slice?.content?.size ?? 0;
+	if (added > 0) return false;
+	return true;
 }
 
 /** The range a deletion transaction removed, in the pre-transaction document. */
@@ -293,3 +269,129 @@ function insertedRanges(tr: Transaction): { from: number; to: number }[] {
 	});
 	return ranges;
 }
+
+/**
+ * Build the plugin directly.
+ *
+ * The extension wraps this so the same instance-under-test is reachable from a
+ * test: the coordinate bug this file fixes was invisible to logic-only tests.
+ */
+export function createTrackChangesPlugin(opts: {
+	getMode: () => "editing" | "suggesting";
+	author: () => string;
+	onTrackedEdit?: (info: {
+		markName: string;
+		from: number;
+		to: number;
+		text: string;
+	}) => void;
+}): Plugin {
+	const pendingInsertions: {
+		ranges: { from: number; to: number }[];
+		mark: Mark;
+	}[] = [];
+	const pendingDeletions: { from: number; to: number; mark: Mark }[] = [];
+
+	return new Plugin({
+		key: trackChangesKey,
+
+		view() {
+			return {
+				update(view) {
+					if (opts.getMode() !== "suggesting") {
+						pendingInsertions.length = 0;
+						pendingDeletions.length = 0;
+						return;
+					}
+					const insertions = pendingInsertions.splice(0);
+					const deletions = pendingDeletions.splice(0);
+					if (insertions.length === 0 && deletions.length === 0) return;
+
+					const tr = view.state.tr.setMeta(trackChangesKey, { tracked: true });
+					for (const { ranges, mark } of insertions) {
+						for (const range of ranges) {
+							if (range.to > tr.doc.content.size) continue;
+							tr.addMark(range.from, range.to, mark);
+							opts.onTrackedEdit?.({
+								markName: "insertion",
+								from: range.from,
+								to: range.to,
+								text: tr.doc.textBetween(range.from, range.to, "\n"),
+							});
+						}
+					}
+					for (const { from, to, mark } of deletions) {
+						if (to > tr.doc.content.size) continue;
+						tr.addMark(from, to, mark);
+						opts.onTrackedEdit?.({
+							markName: "deletion",
+							from,
+							to,
+							text: tr.doc.textBetween(from, to, "\n"),
+						});
+					}
+					view.dispatch(tr);
+				},
+			};
+		},
+
+		filterTransaction(tr, state) {
+			if (!tr.docChanged) return true;
+			if (opts.getMode() !== "suggesting") return true;
+			if (tr.getMeta(trackChangesKey)) return true;
+
+			const author = opts.author();
+
+			if (tr.steps.length === 1 && isPlainDeletion(tr)) {
+				const mark = authorMark(state, "deletion", author);
+				if (!mark) return true;
+				const { from, to } = deletionRange(tr);
+				if (from === to) return true;
+				pendingDeletions.push({ from, to, mark });
+				// Cancel the delete; the view.update pass marks the text instead.
+				return false;
+			}
+
+			const mark = authorMark(state, "insertion", author);
+			if (!mark) return true;
+			const inserted = insertedRanges(tr);
+			if (inserted.length > 0) pendingInsertions.push({ ranges: inserted, mark });
+			return true;
+		},
+	});
+}
+
+/** Accept or reject every tracked change in a range. */
+export function acceptTrackedChangesRange(
+	state: EditorState,
+	decision: "accept" | "reject",
+	from = 0,
+	to?: number,
+): Transaction | null {
+	const end = to ?? state.doc.content.size;
+	const ranges = collectTrackedRanges(state.doc, from, end);
+	if (
+		ranges.insertion.length === 0 &&
+		ranges.deletion.length === 0 &&
+		ranges.modification.length === 0
+	) {
+		return null;
+	}
+
+	// The meta marks this as our own pass. Without it the deletion steps below are
+	// re-intercepted as user deletions and re-stamped with a deletion mark, so
+	// accept would appear to do nothing.
+	let tr = state.tr.setMeta(trackChangesKey, { tracked: true, decision });
+	const toRemove = decision === "accept" ? ranges.deletion : ranges.insertion;
+	// Last-to-first: removing a range shifts every later position.
+	for (const range of [...toRemove].sort((a, b) => b.from - a.from)) {
+		tr = tr.delete(range.from, range.to);
+	}
+	for (const name of ["insertion", "deletion", "modification"]) {
+		const type = state.schema.marks[name];
+		if (type) tr = tr.removeMark(0, tr.doc.content.size, type);
+	}
+	return tr;
+}
+
+export const __test = { createTrackChangesPlugin };
