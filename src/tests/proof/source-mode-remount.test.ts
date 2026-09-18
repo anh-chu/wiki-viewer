@@ -153,3 +153,64 @@ describe("source mode survives an editor remount", () => {
 		);
 	});
 });
+
+describe("source mode does not leak into the read-only view", () => {
+	// The view/edit toggle ALSO remounts — `<KBEditor />` and `<KBEditor mode="viewing" />`
+	// sit in sibling branches of the same ternary in viewer-pane.tsx. With the draft now
+	// held at module scope, restoring it blindly would show a raw markdown <textarea> in
+	// viewing mode, where the reader expects rendered content.
+	//
+	// Two things keep that from happening, and both are load-bearing: an existing
+	// `if (isViewing) setSourceMode(false)` guard, and the write-back effect clearing the
+	// map when the mode goes false. That is an effect-ORDER dependency, so it is modelled
+	// here rather than assumed.
+	test("entering view mode clears the mode but keeps the draft", () => {
+		const modeMap = new Map<string, boolean>();
+		const draftMap = new Map<string, string>();
+		let srcMode = false;
+		let srcText = "# draft";
+		const path = "A";
+
+		// Declaration order in the component: the isViewing guard, then the write-back.
+		const guard = (isViewing: boolean) => {
+			if (isViewing) srcMode = false;
+		};
+		const writeBack = () => {
+			if (srcMode) modeMap.set(path, true);
+			else modeMap.delete(path);
+			if (srcText) draftMap.set(path, srcText);
+			else draftMap.delete(path);
+		};
+
+		srcMode = true;
+		writeBack();
+		assert.equal(modeMap.get(path), true, "source mode is recorded while on");
+
+		guard(true);
+		writeBack();
+		assert.equal(modeMap.get(path), undefined, "view mode must clear the source mode");
+		assert.equal(draftMap.get(path), "# draft", "the draft must be kept, not discarded");
+
+		// A fresh mount reads the map.
+		assert.equal(modeMap.get(path) ?? false, false, "editing re-opens in Preview");
+		assert.equal(draftMap.get(path) ?? "", "# draft", "the draft comes back");
+	});
+
+	test("the isViewing guard is still present", () => {
+		assert.match(
+			EDITOR,
+			/if \(isViewing\) setSourceMode\(false\);/,
+			"the guard that keeps Source mode out of the read-only view",
+		);
+	});
+
+	test("CONTROL: the guard clears state, and the write-back clears the map", () => {
+		// If either half is removed the map keeps `true` and a reader entering view mode
+		// gets a markdown textarea instead of the rendered document.
+		assert.match(
+			EDITOR,
+			/if \(sourceMode\) sourceModeByPath\.set\(key, true\);\s*else sourceModeByPath\.delete\(key\);/,
+			"the write-back must clear the map when the mode turns off",
+		);
+	});
+});

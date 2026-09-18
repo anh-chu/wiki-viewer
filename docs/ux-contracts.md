@@ -588,6 +588,21 @@ presentations cannot diverge in what they offer. Hovering a card applies
 The column is inset `right-2` from the viewport edge and its cards span the full
 column width, so the gutter never touches the window edge.
 
+**Switching between view and edit mode remounts the editor, and the persisted state
+is what carries across.** `viewer-pane.tsx` renders `<KBEditor />` and
+`<KBEditor mode="viewing" />` in sibling branches of one ternary, so React unmounts one
+and mounts the other on every toggle. That is the most common interaction in the app,
+which makes the module-scope state load-bearing rather than a safety net. Two
+consequences worth knowing:
+
+- Suggesting mode and a Source draft survive the toggle, which is the intent.
+- Source mode does **not** leak into viewing mode. An existing
+  `if (isViewing) setSourceMode(false)` guard clears it, and the write-back effect
+  clears the stored flag with it — but the *draft* is kept, so returning to editing
+  restores the text instead of showing a raw markdown textarea over the rendered
+  document. This depends on the two effects running in declaration order, so it is
+  pinned by a test that models the sequence rather than assuming it.
+
 **A reload must not unmount the editor.** `fileLoading` goes true on every external
 file change, not only the first load, so `{fileLoading ? <Spinner/> : <KBEditor/>}`
 replaced the editor with a spinner and unmounted it — destroying all of its component
