@@ -156,3 +156,66 @@ describe("the feedback loop that hid the real cause", () => {
 		);
 	});
 });
+
+describe("Suggesting mode survives a remount", () => {
+	// The same remount that collapsed the margin card reset `suggesting` to false. That
+	// one is a data problem rather than a cosmetic one: the reader had switched to
+	// Suggesting, and after any external file change their next keystroke would edit
+	// the document directly instead of being tracked as a suggestion.
+	test("the mode is held outside the component", () => {
+		assert.match(
+			EDITOR,
+			/const suggestingModeRef = \{ value: false \};/,
+			"expected module-scope storage for the mode",
+		);
+		const declAt = EDITOR.indexOf("const suggestingModeRef");
+		const componentAt = EDITOR.indexOf("export function KBEditor(");
+		assert.ok(
+			declAt > 0 && declAt < componentAt,
+			"module scope, declared before the component",
+		);
+		assert.match(
+			EDITOR,
+			/useState\(\s*\(\) => suggestingModeRef\.value\s*\)/,
+			"the initial state must read through to the module-scope value",
+		);
+	});
+
+	test("the toggle records the new mode", () => {
+		assert.match(
+			EDITOR,
+			/suggestingModeRef\.value = next;/,
+			"toggling must persist the mode",
+		);
+	});
+
+	test("the plugin is re-armed, not just the flag", () => {
+		// Restoring the flag alone would leave the toolbar saying "Suggesting" while the
+		// recreated plugin behaved as "editing" — the UI claiming edits are tracked when
+		// they are not. This is the subtle half of the fix.
+		const effect = EDITOR.slice(
+			EDITOR.indexOf("// Re-arm the mode plugin"),
+			EDITOR.indexOf("Repaint exact-word highlights"),
+		);
+		assert.ok(effect.length > 0, "expected to find the re-arm effect");
+		assert.match(
+			effect,
+			/setEditMode\(\s*\{\s*storage: editor\.storage\s*\}/,
+			"the re-arm must write into the live editor's storage",
+		);
+		assert.match(
+			effect,
+			/\},\s*\[editor, suggesting\]\)/,
+			"it must re-run when a new editor instance appears",
+		);
+	});
+
+	test("CONTROL: the toggle still writes through to the plugin", () => {
+		// The module-scope flag is an addition, not a replacement.
+		assert.match(
+			EDITOR,
+			/setEditMode\(\s*\{\s*storage: editorRef\.current\.storage\s*\}/,
+			"the interactive toggle must still drive the plugin directly",
+		);
+	});
+});

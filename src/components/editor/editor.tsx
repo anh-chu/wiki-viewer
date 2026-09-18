@@ -121,6 +121,15 @@ interface KBEditorProps {
 }
 
 /**
+ * Whether Suggesting mode is on, held at module scope.
+ *
+ * The editor is remounted on external file changes (see `activeMarginRef`), which
+ * resets component state. Losing the margin expansion is cosmetic; losing this one
+ * means edits stop being tracked without the reader being told.
+ */
+const suggestingModeRef = { value: false };
+
+/**
  * Expanded margin card per document path.
  *
  * Module scope so it outlives the editor remount described at `activeMarginRef`.
@@ -171,7 +180,14 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	 * the transaction filter reads it synchronously — React state would report the
 	 * previous value inside a transaction that fires in the same tick as the click.
 	 */
-	const [suggesting, setSuggesting] = useState(false);
+	// Survives a remount, like the margin expansion below and for the same reason: the
+	// editor is unmounted on any external file change. The difference here is that
+	// losing it is a DATA problem, not a cosmetic one. On remount `suggesting` reset to
+	// false while the stale ProseMirror storage went with it, so a reader who had
+	// switched to Suggesting would silently be back in Editing and their next keystroke
+	// would edit the document directly instead of being tracked — with the toolbar
+	// showing whichever mode the reset produced.
+	const [suggesting, setSuggesting] = useState(() => suggestingModeRef.value);
 	/**
 	 * Whether any tracked change exists, so the Accept/Reject controls only appear
 	 * when there is a decision to make. Recomputed from the document on every
@@ -193,12 +209,14 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	const toggleSuggestingMode = useCallback(() => {
 		setSuggesting((prev) => {
 			const next = !prev;
+			suggestingModeRef.value = next;
 			if (editorRef.current) {
 				setEditMode({ storage: editorRef.current.storage }, next ? "suggesting" : "editing");
 			}
 			return next;
 		});
 	}, []);
+
 	const [sourceText, setSourceText] = useState("");
 
 	// Prime the slug index once on mount so wiki-link broken-state and
@@ -968,6 +986,20 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		},
 		immediatelyRender: false,
 	});
+
+	// Re-arm the mode plugin whenever a new editor instance appears.
+	//
+	// `setEditMode` writes into the ProseMirror plugin's storage, which is recreated
+	// with the editor. Restoring the `suggesting` flag alone would leave the toolbar
+	// reading "Suggesting" while the plugin behaved as "editing" — the UI would claim
+	// edits were tracked when they were not, which is worse than the reset it replaced.
+	useEffect(() => {
+		if (!editor) return;
+		setEditMode(
+			{ storage: editor.storage },
+			suggesting ? "suggesting" : "editing",
+		);
+	}, [editor, suggesting]);
 
 	/**
 	 * Repaint exact-word highlights when the annotation data changes.

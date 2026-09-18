@@ -588,6 +588,15 @@ presentations cannot diverge in what they offer. Hovering a card applies
 The column is inset `right-2` from the viewport edge and its cards span the full
 column width, so the gutter never touches the window edge.
 
+**Suggesting mode survives a remount too, and that one is not cosmetic.** The same
+unmount that collapsed the margin card reset `suggesting` to false. A reader who had
+switched to Suggesting would silently be back in Editing, and their next keystroke
+would edit the document directly instead of being tracked. The mode is held at module
+scope, and the plugin is **re-armed** from it whenever a new editor instance appears —
+restoring the flag alone would leave the toolbar reading "Suggesting" while the
+recreated plugin behaved as "editing", so the UI would claim edits were tracked when
+they were not. That is worse than the reset it replaced.
+
 **Expansion survives a remount.** The editor is unmounted and remounted on any
 external file change — `refreshViewer()` flips `fileLoading` and `viewer-pane.tsx`
 swaps the editor for a spinner and back. Writing the sidecar counts as such a change,
