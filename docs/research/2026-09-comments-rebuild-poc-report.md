@@ -80,11 +80,11 @@ guard — a protection wired but never triggered.
 | 1 | Comment highlights exact text; survives nearby edits | ✅ delivered (margin column + exact-word highlight + cancellation) |
 | 2 | Suggest mode is in-place edit-over-document | ✅ **delivered** — Editing/Suggesting toggle; insertions, deletions and Accept/Reject all exercised live in the browser, not just in tests |
 | 3 | Markdown byte-identical with pending suggestions | ✅ delivered — enforced at the single serialization path, with a control proving the leak is real |
-| 4 | Pips correctly positioned | ✅ delivered |
+| 4 | Pips correctly positioned | ✅ delivered — though the pip gutter is no longer the primary surface; the margin column is. A per-block pip variant survives for compatibility |
 | 5 | Zero reload on annotation ops | ✅ delivered |
 | 6 | Orphaned anchor visible and recoverable | ✅ **resolved differently** — cancelled and removed, at user's direction |
 | 7 | One selection surface; no dead `readOnly` branch | ✅ delivered |
-| 8 | Suite ≥ floor | ✅ 847 pass, floor 835 |
+| 8 | Suite ≥ floor | ✅ 862 pass, floor 835 |
 
 **7 of 8 delivered as written, 1 intentionally reversed** (recovery → cancellation).
 
@@ -213,14 +213,24 @@ is the prerequisite for criterion 2 — which remains the largest outstanding pi
 
 ## Verification
 
-- Suite **812 pass / 0 fail**, floor 704 (was 731 on `main`)
+- Suite **862 pass / 0 fail**, floor 835 (was 731 on `main`)
 - Typecheck matches the `main` baseline exactly (one pre-existing error,
   `anchor-sibling-orphaning.test.ts:150`, present on `main` too)
 - Lint clean via `biome check src/`
 - Live browser QA on the dev server: margin column rendering 4 anchored cards with
   collision avoidance, and exact-word highlights painting sub-word ranges
 
-**Caveat on visual claims:** the agent performing this work has no image input, so
-screenshots could not be interpreted. All live findings came from DOM reads, the
-accessibility tree, and API responses. Rendering has been verified structurally,
-not visually.
+**Visual claims:** an earlier version of this section said the agent had no image
+input and could not interpret screenshots. That was false — the user enabled vision
+during this work, and screenshots were then read directly. The correction matters
+because the claim had been used to justify reasoning about rendering from the DOM
+alone, which is how a blank document and a broken alignment setting went unnoticed
+until the user sent a screenshot.
+
+**Production build: cannot be verified in this environment.** `fonts.googleapis.com`
+is unreachable from this machine (connection timeout) and `fonts.gstatic.com` returns
+404, so every `next/font/google` import fails. This is not a defect in this branch:
+`main` fails the production build with the identical error. Verified by building the
+`main` worktree directly. General network access works (npm registry returns 200), so
+the block is specific to Google Fonts. The build passed earlier in this work when those
+hosts were reachable, which is why the gate was initially reported green.
