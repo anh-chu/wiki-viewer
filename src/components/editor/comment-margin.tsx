@@ -75,14 +75,17 @@ export function CommentMargin({
 
 	return (
 		<div
-			className="relative h-full w-[19rem] shrink-0 overflow-hidden"
+			className="pointer-events-none absolute inset-y-0 right-0 z-10 w-[19rem] overflow-hidden"
 			data-comment-margin
 		>
 			{laid.map(({ thread, top }) => (
 				<div
 					key={thread.blockRef}
 					data-margin-card={thread.blockRef}
-					className="absolute left-0 right-2"
+					// pointer-events-auto because the overlay root is transparent to
+					// clicks: only the cards should be interactive, so the document
+					// underneath stays selectable everywhere else.
+					className="pointer-events-auto absolute left-0 right-2"
 					style={{ top }}
 				>
 					{activeRef === thread.blockRef ? (

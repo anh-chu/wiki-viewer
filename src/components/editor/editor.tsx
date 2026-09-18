@@ -32,10 +32,6 @@ import { CommentThread } from "./comment-thread";
 import { CommentMargin } from "./comment-margin";
 import { SuggestEditPopover } from "./suggest-edit-popover";
 import { SuggestionReviewPopover } from "./suggestion-review-popover";
-import {
-	createSuggestionDecoratorPlugin,
-	type SuggestionDecoratorController,
-} from "@/lib/proof/suggestion-decorator";
 import { SlashCommands } from "./slash-commands";
 import { DocumentOutline } from "./document-outline";
 import { ReadingExperiments } from "./experiments";
@@ -319,13 +315,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		},
 		[],
 	);
-	const suggestionDecoratorRef = useRef<SuggestionDecoratorController | null>(null);
-	if (!suggestionDecoratorRef.current) {
-		suggestionDecoratorRef.current = createSuggestionDecoratorPlugin({
-			suggestions: [],
-			blocks: [],
-		});
-	}
 	const suggestionBlocks = useMemo(
 		() => snapshotBlocks.slice(snapshotBlockOffset),
 		[snapshotBlockOffset, snapshotBlocks],
@@ -931,22 +920,16 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	// Stable ref to the editor so callbacks with empty deps reach the live instance.
 	editorRef.current = editor;
 
-	useEffect(() => {
-		if (!editor || !suggestionDecoratorRef.current) return;
-		editor.registerPlugin(suggestionDecoratorRef.current.plugin);
-		return () => {
-			if (!editor.isDestroyed) editor.unregisterPlugin("suggestionDecorator");
-		};
-	}, [editor]);
-
-	useEffect(() => {
-		if (!editor || !suggestionDecoratorRef.current) return;
-		suggestionDecoratorRef.current.update({
-			suggestions: pendingSuggestions,
-			blocks: suggestionBlocks,
-		});
-		suggestionDecoratorRef.current.refresh(editor.view);
-	}, [editor, pendingSuggestions, suggestionBlocks]);
+	// The decoration-based redline is RETIRED.
+	//
+	// It drew committed agent proposals as word-diff decorations over text that had
+	// already been replaced — the same wrong model the old comment pips used: the
+	// suggestion is depicted from outside the document instead of living in it.
+	// Suggesting mode now expresses an edit as marks IN the document, and a
+	// suggestion is surfaced in the margin column beside it, exactly like a comment.
+	//
+	// The review entry points remain `SuggestionPip` and the review popover, both of
+	// which read `pendingSuggestions` directly, so nothing became unreachable.
 
 	useEffect(() => {
 		editor?.setEditable(!isViewing);
@@ -1004,7 +987,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 			// markdownToHtml, no setContent, selection and scroll preserved.
 			if (decision.reason === "annotation-only") {
 				lastAnnotationFingerprintRef.current = annotationFingerprint;
-				suggestionDecoratorRef.current?.refresh(editor.view);
 				// Repaint exact-word highlights too: the comment set changed and the
 				// document did not, which is exactly the case a document transaction
 				// cannot signal.
@@ -1032,7 +1014,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 				return;
 			}
 			editor.commands.setContent(html);
-			suggestionDecoratorRef.current?.refresh(editor.view);
 			renderedKeyRef.current = key;
 			lastAnnotationFingerprintRef.current = annotationFingerprint;
 			setRenderedPath(currentPath);
@@ -1162,7 +1143,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 				isLoadingRef.current = true;
 				const html = await markdownToHtml(sourceText, currentPath ?? undefined);
 				editor.commands.setContent(html);
-				suggestionDecoratorRef.current?.refresh(editor.view);
 				setTimeout(() => {
 					isLoadingRef.current = false;
 				}, 50);

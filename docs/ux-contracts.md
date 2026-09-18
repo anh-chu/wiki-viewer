@@ -640,6 +640,23 @@ mdast block into several DOM nodes.
 `src/components/editor/comment-pip.tsx`, `src/lib/proof/pip-alignment.ts`,
 `src/lib/proof/comment-decorator.ts`
 
+**The margin must OVERLAY, never sit in the flex row.** The column is
+`absolute inset-y-0 right-0 w-[19rem]`, not a flex sibling with `shrink-0`.
+
+This is not cosmetic. A flex sibling subtracts its width from the document area,
+and the document area is then narrower than `--editor-max-w` (19rem + 60rem
+exceeds a typical viewport), so `margin-inline: auto` has no slack and the
+document silently pins to the left — the Center alignment setting appears broken
+while the code is untouched. Measured: a 1253px row minus a 304px column left
+949px against a 960px max-width, giving `margin-left: 0px` instead of 146.6px.
+Overlaying keeps the row at full width, so both Center (equal margins) and Left
+(`margin-left: 0`) behave. The overlay root is
+`pointer-events-none` and only the cards are `pointer-events-auto`, so the
+document stays selectable in the gutter beside them.
+
+**Verification pointer:** `src/components/editor/comment-margin.tsx`,
+`src/components/editor/editor.tsx` (`--editor-max-w` / `--editor-ml`)
+
 ### 5.2 View-mode and source-line comments
 
 **Contract:** In read-only markdown mode, floating **Comment** and **Suggest**
@@ -764,76 +781,41 @@ kind are what let the reviewer see exactly what changed without touching the fil
 
 **Verification pointer:** `src/components/editor/suggest-edit-popover.tsx`
 
-### 6.2 Suggestion inline redline + review popover
+### 6.2 Suggestion review (redline retired)
 
-**Contract:** Pending suggestions render as inline tracked-change **decorations
-inside** the document (ProseMirror decorations, never written to the `.md`). A
-**replace** shows a true inline **word-level redline** computed from
-`diffWords(blockText, proposedMarkdown)` (jsdiff `diffArrays` over the app's own
-word/whitespace/punctuation tokenizer, so each part preserves exact source text
-and offsets stay valid). Emphasis is deliberate: deletions
-**recede** (struck, dimmed `--destructive/50`) while the inserted words read
-**louder** (underlined `--success`, medium weight) and sit in place, with
-horizontal spacing so a struck word and its replacement never run together;
-unchanged words stay normal and readable. There is **no whole-block wash and no
-left bar** for a mappable replace — the inline redline is the only marker. A
-**delete** strikes the whole block (`--destructive`, line-through). If the block
-can't be mapped 1:1 to text positions (inline atoms like images/hard-breaks, or
-empty proposed text) it falls back to a single understated `--success/50`
-left-bar marker and the diff is read in the popover. insertAfter/insertBefore
-render a compact dashed **ghost** of the proposed text via a widget with
-explicit side.
-Each block with pending suggestions gets a **gutter pip** — a small pencil
-(`SquarePen`) icon in the left gutter that matches the comment pip's visual
-language (muted, no fill, tap padding), placed just left of the comment pip on
-the same line when a block has both so the two never overlap. Clicking it (or
-the status-bar chip below) opens a
-viewport-clamped **review popover** showing current vs proposed with **Accept**
-(`suggestion.accept`, retries once on 409 with the latest revision) and
-**Reject** (`suggestion.reject`, no retry); both reload sidecar + snapshot on
-settle. The popover also exposes **Edit** (`suggestion.edit`, pending only —
-changes the proposed text/kind inline) and **Delete** (`suggestion.delete`,
-pending only, confirm-gated — removes the suggestion from the sidecar with no
-tombstone, unlike Reject which keeps a rejected record). `esc` closes.
-Every affordance above (Accept/Reject/Edit/Delete) is available in **view mode**
-too — annotation ops are sidecar-only and never touch the file, so this
-popover has no read-only stripping. Decorations follow a fixed
-lifecycle: build from doc + suggestions, map through local transactions, rebuild
-on a meta refresh when the sidecar/snapshot changes, and force a full rebuild
-after any `setContent`. The review popover shows a **word-level diff** (deleted
-words struck in `--destructive`, inserted words underlined in `--success`).
-When more than one pending suggestion targets the same block, its gutter pip
-shows a small superscript count and the popover gains an **N of M** overlap switcher (`◂`/`▸`) that
-cycles those suggestions with the diff updating live; Accept/Reject act on the
-shown one (Accept supersedes the rest server-side). A status-bar **“✎ N
-suggestions”** chip (shown only when N>0) cycles to the next pending suggestion,
-opening its popover and scrolling it into view.
+**Contract:** A pending **committed** suggestion (one recorded in the sidecar, e.g.
+proposed by an agent) is reviewed in a viewport-clamped **review popover** showing
+current vs proposed, with **Accept** (`suggestion.accept`, retries once on 409 with
+the latest revision) and **Reject** (`suggestion.reject`, no retry); both reload
+sidecar + snapshot on settle. The popover also exposes **Edit** (`suggestion.edit`,
+pending only) and **Delete** (`suggestion.delete`, pending only, confirm-gated —
+removes the suggestion with no tombstone, unlike Reject which keeps a rejected
+record). `esc` closes. A block with pending suggestions gets a **gutter pip** — a
+small pencil (`SquarePen`) in the left gutter, matching the comment pip's visual
+language, placed just left of the comment pip when a block has both.
 
-When a suggestion carries a text **range** + its base block, Accept performs a
-word-level **3-way merge** against the current block: a concurrent edit
-*elsewhere* in the block is preserved and the suggested span still applies; a
-concurrent edit that *overlaps* the suggested span refuses with the usual
-`409` drift (no write). Suggestions without a range, or where the block has not
-diverged from the base, keep the plain whole-block accept.
+**The decoration-based inline redline is retired.** It rendered committed proposals
+as ProseMirror **decorations** over text that had already been replaced —
+word-diff struck/inserted spans plus a block-level struck bar or left-bar fallback.
+That model is wrong for the same reason the old comment pips were: it depicts the
+change from *outside* the document instead of letting the change live *in* it. It
+also could not support in-place authoring, because a decoration cannot hold text
+the document would have to contain for you to type into it.
 
-**Why it matters:** Accept is the only human path that applies a suggestion;
-its single-retry-then-fail on drift is the guard against clobbering concurrent
-edits. Rendering as decorations (not doc marks) keeps the proposal out of the
-saved file until Accept.
+An edit is now expressed by **marks in the document** (§6.0), and a suggestion is
+surfaced beside the document in the **margin column**, exactly like a comment
+(§5.1). `suggestion-decorator.ts` and its test were deleted rather than left
+mounted-but-unused; `word-diff.ts` survives because the review popover still uses
+it to show current-vs-proposed.
 
-**Annotation ops never rebuild the document.** A comment/reply/resolve/reopen or
-a suggestion add/accept/reject refreshes the decoration layer as a transaction.
-It must produce **zero** `markdownToHtml` and **zero** `setContent` calls, so
-selection, scroll position and decorator state survive the annotation loop. The
-deciding predicate is `shouldRerenderDocument` in `src/lib/proof/render-guard.ts`;
-the annotation signal is an id/resolved/turn-count fingerprint, and a genuine
-markdown change always wins over it.
+**Why it matters:** one visual language for pending change. Previously a committed
+proposal appeared as a redline decoration while your own typed edit appeared as a
+mark — two renderings of the same idea, with only one of them consistent with
+typing over the document.
 
-**Verification pointer:** `src/lib/proof/suggestion-decorator.ts`,
-`src/components/editor/suggestion-pip.tsx`, the gutter overlay in
-`src/components/editor/editor.tsx`,
-`src/components/editor/suggestion-review-popover.tsx`,
-`src/lib/proof/word-diff.ts`, `src/lib/proof/render-guard.ts`
+**Verification pointer:** `src/components/editor/suggestion-review-popover.tsx`,
+`src/components/editor/suggestion-pip.tsx`,
+`src/components/editor/extensions/track-changes.ts`
 
 ### 6.2a Tracked changes and the markdown byte-identity invariant
 
