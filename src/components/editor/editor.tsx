@@ -399,8 +399,20 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	const [activeMarginRef, setActiveMarginRef] = useState<string | null>(
 		() => expandedMarginByPath.get(currentPath ?? "") ?? null,
 	);
+	// The path the current `activeMarginRef` belongs to. Writing the ref under the
+	// CURRENT path without this would copy one document's expansion onto another when
+	// the reader navigates without a remount: the state still holds document A's ref
+	// while `currentPath` already says B, so the write-back would store A's ref as B's.
+	const activeMarginPathRef = useRef<string | null>(currentPath ?? null);
 	useEffect(() => {
 		const key = currentPath ?? "";
+		if (activeMarginPathRef.current !== key) {
+			// Path changed under us: adopt the new document's own expansion instead of
+			// persisting the old document's ref against the new path.
+			activeMarginPathRef.current = key;
+			setActiveMarginRef(expandedMarginByPath.get(key) ?? null);
+			return;
+		}
 		if (activeMarginRef) expandedMarginByPath.set(key, activeMarginRef);
 		else expandedMarginByPath.delete(key);
 	}, [activeMarginRef, currentPath]);

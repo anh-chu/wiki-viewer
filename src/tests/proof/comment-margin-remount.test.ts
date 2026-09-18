@@ -68,12 +68,45 @@ describe("the expansion survives an editor remount", () => {
 		);
 	});
 
-	test("CONTROL: expansion is keyed per path, not global", () => {
-		// A global value would carry one document's expansion onto another.
+	test("expansion is keyed per path, and cannot leak across documents", () => {
+		// The first version of this fix DID leak. `useState`'s initializer runs once per
+		// mount, but a path change need not remount: the state still held document A's
+		// ref while `currentPath` already said B, so the write-back stored A's ref as
+		// B's and document B opened with A's card expanded. Checking only that a `key`
+		// variable existed — as an earlier version of this test did — passes on the
+		// broken code, because the bug was in which path the write used, not whether a
+		// path was computed.
 		assert.match(
 			EDITOR,
-			/const key = currentPath \?\? "";/,
-			"the map must be keyed by the open document",
+			/if \(activeMarginPathRef\.current !== key\) \{/,
+			"a path change must be detected before writing back",
+		);
+		// On that path change the state must be re-seeded from the NEW document...
+		assert.match(
+			EDITOR,
+			/setActiveMarginRef\(expandedMarginByPath\.get\(key\) \?\? null\);/,
+			"a path change must adopt the new document's own expansion",
+		);
+		// ...and the write-back must not run for the old document's ref.
+		const effect = EDITOR.slice(
+			EDITOR.indexOf("const activeMarginPathRef = useRef"),
+			EDITOR.indexOf("const [threadTarget, setThreadTarget]"),
+		);
+		const returnAt = effect.indexOf("return;");
+		const writeAt = effect.indexOf("expandedMarginByPath.set(key, activeMarginRef)");
+		assert.ok(
+			returnAt > 0 && writeAt > returnAt,
+			"the stale-path branch must return before any write-back",
+		);
+	});
+
+	test("the mount initializer still reads the module-scope map", () => {
+		// Guards against a future edit that re-seeds on path change but forgets to
+		// restore the expansion after the remount this whole mechanism exists for.
+		assert.match(
+			EDITOR,
+			/useState<string \| null>\(\s*\(\) => expandedMarginByPath\.get\(currentPath \?\? ""\) \?\? null,?\s*\)/,
+			"the mount initializer must read through to the map",
 		);
 	});
 
