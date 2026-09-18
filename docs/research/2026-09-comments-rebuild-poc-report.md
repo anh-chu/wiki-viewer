@@ -78,13 +78,13 @@ guard — a protection wired but never triggered.
 | # | Criterion | Real status |
 |---|---|---|
 | 1 | Comment highlights exact text; survives nearby edits | ✅ delivered (margin column + exact-word highlight + cancellation) |
-| 2 | Suggest mode is in-place edit-over-document | ✅ **delivered** — Editing/Suggesting toggle, typed insertions and deletions tracked as marks, verified live |
+| 2 | Suggest mode is in-place edit-over-document | ✅ **delivered** — Editing/Suggesting toggle; insertions, deletions and Accept/Reject all exercised live in the browser, not just in tests |
 | 3 | Markdown byte-identical with pending suggestions | ✅ delivered — enforced at the single serialization path, with a control proving the leak is real |
 | 4 | Pips correctly positioned | ✅ delivered |
 | 5 | Zero reload on annotation ops | ✅ delivered |
 | 6 | Orphaned anchor visible and recoverable | ✅ **resolved differently** — cancelled and removed, at user's direction |
 | 7 | One selection surface; no dead `readOnly` branch | ✅ delivered |
-| 8 | Suite ≥ floor | ✅ 839 pass, floor 839 |
+| 8 | Suite ≥ floor | ✅ 847 pass, floor 835 |
 
 **7 of 8 delivered as written, 1 intentionally reversed** (recovery → cancellation).
 
@@ -116,6 +116,25 @@ Both were found by driving `EditorState.applyTransaction` and the plugin's
 narrow and worth keeping: a mark-based feature cannot be validated by testing its
 transforms in isolation, because the defects live in the transaction plumbing
 between them.
+
+### Deletion and Accept/Reject, exercised live
+
+Insertions had been verified live; deletions had not, and they are the trickier
+mechanism — the deletion transaction is cancelled and the mark applied afterwards, so
+a mistake there means silently losing text. Driven in the browser in Suggesting mode:
+
+1. Selected `urveys` inside "Non-product surveys" and deleted it.
+2. The range gained a `deletion` mark and the text **stayed**, struck through.
+   `.track-deletion` held `"urveys"`; the document still contained it.
+3. **The file on disk stayed at 166 bytes with the word intact** — the byte-identity
+   invariant holds with a pending deletion, which is the case that most obviously
+   could have gone wrong.
+4. **Reject all** cleared the mark and restored "surveys".
+5. **Accept all** cleared the mark and the word was genuinely gone, then the save
+   persisted it.
+
+Reject restores and Accept discards, as they must, and both were confirmed by the
+resulting text rather than by the absence of an error.
 
 ### The margin column had its own version of this
 

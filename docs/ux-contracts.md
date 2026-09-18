@@ -749,7 +749,13 @@ In suggesting mode:
   mark and the text STAYS in the document, struck through. This is what makes
   reject possible at all: a decoration cannot hold text the document no longer
   contains.
-- **Formatting changes are tracked** as a `modification` mark.
+- **Formatting changes are NOT tracked yet.** The `modification` mark is defined
+  (`track-changes.ts`) and both the strip and accept/reject handle it, but nothing
+  in the app ever applies it: there is no path that stamps it and no formatting
+  control in the toolbar. It is scaffolding for a future formatting-suggestion
+  feature, not a working capability. Stated plainly because an earlier draft of this
+  section claimed formatting changes "are tracked", which was not true and is the
+  same overclaiming the POC report was corrected for.
 
 Tracked marks are applied by rewriting the incoming transaction
 (`filterTransaction`), not by appending a second one — appending would put the
