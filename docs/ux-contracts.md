@@ -690,6 +690,22 @@ Suggest when a handler is wired). View mode must observe the native
 `selectionchange` event itself, because TipTap's `BubbleMenu` does not fire on a
 non-editable editor.
 
+**Invariant: the two surfaces are equivalent.** Selecting text must offer the same
+two capabilities in both modes. Neither may be added to one surface alone, and no
+annotation affordance may be gated behind `readOnly` — a reader who cannot edit a
+document still needs to comment on it. Measured live, selecting "Reactions" in each
+mode:
+
+| Mode | `contenteditable` | Affordances offered |
+|---|---|---|
+| View | `false` | "Add comment", "Suggest edit" |
+| Edit | `true` | "Comment — discuss or annotate this selection", "Suggest — propose a human edit for review" |
+
+The wording differs because the components are separate; the capability set must not.
+This is stated as an invariant because the failure is silent: adding `!isViewing` in
+front of a shared affordance removes a capability from half the app without breaking
+any test that only exercises one mode.
+
 **Why it matters:** The selection hash anchors comments to content, so they
 survive line shifts; losing the hash breaks comment placement after any edit.
 For markdown blocks, storing `selectedText` (not only a hash) is what makes an
