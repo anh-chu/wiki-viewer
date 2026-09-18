@@ -51,6 +51,8 @@ const lowlight = createLowlight({
 	yaml,
 });
 
+import { Deletion, Insertion, Modification } from "./extensions/track-changes";
+
 export const editorExtensions = [
 	StarterKit.configure({
 		heading: { levels: [1, 2, 3, 4] },
@@ -134,6 +136,12 @@ export const editorExtensions = [
 		},
 	}),
 	CalloutExtension,
+	// Suggesting mode: the marks that let a suggestion live IN the document
+	// (so you can type over it) rather than being drawn over one that already
+	// changed. See extensions/track-changes.ts for why marks, not decorations.
+	Insertion,
+	Deletion,
+	Modification,
 	TextAlign.configure({ types: ["heading", "paragraph"] }),
 	Subscript,
 	Superscript,

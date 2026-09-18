@@ -3,7 +3,7 @@
 import { cellAround, isInTable } from "@tiptap/pm/tables";
 import { EditorContent, useEditor } from "@tiptap/react";
 import type { Editor } from "@tiptap/core";
-import { AlertCircle, Check, Code2, FilePlus, Loader2, Sparkles } from "lucide-react";
+import { AlertCircle, Check, Code2, FilePlus, Loader2, PenLine, PencilLine, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { markdownToHtml } from "@/lib/markdown/to-html";
 import { htmlToMarkdown } from "@/lib/markdown/to-markdown";
@@ -55,6 +55,9 @@ import {
 } from "@/lib/proof/pip-alignment";
 import { shouldRerenderDocument } from "@/lib/proof/render-guard";
 import { commentHighlightExtension, refreshCommentHighlights } from "./extensions/comment-highlight";
+import { stripTrackChangesFromHTML } from "@/lib/proof/track-changes-strip";
+import { setEditMode } from "./extensions/track-changes";
+import { trackChangesExtension } from "./extensions/track-changes-behavior";
 
 async function uploadFile(
 	pagePath: string,
@@ -152,6 +155,23 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	isViewingRef.current = isViewing;
 	const editorRef = useRef<Editor | null>(null);
 	const [sourceMode, setSourceMode] = useState(false);
+	/**
+	 * Editing vs Suggesting, the Docs mode pair.
+	 *
+	 * Held in React state for rendering and mirrored into editor storage, because
+	 * the transaction filter reads it synchronously — React state would report the
+	 * previous value inside a transaction that fires in the same tick as the click.
+	 */
+	const [suggesting, setSuggesting] = useState(false);
+	const toggleSuggestingMode = useCallback(() => {
+		setSuggesting((prev) => {
+			const next = !prev;
+			if (editorRef.current) {
+				setEditMode({ storage: editorRef.current.storage }, next ? "suggesting" : "editing");
+			}
+			return next;
+		});
+	}, []);
 	const [sourceText, setSourceText] = useState("");
 
 	// Prime the slug index once on mount so wiki-link broken-state and
@@ -606,10 +626,19 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	}, [currentPath, snapshotBlockOffset, snapshotBlocks]);
 
 
+	/**
+	 * The single serialization path, and the place byte-identity is defended.
+	 *
+	 * Tracked changes must be stripped BEFORE markdown conversion, not after. Once
+	 * `toDOM` has emitted `<ins>`, Turndown turns it into `~text~` and the file has
+	 * changed — which would break the invariant that `.md` stays byte-identical
+	 * while suggestions are pending. Stripping first means the suggestion lives
+	 * only in the editor and the sidecar, never on disk.
+	 */
 	const handleUpdate = useCallback(
 		({ editor }: { editor: ReturnType<typeof useEditor> }) => {
 			if (isLoadingRef.current || isViewingRef.current || !editor) return;
-			const html = editor.getHTML();
+			const html = stripTrackChangesFromHTML(editor.getHTML());
 			const md = htmlToMarkdown(
 				html,
 				useEditorStore.getState().currentPath ?? undefined,
@@ -637,6 +666,10 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 			[
 				...editorExtensions,
 				commentHighlightExtension(() => commentHighlightStateRef.current),
+				// Behaviour layer: intercepts typing/deletion in suggesting mode.
+				trackChangesExtension({
+					author: () => "human",
+				}),
 			] as typeof editorExtensions,
 		[],
 	);
@@ -1106,6 +1139,29 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 								<div className="flex-1 min-w-0">
 									{!sourceMode && <EditorToolbar editor={editor} />}
 								</div>
+								{!sourceMode && (
+									<button
+										onClick={toggleSuggestingMode}
+										title={
+											suggesting
+												? "Suggesting: your edits are tracked until accepted"
+												: "Editing: your edits apply directly"
+										}
+										aria-pressed={suggesting}
+										className={`flex items-center gap-1.5 px-3 py-1 mr-2 text-[11px] rounded-md transition-colors border border-border ${
+											suggesting
+												? "bg-emerald-500/15 text-emerald-700 border-emerald-500/40"
+												: "text-muted-foreground hover:bg-accent"
+										}`}
+									>
+										{suggesting ? (
+											<PencilLine className="h-3 w-3" />
+										) : (
+											<PenLine className="h-3 w-3" />
+										)}
+										{suggesting ? "Suggesting" : "Editing"}
+									</button>
+								)}
 								<button
 									onClick={toggleSourceMode}
 									className={`flex items-center gap-1.5 px-3 py-1 mr-2 text-[11px] rounded-md transition-colors border border-border ${

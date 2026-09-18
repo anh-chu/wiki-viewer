@@ -128,7 +128,24 @@ export function stripTrackChangesFromHTML(html: string): string {
 	out = out.replace(/<ins\b[^>]*>[\s\S]*?<\/ins>/gi, "");
 	// Unwrap deletion wrappers, keeping the text.
 	out = out.replace(/<\/?del\b[^>]*>/gi, "");
-	// Unwrap modification wrappers, keeping the text.
-	out = out.replace(/<\/?span\b[^>]*data-type="modification"[^>]*>/gi, "");
+	// A modification wrapper means "the formatting inside changed while
+	// suggesting", so BOTH the wrapper and the formatting it introduces must go —
+	// unwrapping alone would let `<strong>` through and the pending bold would
+	// serialize as `**text**`, changing the file before the suggestion is accepted.
+	out = out.replace(
+		/<span\b[^>]*data-tracked="modification"[^>]*>([\s\S]*?)<\/span>/gi,
+		(_match, inner: string) => stripFormattingTags(inner),
+	);
 	return out;
+}
+
+/**
+ * Remove inline formatting tags, keeping their text.
+ *
+ * Used for modification wrappers: a pending formatting suggestion must not change
+ * the markdown, so the tags that would become `**`/`_` are dropped while the words
+ * they surrounded survive.
+ */
+function stripFormattingTags(html: string): string {
+	return html.replace(/<\/?(strong|b|em|i|u|s|mark|code|span)\b[^>]*>/gi, "");
 }

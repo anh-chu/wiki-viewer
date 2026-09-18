@@ -698,6 +698,58 @@ recorded and no risk of a stale instruction reaching an agent.
 
 ## 6. Suggestions
 
+### 6.0 Suggesting mode (Google Docs)
+
+**Contract:** The editor has two modes, chosen from a toolbar toggle: **Editing**
+and **Suggesting**. The button reads the current mode (`Editing` / `Suggesting`)
+and carries `aria-pressed`; in suggesting mode it is tinted green. `Mod-Shift-s`
+toggles it. Mode lives in editor **storage**, not React state, because the
+transaction filter reads it synchronously — React state would report the previous
+value inside a transaction that fires in the same tick as the click.
+
+In suggesting mode:
+
+- **Typing inserts tracked text.** The characters are real document content
+  carrying an `insertion` mark, so the caret, selection, undo, IME and paste all
+  behave normally. Insertions render green and underlined.
+- **Deleting marks rather than removes.** The selected range gains a `deletion`
+  mark and the text STAYS in the document, struck through. This is what makes
+  reject possible at all: a decoration cannot hold text the document no longer
+  contains.
+- **Formatting changes are tracked** as a `modification` mark.
+
+Tracked marks are applied by rewriting the incoming transaction
+(`filterTransaction`), not by appending a second one — appending would put the
+mark in its own undo step, so one `⌘Z` after typing a sentence would remove the
+mark and the text separately.
+
+**Byte-identity (the load-bearing invariant).** `.md` on disk does not change
+while suggestions are pending. `handleUpdate` strips tracked changes
+**before** markdown conversion, because once `toDOM` has emitted `<ins>`, Turndown
+turns it into `~text~` and the file has already changed. A
+`modification` wrapper drops its wrapper AND the formatting inside it —
+unwrapping alone would let `<strong>` through, serializing a pending bold as
+`**text**`. Tracked marks never reach disk; they live in the editor and the
+sidecar only.
+
+**Accept / reject** are document transforms:
+accept keeps inserted text, removes deleted text, and drops the marks; reject
+removes inserted text, restores deleted text (it was never gone), and drops the
+marks. Multi-range operations apply last-to-first, because removing one range
+shifts every later position. Each decision is a single transaction, so undo
+reverts the whole decision rather than half of it.
+
+**Why it matters:** The previous redline was drawn over text that had *already*
+changed, which cannot support typing directly over the document. Marks make the
+suggestion part of the document, which is what allows in-place authoring — and
+the strip is what keeps that authoring invisible to the file.
+
+**Verification pointer:** `src/components/editor/extensions/track-changes.ts`,
+`src/components/editor/extensions/track-changes-behavior.ts`,
+`src/lib/proof/track-changes-strip.ts`,
+`src/tests/proof/track-changes-accept.test.ts`,
+`src/tests/proof/track-changes-byte-identity.test.ts`
+
 ### 6.1 Suggest-edit popover
 
 **Contract:** Opened via the bubble "Suggest edit" or the view-mode button, the
