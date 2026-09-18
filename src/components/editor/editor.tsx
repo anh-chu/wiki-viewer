@@ -17,6 +17,7 @@ import {
 } from "@/stores/view-width-store";
 import { useWikiSlugsStore } from "@/stores/wiki-slugs-store";
 import { useProofStore } from "@/stores/proof-store";
+import type { TextRangeAnchor } from "@/lib/proof/types";
 import { wsFetch, withWs } from "@/lib/workspace-client";
 import { showError } from "@/lib/toast";
 import { EditorBubbleMenu } from "./bubble-menu";
@@ -332,7 +333,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 
 	/** Tracks which block's comment thread is open and its anchor element. */
 	const [threadTarget, setThreadTarget] = useState<
-		{ blockRef: string; el: HTMLElement } | null
+		{ blockRef: string; el: HTMLElement; textAnchor?: TextRangeAnchor } | null
 	>(null);
 
 	/** Tracks the open human "suggest edit" popover (block + anchor + content). */
@@ -462,7 +463,24 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		const spanEl = scrollContainerRef.current?.querySelector(
 			`[data-annotation-span="${resolved.blockRef}"]`,
 		) as HTMLElement | null;
-		setThreadTarget({ blockRef: resolved.blockRef, el: spanEl ?? resolved.blockEl });
+		// Carry the selected RANGE, not just the block. Without this the comment
+		// degrades to block granularity: the highlight covers the whole block and
+		// the anchor has no text to be found by after an edit. `resolveSelectionBlock`
+		// already computes the offsets; this is where they used to be dropped.
+		const textAnchor =
+			resolved.selectionText && resolved.selectionStart !== null && resolved.selectionEnd !== null
+				? {
+						start: resolved.selectionStart,
+						end: resolved.selectionEnd,
+						selectedText: resolved.selectionText,
+						baseMarkdown: resolved.markdown,
+					}
+				: undefined;
+		setThreadTarget({
+			blockRef: resolved.blockRef,
+			el: spanEl ?? resolved.blockEl,
+			textAnchor,
+		});
 	}, [resolveSelectionBlock]);
 
 	// Load snapshot (ordered block list) when path changes so suggestion cards
@@ -1158,6 +1176,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 							anchorKey={threadTarget.blockRef}
 							anchorRef={threadTarget.blockRef}
 							anchorLabel={threadTarget.blockRef}
+							textAnchor={threadTarget.textAnchor}
 							comments={
 								(threadCommentsByRef[threadTarget.blockRef]) ?? []
 							}

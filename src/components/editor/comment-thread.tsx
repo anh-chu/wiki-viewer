@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { authHeaders } from "@/lib/proof/client-auth";
 import { useProofStore } from "@/stores/proof-store";
 import { wsFetch } from "@/lib/workspace-client";
-import type { Comment, LineAnchor, ProofEvent, Snapshot } from "@/lib/proof/types";
+import type { Comment, LineAnchor, ProofEvent, Snapshot, TextRangeAnchor } from "@/lib/proof/types";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -72,6 +72,13 @@ interface Props {
 	anchorLabel?: string;
 	anchorRef?: string;
 	lineAnchor?: LineAnchor;
+	/**
+	 * Exact-text range for a NEW comment created from a selection. Block-scoped
+	 * (`ref`), it lets the highlight land on the commented words instead of the
+	 * whole block, and it is what makes the anchor findable later if the block
+	 * is edited out from under it.
+	 */
+	textAnchor?: TextRangeAnchor;
 	/** Existing comments on this anchor (may be empty = new-comment mode). */
 	comments: Comment[];
 	anchorEl: HTMLElement | null;
@@ -80,7 +87,7 @@ interface Props {
 
 // Annotation ops are sidecar-only (they never touch the file), so the thread
 // keeps full Edit/Delete/Escalate/Resolve affordances in view mode too.
-export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnchor, comments, anchorEl, onClose }: Props) {
+export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnchor, textAnchor, comments, anchorEl, onClose }: Props) {
 	const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
 	const [text, setText] = useState("");
 	const [busy, setBusy] = useState(false);
@@ -132,7 +139,14 @@ export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnc
 				? { type: "comment.reply", commentId: activeComment.id, text: text.trim() }
 				: lineAnchor
 					? { type: "comment.add", lineAnchor, text: text.trim() }
-					: { type: "comment.add", ref: anchorRef ?? anchorKey, text: text.trim() };
+					: {
+							type: "comment.add",
+							ref: anchorRef ?? anchorKey,
+							text: text.trim(),
+							// Only a brand-new block comment carries the range; a reply or
+							// a line-anchored comment must not re-anchor the thread.
+							...(textAnchor ? { textAnchor } : {}),
+						};
 
 			let rev = getRevision();
 			let result = await postOp(path, rev, "human", [sendOp]);
