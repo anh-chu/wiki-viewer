@@ -171,3 +171,44 @@ describe("an expanded margin card can be collapsed again", () => {
 		);
 	});
 });
+
+describe("resolved threads always offer the reply box", () => {
+	// An objective constraint, and one that is easy to break by hiding the composer
+	// behind a resolved check — which would look tidy and would strand a reader who
+	// wants to respond to a resolved thread. Verified in the running app: the resolved
+	// card b55b0d0 (showing "Reopen") expands with a textarea present.
+	test("the composer is not gated on the resolved state", () => {
+		const source = THREAD;
+		const at = source.indexOf("Reply / new comment footer");
+		assert.ok(at > 0, "expected to find the composer region");
+		// Everything from the marker to the end of the textarea element.
+		const region = source.slice(at, at + 700);
+		assert.ok(
+			!/activeComment\.resolved\s*&&/.test(region),
+			"the reply box must not be conditional on being unresolved",
+		);
+		assert.match(region, /<textarea/, "and it must actually be a textarea");
+	});
+
+	test("the placeholder adapts to the thread's state", () => {
+		// The box is always present, but its wording tells the reader which act they are
+		// performing. Losing this would leave "Add a comment…" on a thread that already
+		// has one.
+		assert.match(
+			THREAD,
+			/hasOpen \? "Reply…" : "Add a comment…"/,
+			"the placeholder must reflect whether the thread is open",
+		);
+	});
+
+	test("CONTROL: the resolved state IS used elsewhere in the thread", () => {
+		// Proves the assertion above is not vacuous: this component does branch on
+		// `resolved`, for the Resolve/Reopen control, so a composer free of it is a
+		// deliberate result rather than an absence of any such branch.
+		assert.match(
+			THREAD,
+			/activeComment\.resolved \? "Reopen" : "Resolve"/,
+			"the resolve control branches on the same state",
+		);
+	});
+});

@@ -704,6 +704,14 @@ suggestions are simply filtered out everywhere (`!stale` in the editor's pending
 in `collab-state`), so latching `stale` is enough and a cancel flag would be redundant
 state.
 
+**Resolved threads keep the reply box, and the vocabulary is fixed.** Two constraints
+checked against the running app rather than the source. A resolved thread expands with
+its composer present (confirmed on a resolved card showing "Reopen"), because hiding the
+reply box behind a resolved check would look tidy and would strand a reader who wants to
+respond to a closed thread — the placeholder changes wording, not existence. And the
+surfaces say "comment" and "suggestion" and nothing else: a scan of the rendered page
+found no occurrence of annotation, redline, orphan, stale or pip.
+
 **Cards host their thread in place.** Clicking a card expands the thread inside that
 card at its anchor. Collapsing is the **× control** on the expanded card, not a second
 click on the card: expanding unmounts the collapsed card whose button did the
