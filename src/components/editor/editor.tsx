@@ -121,6 +121,22 @@ interface KBEditorProps {
 }
 
 /**
+ * Source mode and its unsaved draft, held at module scope.
+ *
+ * Source mode is a plain <textarea> holding the file's markdown. The editor is
+ * remounted on external file changes, which reset BOTH `sourceText` (to "") and
+ * `sourceMode` (to false) — silently discarding whatever the reader had typed and
+ * dropping them back into the rendered view. There is no warning and no undo: the
+ * store still holds the older content, so switching back to Source would reload that
+ * rather than the draft.
+ *
+ * Keyed by path for the same reason as the margin expansion: a draft belongs to the
+ * document it was typed in.
+ */
+const sourceDraftByPath = new Map<string, string>();
+const sourceModeByPath = new Map<string, boolean>();
+
+/**
  * Whether Suggesting mode is on, held at module scope.
  *
  * The editor is remounted on external file changes (see `activeMarginRef`), which
@@ -172,7 +188,9 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	const isViewingRef = useRef(isViewing);
 	isViewingRef.current = isViewing;
 	const editorRef = useRef<Editor | null>(null);
-	const [sourceMode, setSourceMode] = useState(false);
+	const [sourceMode, setSourceMode] = useState(
+		() => sourceModeByPath.get(currentPath ?? "") ?? false,
+	);
 	/**
 	 * Editing vs Suggesting, the Docs mode pair.
 	 *
@@ -217,7 +235,30 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		});
 	}, []);
 
-	const [sourceText, setSourceText] = useState("");
+	const [sourceText, setSourceText] = useState(
+		() => sourceDraftByPath.get(currentPath ?? "") ?? "",
+	);
+
+	// Record Source mode and its draft on every change, not only when toggling. The
+	// remount can happen mid-edit, so a write-back that runs on toggle alone would
+	// still lose everything typed since. Both are keyed by path; an empty draft is
+	// dropped rather than stored so the map does not accumulate empty entries.
+	const sourcePathRef = useRef<string | null>(currentPath ?? null);
+	useEffect(() => {
+		const key = currentPath ?? "";
+		if (sourcePathRef.current !== key) {
+			// Path changed without a remount: adopt the new document's own state rather
+			// than persisting this document's draft against the new path.
+			sourcePathRef.current = key;
+			setSourceMode(sourceModeByPath.get(key) ?? false);
+			setSourceText(sourceDraftByPath.get(key) ?? "");
+			return;
+		}
+		if (sourceMode) sourceModeByPath.set(key, true);
+		else sourceModeByPath.delete(key);
+		if (sourceText) sourceDraftByPath.set(key, sourceText);
+		else sourceDraftByPath.delete(key);
+	}, [sourceMode, sourceText, currentPath]);
 
 	// Prime the slug index once on mount so wiki-link broken-state and
 	// the autocomplete picker both have data immediately.

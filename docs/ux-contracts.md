@@ -588,6 +588,15 @@ presentations cannot diverge in what they offer. Hovering a card applies
 The column is inset `right-2` from the viewport edge and its cards span the full
 column width, so the gutter never touches the window edge.
 
+**Source mode survives a remount, and it carries unsaved work.** Source mode is a
+`<textarea>` holding the file's markdown. The remount described below reset both the
+mode and its draft, so a reader typing markdown source was dropped back into the
+rendered view with the draft silently discarded — no warning, and no undo, since the
+store still held the older content. Both are held at module scope keyed by path, and
+the draft is recorded **on every change**, not only when toggling: a write-back that
+ran on toggle alone would still lose everything typed since the toggle, which is
+exactly the window a remount can land in.
+
 **Suggesting mode survives a remount too, and that one is not cosmetic.** The same
 unmount that collapsed the margin card reset `suggesting` to false. A reader who had
 switched to Suggesting would silently be back in Editing, and their next keystroke
