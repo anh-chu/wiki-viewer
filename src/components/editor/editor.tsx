@@ -671,6 +671,23 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 				html,
 				useEditorStore.getState().currentPath ?? undefined,
 			);
+
+			// Do not persist a round-trip that changed nothing.
+			//
+			// Markdown -> HTML -> Markdown is not the identity: a list marker gains a
+			// second space (`1. ` -> `1.  `), blank lines acquire trailing whitespace,
+			// and the trailing newline is dropped. ProseMirror fires `onUpdate` when the
+			// editor becomes editable, so merely OPENING a document for editing
+			// rewrote it — measured live: 166 bytes -> 231 bytes with nothing typed.
+			// `.md` is the source of truth here, so a no-op visit must not rewrite it.
+			//
+			// The baseline must be the PREVIOUS SERIALIZATION, not the file's source
+			// markdown: `md` here is already round-tripped, so comparing it against the
+			// raw file text would never match and the guard would never fire. Storing
+			// what we last produced makes "nothing changed" an exact comparison.
+			if (lastSerializedRef.current === md) return;
+			lastSerializedRef.current = md;
+
 			useEditorStore.getState().updateContent(md);
 		},
 		[],
@@ -956,6 +973,15 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	// When content updates from store (after loadPage), set it in editor
 	const prevPathRef = useRef<string | null>(null);
 	const renderedKeyRef = useRef<string | null>(null);
+	/**
+	 * The markdown this editor last produced, so a no-op update can be recognised.
+	 *
+	 * Kept separate from `renderedKeyRef`: that holds the file's SOURCE markdown,
+	 * while this holds the round-tripped form we would write back. Comparing the two
+	 * to each other never matches, which is how an earlier version of this guard
+	 * ended up inert.
+	 */
+	const lastSerializedRef = useRef<string | null>(null);
 	// Phase 5 (DoD #5): a fingerprint of the annotation state at the last render.
 	// When it changes but the MARKDOWN does not, the change is annotation-only
 	// and ProseMirror must not be rebuilt. Without this the guard's
@@ -1031,6 +1057,16 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 				return;
 			}
 			editor.commands.setContent(html);
+			// Seed the baseline with what THIS document serializes to.
+			//
+			// Resetting to null instead would guarantee the first update after a load
+			// writes the file — which is exactly the bug being fixed, since becoming
+			// editable fires that first update. Seeding here means the very first
+			// no-op round-trip already matches and is skipped.
+			lastSerializedRef.current = htmlToMarkdown(
+				stripTrackChangesFromHTML(editor.getHTML()),
+				currentPath ?? undefined,
+			);
 			renderedKeyRef.current = key;
 			lastAnnotationFingerprintRef.current = annotationFingerprint;
 			setRenderedPath(currentPath);

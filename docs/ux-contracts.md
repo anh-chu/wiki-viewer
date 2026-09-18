@@ -833,6 +833,35 @@ typing over the document.
 `src/components/editor/suggestion-pip.tsx`,
 `src/components/editor/extensions/track-changes.ts`
 
+### 6.1a Opening a document for editing does not rewrite it
+
+**Contract:** a visit that changes nothing must not change the file's bytes.
+
+Markdown -> HTML -> Markdown is **not** the identity in this editor. A round-trip
+turns `1. ` into `1.  ` (list markers gain a second space), gives blank lines
+trailing whitespace, and drops the trailing newline. Because ProseMirror fires
+`onUpdate` when the editor becomes *editable*, that reformatted text was being
+saved on a plain mode switch: measured live, a 166-byte file became 231 bytes with
+nothing typed.
+
+`handleUpdate` therefore compares each serialization against the **previous one**
+and returns early when they match. The baseline is seeded at load time with what the
+just-loaded document serializes to, and cleared whenever a new document is stamped
+into the editor.
+
+Two traps, both hit while building this:
+
+- Comparing the round-tripped markdown against the file's **source** markdown never
+  matches, so the guard never fires. The comparison must be
+  serialization-to-serialization.
+- Seeding the baseline with `null` is not "no baseline yet" — it guarantees the
+  first update after a load writes the file, and becoming editable fires exactly
+  that first update.
+
+A genuine edit still saves; the guard only suppresses no-ops.
+**Verification pointer:** `src/components/editor/editor.tsx` (`handleUpdate`),
+`src/tests/proof/noop-save-guard.test.ts`
+
 ### 6.2a Tracked changes and the markdown byte-identity invariant
 
 **Contract:** Markdown files are the source of truth and must stay
