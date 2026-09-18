@@ -690,6 +690,20 @@ and not one cancelled. The save route now recomputes refs from the content it ju
 wrote, and the same file cancelled its orphan on the next save, dropping the column from
 four cards to three while leaving the resolved threads alone.
 
+**Resolved threads outlive their text; open ones do not.** Cancellation applies only
+to comments that are still open (`!c.resolved`). A thread resolved *before* its text was
+deleted keeps its card — the discussion is still worth reading — but loses its
+highlight, because there is no longer anything to point at. An open thread whose text
+disappears is cancelled outright. Worth stating because the two look similar in the
+column (a card with no highlight) while meaning different things, and the resolved case
+is not a missed cancellation.
+
+Both annotation kinds reach "gone" when their anchor is lost, by different mechanisms.
+Comments need an explicit flag because they render unconditionally in the margin;
+suggestions are simply filtered out everywhere (`!stale` in the editor's pending set and
+in `collab-state`), so latching `stale` is enough and a cancel flag would be redundant
+state.
+
 **Cards host their thread in place.** Clicking a card expands the thread inside that
 card at its anchor. Collapsing is the **× control** on the expanded card, not a second
 click on the card: expanding unmounts the collapsed card whose button did the
