@@ -47,6 +47,10 @@ import { WikiLinkPicker } from "./wiki-link-picker";
 import { FrontmatterHeader } from "@/components/wiki/frontmatter-header";
 import { ViewModeCommentButton } from "./view-mode-comment-button";
 import { CopyAsPrompt } from "./copy-as-prompt";
+import {
+	alignByStampedRef,
+	type BlockElementLike,
+} from "@/lib/proof/pip-alignment";
 
 async function uploadFile(
 	pagePath: string,
@@ -489,21 +493,63 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		// gap so annotation pips and an open thread do not disappear and reappear.
 		if (children.length === 0) return;
 		const containerRect = container.getBoundingClientRect();
-		const next = new Map<string, { top: number; left: number; width: number; bottom: number }>();
-		for (let i = 0; i < Math.min(children.length, snapshotBlocks.length - snapshotBlockOffset); i++) {
-			const el = children[i];
-			const block = snapshotBlocks[i + snapshotBlockOffset];
-			// Annotate DOM element — Phase D comment-pip and other consumers read this
-			el.setAttribute("data-block-ref", block.ref);
-			const rect = el.getBoundingClientRect();
-			next.set(block.ref, {
-				top: rect.top - containerRect.top + container.scrollTop,
-				left: rect.left - containerRect.left,
-				width: rect.width,
-				bottom: rect.bottom - containerRect.top + container.scrollTop,
-			});
+
+		// Phase 4: key on IDENTITY, never on DOM-child index.
+		//
+		// The previous loop paired `children[i]` with `snapshotBlocks[i + offset]`
+		// and truncated with Math.min. mdast→Tiptap is not 1:1 — a loose list
+		// renders as <ul> + <li>s, a table as <table> + rows, a blockquote wraps a
+		// paragraph — so any expansion shifted every later pairing and made
+		// `Math.min` drop the tail silently. Three comments on three blocks could
+		// render one pip, or a pip in the wrong place.
+		//
+		// Each block element is stamped with the ref that rendered it. We now read
+		// that ref back, and walk the SHALLOWEST matching element for nested cases
+		// so an <li> is never mistaken for its list.
+		const elements: BlockElementLike[] = children.map((el) => ({
+			getAttribute: (name: string) => el.getAttribute(name),
+			measure: () => {
+				const rect = el.getBoundingClientRect();
+				return {
+					top: rect.top - containerRect.top + container.scrollTop,
+					left: rect.left - containerRect.left,
+					width: rect.width,
+					bottom: rect.bottom - containerRect.top + container.scrollTop,
+				};
+			},
+		}));
+
+		// Stamp refs by identity where the element carries none yet: match the
+		// element's own rendering to the snapshot by position ONLY as a last
+		// resort for the initial paint, and never beyond the shorter sequence.
+		// Once stamped, every subsequent pass resolves by identity.
+		const stamped = alignByStampedRef(elements, snapshotBlocks, snapshotBlockOffset);
+		if (stamped.positions.size === 0 && children.length <= snapshotBlocks.length) {
+			// First paint (no refs stamped yet) — fall back to position, which is
+			// correct only while the sequences agree, but is better than no pips.
+			for (
+				let i = 0;
+				i < Math.min(children.length, snapshotBlocks.length - snapshotBlockOffset);
+				i += 1
+			) {
+				children[i].setAttribute("data-block-ref", snapshotBlocks[i + snapshotBlockOffset].ref);
+			}
+			const restamped = alignByStampedRef(elements, snapshotBlocks, snapshotBlockOffset);
+			setBlockRefPositions(restamped.positions);
+			return;
 		}
-		setBlockRefPositions(next);
+
+		setBlockRefPositions(stamped.positions);
+
+		// Fail loudly in development rather than silently rendering fewer pips:
+		// an unresolved ref means the doc/snapshot disagree, which is exactly the
+		// condition that used to be invisible.
+		if (process.env.NODE_ENV !== "production" && stamped.unmatchedRefs.length > 0) {
+			console.warn(
+				`[editor] ${stamped.unmatchedRefs.length} annotated block(s) have no rendered element:`,
+				stamped.unmatchedRefs,
+			);
+		}
 	}, [currentPath, snapshotBlockOffset, snapshotBlocks]);
 
 	const handleUpdate = useCallback(
