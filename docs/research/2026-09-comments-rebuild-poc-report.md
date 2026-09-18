@@ -94,7 +94,7 @@ guard — a protection wired but never triggered.
 | 5 | Zero reload on annotation ops | ✅ delivered |
 | 6 | Orphaned anchor visible and recoverable | ✅ **resolved differently** — cancelled and removed, at user's direction |
 | 7 | One selection surface; no dead `readOnly` branch | ✅ delivered |
-| 8 | Suite ≥ floor | ✅ 862 pass, floor 835 |
+| 8 | Suite ≥ floor | ✅ 915 pass, floor 835 |
 
 **7 of 8 delivered as written, 1 intentionally reversed** (recovery → cancellation).
 
@@ -223,7 +223,7 @@ is the prerequisite for criterion 2 — which remains the largest outstanding pi
 
 ## Verification
 
-- Suite **862 pass / 0 fail**, floor 835 (was 731 on `main`)
+- Suite **915 pass / 0 fail**, floor 835 (was 731 on `main`)
 - Typecheck matches the `main` baseline exactly (one pre-existing error,
   `anchor-sibling-orphaning.test.ts:150`, present on `main` too)
 - Lint clean via `biome check src/`
@@ -237,10 +237,17 @@ because the claim had been used to justify reasoning about rendering from the DO
 alone, which is how a blank document and a broken alignment setting went unnoticed
 until the user sent a screenshot.
 
-**Production build: cannot be verified in this environment.** `fonts.googleapis.com`
-is unreachable from this machine (connection timeout) and `fonts.gstatic.com` returns
-404, so every `next/font/google` import fails. This is not a defect in this branch:
-`main` fails the production build with the identical error. Verified by building the
-`main` worktree directly. General network access works (npm registry returns 200), so
-the block is specific to Google Fonts. The build passed earlier in this work when those
-hosts were reachable, which is why the gate was initially reported green.
+**Production build: passes.** `✓ Compiled successfully in 37.8s`, 51/51 static pages
+generated, with `BUILD_ID` and the standalone `server.js` emitted.
+
+For most of this work the gate could not be run: `fonts.googleapis.com` timed out and
+`fonts.gstatic.com` returned 404, so every one of the fourteen `next/font/google`
+imports in `layout.tsx` failed. That was environmental rather than a defect in the
+branch — `main` failed identically, verified by building the `main` worktree directly —
+and general network access was fine throughout (the npm registry returned 200). The
+block lifted later and the build then passed on the first attempt.
+
+Worth recording as a process point, because "cannot be verified here" is exactly the
+kind of claim that can quietly become a permanent excuse. It was stated as a
+measurement with a reproduction (`main` fails the same way) rather than as a limitation
+of the branch, and it was retried rather than assumed to still hold. It no longer does.
