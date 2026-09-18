@@ -644,7 +644,8 @@ the whole editing and suggesting surface unreachable without a mouse. It is name
 along with two icon-only close buttons in the same toolbar that had the same gap. Its
 sibling "Done editing" control already had a `title`, so this was an omission rather
 than a convention, and a test now fails on any unnamed icon-only button in the viewer
-or the editor's comment surfaces.
+or the editor's comment surfaces. Confirmed in the browser: the same name-based query
+that returned nothing before now returns `["Edit", "Close"]`.
 
 **Suggesting mode is per document, like the other persisted state.** It has to outlive
 the remount (losing it means edits stop being tracked without the reader being told),
