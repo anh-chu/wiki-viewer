@@ -113,4 +113,60 @@ describe("comment margin layout", () => {
 		assert.equal(out.length, 1, "a card with no measured anchor is still shown");
 		assert.equal(out[0].top, 0);
 	});
+
+	test("an EXPANDED card pushes the cards below it, using its grown height", () => {
+		// Regression: heights were measured only when the visible set changed, so
+		// expanding a card kept the collision pass on its COLLAPSED height. Measured
+		// live, an expanded card spanning 45-230px had the next two printed at
+		// 108-163 and 171-226 — on top of its body.
+		//
+		// The layout itself was always correct; the stale INPUT was the bug. So this
+		// pins the invariant layout must honour once it is given the real height.
+		const threads = [thread("a"), thread("b"), thread("c")];
+		const offsets = new Map([
+			["a", 0],
+			["b", 63],
+			["c", 126],
+		]);
+
+		// Collapsed: three 55px cards pack tightly.
+		const collapsed = layout(threads, offsets, { a: 55, b: 55, c: 55 });
+		assert.equal(collapsed[0].top, 0);
+		assert.equal(collapsed[1].top, 63);
+
+		// Expanded: the first card grew. Every later card must move DOWN, and none
+		// may start before the previous card ends.
+		const expanded = layout(threads, offsets, { a: 185, b: 55, c: 55 });
+		for (let i = 1; i < expanded.length; i++) {
+			const prev = expanded[i - 1];
+			const prevEnd = prev.top + (prev.thread.blockRef === "a" ? 185 : 55);
+			assert.ok(
+				expanded[i].top >= prevEnd + 8,
+				`card ${expanded[i].thread.blockRef} at ${expanded[i].top} overlaps the ` +
+					`expanded card ending at ${prevEnd}`,
+			);
+		}
+		assert.ok(
+			expanded[1].top > collapsed[1].top,
+			"growing the first card must push the second one down",
+		);
+	});
+
+	test("CONTROL: stale collapsed heights DO cause overlap", () => {
+		// Proves the assertion above is load-bearing: feeding the old 55px height for
+		// a card that is really 185px reproduces the overlap exactly as it was seen
+		// in the browser.
+		const threads = [thread("a"), thread("b")];
+		const offsets = new Map([
+			["a", 0],
+			["b", 63],
+		]);
+		const stale = layout(threads, offsets, { a: 55, b: 55 });
+		const realEndOfA = 0 + 185;
+		assert.ok(
+			stale[1].top < realEndOfA,
+			`with the stale height the second card starts at ${stale[1].top}, inside ` +
+				`the expanded card's body (which runs to ${realEndOfA})`,
+		);
+	});
 });

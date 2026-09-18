@@ -55,6 +55,14 @@ export function CommentMargin({
 	// (comment bodies are free text and can be any length).
 	const [heights, setHeights] = useState<Record<string, number>>({});
 
+	// Re-measure on `activeRef` too, not just on the visible set.
+	//
+	// Expanding a card changes its height without changing `threads`, so keying this
+	// on `[threads]` alone left the collision pass running with the COLLAPSED height.
+	// The expanded card then overlapped the cards below it: measured live, an
+	// expanded card spanning 45-230px had the next two sitting at 108-163 and
+	// 171-226, i.e. printed on top of its body.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: activeRef is the point
 	useEffect(() => {
 		setHeights((prev) => {
 			const next = { ...prev };
@@ -66,8 +74,7 @@ export function CommentMargin({
 			}
 			return next;
 		});
-		// Re-measure whenever the visible set changes.
-	}, [threads]);
+	}, [threads, activeRef]);
 
 	const laid = layout(threads, blockOffsets, heights);
 
