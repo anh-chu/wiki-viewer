@@ -859,6 +859,13 @@ Two traps, both hit while building this:
   that first update.
 
 A genuine edit still saves; the guard only suppresses no-ops.
+
+**Scope of the guarantee.** This covers a visit that changes nothing. A real edit
+still serializes the whole document, so untouched parts of a file can be reformatted
+(`1. ` -> `1.  `) as a side effect of saving a genuine change. That is pre-existing
+behaviour on `main`, not something this change introduces, and it is distinct from
+the byte-identity contract in §6.2a, which is scoped to *pending* suggestions.
+Recorded here so the no-op fix is not mistaken for a wider formatting guarantee.
 **Verification pointer:** `src/components/editor/editor.tsx` (`handleUpdate`),
 `src/tests/proof/noop-save-guard.test.ts`
 
