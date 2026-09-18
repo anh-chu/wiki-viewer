@@ -289,3 +289,29 @@
     background: #4e4e4e;
   }
 }
+
+/*
+ * Exact-word comment highlights (Google Docs style).
+ *
+ * The old model tinted the WHOLE block. These tint only the commented words, so
+ * a comment on "lazy dog" marks those two words and nothing else. The underline
+ * carries the affordance that a background tint alone cannot: it survives dark
+ * mode, low-contrast themes and print, where a 15%-alpha wash disappears.
+ */
+.comment-highlight {
+  background-color: color-mix(in srgb, var(--primary) 18%, transparent);
+  border-bottom: 1.5px solid color-mix(in srgb, var(--primary) 55%, transparent);
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+/* Recovered = the stored offsets no longer matched and the text was found by
+   searching instead. Same treatment, different (dotted) underline so you can
+   tell that the anchor moved with the text rather than pinning it. */
+.comment-highlight-recovered {
+  border-bottom-style: dotted;
+}
+
+.comment-highlight[data-hovered="true"] {
+  background-color: color-mix(in srgb, var(--primary) 30%, transparent);
+}

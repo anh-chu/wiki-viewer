@@ -17,7 +17,7 @@ import {
 } from "@/stores/view-width-store";
 import { useWikiSlugsStore } from "@/stores/wiki-slugs-store";
 import { useProofStore } from "@/stores/proof-store";
-import type { TextRangeAnchor } from "@/lib/proof/types";
+import type { Comment as ProofComment, TextRangeAnchor } from "@/lib/proof/types";
 import { wsFetch, withWs } from "@/lib/workspace-client";
 import { showError } from "@/lib/toast";
 import { EditorBubbleMenu } from "./bubble-menu";
@@ -29,6 +29,7 @@ import { useDocumentWatch } from "./hooks/use-document-watch";
 import { CommentPip } from "./comment-pip";
 import { SuggestionPip } from "./suggestion-pip";
 import { CommentThread } from "./comment-thread";
+import { CommentMargin } from "./comment-margin";
 import { SuggestEditPopover } from "./suggest-edit-popover";
 import { SuggestionReviewPopover } from "./suggestion-review-popover";
 import {
@@ -53,6 +54,7 @@ import {
 	type BlockElementLike,
 } from "@/lib/proof/pip-alignment";
 import { shouldRerenderDocument } from "@/lib/proof/render-guard";
+import { commentHighlightExtension, refreshCommentHighlights } from "./extensions/comment-highlight";
 
 async function uploadFile(
 	pagePath: string,
@@ -336,6 +338,33 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		{ blockRef: string; el: HTMLElement; textAnchor?: TextRangeAnchor } | null
 	>(null);
 
+	/**
+	 * Google-Docs-style margin data.
+	 *
+	 * Every block that has comments becomes a card in the right-hand column,
+	 * persistently visible. Cards WITHOUT a resolved anchor offset still appear
+	 * (the layout defaults them to the top) rather than silently disappearing —
+	 * a comment you cannot see is indistinguishable from a comment that was lost.
+	 */
+	const marginThreads = useMemo(
+		() =>
+			Object.entries(threadCommentsByRef).map(([blockRef, list]) => ({
+				blockRef,
+				comments: list,
+			})),
+		[threadCommentsByRef],
+	);
+	const marginOffsets = useMemo(() => {
+		const map = new Map<string, number>();
+		for (const [ref, pos] of blockRefPositions) map.set(ref, pos.top);
+		return map;
+	}, [blockRefPositions]);
+	const [hoveredMarginRef, setHoveredMarginRef] = useState<string | null>(null);
+	// The column is hidden when nothing is commented, and can be collapsed by
+	// hand so it never steals width from the document uninvited.
+	const [marginCollapsed, setMarginCollapsed] = useState(false);
+	const showCommentMargin = marginThreads.length > 0 && !marginCollapsed;
+
 	/** Tracks the open human "suggest edit" popover (block + anchor + content). */
 	const [suggestTarget, setSuggestTarget] = useState<
 		{ blockRef: string; markdown: string; anchor: { top: number; left: number } } | null
@@ -571,6 +600,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		}
 	}, [currentPath, snapshotBlockOffset, snapshotBlocks]);
 
+
 	const handleUpdate = useCallback(
 		({ editor }: { editor: ReturnType<typeof useEditor> }) => {
 			if (isLoadingRef.current || isViewingRef.current || !editor) return;
@@ -584,8 +614,30 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		[],
 	);
 
+	// Exact-word comment highlights. The extension reads live state through a ref
+	// so the plugin never captures a stale comment set — the annotations live in
+	// the sidecar store, not in the document, and change without a doc transaction.
+	const commentHighlightStateRef = useRef<{
+		blocks: { ref: string; markdown: string }[];
+		comments: ProofComment[];
+		hoveredRef?: string | null;
+	}>({ blocks: [], comments: [] });
+	commentHighlightStateRef.current = {
+		blocks: snapshotBlocks.map((b) => ({ ref: b.ref, markdown: b.markdown })),
+		comments,
+		hoveredRef: hoveredMarginRef,
+	};
+	const extensions = useMemo(
+		() =>
+			[
+				...editorExtensions,
+				commentHighlightExtension(() => commentHighlightStateRef.current),
+			] as typeof editorExtensions,
+		[],
+	);
+
 	const editor = useEditor({
-		extensions: editorExtensions,
+		extensions,
 		content: "",
 		editable: !isViewing,
 		onUpdate: handleUpdate,
@@ -785,6 +837,19 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		immediatelyRender: false,
 	});
 
+	/**
+	 * Repaint exact-word highlights when the annotation data changes.
+	 *
+	 * The plugin reads live state on every transaction, but loading the snapshot
+	 * and sidecar does not dispatch one — so without this the highlights would be
+	 * built once against empty inputs and never appear. This is the same class of
+	 * gap that made the old render guard inert.
+	 */
+	useEffect(() => {
+		if (!editor || editor.isDestroyed) return;
+		refreshCommentHighlights(editor.view);
+	}, [editor, snapshotBlocks, comments, currentPath, hoveredMarginRef]);
+
 	// Stable ref to the editor so callbacks with empty deps reach the live instance.
 	editorRef.current = editor;
 
@@ -862,6 +927,10 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 			if (decision.reason === "annotation-only") {
 				lastAnnotationFingerprintRef.current = annotationFingerprint;
 				suggestionDecoratorRef.current?.refresh(editor.view);
+				// Repaint exact-word highlights too: the comment set changed and the
+				// document did not, which is exactly the case a document transaction
+				// cannot signal.
+				refreshCommentHighlights(editor.view);
 			}
 			return;
 		}
@@ -1059,9 +1128,10 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 								/>
 							</div>
 						) : (
-							<div className="flex-1 relative" dir={isRtl ? "rtl" : undefined}>
+							<div className="flex-1 relative flex min-h-0" dir={isRtl ? "rtl" : undefined}>
 								<DocumentOutline editor={editor} scrollContainerRef={scrollContainerRef} />
 								<ReadingExperiments editor={editor} scrollContainerRef={scrollContainerRef} />
+								<div className="flex-1 relative min-w-0">
 								<div
 									ref={scrollContainerRef}
 									className="absolute inset-0 overflow-y-auto"
@@ -1264,6 +1334,30 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 										)}
 									</div>
 								</div>
+								</div>
+
+								{/* Google-Docs-style comment margin. Sits OUTSIDE the scroll
+								    container so cards stay put while the document scrolls
+								    under them; the collapse control lets it get out of the
+								    way on narrow screens. */}
+								{showCommentMargin && (
+									<CommentMargin
+										path={currentPath ?? ""}
+										threads={marginThreads}
+										blockOffsets={marginOffsets}
+										activeRef={threadTarget?.blockRef ?? null}
+										onActivate={(blockRef) => {
+											const el = scrollContainerRef.current?.querySelector(
+												`[data-block-ref="${CSS.escape(blockRef)}"]`,
+											) as HTMLElement | null;
+											setThreadTarget({ blockRef, el: el ?? document.body });
+										}}
+										onClose={() => setThreadTarget(null)}
+										onHoverChange={(blockRef, hovered) =>
+											setHoveredMarginRef(hovered ? blockRef : null)
+										}
+									/>
+								)}
 
 								{showLoadingOverlay && (
 									<div

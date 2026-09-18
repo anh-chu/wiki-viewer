@@ -118,7 +118,26 @@ export function mapCommentDecorations(
 		const block = blockPositions.get(comment.ref);
 		if (!block) continue;
 
-		const outcome = locateCommentAnchor(comment.textAnchor, block.text);
+		// The offsets in the anchor were taken against the BLOCK MARKDOWN, but
+		// `block.text` here is the rendered node's plain text. They agree for a
+		// simple paragraph and diverge for anything with syntax — a list item's
+		// "1. " prefix, emphasis markers, links. Trusting the offsets in that case
+		// silently highlights the wrong characters (observed live: a comment on
+		// "Reactions in app" painted "Reactions "). So: trust offsets only when the
+		// anchor's own baseMarkdown matches the text we are searching, and
+		// otherwise search, which is exact by construction.
+		const offsetsValid =
+			comment.textAnchor.baseMarkdown === undefined ||
+			comment.textAnchor.baseMarkdown === block.text ||
+			block.text.slice(comment.textAnchor.start, comment.textAnchor.end) ===
+				comment.textAnchor.selectedText;
+
+		const outcome = offsetsValid
+			? locateCommentAnchor(comment.textAnchor, block.text)
+			: locateCommentAnchor(
+					{ ...comment.textAnchor, start: -1, end: -1 },
+					block.text,
+				);
 		if (outcome.status === "orphaned") continue;
 
 		// Block content starts one position inside the block node.

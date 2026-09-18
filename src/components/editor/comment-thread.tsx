@@ -83,11 +83,21 @@ interface Props {
 	comments: Comment[];
 	anchorEl: HTMLElement | null;
 	onClose: () => void;
+	/**
+	 * `popover` (legacy) floats a Radix popover next to the anchor.
+	 * `margin` renders the same thread as a card inside the right-hand margin
+	 * column, which is how Google Docs presents comments. Only the positioning
+	 * differs — every affordance and operation is shared, so the two can never
+	 * drift.
+	 */
+	variant?: "popover" | "margin";
+	/** Margin variant: highlight while the pointer is over the card. */
+	onHoverChange?: (hovered: boolean) => void;
 }
 
 // Annotation ops are sidecar-only (they never touch the file), so the thread
 // keeps full Edit/Delete/Escalate/Resolve affordances in view mode too.
-export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnchor, textAnchor, comments, anchorEl, onClose }: Props) {
+export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnchor, textAnchor, comments, anchorEl, onClose, variant = "popover", onHoverChange }: Props) {
 	const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
 	const [text, setText] = useState("");
 	const [busy, setBusy] = useState(false);
@@ -246,30 +256,11 @@ export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnc
 		c.turns.map((t) => ({ ...t, resolved: c.resolved, commentId: c.id })),
 	);
 
-	return (
-		<Popover.Root open>
-			<Popover.Anchor asChild>
-				<span
-					aria-hidden="true"
-					style={{
-						position: "fixed",
-						top: anchor.top,
-						left: anchor.left,
-						width: 0,
-						height: 0,
-						pointerEvents: "none",
-					}}
-				/>
-			</Popover.Anchor>
-			<Popover.Portal>
-				<Popover.Content
-					side="bottom"
-					align="start"
-					sideOffset={4}
-					collisionPadding={8}
-					onInteractOutside={onClose}
-					className="z-50 w-[min(18rem,calc(100vw-1rem))] bg-popover border border-border rounded-lg shadow-xl p-3 space-y-2 text-[12px] focus:outline-none"
-				>
+	// One body, two positionings. Nothing inside depends on which is used, which
+	// is deliberate: the popover and the margin card must never diverge in what
+	// they let you do.
+	const body = (
+		<>
 					{/* Header */}
 					<div className="flex items-center justify-between">
 						<span className="flex items-center gap-1.5 min-w-0">
@@ -356,7 +347,46 @@ export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnc
 								</button>
 							</div>
 						</div>
+		</>
+	);
 
+	if (variant === "margin") {
+		return (
+			<div
+				onMouseEnter={() => onHoverChange?.(true)}
+				onMouseLeave={() => onHoverChange?.(false)}
+				className="rounded-lg border border-border bg-popover p-3 space-y-2 text-[12px] shadow-sm focus-within:ring-1 focus-within:ring-ring"
+			>
+				{body}
+			</div>
+		);
+	}
+
+	return (
+		<Popover.Root open>
+			<Popover.Anchor asChild>
+				<span
+					aria-hidden="true"
+					style={{
+						position: "fixed",
+						top: anchor.top,
+						left: anchor.left,
+						width: 0,
+						height: 0,
+						pointerEvents: "none",
+					}}
+				/>
+			</Popover.Anchor>
+			<Popover.Portal>
+				<Popover.Content
+					side="bottom"
+					align="start"
+					sideOffset={4}
+					collisionPadding={8}
+					onInteractOutside={onClose}
+					className="z-50 w-[min(18rem,calc(100vw-1rem))] bg-popover border border-border rounded-lg shadow-xl p-3 space-y-2 text-[12px] focus:outline-none"
+				>
+					{body}
 					<Popover.Arrow className="fill-border" />
 				</Popover.Content>
 			</Popover.Portal>
