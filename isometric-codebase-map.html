@@ -791,9 +791,9 @@
   const SUBTITLE = "Measured map of one Next.js server, its browser clients, agent API, and local stores";
 
   const STATS = [
-    { value: "60,395", label: "source LOC" },
+    { value: "63,807", label: "source LOC" },
     { value: "79", label: "API routes" },
-    { value: "71", label: "test files" },
+    { value: "88", label: "test files" },
     { value: "1", label: "deployed service" }
   ];
 
@@ -868,11 +868,14 @@
     { id: "sshfs", code: "SF", name: "SSHFS remotes", group: "domain", loc: "464 LOC", gx: 21, gy: 7, w: 2, d: 2, h: 4, what: "Makes remote folders appear as workspaces through a local mount boundary.", how: "sshfs.ts and mount helpers manage remote lifecycle, reconnects, and mount hazards.", talks: ["workspace", "path", "cli"] },
     { id: "hosted-apps", code: "HA", name: "Hosted apps", group: "compute", loc: "560 LOC", gx: 24, gy: 7, w: 2, d: 2, h: 4, what: "Maps short user-chosen slugs to HTML directories or running node apps reachable at /app/<slug>.", how: "hosted-apps.ts persists the slug registry (~/.wiki-viewer/hosted-apps.json); /api/wiki/hosted-apps manages entries, pinning, and derived node status; the sidebar sorts pinned apps first and exposes status/error popovers with restart-now; app-proxy-core.ts forwards existing and slug-routed node traffic while the /app/<slug> route serves HTML dirs dir-aware or proxies each request to the live child port.", talks: ["wiki-api", "path", "workspace", "app-runner", "web-shell"] },
 
-    { id: "proof", code: "PR", name: "Proof core", group: "domain", loc: "1,397 LOC", gx: 1, gy: 10, w: 4, d: 3, h: 10, what: "Applies structured Markdown edits while preserving revisions, references, comments, and suggestions.", how: "ops-applier.ts parses blocks, checks base revisions, applies operations, writes atomically, and updates sidecar metadata.", talks: ["safety", "markdown", "auth-store", "audit-store"], children: [
-      { code: "OP", name: "Block operations", h: 9, what: "Apply insert, replace, delete, and annotation operations.", how: "ops-applier.ts applies insert, replace, delete, and annotation operations against parsed blocks." },
+    { id: "proof", code: "PR", name: "Proof core", group: "domain", loc: "4,623 LOC", gx: 1, gy: 10, w: 4, d: 3, h: 10, what: "Applies structured Markdown edits while preserving revisions, references, comments, and suggestions.", how: "ops-applier.ts parses blocks, checks base revisions, applies operations, writes atomically, and updates sidecar metadata.", talks: ["safety", "markdown", "auth-store", "audit-store"], children: [
+      { code: "OP", name: "Block operations", h: 9, what: "Apply insert, replace, delete, and annotation operations.", how: "ops-applier.ts applies insert, replace, delete, and annotation operations (including comment/suggestion edit, delete, and comment.reanchor) against parsed blocks." },
       { code: "RF", name: "Reference map", h: 5, what: "Keeps stable block references across edits.", how: "block-refs.ts keeps stable block references valid across edits." },
+      { code: "AH", name: "Comment anchors", h: 6, what: "Anchor a comment to the exact commented text, not just its block.", how: "comment-anchor.ts assesses fidelity; comment-decorator.ts locates an anchor by trusting its offsets when they still reproduce the stored text and otherwise searching for it, then emits ProseMirror decorations. Storing selectedText (not only a hash) is what makes an anchor findable." },
+      { code: "RC", name: "Orphan recovery", h: 6, what: "Surface and reverse a stale anchor instead of losing the annotation.", how: "orphan-recovery.ts reports orphaned comments/suggestions with a reason and honest recoverability, and plans re-anchoring by searching every current block. The comment.reanchor op is the reset site for the stale flag." },
+      { code: "TC", name: "Redline rendering", h: 7, what: "Render suggestions as in-place tracked changes.", how: "suggestion-decorator.ts maps block refs to ProseMirror positions and describes inline redlines; word-diff.ts computes the word-level diff via jsdiff over the app tokenizer; track-changes-strip.ts strips insertion/deletion/modification marks from the doc before serialization so the .md stays byte-identical while suggestions are pending." },
       { code: "SC", name: "Sidecar state", h: 6, what: "Stores revisions, activity, comments, and suggestions beside files.", how: "sidecar.ts and activity.ts store revisions, activity, comments, and suggestions beside each file." },
-      { code: "EV", name: "Event bus", h: 4, what: "Publishes document changes to watchers and agents.", how: "event-bus.ts publishes document changes to watchers and agent subscribers." }
+      { code: "EV", name: "Event bus", h: 4, what: "Publishes document changes to watchers and agents.", how: "event-bus.ts publishes document changes to watcher and agent subscribers." }
     ] },
     { id: "safety", code: "LK", name: "Locking and audit", group: "domain", loc: "539 LOC", gx: 6, gy: 10, w: 3, d: 2, h: 7, what: "Prevents concurrent edits from silently overwriting one another.", how: "Mutexes, proper-lockfile, leases, collab state, idempotency, rate limits, and audit rows protect writes.", talks: ["proof", "audit-store"] },
     { id: "watch", code: "WT", name: "Watch and SSE", group: "compute", loc: "725 LOC", gx: 14, gy: 10, w: 2, d: 2, h: 5, what: "Notifies browser and agent clients when files change outside their current request.", how: "watcher-pool.ts uses chokidar subscriptions, ancestor merging, scope rebasing, deduplication, and heartbeats.", talks: ["wiki-api", "state", "proof"], children: [
@@ -895,7 +898,7 @@
       { code: "EM", name: "Embeds", h: 4, what: "Detect supported external media and document embeds.", how: "lib/embeds detects supported external media and document embeds." }
     ] },
     { id: "scratch", code: "SC", name: "Scratchpad", group: "domain", loc: "355 LOC", gx: 8, gy: 13, w: 2, d: 2, h: 4, what: "Captures quick snippets before they become normal workspace files.", how: "Scratch config and detection modules create, sweep, and promote temporary captures.", talks: ["wiki-api", "path", "state"] },
-    { id: "tests", code: "TS", name: "Proof test suite", group: "delivery", loc: "14,849 LOC", gx: 12, gy: 13, w: 2, d: 2, h: 5, what: "Exercises the filesystem, auth, collaboration, and agent safety contracts.", how: "71 proof test files run through scripts/test-floor.mjs, which enforces a 673-test minimum.", talks: ["proof", "agent-api", "wiki-api", "ci"] },
+    { id: "tests", code: "TS", name: "Proof test suite", group: "delivery", loc: "16,053 LOC", gx: 12, gy: 13, w: 2, d: 2, h: 5, what: "Exercises the filesystem, auth, collaboration, and agent safety contracts.", how: "88 proof test files run through scripts/test-floor.mjs, which enforces a 704-test minimum. The annotation suite pins byte-identity of Markdown while suggestions are pending, exact-text comment anchoring, orphan recovery, and zero document rebuilds on annotation ops.", talks: ["proof", "agent-api", "wiki-api", "ci"] },
     { id: "ci", code: "CI", name: "Build and publish", group: "delivery", loc: "3 workflow files", gx: 15, gy: 13, w: 3, d: 2, h: 3, what: "Checks changes and prepares the standalone package for release.", how: "Versioned workflows run formatting, tests, builds, and npm publishing around the one server artifact.", talks: ["cli", "editor", "agent-api", "tests"] },
 
     { id: "auth-store", code: "DB", name: "Auth store", group: "data", loc: "role", gx: 0, gy: 16, w: 3, d: 2, h: 1, slab: true, what: "Durable users, sessions, and account records.", how: "Better Auth uses a local SQLite store through the project database adapter.", talks: ["auth", "system-api", "proof"] },

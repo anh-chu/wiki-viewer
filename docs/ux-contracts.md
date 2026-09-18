@@ -58,9 +58,11 @@ down turns "did we regress the loop?" into a diff against this file.
 - [5. Comments](#5-comments)
   - [5.1 Comment pips and thread](#51-comment-pips-and-thread)
   - [5.2 View-mode and source-line comments](#52-view-mode-and-source-line-comments)
+  - [5.3 Orphaned annotations (stale anchors)](#53-orphaned-annotations-stale-anchors)
 - [6. Suggestions](#6-suggestions)
   - [6.1 Suggest-edit popover](#61-suggest-edit-popover)
   - [6.2 Suggestion inline redline + review popover](#62-suggestion-inline-redline--review-popover)
+  - [6.2a Tracked changes and the markdown byte-identity invariant](#62a-tracked-changes-and-the-markdown-byte-identity-invariant)
   - [6.3 Creating a suggestion](#63-creating-a-suggestion)
 - [7. Search](#7-search)
   - [7.1 Command palette and sidebar search](#71-command-palette-and-sidebar-search)
@@ -563,7 +565,9 @@ cosmetic but user-visible.
 
 ### 5.1 Comment pips and thread
 
-**Contract:** One pip per block with ≥1 comment, positioned at the block top. Hovering a pip highlights the exact annotated block text rect (falling back to the legacy strip when the block cannot be found). Draft
+**Contract:** One pip per annotated block, positioned by **block identity**, never by
+DOM-child index. Hovering a pip highlights the block for legacy comments, and the
+**exact commented text** when the comment carries a `textAnchor`. Draft
 instructions get an amber instruction pip variant; routed (`queued` / `sent` /
 `answered`) instructions are excluded. Ordinary pip variants: all-resolved → faded
 check; last turn by `ai:` → filled primary dot; else human ring. Clicking opens a
@@ -580,12 +584,29 @@ affordance (reply, Edit, Delete, Escalate, Resolve/Reopen) is available in
 **view mode** too — comment ops are sidecar-only and never touch the file, so
 there is no read-only stripping on the thread.
 
+**Exact-text anchors (`textAnchor`).** A comment may carry
+`{start, end, selectedText, baseMarkdown}` naming the words it applies to.
+Locating is two-step and the order matters: the stored offsets are trusted when
+they still reproduce `selectedText`; otherwise the text is **searched for** in
+the block, biased toward the original position so a repeated phrase re-anchors to
+the instance the user commented on. Comments without an anchor stay
+block-granular (legacy) and render no text highlight.
+`comment.add` rejects a `textAnchor` whose range does not reproduce
+`selectedText` in the block's current markdown (`400 INVALID_PAYLOAD`).
+
+**Comment ops never rebuild the document.** A comment/reply/resolve/reopen
+refreshes the decoration layer only — zero `markdownToHtml`, zero `setContent`.
+Selection and scroll position are preserved across the whole annotation loop.
+
 **Why it matters:** Comment ops never change file content (revision stays
 fixed), so the pip/thread loop is the safe annotation path that must not bump the
-file revision.
+file revision. Anchoring by identity is what makes three comments on three blocks
+render three correctly-placed pips even when a loose list or table expands one
+mdast block into several DOM nodes.
 
 **Verification pointer:** `src/components/editor/comment-pip.tsx`,
-`src/components/editor/comment-thread.tsx`
+`src/components/editor/comment-thread.tsx`,
+`src/lib/proof/pip-alignment.ts`, `src/lib/proof/comment-decorator.ts`
 
 ### 5.2 View-mode and source-line comments
 
@@ -597,11 +618,50 @@ comment-only). In the source viewer, comments anchor to
 `lineStart:lineEnd:12-hex-SHA-256-of-selected-text`, with pips keyed by that
 triple and the active thread's lines highlighted `bg-amber-400/25`.
 
+**One selection surface per mode.** The mode is chosen structurally by
+`isViewing`, not by a flag: editing mounts `EditorBubbleMenu` (formatting, plus
+Comment and Suggest); viewing mounts `ViewModeCommentButton` (Comment, plus
+Suggest when a handler is wired). View mode must observe the native
+`selectionchange` event itself, because TipTap's `BubbleMenu` does not fire on a
+non-editable editor.
+
 **Why it matters:** The selection hash anchors comments to content, so they
 survive line shifts; losing the hash breaks comment placement after any edit.
+For markdown blocks, storing `selectedText` (not only a hash) is what makes an
+orphaned anchor *recoverable* rather than permanently lost.
 
 **Verification pointer:** `src/components/editor/view-mode-comment-button.tsx`,
-`src/components/editor/source-viewer.tsx`
+`src/components/editor/source-viewer.tsx`, `src/tests/proof/mode-affordance.test.ts`
+
+### 5.3 Orphaned annotations (stale anchors)
+
+**Contract:** When a file is edited outside the block-op path, an annotation's
+block ref may disappear. The annotation is then marked `stale` and must be
+**visible, explained and recoverable** — never silently hidden.
+
+- The sidecar records `stale: true` (unchanged behaviour).
+- The UI surfaces an orphan list with a per-item reason, the originally anchored
+  text, and whether recovery is possible. A legacy block-only comment has no
+  text to search for and is reported as **not recoverable** rather than offered
+  a recovery that cannot work.
+- Recovery searches every current block for the anchored text and re-mints the
+  anchor against that block's current markdown. The text may have moved to a
+  **different block**; the ref follows it. Offsets from the previous block are
+  never reused.
+- Applying recovery is the `comment.reanchor` op. It is the **reset site for
+  `stale`**: it validates the re-minted range against the target block's current
+  markdown (mismatch → `400 INVALID_PAYLOAD`), repoints `ref`, and clears the
+  flag.
+- A stale annotation renders no pip and no highlight until it is recovered.
+
+**Why it matters:** Stale anchors previously latched on with no reset site, no
+list, no count and no API — and both render paths skip stale entries, so an
+annotation vanished permanently with no signal. Recovery is only possible
+because the anchor stores `selectedText`: a content hash can *verify* an anchor
+but can never *find* one.
+
+**Verification pointer:** `src/lib/proof/orphan-recovery.ts`,
+`src/tests/proof/repro-stale-latch.test.ts`, `src/tests/proof/orphan-recovery.test.ts`
 
 ## 6. Suggestions
 
@@ -624,7 +684,9 @@ kind are what let the reviewer see exactly what changed without touching the fil
 **Contract:** Pending suggestions render as inline tracked-change **decorations
 inside** the document (ProseMirror decorations, never written to the `.md`). A
 **replace** shows a true inline **word-level redline** computed from
-`diffWords(blockText, proposedMarkdown)`. Emphasis is deliberate: deletions
+`diffWords(blockText, proposedMarkdown)` (jsdiff `diffArrays` over the app's own
+word/whitespace/punctuation tokenizer, so each part preserves exact source text
+and offsets stay valid). Emphasis is deliberate: deletions
 **recede** (struck, dimmed `--destructive/50`) while the inserted words read
 **louder** (underlined `--success`, medium weight) and sit in place, with
 horizontal spacing so a struck word and its replacement never run together;
@@ -674,11 +736,49 @@ its single-retry-then-fail on drift is the guard against clobbering concurrent
 edits. Rendering as decorations (not doc marks) keeps the proposal out of the
 saved file until Accept.
 
+**Annotation ops never rebuild the document.** A comment/reply/resolve/reopen or
+a suggestion add/accept/reject refreshes the decoration layer as a transaction.
+It must produce **zero** `markdownToHtml` and **zero** `setContent` calls, so
+selection, scroll position and decorator state survive the annotation loop. The
+deciding predicate is `shouldRerenderDocument` in `src/lib/proof/render-guard.ts`;
+the annotation signal is an id/resolved/turn-count fingerprint, and a genuine
+markdown change always wins over it.
+
 **Verification pointer:** `src/lib/proof/suggestion-decorator.ts`,
 `src/components/editor/suggestion-pip.tsx`, the gutter overlay in
 `src/components/editor/editor.tsx`,
 `src/components/editor/suggestion-review-popover.tsx`,
-`src/lib/proof/word-diff.ts`
+`src/lib/proof/word-diff.ts`, `src/lib/proof/render-guard.ts`
+
+### 6.2a Tracked changes and the markdown byte-identity invariant
+
+**Contract:** Markdown files are the source of truth and must stay
+**byte-identical** while suggestions are pending. If in-place tracked changes are
+ever represented as document marks, three things are required:
+
+1. **Strip before serialization.** `stripTrackChanges`
+   (`src/lib/proof/track-changes-strip.ts`) walks the ProseMirror node tree and
+   drops text marked `insertion`, keeps text marked `deletion`, keeps
+   `modification` as its base text, and removes all three marks from survivors.
+   It operates on the **doc**, not on serialized HTML — no HTML parsing means no
+   attribute or nesting quirk can smuggle markup past the filter.
+2. **One serialization path.** The app has exactly one: `editor.getHTML()` in
+   `editor.tsx` feeding `htmlToMarkdown`. Any new save path (autosave, export,
+   share, agent raw write) must route through the same strip, or it will persist
+   redlines into the canonical file.
+3. **A control test.** `src/tests/proof/track-changes-strip.test.ts` asserts
+   byte-identity AND asserts that the leak is real without the strip
+   (`<del>` → GFM `~quick~`; an `<ins>` would be persisted). Without the control
+   the passing assertions prove nothing.
+
+**Why it matters:** Marks live inside the document, so the byte-identity property
+holds only for save paths all routed through the filter — it is an invariant to
+enforce, not a property of any library. Decorations cannot leak this way, which
+is why comment highlights use decorations while suggestion redlines use marks.
+
+**Verification pointer:** `src/lib/proof/track-changes-strip.ts`,
+`src/tests/proof/track-changes-strip.test.ts`,
+`docs/research/2026-09-suggest-changes-spike.md`
 
 ### 6.3 Creating a suggestion
 
