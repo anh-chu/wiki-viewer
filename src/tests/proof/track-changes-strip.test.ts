@@ -35,11 +35,20 @@ import {
  * as TipTap marks BEFORE `getSchema`, because TipTap resolves its schema once
  * and `schema.marks` is an OrderedMap (assigning into it silently fails).
  */
-const Insertion = Mark.create({ name: "insertion", toDOM: () => ["ins", 0] });
-const Deletion = Mark.create({ name: "deletion", toDOM: () => ["del", 0] });
+const Insertion = Mark.create({
+	name: "insertion",
+	renderHTML: () => ["ins", 0],
+	parseHTML: () => [{ tag: "ins" }],
+});
+const Deletion = Mark.create({
+	name: "deletion",
+	renderHTML: () => ["del", 0],
+	parseHTML: () => [{ tag: "del" }],
+});
 const Modification = Mark.create({
 	name: "modification",
-	toDOM: () => ["span", { "data-type": "modification" }, 0],
+	renderHTML: () => ["span", { "data-type": "modification" }, 0],
+	parseHTML: () => [{ tag: 'span[data-type="modification"]' }],
 });
 
 const schema = getSchema([StarterKit, Insertion, Deletion, Modification]);

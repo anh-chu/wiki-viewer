@@ -72,6 +72,12 @@ export function mapSuggestionDecorations(
 	doc: PMNode,
 	blocks: readonly Block[],
 ): SuggestionDecorationDescriptor[] {
+	// NOTE (Phase 4): this positional pairing is the same class of bug as the
+	// one removed from editor.tsx:493. mdast→Tiptap is not 1:1 (loose lists,
+	// blockquotes and tables expand into several nodes), so pairing doc children
+	// to `blocks[index]` is only correct while the two sequences happen to agree.
+	// `blockElementIndexOf` below is the identity-keyed path; this walk remains
+	// only to resolve refs for callers that have no DOM (node tests).
 	const positions = new Map<string, { from: number; to: number; node: PMNode }>();
 	let index = 0;
 	doc.forEach((node, offset) => {

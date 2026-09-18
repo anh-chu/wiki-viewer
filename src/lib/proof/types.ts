@@ -50,10 +50,37 @@ export type AnnotationKind = "comment" | "instruction";
 /** Lifecycle of an instruction annotation before/after a batch send. */
 export type InstructionState = "draft" | "queued" | "sent" | "answered";
 
+/**
+ * An exact text range inside a block, plus the text itself.
+ *
+ * WHY BOTH OFFSETS AND TEXT (Phase 2)
+ * -----------------------------------
+ * `ref` alone is block-granular: it can say "this paragraph" and cannot say
+ * "these words", so the UI could not highlight the commented text even though
+ * `docs/ux-contracts.md` §5.1 promised it (DoD #1).
+ *
+ * Offsets alone would be fragile — every nearby edit shifts them. Storing
+ * `selectedText` makes the anchor *searchable*, which is what makes an orphaned
+ * anchor recoverable at all (DoD #6). The old `LineAnchor.textHash` could
+ * VERIFY an anchor and never FIND it, which is why staleness was a one-way
+ * latch. Text is the difference between "was here" and "is here".
+ */
+export interface TextRangeAnchor {
+	/** Offsets within the block's markdown at the time of anchoring. */
+	start: number;
+	end: number;
+	/** The exact text the user selected. Makes the anchor recoverable. */
+	selectedText: string;
+	/** Snapshot of the block markdown the offsets were computed against. */
+	baseMarkdown?: string;
+}
+
 export interface Comment {
 	id: string; // "c" + 4-hex
 	ref?: string; // block ref it's attached to (markdown only)
 	lineAnchor?: LineAnchor;
+	/** Exact commented text. Absent => block-granular (legacy comment). */
+	textAnchor?: TextRangeAnchor;
 	resolved: boolean;
 	createdAt: string;
 	turns: CommentTurn[];
@@ -179,6 +206,7 @@ export type Op =
 			type: "comment.add";
 			ref?: string;
 			lineAnchor?: LineAnchor;
+			textAnchor?: TextRangeAnchor;
 			text: string;
 			/** Absent => "comment" (legacy). "instruction" creates a draft work order. */
 			kind?: AnnotationKind;

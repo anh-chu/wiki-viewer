@@ -734,6 +734,40 @@ export async function applyOps(args: {
 						createdAt: at,
 						turns: [{ by, text: op.text, at }],
 					};
+					// Phase 2: an exact-text anchor is what lets the UI highlight the
+					// commented words (DoD #1) and re-find them after edits (DoD #6).
+					// Validate against the block's current markdown so a corrupt range
+					// is rejected at the boundary rather than rendered wrong.
+					if (op.textAnchor) {
+						const anchor = op.textAnchor;
+						const block = workingBlocks.find((b) => b.ref === resolved);
+						const valid =
+							Number.isInteger(anchor.start) &&
+							Number.isInteger(anchor.end) &&
+							anchor.start >= 0 &&
+							anchor.end > anchor.start &&
+							typeof anchor.selectedText === "string" &&
+							anchor.selectedText.length > 0 &&
+							!!block &&
+							anchor.end <= block.markdown.length &&
+							block.markdown.slice(anchor.start, anchor.end) === anchor.selectedText;
+						if (!valid) {
+							return {
+								ok: false,
+								status: 400,
+								code: "INVALID_PAYLOAD",
+								message:
+									"textAnchor range must match selectedText within the block's current markdown",
+								snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar),
+							};
+						}
+						comment.textAnchor = {
+							start: anchor.start,
+							end: anchor.end,
+							selectedText: anchor.selectedText,
+							baseMarkdown: anchor.baseMarkdown ?? block.markdown,
+						};
+					}
 					if (op.kind === "instruction") {
 						comment.kind = "instruction";
 						comment.instructionState = "draft";
@@ -748,6 +782,7 @@ export async function applyOps(args: {
 						ref: resolved,
 						text: op.text,
 						kind: comment.kind,
+						...(comment.textAnchor ? { textAnchor: comment.textAnchor } : {}),
 					});
 					break;
 				}
