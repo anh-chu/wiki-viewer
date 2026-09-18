@@ -632,12 +632,19 @@ tracked changes existed — and the `.md` stayed byte-identical throughout (166 
 revision unchanged). Accepting applied the text: 166 -> 236 bytes on save. That is the
 whole of the mode: stamp on type, hold the file still while pending, write on accept.
 
-Two smaller things observed while doing it, both pre-existing rather than introduced
-here. The pencil control that enters edit mode is an icon-only `<Button>` with no
-`title` or `aria-label`, so it is unnamed to assistive technology and absent from any
-name-based query. And entering edit mode is reachable only through that icon, which is
-why an earlier attempt to drive this from the DOM found no mode toggle at all: the
-toolbar is gated on React state, not on the `contenteditable` attribute.
+Entering edit mode is reachable only through an icon button in the viewer toolbar,
+which is why driving the mode toggle from the DOM initially found nothing: the toolbar
+is gated on React state, not on the `contenteditable` attribute, so setting that
+attribute cannot reach it.
+
+That icon was originally unnamed — an icon-only `<Button>` with no `title` or
+`aria-label`, so it was invisible to assistive technology and absent from any
+name-based query. Since it is the *only* way into edit mode for a text file, that left
+the whole editing and suggesting surface unreachable without a mouse. It is named now,
+along with two icon-only close buttons in the same toolbar that had the same gap. Its
+sibling "Done editing" control already had a `title`, so this was an omission rather
+than a convention, and a test now fails on any unnamed icon-only button in the viewer
+or the editor's comment surfaces.
 
 **Suggesting mode is per document, like the other persisted state.** It has to outlive
 the remount (losing it means edits stop being tracked without the reader being told),

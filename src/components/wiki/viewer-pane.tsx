@@ -371,6 +371,8 @@ export function ViewerPane({
 							size="sm"
 							variant="ghost"
 							className="h-7 w-7 p-0"
+							title="Close"
+							aria-label="Close"
 							onClick={onClose}
 						>
 							<X className="h-3.5 w-3.5" />
@@ -563,6 +565,8 @@ export function ViewerPane({
 								size="sm"
 								variant="ghost"
 								className="h-7 w-7 p-0"
+								title="Edit"
+								aria-label="Edit"
 								onClick={() => {
 									setEditing(true);
 									setEditContent(fileContent ?? "");
@@ -586,6 +590,8 @@ export function ViewerPane({
 						size="sm"
 						variant="ghost"
 						className="h-7 w-7 p-0"
+						title="Close"
+						aria-label="Close"
 						onClick={onClose}
 					>
 						<X className="h-3.5 w-3.5" />
