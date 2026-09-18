@@ -676,6 +676,20 @@ reply stored (the card read "1 reply") while the thread closed. After it, the sa
 sequence leaves the thread open and the card expanded, with the reply persisted and
 the file still byte-identical.
 
+**A direct save must reconcile refs, or orphans are never cancelled.** `PUT
+/api/wiki/content` — the editor's own save — writes the file and bumps the sidecar
+revision and fingerprint, but for a long time it never recomputed `refMap`. The
+cancellation logic lives in `markOrphanedRefsStale`, which only ran on the ops-applier
+path, so a plain save left `refMap` describing the old document while the file on disk
+was the new one. Nothing noticed, and comments whose text had been deleted went on
+rendering as ordinary margin cards pointing at nothing.
+
+Observed live on a real file: four cards in the margin, only two highlights anywhere in
+the document. The sidecar made it plain — five comments, a `refMap` with a single ref,
+and not one cancelled. The save route now recomputes refs from the content it just
+wrote, and the same file cancelled its orphan on the next save, dropping the column from
+four cards to three while leaving the resolved threads alone.
+
 **Cards host their thread in place.** Clicking a card expands the thread inside that
 card at its anchor. Collapsing is the **× control** on the expanded card, not a second
 click on the card: expanding unmounts the collapsed card whose button did the
