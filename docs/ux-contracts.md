@@ -640,13 +640,10 @@ The expanded card is therefore held at module scope keyed by path, not in compon
 state, which is the mechanism behind the "successful ops keep the thread open" rule.
 
 The failure is silent — everything renders and the reply saves, so only the collapse
-shows. It was observed directly in the browser (the reply stored, the card reading
-"1 reply", the thread closed). The *fix* has not been re-confirmed in a browser: the
-remote browser became unavailable partway through this work and could not be restored
-from here. It is covered by tests that were each checked to fail on the old code, and
-the root cause below was corrected after the observation, so the behaviour is expected
-to be right — but that is an expectation, not a measurement, and it is recorded as
-such rather than presented as verified.
+shows. Both the failure and the fix were confirmed in the browser. Before the fix, a
+reply stored (the card read "1 reply") while the thread closed. After it, the same
+sequence leaves the thread open and the card expanded, with the reply persisted and
+the file still byte-identical.
 
 **Cards host their thread in place.** Clicking a card expands the thread inside that
 card at its anchor. Collapsing is the **× control** on the expanded card, not a second
