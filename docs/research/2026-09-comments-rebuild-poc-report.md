@@ -41,7 +41,17 @@ why the plan changed rather than simply resumed.
   text it discusses. Cards expand in place, so opening one never moves it away
   from its text.
 - Highlights cover the **exact commented words**. This is genuinely new and was
-  never true before, including at the previous "8/8" commit.
+  never true before, including at the previous "8/8" commit. Confirmed in the
+  running app: the two anchored comments render as inline marks on "Reactions in
+  app" and "Collect " — phrases, not blocks — each carrying a background tint and
+  `cursor: pointer`. All three resolution outcomes highlight the exact commented
+  phrase rather than the enclosing block: **exact** when the stored offsets still
+  match, **recovered** when the text moved and was found by search, and
+  **cancelled** when it is gone. Exact and recovered are distinguishable on
+  purpose — solid underline versus dotted — so a reader can tell that an anchor
+  moved with the text instead of pinning it, and both were observed as dotted in
+  the loaded document, which is what you would expect for comments on a file that
+  has since been re-saved.
 - Hovering a margin card lights its words.
 
 **Orphaned comments disappear.** A comment whose anchored text no longer exists is
