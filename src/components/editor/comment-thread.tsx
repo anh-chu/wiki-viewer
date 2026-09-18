@@ -129,12 +129,12 @@ export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnc
 	}, [anchorEl, onClose]);
 
 	useEffect(() => {
-		if (anchor) {
+		// Popover only: the margin card is opened by an explicit click, so stealing
+		// focus on mount would fight the user's own click target.
+		if (anchor && variant !== "margin") {
 			setTimeout(() => textareaRef.current?.focus(), 50);
 		}
-	}, [anchor]);
-
-	if (!anchorEl || !anchor) return null;
+	}, [anchor, variant]);
 
 	function getRevision(): number {
 		const entry = useProofStore.getState().byPath[path];
@@ -350,6 +350,11 @@ export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnc
 		</>
 	);
 
+	// The margin variant renders in normal document flow inside its card, so it has
+	// no floating anchor to measure. This branch must come BEFORE the popover's
+	// positioning guard: previously the guard ran first and returned null, so every
+	// expanded margin card rendered as an empty zero-height box and clicking a
+	// comment looked like it did nothing at all.
 	if (variant === "margin") {
 		return (
 			<div
@@ -361,6 +366,10 @@ export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnc
 			</div>
 		);
 	}
+
+	// Popover path: it positions itself against a measured anchor, so without one
+	// there is nothing to render.
+	if (!anchorEl || !anchor) return null;
 
 	return (
 		<Popover.Root open>

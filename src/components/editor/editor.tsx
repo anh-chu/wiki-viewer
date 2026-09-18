@@ -365,6 +365,17 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	}, [comments]);
 
 	/** Tracks which block's comment thread is open and its anchor element. */
+	/**
+	 * Which margin card is expanded, if any.
+	 *
+	 * Deliberately SEPARATE from `threadTarget`. They were the same state, which
+	 * meant clicking a margin card set `threadTarget` and the change rendered the
+	 * old portal popover instead of expanding the card — the column was a launcher
+	 * for the floating thread rather than the thread's home. Because a resolve
+	 * re-renders that popover's comment array, a successful Resolve unmounted the
+	 * thread and took the reply box with it.
+	 */
+	const [activeMarginRef, setActiveMarginRef] = useState<string | null>(null);
 	const [threadTarget, setThreadTarget] = useState<
 		{ blockRef: string; el: HTMLElement; textAnchor?: TextRangeAnchor } | null
 	>(null);
@@ -381,11 +392,17 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		() =>
 			Object.entries(threadCommentsByRef)
 				// A cancelled comment has nothing left to point at, so it is not shown.
-				// Resolved threads leave the column too, rather than sitting there as
-				// dead weight next to live ones.
+				//
+				// Resolved threads STAY in the column. Dropping them was a divergence from
+				// the contract, and it had a visible consequence: resolving a comment
+				// unmounted its card, which unmounted the thread inside it, so a
+				// successful Resolve closed the thread and took the reply box with it —
+				// exactly what "successful ops keep the thread open" forbids. Keeping the
+				// card mounted is also what lets the reviewer reopen it without hunting
+				// for the anchor again.
 				.map(([blockRef, list]) => ({
 					blockRef,
-					comments: list.filter((c) => !c.resolved && !c.cancelledAt),
+					comments: list.filter((c) => !c.cancelledAt),
 				}))
 				.filter((t) => t.comments.length > 0),
 		[threadCommentsByRef],
@@ -1339,7 +1356,11 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 
 									</div>
 
-									{/* Comment thread — Portal-rendered, driven by threadTarget */}
+									{/* Comment thread — portal popover, driven by `threadTarget`.
+									    This is the PIP path only. Margin cards render their own
+									    thread in place, so the two never both open for one
+									    comment. Kept for the gutter pips, which still exist
+									    for blocks whose comment has no margin card. */}
 									{threadTarget && currentPath && (
 						<CommentThread
 							path={currentPath}
@@ -1445,14 +1466,15 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 										path={currentPath ?? ""}
 										threads={marginThreads}
 										blockOffsets={marginOffsets}
-										activeRef={threadTarget?.blockRef ?? null}
-										onActivate={(blockRef) => {
-											const el = scrollContainerRef.current?.querySelector(
-												`[data-block-ref="${CSS.escape(blockRef)}"]`,
-											) as HTMLElement | null;
-											setThreadTarget({ blockRef, el: el ?? document.body });
-										}}
-										onClose={() => setThreadTarget(null)}
+										activeRef={activeMarginRef}
+										onActivate={(blockRef) =>
+											// Expand the card IN PLACE. Toggling closes it, so a
+											// second click on the same card collapses it.
+											setActiveMarginRef((prev) =>
+												prev === blockRef ? null : blockRef,
+											)
+										}
+										onClose={() => setActiveMarginRef(null)}
 										onHoverChange={(blockRef, hovered) =>
 											setHoveredMarginRef(hovered ? blockRef : null)
 										}

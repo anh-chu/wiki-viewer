@@ -1,0 +1,108 @@
+/**
+ * Margin column contract: resolved threads stay, and threads render in place.
+ *
+ * Two defects lived here, both of which made the column look like it worked while
+ * it did not. Neither was visible to the layout tests, because the layout was
+ * correct in both cases — the failure was in what got mounted.
+ *
+ * 1. RESOLVED THREADS VANISHED. `marginThreads` filtered resolved comments out, so
+ *    resolving unmounted the card, which unmounted the thread inside it. A
+ *    successful Resolve therefore closed the thread and removed the reply box,
+ *    contradicting "resolved threads always show the reply box" and "successful ops
+ *    keep the thread open".
+ *
+ * 2. THE MARGIN THREAD NEVER RENDERED. `CommentThread` opened with a popover
+ *    positioning guard (`if (!anchorEl || !anchor) return null`) that ran BEFORE
+ *    the margin branch. A margin card has no floating anchor to measure, so it
+ *    passed `anchorEl={null}` and the thread returned null every time — an expanded
+ *    card was an empty zero-height box. Measured live: card heights
+ *    `[0, 55, 55, 74]`, with the expanded one at 0.
+ *
+ * These are tested at the source level because the defects are ordering and
+ * filtering decisions, not rendering math.
+ */
+
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { describe, test } from "node:test";
+
+const THREAD = readFileSync(
+	new URL("../../components/editor/comment-thread.tsx", import.meta.url),
+	"utf8",
+);
+const EDITOR = readFileSync(
+	new URL("../../components/editor/editor.tsx", import.meta.url),
+	"utf8",
+);
+
+/** Index of the first line containing `needle`. Fails loudly when absent. */
+function lineOf(source: string, needle: string): number {
+	const idx = source.split("\n").findIndex((l) => l.includes(needle));
+	assert.notEqual(idx, -1, `expected to find ${JSON.stringify(needle)}`);
+	return idx;
+}
+
+describe("resolved threads stay in the margin column", () => {
+	test("marginThreads does not filter out resolved comments", () => {
+		const block = EDITOR.slice(
+			EDITOR.indexOf("const marginThreads = useMemo("),
+			EDITOR.indexOf("const showCommentMargin ="),
+		);
+		assert.ok(block.length > 0, "expected to find the marginThreads memo");
+		assert.ok(
+			!block.includes("!c.resolved"),
+			"dropping resolved comments unmounts their card and closes the thread",
+		);
+		assert.ok(
+			block.includes("!c.cancelledAt"),
+			"cancelled comments still have no anchor, so they must stay excluded",
+		);
+	});
+
+	test("CONTROL: a cancelled comment is still excluded", () => {
+		// Cancellation is the one case that must NOT appear: the anchor is gone, so
+		// there is nothing to point at. If this ever stops holding, the fix above
+		// went too far.
+		const block = EDITOR.slice(
+			EDITOR.indexOf("const marginThreads = useMemo("),
+			EDITOR.indexOf("const showCommentMargin ="),
+		);
+		assert.match(block, /filter\(\(c\) => !c\.cancelledAt\)/);
+	});
+});
+
+describe("the margin thread renders without a floating anchor", () => {
+	test("the margin branch precedes the popover positioning guard", () => {
+		const marginBranch = lineOf(THREAD, 'if (variant === "margin") {');
+		const popoverGuard = lineOf(THREAD, "if (!anchorEl || !anchor) return null;");
+		assert.ok(
+			marginBranch < popoverGuard,
+			`the margin branch (line ${marginBranch + 1}) must come before the popover ` +
+				`guard (line ${popoverGuard + 1}); otherwise it returns null for every ` +
+				"margin card and the expanded thread is an empty box",
+		);
+	});
+
+	test("the popover guard still protects the popover path", () => {
+		// The guard is legitimate for the floating popover, which positions itself
+		// against a measured element. It must not have been deleted outright.
+		assert.ok(
+			THREAD.includes("if (!anchorEl || !anchor) return null;"),
+			"the popover still needs its anchor guard",
+		);
+	});
+
+	test("the margin variant does not steal focus on mount", () => {
+		// The popover focuses its textarea when it positions. A margin card is opened
+		// by an explicit click, so stealing focus would fight the click target.
+		const focusBlock = THREAD.slice(
+			THREAD.indexOf("setTimeout(() => textareaRef.current?.focus()"),
+			THREAD.indexOf("setTimeout(() => textareaRef.current?.focus()") + 120,
+		);
+		assert.ok(focusBlock.length > 0, "expected to find the focus effect");
+		assert.ok(
+			THREAD.includes('variant !== "margin"'),
+			"the focus effect must skip the margin variant",
+		);
+	});
+});

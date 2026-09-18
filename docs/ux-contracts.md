@@ -585,6 +585,19 @@ the legacy popover through a shared component (`variant="margin"`), so the two
 presentations cannot diverge in what they offer. Hovering a card applies
 `data-hovered="true"` to its exact-text highlight, tying column to document.
 
+**Cards host their thread in place.** Clicking a card expands the thread inside
+that card at its anchor; clicking it again collapses it. The card is the thread's
+home, not a launcher for a floating popover, so the comment never moves away from
+the text it discusses. Focus is not stolen on expand — the click already chose the
+target.
+
+**Resolved threads stay in the column**, labelled `resolved`, rather than being
+removed. Two contracts depend on this: a resolved thread always shows the reply
+box, and a successful operation keeps the thread open. Dropping resolved cards
+achieved neither — resolving unmounted the card, which unmounted the thread inside
+it, so Resolve closed the thread and took the reply box with it. A **cancelled**
+comment is still excluded, because an anchor-lost comment has nothing to point at.
+
 For compatibility there is still a per-block pip variant: all-resolved → faded
 check; last turn by `ai:` → filled primary dot; else human ring. Draft
 instructions get an amber variant; routed (`queued` / `sent` / `answered`)
