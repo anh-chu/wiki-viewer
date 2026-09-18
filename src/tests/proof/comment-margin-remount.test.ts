@@ -96,3 +96,30 @@ describe("the expansion survives an editor remount", () => {
 		);
 	});
 });
+
+describe("the feedback loop that hid the real cause", () => {
+	// Two changes were made while chasing the wrong explanation: clearing the
+	// expansion when `marginThreads` looked empty, then that plus a 1500ms delay.
+	// Both assumed the column transiently empties during a reply. Sampling the card
+	// count every 100ms across a send showed it NEVER changed, so neither could have
+	// been the cause — and both would have collapsed a genuinely cancelled card's
+	// neighbour if a real empty state ever did occur. They are reverted; this keeps
+	// them from creeping back as a plausible-looking guard.
+	test("no timer clears the expansion", () => {
+		assert.ok(
+			!/setTimeout\(\s*\(\)\s*=>\s*setActiveMarginRef\(null\)/.test(EDITOR),
+			"the delayed-clear guess must not return",
+		);
+	});
+
+	test("CONTROL: the genuine cancellation path is still intact", () => {
+		// Reverting the guess must not remove the real behaviour it was imitating:
+		// cancelled comments still leave the column (asserted in the margin-contract
+		// suite). This pins that the editor still filters them out.
+		assert.match(
+			EDITOR,
+			/comments: list\.filter\(\(c\) => !c\.cancelledAt\)/,
+			"cancelled comments must still be excluded from the margin",
+		);
+	});
+});

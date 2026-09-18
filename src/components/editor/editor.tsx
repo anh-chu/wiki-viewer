@@ -453,24 +453,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	// text with that same ref would render pre-expanded for no reason the reader could
 	// see.
 	//
-	// The column UNMOUNTS and remounts across a reply: sampled live during a send,
-	// `[data-margin-card]` was momentarily `[]` before returning with all four cards.
-	// So "the ref is absent" is true during load, not only on cancellation, and
-	// clearing on it closed the very thread the reply was typed into — the reply was
-	// stored (the card gained "1 reply") while the thread vanished, contradicting
-	// "successful ops keep the thread open".
-	//
-	// Confirming absence after a delay distinguishes the two: a reload repopulates
-	// well within it, whereas a cancellation is permanent. The timer is cleared on
-	// every change, so a ref that comes back never fires the clear.
-	const marginRefsKey = marginThreads.map((t) => t.blockRef).join(",");
-	useEffect(() => {
-		if (activeMarginRef === null) return;
-		if (marginThreads.some((t) => t.blockRef === activeMarginRef)) return;
-		const timer = setTimeout(() => setActiveMarginRef(null), 1500);
-		return () => clearTimeout(timer);
-	}, [marginRefsKey, activeMarginRef, marginThreads]);
-
 	const showCommentMargin = marginThreads.length > 0 && !marginCollapsed;
 
 	/** Tracks the open human "suggest edit" popover (block + anchor + content). */
