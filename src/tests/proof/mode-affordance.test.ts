@@ -31,7 +31,7 @@
  * read-only bubble showing only Comment is the correct gate for view mode"), so
  * code and contract now agree.
  */
-import { test } from "node:test";
+import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
@@ -95,4 +95,70 @@ test("P7: the view-mode surface keeps its own selectionchange handling", () => {
 		source.includes("selectionchange"),
 		"view mode observes native selection because BubbleMenu is inert when non-editable",
 	);
+});
+/**
+ * The PARITY invariant, as distinct from the per-surface checks above.
+ *
+ * The tests above each confirm that one surface has its handlers. Neither
+ * compares them, so deleting `onSuggest` from the view-mode button would leave
+ * every one of them passing while a reader silently lost the ability to propose
+ * a change. That is the regression this asserts against: the capability SETS
+ * must match, even though the components and their labels differ.
+ */
+describe("view and edit surfaces offer the same capabilities", () => {
+	/** Which of the two annotation capabilities a file wires up. */
+	function capabilities(file: string): { comment: boolean; suggest: boolean } {
+		const source = read(file);
+		return {
+			// The prop names differ per component (onComment/onSuggestEdit vs
+			// onComment/onSuggest), so match the shared prefix.
+			comment: /\bonComment\b/.test(source),
+			suggest: /\bonSuggest\w*\b/.test(source),
+		};
+	}
+
+	test("both surfaces expose Comment", () => {
+		assert.ok(capabilities(BUBBLE_MENU).comment, "editing surface offers Comment");
+		assert.ok(capabilities(VIEW_MODE).comment, "viewing surface offers Comment");
+	});
+
+	test("both surfaces expose Suggest", () => {
+		assert.ok(capabilities(BUBBLE_MENU).suggest, "editing surface offers Suggest");
+		assert.ok(capabilities(VIEW_MODE).suggest, "viewing surface offers Suggest");
+	});
+
+	test("the editor passes both handlers to whichever surface it mounts", () => {
+		// Parity is only real if the editor actually wires both through. A surface
+		// that accepts a handler it is never given is equivalent to not having it.
+		//
+		// The prop NAMES differ by surface — `onSuggestEdit` on the bubble menu,
+		// `onSuggest` on the view-mode button — so matching a single literal name
+		// undercounts. Match the shared prefix instead; the capability is what must
+		// be equal, not the spelling.
+		const editor = read(EDITOR);
+		for (const [capability, pattern] of [
+			["Comment", /\bonComment=/g],
+			["Suggest", /\bonSuggest\w*=/g],
+		] as const) {
+			const count = (editor.match(pattern) ?? []).length;
+			assert.ok(
+				count >= 2,
+				`${capability} must be passed to BOTH surfaces, found ${count} call site(s)`,
+			);
+		}
+	});
+
+	test("CONTROL: the two surfaces really are separate components", () => {
+		// If these ever collapse into one shared component the parity assertions
+		// above become vacuous — they would be comparing a file to itself.
+		assert.notEqual(BUBBLE_MENU, VIEW_MODE);
+		assert.ok(
+			!read(BUBBLE_MENU).includes("selectionchange"),
+			"bubble menu relies on TipTap, not native selection",
+		);
+		assert.ok(
+			read(VIEW_MODE).includes("selectionchange"),
+			"view mode observes native selection, so the files are genuinely distinct",
+		);
+	});
 });
