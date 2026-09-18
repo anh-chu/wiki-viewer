@@ -86,6 +86,14 @@ export interface Comment {
 	turns: CommentTurn[];
 	/** Set true when a raw .md overwrite orphans the anchor ref (R2 collab-anchor safety). */
 	stale?: boolean;
+	/**
+	 * When the comment was auto-cancelled because its anchored text no longer
+	 * exists in the document. A cancelled comment is also `resolved`, so it leaves
+	 * the margin column and stops feeding agent prompts — the point of cancelling.
+	 */
+	cancelledAt?: string;
+	/** Why it was cancelled. Currently only "anchor-lost". */
+	cancelReason?: "anchor-lost";
 	/** Annotation kind. Absent => "comment" (legacy). "instruction" = agent work order. */
 	kind?: AnnotationKind;
 	/** Instruction lifecycle. Only meaningful when kind === "instruction". */

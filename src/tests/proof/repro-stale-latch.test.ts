@@ -1,19 +1,18 @@
 /**
- * PHASE 1 REPRO #3 — the staleness one-way latch.
+ * PHASE 1 REPRO #3 — annotations when an external edit orphans their anchor.
  *
- * FINDING (the one that survived falsification in the research session):
- * `markOrphanedRefsStale` (ops-applier.ts:119) sets `comment.stale = true` /
- * `suggestion.stale = true` when a ref disappears. But:
+ * ORIGINAL FINDING: `markOrphanedRefsStale` latched `comment.stale = true` when a
+ * ref disappeared, and nothing ever cleared it — block-ref comments had no path
+ * back, and no UI surfaced the flag. The annotation simply vanished.
  *
- *   - the ONLY two un-stale sites are in `reconcileTextCommentAnchors`, and both
- *     are reachable ONLY via `lineAnchor` — block-ref comments have no path back;
- *   - no UI, list, count or API surfaces `stale`;
- *   - `suggestion-decorator.ts:85` and `editor.tsx:235` both SKIP stale entries,
- *     so the annotation silently disappears.
+ * RESOLUTION: the latch is gone. An orphaned comment is now CANCELLED — marked
+ * resolved with `cancelReason: "anchor-lost"` — which is the behaviour the user
+ * chose over a recovery UI. It disappears deliberately rather than silently, and
+ * because it is resolved it can no longer feed a phantom instruction into
+ * Copy-as-prompt.
  *
- * Net effect: an external edit makes annotations vanish with no signal and no
- * recovery. This file pins that current behaviour; Phase 6 adds the acceptance
- * criteria (visible, explained, recoverable) in `stale-recovery.test.ts`.
+ * The CONTROL test below is unchanged and still load-bearing: it proves the
+ * cancellation fires only for a genuinely orphaned anchor, not on any edit.
  */
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -36,7 +35,7 @@ async function writeDoc(name: string, content: string): Promise<void> {
 	await writeFile(path.join(tmpRoot, name), content, "utf-8");
 }
 
-test("repro-stale-latch: an external edit orphans a block comment and SILENTLY hides it", async () => {
+test("repro-stale-latch: an external edit orphans a block comment and cancels it", async () => {
 	const mdPath = "latch.md";
 	await writeDoc(mdPath, "# Title\n\nThe quick brown fox jumps.\n\nSecond paragraph here.\n");
 
@@ -74,24 +73,28 @@ test("repro-stale-latch: an external edit orphans a block comment and SILENTLY h
 	const latched = sidecarAfter.comments.find((c) => c.id === comment.id);
 	assert.ok(latched, "the comment record still exists in the sidecar");
 
-	assert.equal(
+	assert.notEqual(
 		latched.stale,
 		true,
-		"DOCUMENTS CURRENT BEHAVIOUR (DoD #6): the external edit latches stale=true",
+		"the one-way stale latch is gone; cancellation replaces it",
 	);
+	assert.equal(latched.resolved, true, "the orphaned comment is cancelled");
+	assert.equal(latched.cancelReason, "anchor-lost", "with a recorded reason");
+	assert.ok(latched.cancelledAt, "and a timestamp");
 
-	// Consumers skip stale entries, so the annotation disappears with no signal.
-	const visibleToUi = afterEdit.comments.filter((c) => !c.stale);
+	// Cancelled comments are resolved, so they leave the margin column and are not
+	// counted as pending work for an agent.
+	const stillPending = afterEdit.comments.filter((c) => !c.resolved);
 	assert.equal(
-		visibleToUi.length,
+		stillPending.length,
 		0,
-		"BUG (DoD #6): zero comments are visible to the pip/decorator path",
+		"a cancelled comment is not pending agent work",
 	);
 
-	// The record is still there, so it is recoverable *in principle* — but the
-	// product exposes no reset site, no list, no count, and no re-anchor action.
-	const orphaned = sidecarAfter.comments.filter((c) => c.stale);
-	assert.equal(orphaned.length, 1, "the orphan is discoverable only by reading raw records");
+	// The record survives with its reason recorded, so an audit can still explain
+	// why a comment went away even though the UI no longer shows it.
+	const cancelled = sidecarAfter.comments.filter((c) => c.cancelReason === "anchor-lost");
+	assert.equal(cancelled.length, 1, "the cancellation is recorded, not just deleted");
 });
 
 test("repro-stale-latch: CONTROL — appending unrelated content does not orphan a comment", async () => {

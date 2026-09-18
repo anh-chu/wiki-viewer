@@ -563,16 +563,34 @@ cosmetic but user-visible.
 
 ## 5. Comments
 
-### 5.1 Comment pips and thread
+### 5.1 Comment margin column and thread
 
-**Contract:** One pip per annotated block, positioned by **block identity**, never by
-DOM-child index. Hovering a pip highlights the block for legacy comments, and the
-**exact commented text** when the comment carries a `textAnchor`. Draft
-instructions get an amber instruction pip variant; routed (`queued` / `sent` /
-`answered`) instructions are excluded. Ordinary pip variants: all-resolved → faded
-check; last turn by `ai:` → filled primary dot; else human ring. Clicking opens a
-thread popover (width `min(18rem, 100vw-1rem)`) with turn timestamps (relative
- time), a `⌘↵ send` reply box, and buttons "Turn into an instruction", Resolve/Reopen.
+**Contract:** Comments are presented the way Google Docs presents them — every
+comment **persistently visible in a right-hand margin column** (`w-[19rem]`),
+vertically aligned with the text it discusses. There is no gutter pip and no
+floating popover for reading a thread; the card *is* the thread.
+
+Each card is positioned at its anchor block's measured vertical offset inside the
+editor scroll container. A **collision pass** then pushes any card that would
+overlap the one above it down to one `CARD_GAP` (8px) below that card's measured
+bottom, so comments on adjacent lines cannot stack. Cards without a measurable
+anchor default to the top rather than disappearing: a comment you cannot see is
+indistinguishable from a comment that was lost. The column renders only when at
+least one comment exists, and cards are excluded once resolved or cancelled.
+
+At rest a card shows avatar, author, the first turn's text (clamped to 3 lines),
+and a reply count; clicking expands the full thread **in place**, so opening a
+comment never moves it away from its text. Expanded cards render the same body as
+the legacy popover through a shared component (`variant="margin"`), so the two
+presentations cannot diverge in what they offer. Hovering a card applies
+`data-hovered="true"` to its exact-text highlight, tying column to document.
+
+For compatibility there is still a per-block pip variant: all-resolved → faded
+check; last turn by `ai:` → filled primary dot; else human ring. Draft
+instructions get an amber variant; routed (`queued` / `sent` / `answered`)
+instructions are excluded. Pips are positioned by **block identity**, never by
+DOM-child index. Thread surfaces carry turn timestamps (relative time), a
+`⌘↵ send` reply box, and buttons "Turn into an instruction", Resolve/Reopen.
 Send uses `comment.reply` (open thread) or `comment.add`; Escalate creates an
 `instruction` comment with all turns joined and a `fromCommentId` backlink.
 The thread also exposes **Edit** and **Delete** for the comment body: Edit
@@ -584,14 +602,26 @@ affordance (reply, Edit, Delete, Escalate, Resolve/Reopen) is available in
 **view mode** too — comment ops are sidecar-only and never touch the file, so
 there is no read-only stripping on the thread.
 
-**Exact-text anchors (`textAnchor`).** A comment may carry
-`{start, end, selectedText, baseMarkdown}` naming the words it applies to.
-Locating is two-step and the order matters: the stored offsets are trusted when
-they still reproduce `selectedText`; otherwise the text is **searched for** in
-the block, biased toward the original position so a repeated phrase re-anchors to
-the instance the user commented on. Comments without an anchor stay
-block-granular (legacy) and render no text highlight.
-`comment.add` rejects a `textAnchor` whose range does not reproduce
+**Exact-text anchors (`textAnchor`) and the exact-word highlight.** A comment may
+carry `{start, end, selectedText, baseMarkdown}` naming the words it applies to.
+The highlight covers **only those words** — a comment on "brown fox" marks those
+two words, not the paragraph. Comments without an anchor stay block-granular
+(legacy) and render no text highlight.
+
+Positions are found by **searching the document's text runs** for `selectedText`.
+Offset arithmetic against block markdown is explicitly NOT used to place the
+highlight: those offsets describe a different string, because a list item's
+markdown reads `2. Reactions in app` while its rendered node reads
+`Reactions in app`. Applying them to rendered text painted the wrong characters
+(observed live as `"Reactions in a"`). Text runs come from ProseMirror's own
+`descendants` positions, and a match never crosses a structural gap, so text at
+the end of one block cannot match text at the start of the next.
+
+A highlight is labelled `comment-highlight`, plus `comment-highlight-recovered`
+when it was found by searching rather than landing on the stored offset — the
+visible signal that the comment followed its text after an edit. A comment whose
+`selectedText` cannot be found is not drawn at all: a wrong highlight is worse
+than none. `comment.add` rejects a `textAnchor` whose range does not reproduce
 `selectedText` in the block's current markdown (`400 INVALID_PAYLOAD`).
 
 **Comment ops never rebuild the document.** A comment/reply/resolve/reopen
@@ -604,9 +634,11 @@ file revision. Anchoring by identity is what makes three comments on three block
 render three correctly-placed pips even when a loose list or table expands one
 mdast block into several DOM nodes.
 
-**Verification pointer:** `src/components/editor/comment-pip.tsx`,
+**Verification pointer:** `src/components/editor/comment-margin.tsx`,
+`src/components/editor/extensions/comment-highlight.ts`,
 `src/components/editor/comment-thread.tsx`,
-`src/lib/proof/pip-alignment.ts`, `src/lib/proof/comment-decorator.ts`
+`src/components/editor/comment-pip.tsx`, `src/lib/proof/pip-alignment.ts`,
+`src/lib/proof/comment-decorator.ts`
 
 ### 5.2 View-mode and source-line comments
 
@@ -633,35 +665,36 @@ orphaned anchor *recoverable* rather than permanently lost.
 **Verification pointer:** `src/components/editor/view-mode-comment-button.tsx`,
 `src/components/editor/source-viewer.tsx`, `src/tests/proof/mode-affordance.test.ts`
 
-### 5.3 Orphaned annotations (stale anchors)
+### 5.3 Orphaned annotations (cancelled, not recovered)
 
 **Contract:** When a file is edited outside the block-op path, an annotation's
-block ref may disappear. The annotation is then marked `stale` and must be
-**visible, explained and recoverable** — never silently hidden.
+block ref may disappear. A comment whose anchor is gone is **cancelled**: it is
+marked resolved with `cancelReason: "anchor-lost"` and a `cancelledAt` timestamp,
+and it leaves the UI. It is not parked in a recovery queue, and no re-anchor
+affordance is offered.
 
-- The sidecar records `stale: true` (unchanged behaviour).
-- The UI surfaces an orphan list with a per-item reason, the originally anchored
-  text, and whether recovery is possible. A legacy block-only comment has no
-  text to search for and is reported as **not recoverable** rather than offered
-  a recovery that cannot work.
-- Recovery searches every current block for the anchored text and re-mints the
-  anchor against that block's current markdown. The text may have moved to a
-  **different block**; the ref follows it. Offsets from the previous block are
-  never reused.
-- Applying recovery is the `comment.reanchor` op. It is the **reset site for
-  `stale`**: it validates the re-minted range against the target block's current
-  markdown (mismatch → `400 INVALID_PAYLOAD`), repoints `ref`, and clears the
-  flag.
-- A stale annotation renders no pip and no highlight until it is recovered.
+This reverses the earlier `stale`-plus-recovery design, deliberately. A recovery
+UI was specified but never built, and the decision is that an annotation whose
+text no longer exists has nothing to point at. Cancelling is also the safer
+default: an orphaned comment left unresolved still counts as pending and feeds
+`Copy-as-prompt`, so a deleted sentence could put a phantom instruction in front
+of an agent. Resolving it removes it from that path.
 
-**Why it matters:** Stale anchors previously latched on with no reset site, no
-list, no count and no API — and both render paths skip stale entries, so an
-annotation vanished permanently with no signal. Recovery is only possible
-because the anchor stores `selectedText`: a content hash can *verify* an anchor
-but can never *find* one.
+- The previous one-way `stale` latch is gone; it had no reset site for block-ref
+  comments and no surface anywhere in the UI.
+- Suggestions keep `stale: true` — their review flow already gives them a path
+  back, so they are not cancelled.
+- The record survives in the sidecar with its reason, so an audit can still
+  explain why a comment disappeared even though the UI no longer shows it.
+- A cancelled comment renders no card, no pip and no highlight.
 
-**Verification pointer:** `src/lib/proof/orphan-recovery.ts`,
-`src/tests/proof/repro-stale-latch.test.ts`, `src/tests/proof/orphan-recovery.test.ts`
+**Why it matters:** Before this, an external edit made a comment vanish with no
+signal and no recovery path. Now it vanishes *by design*, with the reason
+recorded and no risk of a stale instruction reaching an agent.
+
+**Verification pointer:** `src/lib/proof/ops-applier.ts` (`markOrphanedRefsStale`),
+`src/tests/proof/comment-cancellation.test.ts`,
+`src/tests/proof/repro-stale-latch.test.ts`
 
 ## 6. Suggestions
 

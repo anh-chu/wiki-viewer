@@ -123,9 +123,21 @@ function markOrphanedRefsStale(sidecar: Sidecar, newRefMap: Record<string, unkno
 			s.stale = true;
 		}
 	}
+	// Comments whose text is gone are CANCELLED, not parked in a stale queue.
+	//
+	// The earlier design latched `stale = true` and expected a recovery UI to
+	// offer re-anchoring. That UI was never built and the user does not want it:
+	// an annotation whose text no longer exists has nothing to point at, so the
+	// honest outcome is for it to go away. Marking it resolved (with the reason
+	// recorded) also keeps it out of the margin column and out of the pending
+	// set that Copy-as-prompt reads, so a deleted sentence cannot leak a phantom
+	// instruction into an agent's prompt.
 	for (const c of sidecar.comments) {
 		if (!c.resolved && c.ref && !validRefs.has(c.ref)) {
-			c.stale = true;
+			c.resolved = true;
+			c.cancelledAt = new Date().toISOString();
+			c.cancelReason = "anchor-lost";
+			c.stale = false;
 		}
 	}
 }

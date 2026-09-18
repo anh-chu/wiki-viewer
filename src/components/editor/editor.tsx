@@ -348,10 +348,15 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	 */
 	const marginThreads = useMemo(
 		() =>
-			Object.entries(threadCommentsByRef).map(([blockRef, list]) => ({
-				blockRef,
-				comments: list,
-			})),
+			Object.entries(threadCommentsByRef)
+				// A cancelled comment has nothing left to point at, so it is not shown.
+				// Resolved threads leave the column too, rather than sitting there as
+				// dead weight next to live ones.
+				.map(([blockRef, list]) => ({
+					blockRef,
+					comments: list.filter((c) => !c.resolved && !c.cancelledAt),
+				}))
+				.filter((t) => t.comments.length > 0),
 		[threadCommentsByRef],
 	);
 	const marginOffsets = useMemo(() => {
