@@ -77,16 +77,53 @@ guard — a protection wired but never triggered.
 
 | # | Criterion | Real status |
 |---|---|---|
-| 1 | Comment highlights exact text; survives nearby edits | ✅ now delivered (margin + exact highlight + cancellation) |
-| 2 | Suggest mode is in-place edit-over-document | ❌ **not built** — still a committed-suggestion popover |
-| 3 | Markdown byte-identical with pending suggestions | ⚠️ primitive proven; no UI path exercises it yet |
+| 1 | Comment highlights exact text; survives nearby edits | ✅ delivered (margin column + exact-word highlight + cancellation) |
+| 2 | Suggest mode is in-place edit-over-document | ✅ **delivered** — Editing/Suggesting toggle, typed insertions and deletions tracked as marks, verified live |
+| 3 | Markdown byte-identical with pending suggestions | ✅ delivered — enforced at the single serialization path, with a control proving the leak is real |
 | 4 | Pips correctly positioned | ✅ delivered |
 | 5 | Zero reload on annotation ops | ✅ delivered |
 | 6 | Orphaned anchor visible and recoverable | ✅ **resolved differently** — cancelled and removed, at user's direction |
 | 7 | One selection surface; no dead `readOnly` branch | ✅ delivered |
-| 8 | Suite ≥ floor | ✅ 812 pass, floor 704 |
+| 8 | Suite ≥ floor | ✅ 839 pass, floor 839 |
 
-**5 of 8 delivered, 1 not built, 1 partially, 1 intentionally reversed.**
+**7 of 8 delivered as written, 1 intentionally reversed** (recovery → cancellation).
+
+Criterion 3 is no longer "proven but unused": the strip now sits in `handleUpdate`,
+the one path every save goes through, and the tests drive it there. Criterion 2 was
+rebuilt on marks rather than decorations, because a decoration cannot hold text the
+document would have to contain for you to type into it.
+
+## Bugs that only live verification found
+
+Suggesting mode passed 20 unit tests while being completely broken in the browser.
+Two defects survived every logic-level test and were caught only by typing into a
+real editor:
+
+**Every insertion was silently dropped.** `isPlainDeletion` checked that a step had
+numeric `from`/`to` — but an `insertText` step is also a `ReplaceStep` with numeric
+`from`/`to` (both equal to the caret). So every typed character was misrouted into
+the deletion branch and the insertion mark was never applied. Live symptom: the
+toggle read "Suggesting", editor storage read `suggesting`, the plugin was
+registered, the marks were in the schema — and typed text landed untracked. A
+deletion now requires a non-empty range with no inserted content.
+
+**Accept and reject did nothing.** Their transactions carried no plugin meta, so
+`filterTransaction` re-intercepted the deletion they were trying to perform and
+re-stamped it. Accept appeared to be broken; it was being undone by our own filter.
+
+Both were found by driving `EditorState.applyTransaction` and the plugin's
+`view.update` hook directly (see `track-changes-behavior.test.ts`). The lesson is
+narrow and worth keeping: a mark-based feature cannot be validated by testing its
+transforms in isolation, because the defects live in the transaction plumbing
+between them.
+
+**A wrong diagnosis, recorded.** While debugging the first bug I concluded the mark
+was being applied with new-document coordinates against the old document, and wrote
+that into a commit message. It was false. A direct experiment showed both
+coordinate spaces behave identically here — `addMark` on a pre-apply transaction
+correctly marks the inserted text. The early return was the whole problem. The
+commit is corrected in a later commit rather than rewritten, since the wrong
+reasoning is the more useful artifact.
 
 ## The gate that still mattered (Phase 3.3)
 
