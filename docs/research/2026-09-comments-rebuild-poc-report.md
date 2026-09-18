@@ -117,6 +117,64 @@ narrow and worth keeping: a mark-based feature cannot be validated by testing it
 transforms in isolation, because the defects live in the transaction plumbing
 between them.
 
+### The margin column had its own version of this
+
+The margin column was reported working on the strength of its layout tests, its card
+count, and a screenshot showing four cards. All three were true while the column's
+core interaction did nothing. Three separate defects were involved, and each one
+alone was enough to break it:
+
+**The margin thread never rendered.** `CommentThread` opened with the popover's
+positioning guard — `if (!anchorEl || !anchor) return null` — *before* reaching the
+margin branch. A margin card renders in normal document flow, so it has no floating
+anchor to measure and passes `anchorEl={null}`. Every expanded card was therefore an
+empty zero-height box. Measured live: card heights `[0, 55, 55, 74]`.
+
+**Clicking a card opened the old popover.** `onActivate` set the state that drives
+the portal popover, so the thread opened floating *outside* the column. Verified by
+walking the DOM: the reply box's nearest `[data-comment-margin]` ancestor was null.
+The column was a launcher for the pip/popover model, not a replacement for it.
+
+**Resolving a comment deleted its thread.** Resolved threads were filtered out of
+the column, so resolving unmounted the card and the thread inside it — closing the
+thread and removing the reply box, contradicting two written contracts at once.
+This one was found by asserting the contract in the browser rather than by looking
+at the screen; visually it just looked like the card had gone away, which is what it
+was designed to do.
+
+**An expanded card was buried by the cards below it.** Heights were re-measured only
+when the set of threads changed, so expanding a card left the collision pass using
+its *collapsed* height. The expanded card spanned 45–230px while the next two sat at
+108–163 and 171–226, printed on top of its body. The screenshot made this look like
+clipping; the card was never clipped, it was overlapped. Fixed by re-measuring on
+`activeRef` as well.
+
+The pattern across all four: **the layout was correct every time.** What was wrong
+was which component mounted, in what order, and with what input. None of that is
+reachable from a unit test of the layout function, and none of it is visible in a
+screenshot that shows the surface rendering at all. The tests added for these
+(`comment-margin-contract.test.ts`, plus the expansion cases in
+`comment-margin.test.ts`) assert *ordering and filtering decisions* and carry
+controls proving the stale input reproduces the defect — because the assertions are
+otherwise unable to fail.
+
+### Two of my own errors, recorded
+
+**I destroyed the user's test file.** Verifying tracked marks by dispatching
+transactions directly into the live editor fired `handleUpdate`, which serialized and
+saved the document; one pass wrote an empty document over `test.md`. The file went to
+0 bytes. The blank-looking editor was correct rendering of an empty file. Content was
+recovered from `textAnchor.baseMarkdown` — the comment anchors had preserved the
+document text as of the last comment, which is the only reason it was recoverable.
+Lesson: live QA that mutates a document must use a scratch file.
+
+**I diagnosed the wrong bug and nearly shipped the fix.** Insertions were being
+dropped, and I concluded the insertion mark was applied with new-document coordinates
+against the old document. A direct experiment showed both coordinate spaces behave
+identically and the real cause was the early return. The wrong diagnosis is kept in
+the commit history deliberately: it is the kind of plausible mechanism that would
+have justified a much larger, riskier change.
+
 **A wrong diagnosis, recorded.** While debugging the first bug I concluded the mark
 was being applied with new-document coordinates against the old document, and wrote
 that into a commit message. It was false. A direct experiment showed both
