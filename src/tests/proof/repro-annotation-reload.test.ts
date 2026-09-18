@@ -125,3 +125,51 @@ test("repro-annotation-reload: an identical re-fetch is deduped", () => {
 	const decision = shouldRerenderDocument(afterAnnotationOp({ annotationChanged: false }));
 	assert.equal(decision.rerender, false, "identical (path, content) is already deduped today");
 });
+test("repro-annotation-reload: the annotation signal is load-bearing, not decorative", () => {
+	// Regression guard on the fix itself. An earlier version of the component
+	// passed `annotationChanged: false` literally, leaving the protection inert:
+	// the guard was right but was never told when an annotation changed.
+	//
+	// Setup: the rendered content matches what is in the store, but the last
+	// render recorded a different entry, so the key check cannot dedupe and the
+	// annotation signal is the only thing that can prevent a rebuild.
+	const base = {
+		editorReady: true,
+		currentPath: "notes/doc.md",
+		isDirty: false,
+		isLoading: false,
+		content: "# Title\n\nBody text.\n",
+		renderMarkdown: "# Title\n\nBody text.\n",
+		lastRenderedKey: "notes/other.md # Title\n\nBody text.\n",
+		lastRenderedPath: "notes/other.md",
+		revisionChanged: false,
+	} as const;
+
+	// Signal present -> recognised as annotation-only, document untouched.
+	const withSignal = shouldRerenderDocument({ ...base, annotationChanged: true });
+	assert.equal(withSignal.reason, "annotation-only");
+	assert.equal(withSignal.rerender, false, "no markdownToHtml, no setContent");
+
+	// Signal absent, same everything else -> falls through to a full rebuild.
+	// This contrast is the whole point: it proves the signal changes the outcome.
+	const withoutSignal = shouldRerenderDocument({ ...base, annotationChanged: false });
+	assert.equal(withoutSignal.reason, "content-changed");
+	assert.equal(withoutSignal.rerender, true, "the constant would have left this path always taken");
+
+	// A genuine markdown change always wins, even with the annotation signal on.
+	const contentMoved = shouldRerenderDocument({
+		...base,
+		content: "# Title\n\nBody text edited.\n",
+		renderMarkdown: "# Title\n\nBody text edited.\n",
+		annotationChanged: true,
+	});
+	assert.equal(contentMoved.reason, "content-changed");
+	assert.equal(contentMoved.rerender, true, "real content changes must still render");
+});
+
+test("repro-annotation-reload: an identical key still dedupes before the annotation check", () => {
+	// The guards are independent and the cheap one runs first.
+	const decision = shouldRerenderDocument(afterAnnotationOp({ annotationChanged: true }));
+	assert.equal(decision.reason, "already-rendered");
+	assert.equal(decision.rerender, false);
+});

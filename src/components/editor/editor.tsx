@@ -795,6 +795,17 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	// When content updates from store (after loadPage), set it in editor
 	const prevPathRef = useRef<string | null>(null);
 	const renderedKeyRef = useRef<string | null>(null);
+	// Phase 5 (DoD #5): a fingerprint of the annotation state at the last render.
+	// When it changes but the MARKDOWN does not, the change is annotation-only
+	// and ProseMirror must not be rebuilt. Without this the guard's
+	// `annotationChanged` input could only ever be a constant, leaving the
+	// protection inert.
+	const annotationFingerprint = useMemo(() => {
+		const commentIds = comments.map((c) => `${c.id}:${c.resolved ? 1 : 0}:${c.turns.length}`).join(",");
+		const suggestionIds = pendingSuggestions.map((s) => `${s.id}:${s.status}`).join(",");
+		return `${commentIds}|${suggestionIds}`;
+	}, [comments, pendingSuggestions]);
+	const lastAnnotationFingerprintRef = useRef<string | null>(null);
 	const [renderedPath, setRenderedPath] = useState<string | null>(null);
 	useEffect(() => {
 		if (!editor || currentPath === null) return;
@@ -819,11 +830,20 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 			lastRenderedKey: renderedKeyRef.current,
 			lastRenderedPath: renderedPath,
 			revisionChanged: false,
-			annotationChanged: false,
+			annotationChanged:
+				lastAnnotationFingerprintRef.current !== null &&
+				lastAnnotationFingerprintRef.current !== annotationFingerprint,
 		});
 		if (!decision.rerender) {
 			if (decision.reason === "already-rendered" && renderedPath !== currentPath) {
 				setRenderedPath(currentPath);
+			}
+			// An annotation-only pass still refreshes the decoration layer, which
+			// is exactly the cheap transaction path DoD #5 asks for — no
+			// markdownToHtml, no setContent, selection and scroll preserved.
+			if (decision.reason === "annotation-only") {
+				lastAnnotationFingerprintRef.current = annotationFingerprint;
+				suggestionDecoratorRef.current?.refresh(editor.view);
 			}
 			return;
 		}
@@ -849,6 +869,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 			editor.commands.setContent(html);
 			suggestionDecoratorRef.current?.refresh(editor.view);
 			renderedKeyRef.current = key;
+			lastAnnotationFingerprintRef.current = annotationFingerprint;
 			setRenderedPath(currentPath);
 			setTimeout(() => {
 				isLoadingRef.current = false;
@@ -859,7 +880,16 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		return () => {
 			cancelled = true;
 		};
-	}, [editor, content, currentPath, isLoading, renderedPath, parsedViewingContent.body, isViewing]);
+	}, [
+		editor,
+		content,
+		currentPath,
+		isLoading,
+		renderedPath,
+		parsedViewingContent.body,
+		isViewing,
+		annotationFingerprint,
+	]);
 
 	useEffect(() => {
 		if (!isViewing || !renderedPath) return;
