@@ -624,6 +624,21 @@ the draft is recorded **on every change**, not only when toggling: a write-back 
 ran on toggle alone would still lose everything typed since the toggle, which is
 exactly the window a remount can land in.
 
+**The Suggesting mode path was confirmed end to end in the browser.** Toggling from the
+toolbar changed the control from "Editing: your edits apply directly" to "Suggesting:
+your edits are tracked until accepted". Typing in that mode produced a real `<ins>`
+element carrying the insertion mark, with the Accept-all control appearing because
+tracked changes existed — and the `.md` stayed byte-identical throughout (166 bytes,
+revision unchanged). Accepting applied the text: 166 -> 236 bytes on save. That is the
+whole of the mode: stamp on type, hold the file still while pending, write on accept.
+
+Two smaller things observed while doing it, both pre-existing rather than introduced
+here. The pencil control that enters edit mode is an icon-only `<Button>` with no
+`title` or `aria-label`, so it is unnamed to assistive technology and absent from any
+name-based query. And entering edit mode is reachable only through that icon, which is
+why an earlier attempt to drive this from the DOM found no mode toggle at all: the
+toolbar is gated on React state, not on the `contenteditable` attribute.
+
 **Suggesting mode is per document, like the other persisted state.** It has to outlive
 the remount (losing it means edits stop being tracked without the reader being told),
 but it must not be global: an earlier version used one value for the whole editor, so
