@@ -11,6 +11,7 @@ import { DENIED_SEGMENTS } from "@/lib/fs/denied-segments";
 import { withFileMutex, workspaceLockKey } from "@/lib/proof/mutex";
 import { emptySidecar, readSidecar, writeSidecar } from "@/lib/proof/sidecar";
 import { SIDECAR_EVENT_TRIM_SIZE } from "@/lib/proof-config";
+import { reconcileRefsAndCancelOrphans } from "@/lib/proof/ops-applier";
 
 const TEXT_EXTS = new Set([
 	"txt", "md", "markdown", "json", "yaml", "yml", "toml", "csv", "tsv",
@@ -219,6 +220,12 @@ export async function PUT(request: Request) {
 		sc.revision = newRevision;
 		sc.fingerprint = sha256content(content);
 		sc.updatedAt = new Date().toISOString();
+
+		// Recompute block refs against the content just written, so comments whose
+		// anchor this save removed are cancelled rather than left pointing at a ref
+		// that no longer exists. Skipping this is what produced margin cards with no
+		// highlight anywhere in the document.
+		reconcileRefsAndCancelOrphans(sc, content);
 
 		// Emit a human-edit event so agents can see the change.
 		emitEvents(sc, [

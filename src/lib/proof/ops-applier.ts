@@ -116,6 +116,24 @@ function opMarkdownToBlocks(
 	return { nodes, refs };
 }
 
+/**
+ * Recompute a sidecar's block refs against `content`, cancelling any comment whose
+ * anchor no longer exists. Exported for callers that write markdown directly rather
+ * than through `applyOps` — notably the editor's own save route.
+ *
+ * Without this, a direct write leaves `refMap` describing the OLD document while the
+ * file on disk is the new one, so comments keep pointing at refs that are gone and
+ * nothing cancels them. Observed live: three comments rendered as normal margin cards
+ * with no highlight anywhere in the document, because the save that removed their text
+ * never reconciled.
+ */
+export function reconcileRefsAndCancelOrphans(sidecar: Sidecar, content: string): void {
+	const nodes = parseBlocks(content);
+	const { newRefMap } = assignRefs(nodes, sidecar);
+	sidecar.refMap = newRefMap;
+	markOrphanedRefsStale(sidecar, newRefMap);
+}
+
 function markOrphanedRefsStale(sidecar: Sidecar, newRefMap: Record<string, unknown>): void {
 	const validRefs = new Set(Object.keys(newRefMap));
 	for (const s of sidecar.suggestions) {

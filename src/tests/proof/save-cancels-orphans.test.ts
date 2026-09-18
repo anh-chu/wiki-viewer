@@ -1,0 +1,110 @@
+/**
+ * A direct save must reconcile block refs and cancel orphaned comments.
+ *
+ * FOUND LIVE, not from a test. The margin column was showing four comment cards while
+ * only two comments had a highlight anywhere in the document: the other two pointed at
+ * refs that no longer existed. Per the intended behaviour an annotation whose text is
+ * gone disappears as cancelled — so these cards were pointing at nothing.
+ *
+ * ROOT CAUSE. `PUT /api/wiki/content` (the editor's own save) writes the file and bumps
+ * the sidecar revision and fingerprint, but never recomputed `refMap`. The cancellation
+ * logic lives in `markOrphanedRefsStale`, which only ran on the ops-applier path. So a
+ * plain save left `refMap` describing the OLD document while the file on disk was the
+ * new one, and nothing ever noticed.
+ *
+ * The sidecar for the user's file made it unambiguous: it listed five comments and a
+ * `refMap` containing a single ref, with no comment cancelled and `cancelReason` unset.
+ */
+
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { describe, test } from "node:test";
+import { assignRefs } from "@/lib/proof/block-refs";
+import { parseBlocks } from "@/lib/proof/blocks";
+import { reconcileRefsAndCancelOrphans } from "@/lib/proof/ops-applier";
+import type { Sidecar } from "@/lib/proof/types";
+
+const ROUTE = readFileSync(
+	path.join(process.cwd(), "src/app/api/wiki/content/route.ts"),
+	"utf8",
+);
+
+/** The user's document, exactly as it was when the defect was observed. */
+const CONTENT =
+	"1. Non-product surveys\n\n2. Reactions in app\n\n   1. like/dislike\n\n   2. Input - what's real?\n\n3. Collect info:\n\n   1. Majors?\n\n   2. School\n\n   3. Job\n\n4. LLM to test\n";
+
+function sidecarWith(refs: string[]): Sidecar {
+	return {
+		version: 1,
+		path: "test.md",
+		revision: 32,
+		createdAt: "2026-09-18T00:00:00.000Z",
+		updatedAt: "2026-09-18T00:00:00.000Z",
+		fingerprint: "sha256:stale",
+		refMap: {},
+		blocks: [],
+		comments: refs.map((ref, i) => ({
+			id: `c${i}`,
+			ref,
+			text: `comment ${i}`,
+			resolved: false,
+			createdAt: "2026-09-18T00:00:00.000Z",
+			author: { id: "human", name: "human" },
+			turns: [],
+		})),
+		suggestions: [],
+		events: [],
+	} as unknown as Sidecar;
+}
+
+describe("a direct save cancels comments whose anchor it removed", () => {
+	test("the document really does mint only one ref", () => {
+		// Establishes the premise: three of the four stored refs are genuinely dead.
+		// Without this the test could pass against a document that still contains them.
+		const { newRefMap } = assignRefs(parseBlocks(CONTENT), null);
+		const refs = Object.keys(newRefMap);
+		assert.equal(refs.length, 1, `expected one ref, got ${refs.join(",")}`);
+		assert.equal(refs[0], "b483fa8");
+	});
+
+	test("the dead-ref comments are cancelled, and the live one is untouched", () => {
+		const sc = sidecarWith(["b55b0d0", "bbf2566", "b2a7a89", "b483fa8"]);
+		reconcileRefsAndCancelOrphans(sc, CONTENT);
+
+		const byId = Object.fromEntries(sc.comments.map((c) => [c.id, c]));
+		for (const id of ["c0", "c1", "c2"]) {
+			assert.equal(byId[id].resolved, true, `${id} must be cancelled`);
+			assert.ok(byId[id].cancelledAt, `${id} must record when`);
+			assert.equal(byId[id].cancelReason, "anchor-lost", `${id} must record why`);
+		}
+		assert.equal(byId.c3.resolved, false, "the anchored comment stays open");
+		assert.equal(byId.c3.cancelledAt, undefined, "and is not cancelled");
+	});
+
+	test("refMap is rewritten to match the content, not left describing the old one", () => {
+		const sc = sidecarWith(["b55b0d0"]);
+		reconcileRefsAndCancelOrphans(sc, CONTENT);
+		assert.deepEqual(Object.keys(sc.refMap), ["b483fa8"]);
+	});
+
+	test("the save route calls it", () => {
+		// The fix is only real if the route that saves the file uses it.
+		assert.match(
+			ROUTE,
+			/reconcileRefsAndCancelOrphans\(sc, content\);/,
+			"the save route must reconcile refs after writing",
+		);
+	});
+
+	test("CONTROL: reconciliation happens after the content is written", () => {
+		// Reconciling against the wrong content would cancel healthy comments.
+		const writeAt = ROUTE.indexOf("await writeFile(filePath, content");
+		const reconcileAt = ROUTE.indexOf("reconcileRefsAndCancelOrphans(sc, content);");
+		assert.ok(writeAt > 0 && reconcileAt > 0, "both steps must be present");
+		assert.ok(
+			writeAt < reconcileAt,
+			"the file must be written before refs are recomputed from its content",
+		);
+	});
+});
