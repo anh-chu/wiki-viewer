@@ -106,3 +106,45 @@ describe("the margin thread renders without a floating anchor", () => {
 		);
 	});
 });
+
+describe("an expanded margin card can be collapsed again", () => {
+	test("the margin variant renders a close control", () => {
+		// Expanding unmounts the collapsed card whose button set the state, so the
+		// card itself must offer a way back. Without this, expanding a comment was a
+		// one-way trip: measured live, every button left in the expanded card was an
+		// edit action (Edit, Delete, Turn into an instruction, Reopen, Send).
+		const marginStart = THREAD.indexOf('if (variant === "margin") {');
+		const popoverGuard = THREAD.indexOf("if (!anchorEl || !anchor) return null;");
+		const marginBranch = THREAD.slice(marginStart, popoverGuard);
+		assert.ok(marginBranch.length > 0, "expected to find the margin branch");
+		assert.match(
+			marginBranch,
+			/aria-label="Collapse comment"/,
+			"the margin card needs its own collapse control",
+		);
+		assert.match(
+			marginBranch,
+			/onClick=\{onClose\}/,
+			"the control must call the onClose the margin already passes",
+		);
+	});
+
+	test("the editor passes a real close handler to the column", () => {
+		assert.match(
+			EDITOR,
+			/onClose=\{\(\) => setActiveMarginRef\(null\)\}/,
+			"the column's close must clear the expanded ref, not a different target",
+		);
+	});
+
+	test("CONTROL: the popover's Escape path does not cover the margin", () => {
+		// The Escape handler is inside an effect keyed on `anchorEl`, which is null for
+		// margin cards — so it cannot be the margin's escape route. This is why a
+		// dedicated control is required rather than relying on the existing one.
+		assert.match(
+			THREAD,
+			/if \(anchor && variant !== "margin"\)/,
+			"the focus effect (and the Escape effect beside it) is popover-only",
+		);
+	});
+});

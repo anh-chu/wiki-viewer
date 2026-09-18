@@ -356,12 +356,38 @@ export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnc
 	// expanded margin card rendered as an empty zero-height box and clicking a
 	// comment looked like it did nothing at all.
 	if (variant === "margin") {
+		// The card needs its own way out. The popover closes on Escape and on an
+		// outside click, but neither applies here: the margin thread has no popover
+		// root, and the Escape handler above is keyed on `anchorEl`, which is null for
+		// this variant. Without a control here, expanding a comment was a one-way trip
+		// — the collapsed card that would toggle it back unmounts on expand, and
+		// measured live, every button left in the expanded card was an edit action.
 		return (
+			// biome-ignore lint/a11y/noStaticElementInteractions: hover only drives the linked highlight
 			<div
 				onMouseEnter={() => onHoverChange?.(true)}
 				onMouseLeave={() => onHoverChange?.(false)}
-				className="rounded-lg border border-border bg-popover p-3 space-y-2 text-[12px] shadow-sm focus-within:ring-1 focus-within:ring-ring"
+				className="relative rounded-lg border border-border bg-popover p-3 space-y-2 text-[12px] shadow-sm focus-within:ring-1 focus-within:ring-ring"
 			>
+				<button
+					type="button"
+					onClick={onClose}
+					title="Collapse comment"
+					aria-label="Collapse comment"
+					className="absolute right-1.5 top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded text-muted-foreground/40 transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+				>
+					<svg
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						strokeWidth="2"
+						strokeLinecap="round"
+						className="h-3 w-3"
+						aria-hidden="true"
+					>
+						<path d="M18 6 6 18M6 6l12 12" />
+					</svg>
+				</button>
 				{body}
 			</div>
 		);

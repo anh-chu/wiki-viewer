@@ -416,6 +416,22 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	// The column is hidden when nothing is commented, and can be collapsed by
 	// hand so it never steals width from the document uninvited.
 	const [marginCollapsed, setMarginCollapsed] = useState(false);
+	// Drop the expanded card when its comment leaves the column.
+	//
+	// Refs are content-derived (`sha256(blockMarkdown).slice(0,6)`), so the same text
+	// always yields the same ref. Without this, cancelling a comment — which happens
+	// when its anchored text is deleted, possibly by an agent editing the file — left
+	// `activeMarginRef` pointing at a now-absent card, and a later comment on restored
+	// text with that same ref would render pre-expanded for no reason the reader could
+	// see. Clearing on absence keeps the state derived from what is actually shown.
+	const marginRefsKey = marginThreads.map((t) => t.blockRef).join(",");
+	useEffect(() => {
+		if (activeMarginRef === null) return;
+		if (!marginThreads.some((t) => t.blockRef === activeMarginRef)) {
+			setActiveMarginRef(null);
+		}
+	}, [marginRefsKey, activeMarginRef, marginThreads]);
+
 	const showCommentMargin = marginThreads.length > 0 && !marginCollapsed;
 
 	/** Tracks the open human "suggest edit" popover (block + anchor + content). */
@@ -1504,8 +1520,16 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 										blockOffsets={marginOffsets}
 										activeRef={activeMarginRef}
 										onActivate={(blockRef) =>
-											// Expand the card IN PLACE. Toggling closes it, so a
-											// second click on the same card collapses it.
+											// Expand the card IN PLACE — the thread lives in the
+											// card rather than in a floating popover.
+											//
+											// The ternary keeps this idempotent, but it is NOT
+											// the collapse path: expanding unmounts the collapsed
+											// card whose button called this, so the reader cannot
+											// click it a second time. Collapsing is the close
+											// control inside the expanded card. (An earlier
+											// comment here claimed a second click would collapse;
+											// it would not, and there was then no way out at all.)
 											setActiveMarginRef((prev) =>
 												prev === blockRef ? null : blockRef,
 											)

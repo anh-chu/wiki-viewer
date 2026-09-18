@@ -588,8 +588,13 @@ presentations cannot diverge in what they offer. Hovering a card applies
 The column is inset `right-2` from the viewport edge and its cards span the full
 column width, so the gutter never touches the window edge.
 
-**Cards host their thread in place.** Clicking a card expands the thread inside
-that card at its anchor; clicking it again collapses it. The card is the thread's
+**Cards host their thread in place.** Clicking a card expands the thread inside that
+card at its anchor. Collapsing is the **× control** on the expanded card, not a second
+click on the card: expanding unmounts the collapsed card whose button did the
+expanding, so there is nothing left to click twice. The popover's Escape and
+outside-click paths do not reach here either — its Escape handler is keyed on an
+anchor the margin card does not have. Before the × existed, expanding a comment was a
+one-way trip. The card is the thread's
 home, not a launcher for a floating popover, so the comment never moves away from
 the text it discusses. Focus is not stolen on expand — the click already chose the
 target.
