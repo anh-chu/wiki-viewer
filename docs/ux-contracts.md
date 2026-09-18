@@ -588,6 +588,15 @@ presentations cannot diverge in what they offer. Hovering a card applies
 The column is inset `right-2` from the viewport edge and its cards span the full
 column width, so the gutter never touches the window edge.
 
+**Expansion survives a remount.** The editor is unmounted and remounted on any
+external file change — `refreshViewer()` flips `fileLoading` and `viewer-pane.tsx`
+swaps the editor for a spinner and back. Writing the sidecar counts as such a change,
+so **sending a reply remounted the editor and collapsed the thread the reader was
+typing in**: the reply saved (the card gained "1 reply") while the thread vanished.
+The expanded card is therefore held at module scope keyed by path, not in component
+state. This is the mechanism behind the "successful ops keep the thread open" rule,
+and it is silent — everything renders and the reply saves, so only the collapse shows.
+
 **Cards host their thread in place.** Clicking a card expands the thread inside that
 card at its anchor. Collapsing is the **× control** on the expanded card, not a second
 click on the card: expanding unmounts the collapsed card whose button did the

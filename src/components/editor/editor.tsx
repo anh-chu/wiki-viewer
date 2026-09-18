@@ -120,6 +120,15 @@ interface KBEditorProps {
 	mode?: KBEditorMode;
 }
 
+/**
+ * Expanded margin card per document path.
+ *
+ * Module scope so it outlives the editor remount described at `activeMarginRef`.
+ * The map is small (one entry per visited document) and entries are cleared when a
+ * card collapses, so it cannot grow without bound.
+ */
+const expandedMarginByPath = new Map<string, string>();
+
 export function KBEditor({ mode }: KBEditorProps = {}) {
 	const {
 		currentPath,
@@ -375,7 +384,26 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	 * re-renders that popover's comment array, a successful Resolve unmounted the
 	 * thread and took the reply box with it.
 	 */
-	const [activeMarginRef, setActiveMarginRef] = useState<string | null>(null);
+	// Which margin card is expanded.
+	//
+	// Survives a remount because the editor does get remounted, and component state
+	// would be lost with it. A reply writes the sidecar, the file watcher reports an
+	// external change, `refreshViewer()` flips `fileLoading`, and the loader swaps the
+	// editor out and back — verified live: a tag set on `.ProseMirror` before the send
+	// was gone after it. So the expanded card collapsed the instant you replied,
+	// contradicting "successful ops keep the thread open" while the reply itself saved
+	// correctly (the card gained "1 reply").
+	//
+	// Module scope, not a ref: a ref would be recreated by the same remount. Keyed by
+	// path so two documents never share an expansion.
+	const [activeMarginRef, setActiveMarginRef] = useState<string | null>(
+		() => expandedMarginByPath.get(currentPath ?? "") ?? null,
+	);
+	useEffect(() => {
+		const key = currentPath ?? "";
+		if (activeMarginRef) expandedMarginByPath.set(key, activeMarginRef);
+		else expandedMarginByPath.delete(key);
+	}, [activeMarginRef, currentPath]);
 	const [threadTarget, setThreadTarget] = useState<
 		{ blockRef: string; el: HTMLElement; textAnchor?: TextRangeAnchor } | null
 	>(null);
@@ -423,13 +451,24 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	// when its anchored text is deleted, possibly by an agent editing the file — left
 	// `activeMarginRef` pointing at a now-absent card, and a later comment on restored
 	// text with that same ref would render pre-expanded for no reason the reader could
-	// see. Clearing on absence keeps the state derived from what is actually shown.
+	// see.
+	//
+	// The column UNMOUNTS and remounts across a reply: sampled live during a send,
+	// `[data-margin-card]` was momentarily `[]` before returning with all four cards.
+	// So "the ref is absent" is true during load, not only on cancellation, and
+	// clearing on it closed the very thread the reply was typed into — the reply was
+	// stored (the card gained "1 reply") while the thread vanished, contradicting
+	// "successful ops keep the thread open".
+	//
+	// Confirming absence after a delay distinguishes the two: a reload repopulates
+	// well within it, whereas a cancellation is permanent. The timer is cleared on
+	// every change, so a ref that comes back never fires the clear.
 	const marginRefsKey = marginThreads.map((t) => t.blockRef).join(",");
 	useEffect(() => {
 		if (activeMarginRef === null) return;
-		if (!marginThreads.some((t) => t.blockRef === activeMarginRef)) {
-			setActiveMarginRef(null);
-		}
+		if (marginThreads.some((t) => t.blockRef === activeMarginRef)) return;
+		const timer = setTimeout(() => setActiveMarginRef(null), 1500);
+		return () => clearTimeout(timer);
 	}, [marginRefsKey, activeMarginRef, marginThreads]);
 
 	const showCommentMargin = marginThreads.length > 0 && !marginCollapsed;
