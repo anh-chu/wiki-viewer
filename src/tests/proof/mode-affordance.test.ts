@@ -162,3 +162,41 @@ describe("view and edit surfaces offer the same capabilities", () => {
 		);
 	});
 });
+
+describe("the comment margin is identical in view and edit mode", () => {
+	// The objective's constraint is that annotation surfaces must not differ by mode.
+	// The margin column satisfies it structurally: it renders from one site whose guard
+	// mentions nothing about viewing, so there is no second branch that could drift.
+	// Pinned here because that is easy to break by adding an `isViewing &&` to the guard
+	// for what would look like a reasonable reason.
+	test("the visibility guard does not consult the mode", () => {
+		const source = read(EDITOR);
+		const at = source.indexOf("const showCommentMargin");
+		assert.ok(at > 0, "expected to find the guard");
+		const guard = source.slice(at, at + 120);
+		assert.ok(
+			!/isViewing|readOnly/.test(guard),
+			"the margin must not be gated on the mode",
+		);
+	});
+
+	test("the margin renders from a single site", () => {
+		const sites = read(EDITOR).match(/<CommentMargin\b/g) ?? [];
+		assert.equal(
+			sites.length,
+			1,
+			"one render site means no per-mode branches can disagree",
+		);
+	});
+
+	test("CONTROL: the editor does gate other things on the mode", () => {
+		// Proves the assertion above is not vacuous: this file does use isViewing to
+		// gate things, so a guard free of it is a deliberate result rather than a
+		// property of the file.
+		assert.match(
+			read(EDITOR),
+			/if \(isViewing\) setSourceMode\(false\);/,
+			"isViewing is used",
+		);
+	});
+});
