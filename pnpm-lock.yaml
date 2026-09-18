@@ -6,6 +6,7 @@ settings:
 
 overrides:
   kysely: 0.28.5
+  prosemirror-view: 1.41.8
 
 importers:
 
@@ -94,64 +95,64 @@ importers:
         specifier: ^0.5.19
         version: 0.5.19(tailwindcss@3.4.19(tsx@4.22.3))
       '@tiptap/core':
-        specifier: ^3.22.5
+        specifier: 3.24.0
         version: 3.24.0(@tiptap/pm@3.24.0)
       '@tiptap/extension-bubble-menu':
-        specifier: ^3.22.5
+        specifier: 3.24.0
         version: 3.24.0(@tiptap/core@3.24.0(@tiptap/pm@3.24.0))(@tiptap/pm@3.24.0)
       '@tiptap/extension-code-block-lowlight':
-        specifier: ^3.22.5
+        specifier: 3.24.0
         version: 3.24.0(@tiptap/core@3.24.0(@tiptap/pm@3.24.0))(@tiptap/extension-code-block@3.24.0(@tiptap/core@3.24.0(@tiptap/pm@3.24.0))(@tiptap/pm@3.24.0))(@tiptap/pm@3.24.0)(highlight.js@11.11.1)(lowlight@3.3.0)
       '@tiptap/extension-image':
-        specifier: ^3.22.5
+        specifier: 3.24.0
         version: 3.24.0(@tiptap/core@3.24.0(@tiptap/pm@3.24.0))
       '@tiptap/extension-link':
-        specifier: ^3.22.5
+        specifier: 3.24.0
         version: 3.24.0(@tiptap/core@3.24.0(@tiptap/pm@3.24.0))(@tiptap/pm@3.24.0)
       '@tiptap/extension-placeholder':
-        specifier: ^3.22.5
+        specifier: 3.24.0
         version: 3.24.0(@tiptap/extensions@3.24.0(@tiptap/core@3.24.0(@tiptap/pm@3.24.0))(@tiptap/pm@3.24.0))
       '@tiptap/extension-subscript':
-        specifier: ^3.22.5
+        specifier: 3.24.0
         version: 3.24.0(@tiptap/core@3.24.0(@tiptap/pm@3.24.0))(@tiptap/pm@3.24.0)
       '@tiptap/extension-superscript':
-        specifier: ^3.22.5
+        specifier: 3.24.0
         version: 3.24.0(@tiptap/core@3.24.0(@tiptap/pm@3.24.0))(@tiptap/pm@3.24.0)
       '@tiptap/extension-table':
-        specifier: ^3.22.5
+        specifier: 3.24.0
         version: 3.24.0(@tiptap/core@3.24.0(@tiptap/pm@3.24.0))(@tiptap/pm@3.24.0)
       '@tiptap/extension-table-cell':
-        specifier: ^3.22.5
+        specifier: 3.24.0
         version: 3.24.0(@tiptap/extension-table@3.24.0(@tiptap/core@3.24.0(@tiptap/pm@3.24.0))(@tiptap/pm@3.24.0))
       '@tiptap/extension-table-header':
-        specifier: ^3.22.5
+        specifier: 3.24.0
         version: 3.24.0(@tiptap/extension-table@3.24.0(@tiptap/core@3.24.0(@tiptap/pm@3.24.0))(@tiptap/pm@3.24.0))
       '@tiptap/extension-table-row':
-        specifier: ^3.22.5
+        specifier: 3.24.0
         version: 3.24.0(@tiptap/extension-table@3.24.0(@tiptap/core@3.24.0(@tiptap/pm@3.24.0))(@tiptap/pm@3.24.0))
       '@tiptap/extension-task-item':
-        specifier: ^3.22.5
+        specifier: 3.24.0
         version: 3.24.0(@tiptap/extension-list@3.24.0(@tiptap/core@3.24.0(@tiptap/pm@3.24.0))(@tiptap/pm@3.24.0))
       '@tiptap/extension-task-list':
-        specifier: ^3.22.5
+        specifier: 3.24.0
         version: 3.24.0(@tiptap/extension-list@3.24.0(@tiptap/core@3.24.0(@tiptap/pm@3.24.0))(@tiptap/pm@3.24.0))
       '@tiptap/extension-text-align':
-        specifier: ^3.22.5
+        specifier: 3.24.0
         version: 3.24.0(@tiptap/core@3.24.0(@tiptap/pm@3.24.0))
       '@tiptap/extension-underline':
-        specifier: ^3.22.5
+        specifier: 3.24.0
         version: 3.24.0(@tiptap/core@3.24.0(@tiptap/pm@3.24.0))
       '@tiptap/pm':
-        specifier: ^3.22.5
+        specifier: 3.24.0
         version: 3.24.0
       '@tiptap/react':
-        specifier: ^3.22.5
+        specifier: 3.24.0
         version: 3.24.0(@floating-ui/dom@1.7.6)(@tiptap/core@3.24.0(@tiptap/pm@3.24.0))(@tiptap/pm@3.24.0)(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       '@tiptap/starter-kit':
-        specifier: ^3.22.5
+        specifier: 3.24.0
         version: 3.24.0
       '@tiptap/suggestion':
-        specifier: ^3.22.5
+        specifier: 3.24.0
         version: 3.24.0(@tiptap/core@3.24.0(@tiptap/pm@3.24.0))(@tiptap/pm@3.24.0)
       '@types/mdast':
         specifier: ^4.0.4
