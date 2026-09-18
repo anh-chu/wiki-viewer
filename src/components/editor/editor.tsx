@@ -137,13 +137,20 @@ const sourceDraftByPath = new Map<string, string>();
 const sourceModeByPath = new Map<string, boolean>();
 
 /**
- * Whether Suggesting mode is on, held at module scope.
+ * Whether Suggesting mode is on, held at module scope and keyed by document.
  *
  * The editor is remounted on external file changes (see `activeMarginRef`), which
  * resets component state. Losing the margin expansion is cosmetic; losing this one
- * means edits stop being tracked without the reader being told.
+ * means edits stop being tracked without the reader being told. So it has to outlive
+ * the component.
+ *
+ * Keyed by path, like the other three, because mode is a property of the document you
+ * are working in — that is also how Google Docs behaves. An earlier version of this
+ * used a single global value, which meant switching documents carried the mode with
+ * it: turn Suggesting on for one file and the next file you opened was also in
+ * Suggesting mode, tracking edits the reader had not asked to track.
  */
-const suggestingModeRef = { value: false };
+const suggestingModeByPath = new Map<string, boolean>();
 
 /**
  * Expanded margin card per document path.
@@ -205,7 +212,9 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	// switched to Suggesting would silently be back in Editing and their next keystroke
 	// would edit the document directly instead of being tracked — with the toolbar
 	// showing whichever mode the reset produced.
-	const [suggesting, setSuggesting] = useState(() => suggestingModeRef.value);
+	const [suggesting, setSuggesting] = useState(
+		() => suggestingModeByPath.get(currentPath ?? "") ?? false,
+	);
 	/**
 	 * Whether any tracked change exists, so the Accept/Reject controls only appear
 	 * when there is a decision to make. Recomputed from the document on every
@@ -224,10 +233,24 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		setTrackedCount(0);
 	}, []);
 
+	// Adopt the new document's mode when the path changes without a remount, and keep
+	// the plugin in step. Without this the state would still hold the previous
+	// document's mode while the map held the new one's, so the toolbar and the stored
+	// value could disagree — and the re-arm effect below would write the stale one back.
+	const suggestingPathRef = useRef<string | null>(currentPath ?? null);
+	useEffect(() => {
+		const key = currentPath ?? "";
+		if (suggestingPathRef.current === key) return;
+		suggestingPathRef.current = key;
+		setSuggesting(suggestingModeByPath.get(key) ?? false);
+	}, [currentPath]);
+
 	const toggleSuggestingMode = useCallback(() => {
 		setSuggesting((prev) => {
 			const next = !prev;
-			suggestingModeRef.value = next;
+			const key = useEditorStore.getState().currentPath ?? "";
+			if (next) suggestingModeByPath.set(key, true);
+			else suggestingModeByPath.delete(key);
 			if (editorRef.current) {
 				setEditMode({ storage: editorRef.current.storage }, next ? "suggesting" : "editing");
 			}

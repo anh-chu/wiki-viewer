@@ -165,10 +165,10 @@ describe("Suggesting mode survives a remount", () => {
 	test("the mode is held outside the component", () => {
 		assert.match(
 			EDITOR,
-			/const suggestingModeRef = \{ value: false \};/,
+			/const suggestingModeByPath = new Map<string, boolean>\(\);/,
 			"expected module-scope storage for the mode",
 		);
-		const declAt = EDITOR.indexOf("const suggestingModeRef");
+		const declAt = EDITOR.indexOf("const suggestingModeByPath");
 		const componentAt = EDITOR.indexOf("export function KBEditor(");
 		assert.ok(
 			declAt > 0 && declAt < componentAt,
@@ -176,16 +176,43 @@ describe("Suggesting mode survives a remount", () => {
 		);
 		assert.match(
 			EDITOR,
-			/useState\(\s*\(\) => suggestingModeRef\.value\s*\)/,
+			/useState\(\s*\(\) => suggestingModeByPath\.get\(currentPath \?\? ""\) \?\? false,?\s*\)/,
 			"the initial state must read through to the module-scope value",
 		);
 	});
 
-	test("the toggle records the new mode", () => {
+	test("the mode is keyed by document, so it cannot carry across files", () => {
+		// An earlier version used a single global value. Opening a second document then
+		// inherited the first one's mode, so its edits were tracked without the reader
+		// asking — the same class of leak already fixed for the margin expansion and the
+		// Source draft. Google Docs scopes mode to the document; so does this now.
+		assert.ok(
+			!/const suggestingModeRef = \{ value: false \};/.test(EDITOR),
+			"the global singleton must not return",
+		);
+		const toggle = EDITOR.slice(
+			EDITOR.indexOf("const toggleSuggestingMode"),
+			EDITOR.indexOf("const [sourceText"),
+		);
+		assert.match(
+			toggle,
+			/suggestingModeByPath\.set\(key, true\)/,
+			"enabling must record against the document",
+		);
+		assert.match(
+			toggle,
+			/suggestingModeByPath\.delete\(key\)/,
+			"disabling must clear only that document",
+		);
+	});
+
+	test("a path change adopts the new document's mode", () => {
+		// Without this the state keeps the old mode while the map holds the new one's,
+		// and the re-arm effect below would write the stale value back into the plugin.
 		assert.match(
 			EDITOR,
-			/suggestingModeRef\.value = next;/,
-			"toggling must persist the mode",
+			/setSuggesting\(suggestingModeByPath\.get\(key\) \?\? false\)/,
+			"switching documents must adopt that document's mode",
 		);
 	});
 

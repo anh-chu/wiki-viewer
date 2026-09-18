@@ -624,6 +624,14 @@ the draft is recorded **on every change**, not only when toggling: a write-back 
 ran on toggle alone would still lose everything typed since the toggle, which is
 exactly the window a remount can land in.
 
+**Suggesting mode is per document, like the other persisted state.** It has to outlive
+the remount (losing it means edits stop being tracked without the reader being told),
+but it must not be global: an earlier version used one value for the whole editor, so
+turning Suggesting on for one file left the *next* file you opened also in Suggesting
+mode, tracking edits the reader had not asked to track. It is keyed by path now, which
+is also how Google Docs scopes it, and a path change adopts the new document's mode so
+the toolbar and the stored value cannot disagree.
+
 **Suggesting mode survives a remount too, and that one is not cosmetic.** The same
 unmount that collapsed the margin card reset `suggesting` to false. A reader who had
 switched to Suggesting would silently be back in Editing, and their next keystroke
