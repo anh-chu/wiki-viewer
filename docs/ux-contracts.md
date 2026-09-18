@@ -588,6 +588,18 @@ presentations cannot diverge in what they offer. Hovering a card applies
 The column is inset `right-2` from the viewport edge and its cards span the full
 column width, so the gutter never touches the window edge.
 
+**A reload must not unmount the editor.** `fileLoading` goes true on every external
+file change, not only the first load, so `{fileLoading ? <Spinner/> : <KBEditor/>}`
+replaced the editor with a spinner and unmounted it — destroying all of its component
+state. Verified live: a tag set on `.ProseMirror` before such a change was gone after
+it. Three separate defects came from that one line (a collapsing card, Suggesting
+reverting to Editing, Source mode discarding its draft); each was fixed on its own
+before the shared cause was addressed. The editor now stays mounted and the spinner is
+reserved for a genuine first load, which is also when there is no editor to preserve.
+The editor paints its own overlay spinner, so the outer swap was redundant as well as
+destructive. Other `fileLoading ?` swaps in the viewer pane guard a toolbar icon and a
+plain-text `<pre>`; neither holds state, so neither is affected.
+
 **Source mode survives a remount, and it carries unsaved work.** Source mode is a
 `<textarea>` holding the file's markdown. The remount described below reset both the
 mode and its draft, so a reader typing markdown source was dropped back into the
