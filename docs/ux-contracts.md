@@ -585,6 +585,9 @@ the legacy popover through a shared component (`variant="margin"`), so the two
 presentations cannot diverge in what they offer. Hovering a card applies
 `data-hovered="true"` to its exact-text highlight, tying column to document.
 
+The column is inset `right-2` from the viewport edge and its cards span the full
+column width, so the gutter never touches the window edge.
+
 **Cards host their thread in place.** Clicking a card expands the thread inside
 that card at its anchor; clicking it again collapses it. The card is the thread's
 home, not a launcher for a floating popover, so the comment never moves away from
