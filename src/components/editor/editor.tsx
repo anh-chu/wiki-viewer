@@ -1231,7 +1231,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 			renderMarkdown,
 			lastRenderedKey: renderedKeyRef.current,
 			lastRenderedPath: renderedPath,
-			revisionChanged: false,
 			annotationChanged:
 				lastAnnotationFingerprintRef.current !== null &&
 				lastAnnotationFingerprintRef.current !== annotationFingerprint,

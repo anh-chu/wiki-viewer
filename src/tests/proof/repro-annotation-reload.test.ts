@@ -39,7 +39,6 @@ function afterAnnotationOp(overrides: Partial<RenderInputs> = {}): RenderInputs 
 		renderMarkdown: "# Title\n\nBody text.\n",
 		lastRenderedKey: "notes/doc.md # Title\n\nBody text.\n",
 		lastRenderedPath: "notes/doc.md",
-		revisionChanged: false,
 		annotationChanged: true,
 		...overrides,
 	};
@@ -69,7 +68,7 @@ test("repro-annotation-reload: accepting a suggestion must NOT re-serialize here
 	// Accept changes the markdown, but it is applied as a ProseMirror
 	// TRANSACTION (Phase 5), not by re-stamping HTML through setContent.
 	const decision = shouldRerenderDocument(
-		afterAnnotationOp({ annotationChanged: true, revisionChanged: true }),
+		afterAnnotationOp({ annotationChanged: true }),
 	);
 	assert.equal(
 		decision.rerender,
@@ -142,7 +141,6 @@ test("repro-annotation-reload: the annotation signal is load-bearing, not decora
 		renderMarkdown: "# Title\n\nBody text.\n",
 		lastRenderedKey: "notes/other.md # Title\n\nBody text.\n",
 		lastRenderedPath: "notes/other.md",
-		revisionChanged: false,
 	} as const;
 
 	// Signal present -> recognised as annotation-only, document untouched.

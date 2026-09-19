@@ -16,9 +16,8 @@
  *
  * The fix keys on **identity**: every block element carries the ref that was
  * stamped onto it (`data-block-ref`), so we read the ref off the element rather
- * than inferring it from position. `alignByStampedRef` is the real mapping path;
- * `alignByIndex` is retained only so the regression test can demonstrate the
- * old, broken behaviour.
+ * than inferring it from position. `alignByStampedRef` is the only mapping path;
+ * the old index-based loop is gone rather than kept around for a test to call.
  */
 
 export interface BlockPosition {
@@ -77,30 +76,4 @@ export function alignByStampedRef(
 
 	const unmatchedRefs = [...expected].filter((ref) => !positions.has(ref));
 	return { positions, unmatchedRefs, orphanElements };
-}
-
-/**
- * The legacy behaviour, preserved verbatim so the regression test can prove it
- * is broken. Do not use this in product code.
- *
- * Returns only what the old loop produced — a ref→position map — so a test can
- * assert the mismatch directly.
- */
-export function alignByIndex(
-	elements: readonly BlockElementLike[],
-	snapshotBlocks: readonly { ref: string }[],
-	snapshotBlockOffset = 0,
-): Map<string, BlockPosition> {
-	const positions = new Map<string, BlockPosition>();
-	const limit = Math.min(
-		elements.length,
-		snapshotBlocks.length - snapshotBlockOffset,
-	);
-	for (let i = 0; i < limit; i += 1) {
-		const el = elements[i];
-		const block = snapshotBlocks[i + snapshotBlockOffset];
-		if (!el || !block) continue;
-		positions.set(block.ref, el.measure());
-	}
-	return positions;
 }

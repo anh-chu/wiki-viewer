@@ -15,7 +15,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-	alignByIndex,
 	alignByStampedRef,
 	type BlockElementLike,
 } from "../../lib/proof/pip-alignment.js";
@@ -29,51 +28,50 @@ function el(ref: string | null, top: number): BlockElementLike {
 	};
 }
 
-test("repro-pip-consistency: index mapping misaligns when mdast expands to more DOM nodes than blocks", () => {
-	// Source markdown: 3 blocks — para, loose list, para.
-	// mdast gives 3 blocks, but the loose list renders as <ul> + 2 <li> = extra DOM nodes.
+test("repro-pip-consistency: identity mapping is what makes the pips line up", () => {
+	// The user symptom this covers: "3 comments on 3 blocks → only 1 pip renders."
+	//
+	// An earlier version of this test hand-built a children array containing two
+	// unstamped `<li>` elements as TOP-LEVEL siblings of the `<ul>`. That cannot
+	// happen: ProseMirror renders list items inside the list, and the editor reads
+	// only direct children (`Array.from(proseMirror.children)`), so the `<li>`s were
+	// never candidates. The test asserted a scenario the DOM cannot produce, and it
+	// needed `alignByIndex` — a second copy of the old loop, kept alive solely to be
+	// its foil — to do it. Both are gone.
+	//
+	// What is real, and what the mapping actually has to survive: a block whose
+	// element is present but UNSTAMPED, and a block whose element has not rendered
+	// yet. Those are the shapes that produced missing and misplaced pips.
 	const snapshotBlocks = [
 		{ ref: "b111111" }, // para
-		{ ref: "b222222" }, // loose list  (expands to 3 DOM children)
+		{ ref: "b222222" }, // loose list — ONE top-level node, however many items
 		{ ref: "b333333" }, // para
 	];
 
-	// Rendered DOM: para, ul, li, li, para  → 5 children for 3 blocks.
+	// Direct children only: para, ul (unstamped because the stamp pass had not run),
+	// para. Three elements, three blocks.
 	const children = [
-		el("b111111", 0), // para   ✔ aligns
-		el("b222222", 100), // ul     ✔ aligns
-		el(null, 200), // li     — no ref of its own
-		el(null, 300), // li     — no ref of its own
-		el("b333333", 400), // para   ✘ index says this is beyond the loop limit
+		el("b111111", 0),
+		el(null, 100), // the list element, not yet stamped
+		el("b333333", 200),
 	];
 
-	// --- Legacy behaviour: reproduces the bug -------------------------------
-	const legacy = alignByIndex(children, snapshotBlocks);
-	assert.equal(
-		legacy.size,
-		3,
-		"legacy loop truncates at Math.min(5, 3) = 3, so it claims all 3 blocks mapped",
-	);
-	// The third block IS present but its position came from children[2] (an <li>),
-	// not from the real block element. That is the silent corruption.
-	assert.equal(
-		legacy.get("b333333")?.top,
-		200,
-		"BUG: b333333's position was taken from the wrong DOM node (an <li> at top=200)",
-	);
-	assert.notEqual(
-		legacy.get("b333333")?.top,
-		400,
-		"BUG: correct position (400) is never read, so the pip renders in the wrong place",
-	);
-
-	// --- Fixed behaviour: identity-keyed -----------------------------------
 	const fixed = alignByStampedRef(children, snapshotBlocks);
-	assert.equal(fixed.positions.size, 3, "all three commented blocks resolve by identity");
-	assert.equal(fixed.positions.get("b333333")?.top, 400, "b333333 gets its true element's position");
-	assert.equal(fixed.positions.get("b222222")?.top, 100, "b222222 gets its true element's position");
-	assert.deepEqual(fixed.unmatchedRefs, [], "no commented block is left unmapped");
-	assert.equal(fixed.orphanElements, 2, "the two unstamped <li>s are counted, not silently skipped");
+
+	// The two stamped blocks resolve by identity, so their pips land on the right
+	// elements no matter what sits between them.
+	assert.equal(fixed.positions.get("b111111")?.top, 0);
+	assert.equal(fixed.positions.get("b333333")?.top, 200, "the pip is not shifted by the gap");
+
+	// The unstamped block is reported rather than guessed at. Positional matching
+	// would have claimed it mapped to the element at index 1 and drawn a pip that
+	// looked correct while pointing at an element it never verified.
+	assert.deepEqual(
+		fixed.unmatchedRefs,
+		["b222222"],
+		"an unstamped block is surfaced, not silently given a neighbour's position",
+	);
+	assert.equal(fixed.orphanElements, 1, "and the unstamped element is counted");
 });
 
 test("repro-pip-consistency: three comments on three simple blocks all produce a pip", () => {

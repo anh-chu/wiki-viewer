@@ -36,8 +36,6 @@ export interface RenderInputs {
 	lastRenderedKey: string | null;
 	/** Path of the last successful render. */
 	lastRenderedPath: string | null;
-	/** Sidecar revision advanced since the last render. */
-	revisionChanged: boolean;
 	/** An annotation (comment/suggestion) mutation occurred. */
 	annotationChanged: boolean;
 }
