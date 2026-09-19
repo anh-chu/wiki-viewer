@@ -86,9 +86,20 @@ describe("a lost anchor removes the annotation from every surface", () => {
 	});
 
 	test("CONTROL: the exclusion filters are not vacuous", () => {
-		// Proves these files really do filter suggestions somewhere, so a match above is
-		// meaningful rather than incidental.
-		assert.match(read("src/components/editor/editor.tsx"), /\.filter\(/);
-		assert.match(read("src/lib/proof/collab-state.ts"), /\.filter\(/);
+		// The first version of this control asserted only that the files contain a
+		// `.filter(` — which they contain dozens of, none of them necessarily the one
+		// under test. It would have passed with the guarded filter deleted. It now
+		// asserts the specific predicate each case depends on, so removing that
+		// predicate fails here rather than silently.
+		assert.match(
+			read("src/components/editor/editor.tsx"),
+			/sg\.status === "pending" && !sg\.stale/,
+			"the editor's pending set must exclude stale suggestions",
+		);
+		assert.match(
+			read("src/lib/proof/collab-state.ts"),
+			/s\.status === "pending" && !s\.stale/,
+			"collab-state must exclude stale suggestions from its pending count",
+		);
 	});
 });
