@@ -7,6 +7,13 @@ import type { Sidecar, ProofEvent, Block, Snapshot } from "@/lib/proof/types";
 interface PathEntry {
 	sidecar: Sidecar | null;
 	snapshotRevision: number;
+	/**
+	 * Server-resolved anchor positions for this document's comments.
+	 *
+	 * Held beside `snapshotBlocks` rather than inside the sidecar because the two must
+	 * describe the same revision: the editor paints the range onto those exact blocks.
+	 */
+	commentViews?: Record<string, { ref: string | null; offset: number; length: number; status: string }>;
 	lastEventId: number;
 	/** Ordered block list from latest GET snapshot. Used to resolve ref→position in editor. */
 	snapshotBlocks: Block[];
@@ -82,6 +89,7 @@ export const useProofStore = create<ProofState>((set, get) => ({
 					[path]: {
 						...(s.byPath[path] ?? defaultEntry()),
 						snapshotBlocks: snap.blocks,
+						commentViews: snap.commentViews,
 						// Never move the base backwards. A GET issued before a write can
 						// resolve after it, and this used to assign `snap.revision`
 						// unconditionally — so a late read rolled the revision back and the

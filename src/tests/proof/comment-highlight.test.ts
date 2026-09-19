@@ -312,3 +312,79 @@ describe("ref aliasing when a block is edited", () => {
 		assert.deepEqual(aliases, {});
 	});
 });
+
+describe("a resolved view decides WHICH occurrence is highlighted", () => {
+	/**
+	 * The client half of the ambiguity the server already resolved.
+	 *
+	 * `findInRuns` returned the FIRST occurrence of the quote unconditionally, so a
+	 * comment on the second "quick " in a sentence painted the first one. The server now
+	 * resolves the anchor and reports where it is. That offset cannot be added to a
+	 * rendered position — markdown and rendered text are different coordinate systems, a
+	 * list item's markdown carrying a `1. ` prefix its node does not — but it can CHOOSE
+	 * between occurrences, which is exact.
+	 */
+	const SENTENCE = "the quick fox and the quick hen";
+
+	function comment(): unknown {
+		return {
+			id: "cc1",
+			ref: "blk0",
+			resolved: false,
+			createdAt: "2026-09-19T00:00:00.000Z",
+			turns: [],
+			textAnchor: { start: 0, end: 6, selectedText: "quick " },
+		};
+	}
+
+	test("picks the occurrence the view points at, not the first", () => {
+		const doc = paragraphs(SENTENCE);
+		const secondAt = SENTENCE.indexOf("quick ", SENTENCE.indexOf("quick ") + 1);
+		const set = buildCommentDecorations(
+			doc as never,
+			blocksFor(doc),
+			[comment()] as never,
+			null,
+			{ cc1: { ref: "blk0", offset: secondAt, length: 6, status: "moved" } },
+		);
+		const ranges = set.find();
+		assert.equal(ranges.length, 1);
+		assert.equal(doc.textBetween(ranges[0].from, ranges[0].to), "quick ");
+		assert.ok(
+			ranges[0].from > SENTENCE.indexOf("quick ") + 4,
+			`expected the SECOND occurrence, got offset ${ranges[0].from}`,
+		);
+	});
+
+	test("a view pointing at the first occurrence still picks the first", () => {
+		const doc = paragraphs(SENTENCE);
+		const set = buildCommentDecorations(
+			doc as never,
+			blocksFor(doc),
+			[comment()] as never,
+			null,
+			{ cc1: { ref: "blk0", offset: SENTENCE.indexOf("quick "), length: 6, status: "exact" } },
+		);
+		const ranges = set.find();
+		assert.equal(ranges.length, 1);
+		assert.ok(ranges[0].from < 10, `expected the first occurrence, got ${ranges[0].from}`);
+	});
+
+	test("a view reported lost paints nothing rather than guessing", () => {
+		const doc = paragraphs("the quick fox");
+		const set = buildCommentDecorations(
+			doc as never,
+			blocksFor(doc),
+			[comment()] as never,
+			null,
+			{ cc1: { ref: null, offset: 0, length: 0, status: "lost" } },
+		);
+		assert.equal(set.find().length, 0, "a lost anchor is not drawn somewhere plausible");
+	});
+
+	test("no view at all still highlights, as before", () => {
+		const doc = paragraphs(SENTENCE);
+		const set = buildCommentDecorations(doc as never, blocksFor(doc), [comment()] as never);
+		assert.equal(set.find().length, 1, "the pre-existing path is unchanged");
+	});
+});

@@ -114,6 +114,17 @@ export function buildCommentDecorations(
 	comments: readonly Comment[],
 	/** Block ref whose margin card is hovered, so its text can light up in step. */
 	hoveredRef?: string | null,
+	/**
+	 * Per-comment resolution from the same read that produced `_blocks`.
+	 *
+	 * The server resolves each anchor against the document it is serving, so the range
+	 * here and the block list can never disagree about which revision they describe.
+	 * It is used as a HINT rather than as arithmetic: `offset` is a markdown offset and
+	 * this function decorates rendered text, which differs (a list item's markdown
+	 * carries the `1. ` prefix its rendered node does not). Using it to choose which
+	 * occurrence to highlight is exact; adding it to a document position is not.
+	 */
+	views?: Record<string, { ref: string | null; offset: number; length: number; status: string }>,
 ): DecorationSet {
 	const runs = docTextRuns(doc);
 	if (runs.length === 0 || comments.length === 0) return DecorationSet.empty;
@@ -128,7 +139,12 @@ export function buildCommentDecorations(
 	const decorations: Decoration[] = [];
 
 	for (const comment of comments) {
-		if (comment.resolved || comment.stale || !comment.ref) continue;
+		if (comment.resolved || comment.stale) continue;
+		// The resolved view supersedes the stored ref: it is this document's answer, while
+		// `comment.ref` may name a block that no longer exists.
+		const view = views?.[comment.id];
+		const ref = view?.ref ?? comment.ref;
+		if (!ref) continue;
 
 		// A comment carries a text anchor only when its author had a selection. The
 		// UI sends none for a plain block comment (`...(textAnchor ? {...} : {})` in
@@ -137,7 +153,7 @@ export function buildCommentDecorations(
 		// reader could not tell which words it was about. Google Docs marks the whole
 		// block in that case, which is what the fallback below does.
 		const selectedText = comment.textAnchor?.selectedText;
-		const blockIndex = indexOfRef.get(comment.ref) ?? -1;
+		const blockIndex = indexOfRef.get(ref) ?? -1;
 
 		if (!selectedText) {
 			// No selection: mark the commented block itself, rather than nothing.
@@ -153,7 +169,7 @@ export function buildCommentDecorations(
 						class: COMMENT_HIGHLIGHT_CLASS,
 						"data-comment-id": comment.id,
 						"data-block-scoped": "true",
-						"data-hovered": hoveredRef === comment.ref ? "true" : "false",
+						"data-hovered": hoveredRef === ref ? "true" : "false",
 					}),
 				);
 			}
@@ -165,7 +181,11 @@ export function buildCommentDecorations(
 		// longer lists, rather than dropping the highlight entirely.
 		const scope = scopeForRef(runs, blockIndex, spans);
 
-		const hit = findInRuns(scope, selectedText);
+		// An anchor the server could not place is not guessed at here either: drawing it
+		// somewhere plausible would be worse than leaving it to the lost card.
+		if (view && view.status === "lost") continue;
+
+		const hit = findInRuns(scope, selectedText, view?.offset);
 		if (!hit) continue;
 
 		decorations.push(
@@ -174,7 +194,7 @@ export function buildCommentDecorations(
 				"data-comment-id": comment.id,
 				// Hovering a margin card lights its words, the link Google Docs uses
 				// to tie a comment in the column to the text it is about.
-				"data-hovered": hoveredRef === comment.ref ? "true" : "false",
+				"data-hovered": hoveredRef === ref ? "true" : "false",
 			}),
 		);
 	}
@@ -238,13 +258,36 @@ function topLevelSpans(doc: {
 function findInRuns(
 	runs: readonly { from: number; to: number; text: string }[],
 	needle: string,
+	/**
+	 * Where the server says the text is, as a markdown offset.
+	 *
+	 * Only used to CHOOSE among occurrences, never added to a position: markdown offsets
+	 * and rendered positions are different coordinate systems (a list item's markdown
+	 * carries a `1. ` prefix its rendered node lacks). When the same words appear twice in
+	 * a sentence, the occurrence nearest this hint is the one the annotation is on — which
+	 * is the client half of the ambiguity the server already resolved.
+	 */
+	hint?: number,
 ): { from: number; to: number } | null {
-	// Pass 1: a single run containing the whole phrase.
+	// Pass 1: a single run containing the whole phrase. Every occurrence is collected so
+	// the hint can pick between them; the first match used to win unconditionally, which
+	// put a repeated phrase's highlight on the wrong copy.
+	let best: { from: number; to: number } | null = null;
+	let bestDistance = Number.POSITIVE_INFINITY;
 	for (const run of runs) {
-		const at = run.text.indexOf(needle);
-		if (at === -1) continue;
-		return { from: run.from + at, to: run.from + at + needle.length };
+		let at = run.text.indexOf(needle);
+		while (at !== -1) {
+			const candidate = { from: run.from + at, to: run.from + at + needle.length };
+			if (hint === undefined) return candidate;
+			const distance = Math.abs(at - hint);
+			if (distance < bestDistance) {
+				best = candidate;
+				bestDistance = distance;
+			}
+			at = run.text.indexOf(needle, at + 1);
+		}
 	}
+	if (best) return best;
 
 	// Pass 2: the phrase spans touching runs (inline marks split a sentence).
 	for (const group of groupContiguousRuns(runs)) {
@@ -306,6 +349,8 @@ export function commentHighlightExtension(getState: () => {
 	blocks: readonly { ref: string; markdown: string }[];
 	comments: readonly Comment[];
 	hoveredRef?: string | null;
+	/** Server-resolved positions, from the same snapshot read as `blocks`. */
+	views?: Record<string, { ref: string | null; offset: number; length: number; status: string }>;
 }) {
 	return Extension.create({
 		name: "commentHighlight",
@@ -316,15 +361,15 @@ export function commentHighlightExtension(getState: () => {
 					key: commentHighlightKey,
 					state: {
 						init: (_config, state) => {
-							const { blocks, comments, hoveredRef } = getState();
-							return buildCommentDecorations(state.doc, blocks, comments, hoveredRef);
+							const { blocks, comments, hoveredRef, views } = getState();
+							return buildCommentDecorations(state.doc, blocks, comments, hoveredRef, views);
 						},
 						apply: (tr, _old, _oldState, newState) => {
 							// Rebuild rather than map: the comment set is external to the
 							// document, so a transaction is not the only thing that can
 							// invalidate the set.
-							const { blocks, comments, hoveredRef } = getState();
-							return buildCommentDecorations(newState.doc, blocks, comments, hoveredRef);
+							const { blocks, comments, hoveredRef, views } = getState();
+							return buildCommentDecorations(newState.doc, blocks, comments, hoveredRef, views);
 						},
 					},
 					props: {

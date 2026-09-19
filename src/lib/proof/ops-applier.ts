@@ -2,7 +2,17 @@ import { readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import type { RootContent } from "mdast";
-import type { Op, Block, Snapshot, Sidecar, ProofEvent, Comment, Suggestion } from "./types";
+import type {
+	Op,
+	Block,
+	Snapshot,
+	Sidecar,
+	ProofEvent,
+	Comment,
+	Suggestion,
+	AnchorStatus,
+} from "./types";
+import { projectCommentViews, resolveAnchor } from "./anchor";
 import { parseBlocks, blockToMarkdown, blocksToMarkdown } from "./blocks";
 import { assignRefs, resolveRef, computeRefDelta, textHash } from "./block-refs";
 import { readSidecar, writeSidecar, emptySidecar } from "./sidecar";
@@ -242,11 +252,31 @@ function markOrphanedRefsStale(sidecar: Sidecar, newRefMap: Record<string, unkno
 	}
 }
 
+/**
+ * Build the read model for one document.
+ *
+ * Resolution happens HERE, against the same `blocks` this snapshot ships, rather than in
+ * the browser. The editor reads its blocks and its sidecar from two independent store
+ * paths fed by two separate HTTP calls, and a `Snapshot` carries no anchor records — so a
+ * client-side resolver would have nothing to resolve against. Resolving per read also
+ * means the ranges and the block list can never disagree about which revision they
+ * describe, which is the coordinate mismatch that painted the wrong span in a list item.
+ */
 function buildSnapshot(
 	mdPath: string,
 	blocks: Block[],
 	sidecar: Sidecar,
 ): Snapshot {
+	const views = projectCommentViews(sidecar, sidecar.comments, blocks);
+	const withStatus = <T extends { id: string; anchorId?: string; anchorStatus?: AnchorStatus }>(
+		items: T[],
+	): T[] =>
+		items.map((item) => {
+			const view = views[item.id];
+			if (!view) return item;
+			return { ...item, anchorStatus: view.status };
+		});
+
 	return {
 		path: mdPath,
 		revision: sidecar.revision,
@@ -254,8 +284,9 @@ function buildSnapshot(
 		updatedAt: sidecar.updatedAt,
 		fingerprint: sidecar.fingerprint,
 		blocks,
-		comments: sidecar.comments,
-		suggestions: sidecar.suggestions.filter((s) => s.status === "pending"),
+		commentViews: views,
+		comments: withStatus(sidecar.comments),
+		suggestions: withStatus(sidecar.suggestions.filter((s) => s.status === "pending")),
 		lastEventId: sidecar.nextEventId - 1,
 	};
 }

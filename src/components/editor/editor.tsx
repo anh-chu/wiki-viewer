@@ -405,6 +405,10 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	const commentsRaw = useProofStore((s) =>
 		currentPath ? s.byPath[currentPath]?.sidecar?.comments : undefined
 	);
+	// Server-resolved anchor positions, returned by the same snapshot read as the blocks.
+	const commentViews = useProofStore((s) =>
+		currentPath ? s.byPath[currentPath]?.commentViews : undefined
+	);
 
 	const snapshotBlocks = useMemo(() => snapshotBlocksRaw ?? [], [snapshotBlocksRaw]);
 	// Tier-2 snapshots include leading frontmatter blocks, while the viewing
@@ -911,11 +915,15 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		blocks: { ref: string; markdown: string }[];
 		comments: ProofComment[];
 		hoveredRef?: string | null;
+		views?: Record<string, { ref: string | null; offset: number; length: number; status: string }>;
 	}>({ blocks: [], comments: [] });
 	commentHighlightStateRef.current = {
 		blocks: snapshotBlocks.map((b) => ({ ref: b.ref, markdown: b.markdown })),
 		comments,
 		hoveredRef: hoveredMarginRef,
+		// Resolved against the very blocks above, so the range and the block list always
+		// describe the same revision.
+		views: commentViews,
 	};
 	// Persist tracked edits typed in Suggesting mode as sidecar suggestions.
 	// Without `onTrackedEdit` the marks are stripped on save, so typed text became a
