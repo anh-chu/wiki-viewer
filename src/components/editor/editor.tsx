@@ -31,6 +31,7 @@ import { SuggestionPip } from "./suggestion-pip";
 import { CommentThread } from "./comment-thread";
 import { CommentMargin } from "./comment-margin";
 import { SuggestEditPopover } from "./suggest-edit-popover";
+import { useTrackedEditPersistence } from "./use-tracked-edit-persistence";
 import { SuggestionReviewPopover } from "./suggestion-review-popover";
 import { SlashCommands } from "./slash-commands";
 import { DocumentOutline } from "./document-outline";
@@ -853,6 +854,14 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		comments,
 		hoveredRef: hoveredMarginRef,
 	};
+	// Persist tracked edits typed in Suggesting mode as sidecar suggestions.
+	// Without `onTrackedEdit` the marks are stripped on save, so typed text became a
+	// permanent edit with no suggestion record — pending on screen, already applied
+	// in the file, and gone on reload.
+	const { handleTrackedEdit } = useTrackedEditPersistence();
+	const trackedEditRef = useRef(handleTrackedEdit);
+	trackedEditRef.current = handleTrackedEdit;
+
 	const extensions = useMemo(
 		() =>
 			[
@@ -861,6 +870,9 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 				// Behaviour layer: intercepts typing/deletion in suggesting mode.
 				trackChangesExtension({
 					author: () => "human",
+					// Read through a ref so the extension list stays stable across
+					// renders: rebuilding it would recreate the editor and lose state.
+					onTrackedEdit: (info) => trackedEditRef.current(info),
 				}),
 			] as typeof editorExtensions,
 		[],

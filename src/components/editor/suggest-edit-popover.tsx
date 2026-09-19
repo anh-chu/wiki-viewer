@@ -8,7 +8,7 @@ import { useProofStore } from "@/stores/proof-store";
 import { wsFetch } from "@/lib/workspace-client";
 import type { ProofEvent, Snapshot, SuggestionKind } from "@/lib/proof/types";
 
-async function postOp(
+export async function postOp(
 	path: string,
 	baseRevision: number,
 	ops: object[],

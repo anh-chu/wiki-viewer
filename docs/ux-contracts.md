@@ -707,6 +707,21 @@ suggestions are simply filtered out everywhere (`!stale` in the editor's pending
 in `collab-state`), so latching `stale` is enough and a cancel flag would be redundant
 state.
 
+**Typing in Suggesting mode creates a real suggestion.** There are two ways to suggest:
+the selection bubble's Suggest button, and typing with the mode toggle set to
+Suggesting. Both must produce a sidecar record. The typed path did not: the marks were
+stamped, `onTrackedEdit` was never passed to the extension, and the serialization strip
+removed them on save — so the text landed as a plain permanent edit with no suggestion
+record. On screen it looked pending; in the file it was already applied; a reload showed
+nothing. That is worse than either failure on its own, because the user is told the
+change is awaiting review while it has already taken effect.
+
+Consecutive keystrokes coalesce into one suggestion. `onTrackedEdit` fires per
+transaction, so a typed word arrives as several calls; without merging, "hello" would
+leave five one-letter cards in the column. A run is keyed by document, block ref and
+kind, and closes after 1.2s idle, when the block changes, or when typing turns into
+deleting.
+
 **Resolved threads keep the reply box, and the vocabulary is fixed.** Two constraints
 checked against the running app rather than the source. A resolved thread expands with
 its composer present (confirmed on a resolved card showing "Reopen"), because hiding the
