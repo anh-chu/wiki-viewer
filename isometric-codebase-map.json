@@ -709,7 +709,14 @@
      "name": "Reference map",
      "h": 5,
      "what": "Keeps stable block references across edits.",
-     "how": "block-refs.ts keeps stable block references valid across edits."
+     "how": "block-refs.ts derives a ref as \"b\" + sha256(block markdown) and records one-generation aliases when content MOVES to a new ref. It deliberately does not try to match a block edited in place: that guess was removed once annotations stopped keying off refs and began keying off anchors."
+    },
+    {
+     "code": "DA",
+     "name": "Durable anchors",
+     "h": 6,
+     "what": "Identify an annotation by the text it is about, so editing that text moves the annotation instead of destroying it.",
+     "how": "anchor.ts mints an opaque anchorId and records the ref it was last seen under, a block-local offset, and the quoted text plus 32 characters of context either side (the W3C TextQuoteSelector shape). Resolution tries the recorded position, then the same block at a new offset, then the block that took the old ref's slot, then a unique document-wide match, and otherwise reports lost; it reports ambiguous when context cannot separate two candidates. It never invents an offset. buildSnapshot in ops-applier.ts resolves every annotation server-side per read and ships commentViews beside the blocks, because the editor loads its blocks and its sidecar over two separate requests. ops-applier.ts mints anchors on comment.add and suggestion.add, and findBlockIndex resolves block ops through the anchor first - that is why a typed run survives the first keystroke that changes its block's text. prevRefOrder carries the pre-reparse ordering forward, since refMap is already replaced with the new refs by the time a snapshot is built."
     },
     {
      "code": "AH",
