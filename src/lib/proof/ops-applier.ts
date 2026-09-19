@@ -151,12 +151,7 @@ export function reconcileRefsAndCancelOrphans(sidecar: Sidecar, content: string)
 	const { blocks, newRefMap } = assignRefs(nodes, sidecar);
 	// `refMap`'s keys are inserted in document order, so they are the previous block
 	// ordering — what lets an edited block be matched to the ref it used to hold.
-	const { refAliases } = computeRefDelta(
-		sidecar.refMap,
-		oldHashToRef,
-		blocks,
-		Object.keys(sidecar.refMap),
-	);
+	const { refAliases } = computeRefDelta(sidecar.refMap, oldHashToRef, blocks);
 
 	sidecar.refMap = newRefMap;
 	// Keep the previous generation of aliases alongside the new one, as applyOps does.
@@ -1413,12 +1408,7 @@ export async function applyOps(args: {
 		// written by `assignRefs`, so it describes the blocks as they stood before this
 		// op — the information needed to alias a block that was edited in place rather
 		// than moved. Without it every annotation on an edited block was orphaned.
-		const { refAliases } = computeRefDelta(
-			workingSidecar.refMap,
-			oldHashToRef,
-			finalBlocks,
-			Object.keys(workingSidecar.refMap),
-		);
+		const { refAliases } = computeRefDelta(workingSidecar.refMap, oldHashToRef, finalBlocks);
 		Object.assign(collectedAliases, refAliases);
 
 		// The revision is a CONTENT baseline. Annotation-only ops (comment.add /

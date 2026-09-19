@@ -91,24 +91,19 @@ export function resolveRef(
  * oldRefMap: refMap before ops. newBlocks: blocks after ops.
  * Returns { newRefMap, refAliases } — aliases map old ref -> new ref for any block
  * that changed identity this mutation. Aliases are ONE-generation only.
+ *
+ * This handles content that MOVED to a different ref. It deliberately does not try to
+ * match a block that was EDITED in place: that pass existed (added in 6f9fd72) and was
+ * removed once annotations stopped keying off refs. It was a positional guess at an
+ * identity that had been thrown away, and it could only ever be right by luck — a block
+ * being edited is identified by its anchor now, which searches for the recorded text.
+ * The alias map survives for one release so a v1 sidecar can still resolve a ref that
+ * was renamed before the upgrade.
  */
 export function computeRefDelta(
 	oldRefMap: Record<string, { textHash: string; lastSeenAt: string }>,
 	oldHashToRef: Map<string, string>,
 	newBlocks: Block[],
-	/**
-	 * The previous block ORDER, when the caller can supply it.
-	 *
-	 * Refs are content-derived, so editing a block changes its ref. Nothing above
-	 * matches a changed block to the ref it used to have — the hash lookups only find
-	 * content that MOVED — so an edited block's old ref was left unaliased and every
-	 * annotation on it was orphaned the moment the user typed. That is the "my
-	 * suggestions reset" failure: the sidecar still holds them, but their ref no
-	 * longer exists in the document, so nothing can resolve or render them.
-	 *
-	 * Position identifies that case, because a block being edited stays where it is.
-	 */
-	oldOrder?: readonly string[],
 ): {
 	newRefMap: Record<string, { textHash: string; lastSeenAt: string }>;
 	refAliases: Record<string, string>;
@@ -125,27 +120,6 @@ export function computeRefDelta(
 		const oldRef = oldHashToRef.get(hash);
 		if (oldRef && oldRef !== block.ref) {
 			refAliases[oldRef] = block.ref;
-		}
-	}
-
-	// A block that was EDITED keeps its position but gets a new ref.
-	//
-	// The hash lookups above cannot see this: the content is new, so nothing matches
-	// it, yet the block is the same one the user was annotating. Aliasing on position
-	// recovers the annotation instead of orphaning it.
-	if (oldOrder) {
-		const stillNamed = new Set(Object.keys(newRefMap));
-		for (let i = 0; i < newBlocks.length && i < oldOrder.length; i += 1) {
-			const oldRef = oldOrder[i];
-			const newRef = newBlocks[i].ref;
-			if (oldRef === newRef) continue;
-			// Only a ref that is genuinely gone gets aliased. If the old ref still names
-			// a block, this slot was taken by a different block and the old one moved
-			// elsewhere; aliasing here would drag annotations onto unrelated text.
-			if (stillNamed.has(oldRef)) continue;
-			if (!oldRefMap[oldRef]) continue;
-			if (refAliases[oldRef]) continue;
-			refAliases[oldRef] = newRef;
 		}
 	}
 
