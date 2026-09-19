@@ -707,29 +707,32 @@ suggestions are simply filtered out everywhere (`!stale` in the editor's pending
 in `collab-state`), so latching `stale` is enough and a cancel flag would be redundant
 state.
 
-**Typing in Suggesting mode creates a real suggestion.** There are two ways to suggest:
-the selection bubble's Suggest button, and typing with the mode toggle set to
-Suggesting. Both must produce a sidecar record. The typed path did not: the marks were
-stamped, `onTrackedEdit` was never passed to the extension, and the serialization strip
-removed them on save — so the text landed as a plain permanent edit with no suggestion
-record. On screen it looked pending; in the file it was already applied; a reload showed
-nothing. That is worse than either failure on its own, because the user is told the
-change is awaiting review while it has already taken effect.
+**Typing in Suggesting mode creates a real suggestion, recorded in the document.**
+There are two ways to suggest: the selection bubble's Suggest button, and typing with
+the mode toggle set to Suggesting. A typed run carries an `insertion` mark with a
+`data-id`, and that mark IS the record — it is written to the `.md` and read back on
+reload.
 
-Consecutive keystrokes coalesce into one suggestion. `onTrackedEdit` fires per
-transaction, so a typed word arrives as several calls; without merging, "hello" would
-leave five one-letter cards in the column. A run is keyed by document, block ref and
-kind, and closes after 1.2s idle, when the block changes, or when typing turns into
-deleting.
+An earlier implementation recorded typed suggestions in the sidecar instead, firing a
+write per keystroke. That path failed in a way worth recording: the marks were stamped,
+`onTrackedEdit` was never passed to the extension, and the serialization strip removed
+them on save — so the text landed as a plain permanent edit with no suggestion record.
+On screen it looked pending; in the file it was already applied; a reload showed
+nothing. Worse than either failure alone, because the user is told the change awaits
+review while it has already taken effect.
 
-A run is only extendable once its `suggestion.add` response has supplied an id, and the
-proposal text reaches the sidecar as the run grows rather than only when it closes. Both
-details were wrong in the first implementation: the returned id was never bound to the
-run, so no run could ever be extended, every keystroke created a fresh suggestion, and
-the text was posted as `markdown: ""` — leaving nothing durable to reload. The decision
-logic lives in `src/lib/proof/tracked-edit-runs.ts` so it can be driven directly by tests;
-the guard that missed this defect was regexes over source text, which the broken code
-satisfied.
+**No keystroke-level persistence, and no coalescing window.** The old design had to
+decide at every keystroke whether that character started a suggestion, continued one, or
+revised one, and to persist the guess immediately — hence `COALESCE_MS = 1200` and the
+`F` / `ED` / `CBA` groupings. A keystroke does not carry that intent, so the decision was
+a guess made before the user finished the thought, and persisting it mutated the
+document and orphaned neighbouring refs. Marks need none of this: the library assigns a
+suggestion id and stamps the same id on every character of one run, so a run stays one
+suggestion without a timer, and nothing has to be written until the document is saved.
+
+**The suggestion id is minted by the library, not by the app.** `addSuggestionMarks` and
+`transformToSuggestionTransaction` allocate it; the app only reads `data-id` when
+counting or settling suggestions.
 
 Writes to a document are serialized. Every op carries a base revision, so two overlapping
 requests both read revision R, one wins, and the loser retries against R+1; a second
@@ -890,33 +893,42 @@ refreshes the decoration layer only — zero `markdownToHtml`, zero `setContent`
 Selection and scroll position are preserved across the whole annotation loop.
 
 **Backspace in Suggesting mode strikes one character per press.** A suggestion is a
-change the reader can accept or reject, so a deletion does not remove text: it cancels the
-browser's delete and attaches a deletion mark, leaving the characters in place, struck
-through. That cancellation has a consequence recorded here because it produced exactly the
-symptom it looks like it should prevent: **the document does not change, so the caret does
-not move, and the next press recomputes the range it has already marked.** Pressing
-Backspace several times struck the same character repeatedly and the text appeared to stop
-deleting after the first press.
+change the reader can accept or reject, so a deletion does not remove text: the
+characters stay in place with a deletion mark, struck through.
 
-The plugin now moves the caret to the start of the range it just marked, and only when the
-caret is still inside that range — so someone who clicked elsewhere between presses keeps
-the position they chose. Live before: five presses left four identical marks on one
-character. After: `Q`, `R`, `S` and `T` each struck once, text still present for
-accept/reject. A rejected transaction discards its own selection with everything else, so
-"the user moved the caret inside the same press" is not reachable through this path.
+Getting this right required changing the mechanism, not patching the symptom. The
+earlier implementation cancelled the change (`filterTransaction` returned `false`) and
+attached a mark. That has a consequence recorded here because it produced exactly the
+symptom it looks like it should prevent: **the document does not change, so the caret
+does not move, and the next press recomputes the range it has already marked.** Pressing
+Backspace several times struck the same character repeatedly and the text appeared to
+stop deleting after the first press. A first fix moved the caret to the start of the
+range it had just marked; that treated the symptom.
 
-**What is correct and unchanged:** deleting in Edit mode applies for real, and deleting a
-multi-character selection in Suggesting mode marks the whole range in one press rather than
-one character per press.
+The mechanism is now the vendored `prosemirror-suggest-changes`, which **rewrites** the
+incoming transaction instead of cancelling it. The rewritten transaction adds the mark
+and applies normally, so the document changes, the caret advances with it, and the next
+press acts on the next character. There is no caret special-case left to get wrong.
+
+Verified live, both with and without a pause between presses: on `abcdef`, six Backspace
+presses across a 6-second gap produced `f`, `ef`, `def`, then continued onto the
+preceding original text, with one contiguous deletion mark and the text still present
+for accept/reject.
+
+**What is correct:** deleting in Edit mode applies for real, and deleting a
+multi-character selection in Suggesting mode marks the whole range in one press rather
+than one character per press.
+
+**Backspacing over text you just typed removes it** rather than striking it. Un-typing
+an uncommitted insertion is not a deletion worth tracking; Google Docs behaves the same
+way.
 
 **An annotation op does not rewrite the `.md`.** The sidecar write is what records a
-comment or a suggestion; the markdown is untouched, so the file is only written when its
-bytes actually change (`contentChanged`). This was not always so, and the cost was not a
-wasted write: rewriting the file bumped its mtime, chokidar reported the change, and the
-client watching its own open document read that as an external edit — reloading the
-snapshot and the sidecar, and in view mode reloading the page. Because every keystroke in
-Suggesting mode posts an op, **every character typed triggered a full document refresh
-under the cursor**, which is what made Suggesting mode feel unstable. Measured live: one
+comment; the markdown is untouched, so the file is only written when its bytes actually
+change (`contentChanged`). This was not always so, and the cost was not a wasted write:
+rewriting the file bumped its mtime, chokidar reported the change, and the client
+watching its own open document read that as an external edit — reloading the snapshot
+and the sidecar, and in view mode reloading the page. Measured live: one
 keystroke went from `3 POST + 6 GET` to `1 POST + 0 GET`, and a comment op now leaves the
 `.md` mtime untouched while the sidecar still advances.
 
@@ -1048,40 +1060,69 @@ recorded and no risk of a stale instruction reaching an agent.
 **Contract:** The editor has two modes, chosen from a toolbar toggle: **Editing**
 and **Suggesting**. The button reads the current mode (`Editing` / `Suggesting`)
 and carries `aria-pressed`; in suggesting mode it is tinted green. `Mod-Shift-s`
-toggles it. Mode lives in editor **storage**, not React state, because the
-transaction filter reads it synchronously — React state would report the previous
-value inside a transaction that fires in the same tick as the click.
+toggles it. Mode lives in the **ProseMirror plugin's state** (the vendored
+suggest-changes plugin), not React state and not editor storage, because the
+transaction rewriter reads it synchronously — React state would report the
+previous value inside a transaction that fires in the same tick as the click.
+`isSuggestChangesEnabled(state)` is the read; `enableSuggestChanges` /
+`disableSuggestChanges` are the writes.
 
 In suggesting mode:
 
 - **Typing inserts tracked text.** The characters are real document content
   carrying an `insertion` mark, so the caret, selection, undo, IME and paste all
   behave normally. Insertions render green and underlined.
-- **Deleting marks rather than removes.** The selected range gains a `deletion`
-  mark and the text STAYS in the document, struck through. This is what makes
-  reject possible at all: a decoration cannot hold text the document no longer
-  contains.
-- **Formatting changes are NOT tracked yet.** The `modification` mark is defined
-  (`track-changes.ts`) and both the strip and accept/reject handle it, but nothing
-  in the app ever applies it: there is no path that stamps it and no formatting
-  control in the toolbar. It is scaffolding for a future formatting-suggestion
-  feature, not a working capability. Stated plainly because an earlier draft of this
-  section claimed formatting changes "are tracked", which was not true and is the
-  same overclaiming the POC report was corrected for.
+- **Deleting marks rather than removes.** The range gains a `deletion` mark and
+  the text STAYS in the document, struck through. This is what makes reject
+  possible at all: a decoration cannot hold text the document no longer contains.
+- **Backspacing over text you just typed removes it** rather than striking it.
+  Un-typing your own uncommitted insertion is not a deletion worth tracking, and
+  this matches Google Docs.
+- **Formatting changes are NOT tracked.** The `modification` mark exists (the
+  library defines it, and it is registered) but nothing in the app applies it:
+  there is no formatting-suggestion feature. Stated plainly because an earlier
+  draft of this section claimed formatting changes "are tracked", which was not
+  true.
+- **Block-boundary edits are not tracked.** The library also expresses a
+  whole-block suggestion by allowing these marks on the `doc` node. Tiptap owns
+  `doc` and does not accept block marks, so inserting a list item or splitting a
+  paragraph applies directly. Inline and paragraph-level edits — typing, deleting,
+  formatting — are fully covered. See the note in
+  `src/components/editor/extensions/suggest-changes.ts`.
 
-Tracked marks are applied by rewriting the incoming transaction
-(`filterTransaction`), not by appending a second one — appending would put the
-mark in its own undo step, so one `⌘Z` after typing a sentence would remove the
-mark and the text separately.
+Tracked marks are applied by **rewriting the incoming transaction**, not by
+cancelling it and not by appending a second one. Cancelling (`filterTransaction`
+returning false) was the old implementation and it was the source of the
+Backspace defect: the document never changed, so the caret never advanced, and
+every press re-marked the same character. Appending would put the mark in its own
+undo step, so one `⌘Z` after typing a sentence would remove the mark and the text
+separately.
 
-**Byte-identity (the load-bearing invariant).** `.md` on disk does not change
-while suggestions are pending. `handleUpdate` strips tracked changes
-**before** markdown conversion, because once `toDOM` has emitted `<ins>`, Turndown
-turns it into `~text~` and the file has already changed. A
-`modification` wrapper drops its wrapper AND the formatting inside it —
-unwrapping alone would let `<strong>` through, serializing a pending bold as
-`**text**`. Tracked marks never reach disk; they live in the editor and the
-sidecar only.
+**Suggestions are written to the `.md` file.** This reverses an earlier
+invariant, deliberately. The previous design kept `.md` byte-identical while
+suggestions were pending, stripping the marks before markdown conversion and
+holding the suggestions in a `.proof/*.json` sidecar instead. The suggestion
+therefore existed only in the sidecar, and its block refs were content-derived —
+so recording a suggestion changed the block content and orphaned the refs
+pointing at it. Measured: 11 suggestions in the sidecar, 8 of them `stale`, with
+three refs matching no block in the document. The annotation destroyed its own
+anchor.
+
+Now the marks are the record. They serialize as `<ins data-id>` / `<del
+data-id>` via stub rules in `src/lib/markdown/to-markdown.ts`, so a suggestion
+survives a save, a reload, and any reader — the same model as Google Docs, where
+the suggestion lives in the document rather than beside it. `data-id` must also
+be allowed through `src/lib/markdown/sanitize-schema.ts`; rehype-sanitize uses
+camelCase hast names there, so the entry is `dataId`. Without it the attribute is
+stripped on render and the mark no longer parses back.
+
+**Byte-identity is now scoped to a no-op visit.** The old invariant protected
+pending suggestions by never writing them. What survives of it is narrower and
+still real: opening a document and changing nothing must not rewrite the file,
+because markdown → HTML → markdown is not the identity (a list marker gains a
+second space, blank lines acquire trailing whitespace, the trailing newline is
+dropped). `handleUpdate` compares against the last serialization and skips the
+write when they match.
 
 **Accept / reject** are document transforms:
 accept keeps inserted text, removes deleted text, and drops the marks; reject
@@ -1095,11 +1136,11 @@ changed, which cannot support typing directly over the document. Marks make the
 suggestion part of the document, which is what allows in-place authoring — and
 the strip is what keeps that authoring invisible to the file.
 
-**Verification pointer:** `src/components/editor/extensions/track-changes.ts`,
-`src/components/editor/extensions/track-changes-behavior.ts`,
-`src/lib/proof/track-changes-strip.ts`,
-`src/tests/proof/track-changes-accept.test.ts`,
-`src/tests/proof/track-changes-byte-identity.test.ts`
+**Verification pointer:** `src/components/editor/extensions/suggest-changes.ts`,
+`src/vendor/prosemirror-suggest-changes/` (with `VENDORED.md` recording the one edit
+made to it), `src/lib/markdown/to-markdown.ts` (the `ins` / `del` rules),
+`src/lib/markdown/sanitize-schema.ts` (the `dataId` allowlist entries),
+`src/tests/proof/suggestion-roundtrip.test.ts`
 
 ### 6.1 Suggest-edit popover
 
@@ -1149,7 +1190,7 @@ typing over the document.
 
 **Verification pointer:** `src/components/editor/suggestion-review-popover.tsx`,
 `src/components/editor/suggestion-pip.tsx`,
-`src/components/editor/extensions/track-changes.ts`
+`src/components/editor/extensions/suggest-changes.ts`
 
 ### 6.1a Opening a document for editing does not rewrite it
 
@@ -1187,35 +1228,44 @@ Recorded here so the no-op fix is not mistaken for a wider formatting guarantee.
 **Verification pointer:** `src/components/editor/editor.tsx` (`handleUpdate`),
 `src/tests/proof/noop-save-guard.test.ts`
 
-### 6.2a Tracked changes and the markdown byte-identity invariant
+### 6.2a Suggestions and the markdown round-trip
 
-**Contract:** Markdown files are the source of truth and must stay
-**byte-identical** while suggestions are pending. If in-place tracked changes are
-ever represented as document marks, three things are required:
+**Contract:** Markdown files are the source of truth, and a pending suggestion is
+**part of the file** — it must survive a save, a reload, and any reader.
 
-1. **Strip before serialization.** `stripTrackChanges`
-   (`src/lib/proof/track-changes-strip.ts`) walks the ProseMirror node tree and
-   drops text marked `insertion`, keeps text marked `deletion`, keeps
-   `modification` as its base text, and removes all three marks from survivors.
-   It operates on the **doc**, not on serialized HTML — no HTML parsing means no
-   attribute or nesting quirk can smuggle markup past the filter.
-2. **One serialization path.** The app has exactly one: `editor.getHTML()` in
-   `editor.tsx` feeding `htmlToMarkdown`. Any new save path (autosave, export,
-   share, agent raw write) must route through the same strip, or it will persist
-   redlines into the canonical file.
-3. **A control test.** `src/tests/proof/track-changes-strip.test.ts` asserts
-   byte-identity AND asserts that the leak is real without the strip
-   (`<del>` → GFM `~quick~`; an `<ins>` would be persisted). Without the control
-   the passing assertions prove nothing.
+This reverses an earlier invariant that required `.md` to stay byte-identical while
+suggestions were pending, stripping the marks before conversion and holding the
+suggestions in a `.proof/*.json` sidecar. That is what made suggestions fragile, and the
+failure is worth recording: the file never held them, so the sidecar was the only copy,
+and the block refs keying it were content-derived — recording a suggestion changed the
+block content and orphaned the refs pointing at it. Measured: 11 suggestions, 8 marked
+`stale`, three refs matching no block in the document. The annotation destroyed its own
+anchor, and nothing in the file could restore it.
 
-**Why it matters:** Marks live inside the document, so the byte-identity property
-holds only for save paths all routed through the filter — it is an invariant to
-enforce, not a property of any library. Decorations cannot leak this way, which
-is why comment highlights use decorations while suggestion redlines use marks.
+What is required now:
 
-**Verification pointer:** `src/lib/proof/track-changes-strip.ts`,
-`src/tests/proof/track-changes-strip.test.ts`,
-`docs/research/2026-09-suggest-changes-spike.md`
+1. **Serialize the marks.** `src/lib/markdown/to-markdown.ts` has `ins` / `del` stub
+   rules that emit the tags with their `data-id`. Without them Turndown keeps the text
+   and drops the tag, silently converting every pending suggestion into an applied
+   edit. Measured: `<ins data-id="7">Added text.</ins>` became plain `Added text.`
+2. **Let the attribute through the sanitizer.** `src/lib/markdown/sanitize-schema.ts`
+   needs `dataId` on `ins` and `del` — rehype-sanitize uses camelCase hast names.
+   Without it the attribute is stripped on render, the mark stops parsing, and a
+   deletion comes back as plain `<s>` strikethrough. Measured in the browser.
+3. **One serialization path.** The app has exactly one: `editor.getHTML()` in
+   `editor.tsx` feeding `htmlToMarkdown`. Any new save path must not reintroduce a
+   strip.
+4. **A control test.** `src/tests/proof/suggestion-roundtrip.test.ts` asserts the marks
+   survive markdown -> HTML -> markdown byte-for-byte, `data-id` included.
+
+**Why it matters:** the property to protect is that a suggestion is never lost. Putting
+it in the document is what makes that possible — there is no second store to drift, and
+the text a suggestion refers to cannot orphan it.
+
+**Verification pointer:** `src/lib/markdown/to-markdown.ts`,
+`src/lib/markdown/sanitize-schema.ts`,
+`src/tests/proof/suggestion-roundtrip.test.ts`,
+`src/vendor/prosemirror-suggest-changes/`
 
 ### 6.3 Creating a suggestion
 

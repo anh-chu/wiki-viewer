@@ -227,8 +227,13 @@ describe("Suggesting mode survives a remount", () => {
 		assert.ok(effect.length > 0, "expected to find the re-arm effect");
 		assert.match(
 			effect,
-			/setEditMode\(\s*\{\s*storage: editor\.storage\s*\}/,
-			"the re-arm must write into the live editor's storage",
+			/(enableSuggestChanges|disableSuggestChanges)/,
+			"the re-arm must drive the live plugin, not only the React flag",
+		);
+		assert.match(
+			effect,
+			/isSuggestChangesEnabled\(state\)/,
+			"and must read the plugin's own state to decide, not the React flag",
 		);
 		assert.match(
 			effect,
@@ -241,7 +246,7 @@ describe("Suggesting mode survives a remount", () => {
 		// The module-scope flag is an addition, not a replacement.
 		assert.match(
 			EDITOR,
-			/setEditMode\(\s*\{\s*storage: editorRef\.current\.storage\s*\}/,
+			/\(next \? enableSuggestChanges : disableSuggestChanges\)/,
 			"the interactive toggle must still drive the plugin directly",
 		);
 	});

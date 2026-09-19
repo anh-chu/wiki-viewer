@@ -96,6 +96,16 @@ export const previewSanitizeSchema: SanitizeOptions = {
 			"className",
 			"dataType",
 		],
+		// Suggested insertions and deletions carry the id of the suggestion they
+		// belong to. rehype-sanitize uses hast property names (camelCase) here, so
+		// this is `dataId` for a `data-id` attribute.
+		//
+		// Without it the sanitizer strips the attribute, and the mark no longer
+		// parses: a pending deletion came back from a reload as plain `<s>`
+		// strikethrough and an insertion lost its mark, so both suggestions
+		// silently applied themselves on the next save.
+		ins: [...(defaultSchema.attributes?.ins ?? []), "className", "dataId"],
+		del: [...(defaultSchema.attributes?.del ?? []), "className", "dataId"],
 		// Allow class names + id on all elements for styling.
 		"*": [...(defaultSchema.attributes?.["*"] ?? []), "className", "id"],
 	},

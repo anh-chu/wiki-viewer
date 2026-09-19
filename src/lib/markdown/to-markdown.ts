@@ -95,6 +95,28 @@ for (const tag of ["u", "sub", "sup"] as const) {
 	});
 }
 
+// Preserve suggested insertions and deletions.
+//
+// Markdown has no syntax for "this text is a suggested change", so without these
+// rules Turndown drops the tag and keeps only the text: a save silently converts
+// every pending suggestion into an applied edit, and the `data-id` linking it to
+// its suggestion record is gone. Measured: default Turndown turns
+// `<ins data-id="7">Added text.</ins>` into plain `Added text.`
+//
+// Raw HTML is the established way this file keeps markdown-invisible state -
+// `mark`, `styledSpan`, `lucideIcon` and `video` all do the same. remark parses
+// it straight back out, so the round-trip is exact, `data-id` included.
+for (const tag of ["ins", "del"] as const) {
+	turndown.addRule(tag, {
+		filter: tag as never,
+		replacement: (content, node) => {
+			const el = node as HTMLElement;
+			const id = el.getAttribute("data-id");
+			return `<${tag}${id ? ` data-id="${id}"` : ""}>${content}</${tag}>`;
+		},
+	});
+}
+
 // Preserve <video> tags with all attrs (file-uploaded videos).
 // If the src points at a known embed provider (YouTube, Vimeo, Loom, …),
 // upgrade it to a proper embed block instead of preserving a tag that

@@ -51,7 +51,12 @@ const lowlight = createLowlight({
 	yaml,
 });
 
-import { Deletion, Insertion, Modification } from "./extensions/track-changes";
+import {
+	SuggestionDeletion,
+	SuggestionInsertion,
+	SuggestionModification,
+	SuggestChanges,
+} from "./extensions/suggest-changes";
 
 export const editorExtensions = [
 	StarterKit.configure({
@@ -136,12 +141,13 @@ export const editorExtensions = [
 		},
 	}),
 	CalloutExtension,
-	// Suggesting mode: the marks that let a suggestion live IN the document
-	// (so you can type over it) rather than being drawn over one that already
-	// changed. See extensions/track-changes.ts for why marks, not decorations.
-	Insertion,
-	Deletion,
-	Modification,
+	// Suggesting mode. The marks let a suggestion live IN the document, and the
+	// plugin rewrites each transaction so typing and deleting produce suggestions
+	// rather than applied edits. Vendored; see extensions/suggest-changes.ts.
+	SuggestionInsertion,
+	SuggestionDeletion,
+	SuggestionModification,
+	SuggestChanges,
 	TextAlign.configure({ types: ["heading", "paragraph"] }),
 	Subscript,
 	Superscript,

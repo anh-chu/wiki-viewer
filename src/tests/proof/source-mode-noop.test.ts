@@ -70,13 +70,25 @@ describe("closing Source mode is a no-op", () => {
 		);
 	});
 
-	test("it seeds from the editor's own serialization, stripped", () => {
+	test("it seeds from the editor's own serialization, the same way handleUpdate does", () => {
 		// Seeding from `sourceText` would be wrong for the same reason comparing
 		// against the file's source markdown is wrong: the guard compares
 		// serialization to serialization, so the baseline must be one too.
+		//
+		// The two sides must also agree on HOW they serialize. This used to strip
+		// tracked marks before converting, and the assertion pinned that call. The
+		// marks are now the record of a suggestion rather than a UI layer, so they
+		// are written to the file and nothing is stripped. What still has to hold
+		// is that both call `htmlToMarkdown(editor.getHTML())` with no transform in
+		// between - if one strips and the other does not, the baseline never
+		// matches and every keystroke rewrites the document.
 		const branch = exitBranch();
-		assert.match(branch, /stripTrackChangesFromHTML\(editor\.getHTML\(\)\)/);
-		assert.match(branch, /htmlToMarkdown\(/, "and must be serialized the same way");
+		assert.match(branch, /htmlToMarkdown\(editor\.getHTML\(\),/, "seeded from the live editor");
+		assert.doesNotMatch(
+			branch,
+			/stripTrackChangesFromHTML/,
+			"and not transformed, or it will not match handleUpdate",
+		);
 	});
 
 	test("the re-seed happens after setContent, not before", () => {

@@ -37,7 +37,6 @@ import {
 	shouldRestoreDraft,
 	type SourceDraft,
 } from "./editor-module-state";
-import { useTrackedEditPersistence } from "./use-tracked-edit-persistence";
 import { SuggestionReviewPopover } from "./suggestion-review-popover";
 import { SlashCommands } from "./slash-commands";
 import { DocumentOutline } from "./document-outline";
@@ -58,13 +57,13 @@ import {
 } from "@/lib/proof/pip-alignment";
 import { shouldRerenderDocument } from "@/lib/proof/render-guard";
 import { commentHighlightExtension, refreshCommentHighlights } from "./extensions/comment-highlight";
-import { stripTrackChangesFromHTML } from "@/lib/proof/track-changes-strip";
-import { setEditMode } from "./extensions/track-changes";
 import {
-	acceptTrackedChangesRange,
-	collectTrackedRanges,
-	trackChangesExtension,
-} from "./extensions/track-changes-behavior";
+	applySuggestions,
+	disableSuggestChanges,
+	enableSuggestChanges,
+	isSuggestChangesEnabled,
+	revertSuggestions,
+} from "@/vendor/prosemirror-suggest-changes/index.js";
 
 async function uploadFile(
 	pagePath: string,
@@ -245,8 +244,12 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	const resolveAllTracked = useCallback((decision: "accept" | "reject") => {
 		const editor = editorRef.current;
 		if (!editor) return;
-		const tr = acceptTrackedChangesRange(editor.state, decision);
-		if (tr) editor.view.dispatch(tr);
+		// The document transform comes from the vendored library: accept removes the
+		// text inside deletion marks and drops insertion marks, reject does the
+		// mirror. Same command the per-suggestion control uses.
+		const command =
+			decision === "accept" ? applySuggestions : revertSuggestions;
+		command(editor.state, editor.view.dispatch);
 		setTrackedCount(0);
 
 		const path = useEditorStore.getState().currentPath ?? "";
@@ -301,7 +304,8 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 			if (next) remember(suggestingModeByPath, key, true);
 			else suggestingModeByPath.delete(key);
 			if (editorRef.current) {
-				setEditMode({ storage: editorRef.current.storage }, next ? "suggesting" : "editing");
+				const { state, view } = editorRef.current;
+				(next ? enableSuggestChanges : disableSuggestChanges)(state, view.dispatch);
 			}
 			return next;
 		});
@@ -870,18 +874,30 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 
 
 	/**
-	 * The single serialization path, and the place byte-identity is defended.
+	 * The single serialization path.
 	 *
-	 * Tracked changes must be stripped BEFORE markdown conversion, not after. Once
-	 * `toDOM` has emitted `<ins>`, Turndown turns it into `~text~` and the file has
-	 * changed — which would break the invariant that `.md` stays byte-identical
-	 * while suggestions are pending. Stripping first means the suggestion lives
-	 * only in the editor and the sidecar, never on disk.
+	 * SUGGESTIONS ARE WRITTEN TO THE FILE. This reverses an earlier invariant.
+	 *
+	 * The previous design stripped tracked marks before markdown conversion so the
+	 * `.md` stayed byte-identical while suggestions were pending, and kept them in
+	 * a sidecar instead. That is what made suggestions fragile: the file never
+	 * held them, so anything that lost or failed to load the sidecar lost the
+	 * suggestions outright, and the content-derived block refs they were keyed to
+	 * rehashed whenever the text changed - the annotation destroying its own
+	 * anchor.
+	 *
+	 * Now the marks are the record. They serialize as `<ins data-id>` / `<del
+	 * data-id>` (see the rules in `to-markdown.ts`), so a suggestion survives a
+	 * save, a reload, and any reader, exactly as a Google Docs suggestion lives in
+	 * the document rather than beside it.
+	 *
+	 * The byte-identity guard below still does its original job: it stops a no-op
+	 * visit from rewriting the file, which is a separate concern.
 	 */
 	const handleUpdate = useCallback(
 		({ editor }: { editor: ReturnType<typeof useEditor> }) => {
 			if (isLoadingRef.current || isViewingRef.current || !editor) return;
-			const html = stripTrackChangesFromHTML(editor.getHTML());
+			const html = editor.getHTML();
 			const md = htmlToMarkdown(
 				html,
 				useEditorStore.getState().currentPath ?? undefined,
@@ -925,26 +941,11 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		// describe the same revision.
 		views: commentViews,
 	};
-	// Persist tracked edits typed in Suggesting mode as sidecar suggestions.
-	// Without `onTrackedEdit` the marks are stripped on save, so typed text became a
-	// permanent edit with no suggestion record — pending on screen, already applied
-	// in the file, and gone on reload.
-	const { handleTrackedEdit } = useTrackedEditPersistence();
-	const trackedEditRef = useRef(handleTrackedEdit);
-	trackedEditRef.current = handleTrackedEdit;
-
 	const extensions = useMemo(
 		() =>
 			[
 				...editorExtensions,
 				commentHighlightExtension(() => commentHighlightStateRef.current),
-				// Behaviour layer: intercepts typing/deletion in suggesting mode.
-				trackChangesExtension({
-					author: () => "human",
-					// Read through a ref so the extension list stays stable across
-					// renders: rebuilding it would recreate the editor and lose state.
-					onTrackedEdit: (info) => trackedEditRef.current(info),
-				}),
 			] as typeof editorExtensions,
 		[],
 	);
@@ -1152,16 +1153,17 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 
 	// Re-arm the mode plugin whenever a new editor instance appears.
 	//
-	// `setEditMode` writes into the ProseMirror plugin's storage, which is recreated
-	// with the editor. Restoring the `suggesting` flag alone would leave the toolbar
-	// reading "Suggesting" while the plugin behaved as "editing" — the UI would claim
-	// edits were tracked when they were not, which is worse than the reset it replaced.
+	// The `suggesting` flag lives in the vendored plugin's state, which is
+	// recreated with the editor. Restoring the flag alone would leave the toolbar
+	// reading "Suggesting" while the plugin behaved as "editing" — the UI would
+	// claim edits were tracked when they were not, which is worse than the reset
+	// it replaced.
 	useEffect(() => {
 		if (!editor) return;
-		setEditMode(
-			{ storage: editor.storage },
-			suggesting ? "suggesting" : "editing",
-		);
+		const { state, view } = editor;
+		const want = suggesting;
+		if (isSuggestChangesEnabled(state) === want) return;
+		(want ? enableSuggestChanges : disableSuggestChanges)(state, view.dispatch);
 	}, [editor, suggesting]);
 
 	/**
@@ -1182,10 +1184,21 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	useEffect(() => {
 		if (!editor || editor.isDestroyed) return;
 		const count = () => {
-			const ranges = collectTrackedRanges(editor.state.doc);
-			setTrackedCount(
-				ranges.insertion.length + ranges.deletion.length + ranges.modification.length,
-			);
+			// One suggestion per distinct mark id. Counting ranges would report a
+			// single edit as several, because a run of text is split across text
+			// nodes by the schema as the user keeps typing.
+			const ids = new Set<string>();
+			editor.state.doc.descendants((node) => {
+				for (const mark of node.marks) {
+					if (mark.type.name.startsWith("insertion") ||
+						mark.type.name === "deletion" ||
+						mark.type.name === "modification") {
+						ids.add(String(mark.attrs.id));
+					}
+				}
+				return true;
+			});
+			setTrackedCount(ids.size);
 		};
 		count();
 		editor.on("transaction", count);
@@ -1307,10 +1320,9 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 			// writes the file — which is exactly the bug being fixed, since becoming
 			// editable fires that first update. Seeding here means the very first
 			// no-op round-trip already matches and is skipped.
-			lastSerializedRef.current = htmlToMarkdown(
-				stripTrackChangesFromHTML(editor.getHTML()),
-				currentPath ?? undefined,
-			);
+			// Must match `handleUpdate`'s serialization exactly, or the baseline
+			// never matches and every load rewrites the file.
+			lastSerializedRef.current = htmlToMarkdown(editor.getHTML(), currentPath ?? undefined);
 			renderedKeyRef.current = key;
 			lastAnnotationFingerprintRef.current = annotationFingerprint;
 			setRenderedPath(currentPath);
@@ -1449,10 +1461,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 				// document. Measured: opening source mode and closing it again with no
 				// edit rewrote the list markers. The content is unchanged either way, so
 				// seeding here keeps closing source mode a genuine no-op.
-				lastSerializedRef.current = htmlToMarkdown(
-					stripTrackChangesFromHTML(editor.getHTML()),
-					currentPath ?? undefined,
-				);
+				lastSerializedRef.current = htmlToMarkdown(editor.getHTML(), currentPath ?? undefined);
 				setTimeout(() => {
 					isLoadingRef.current = false;
 				}, 50);
