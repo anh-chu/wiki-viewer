@@ -682,6 +682,10 @@ export async function applyOps(args: {
 
 		const nodes = parseBlocks(content);
 		const { blocks: assignedBlocks, newRefMap } = assignRefs(nodes, sidecar);
+		// Keep the ordering this reparse is about to destroy. An anchor still names a ref
+		// from that ordering, and resolution needs it to find the block that took the
+		// slot — otherwise a rewritten block's anchors have nothing to search.
+		sidecar.prevRefOrder = Object.keys(sidecar.refMap);
 		sidecar.refMap = newRefMap;
 
 		// Revision check

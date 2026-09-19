@@ -352,3 +352,52 @@ describe("an anchor whose ref resolves but whose offset is stale", () => {
 		assert.equal(after[0].markdown.slice(r.offset, r.offset + r.length), "marker");
 	});
 });
+
+describe("a block-less read does not destroy anchor state", () => {
+	/**
+	 * `readSidecar` is called by paths that never parse the markdown — the activity
+	 * aggregator and `collab-state` both do. Migration needs the document to anchor
+	 * against, so running it blind would mark every annotation `lost` on the basis that
+	 * the caller simply had not read the file. That is a false verdict, and because the
+	 * migration is reached from a read it would also be a write.
+	 */
+	function v1WithComments(): Sidecar {
+		const bs = blocks("Alpha paragraph here.");
+		const sc = sidecarWith(bs);
+		sc.schemaVersion = 1;
+		delete (sc as Partial<Sidecar>).anchors;
+		sc.comments = [
+			{
+				id: "c1",
+				ref: bs[0].ref,
+				resolved: false,
+				createdAt: NOW,
+				turns: [],
+				textAnchor: { start: 6, end: 15, selectedText: "paragraph" },
+			} satisfies Comment,
+		];
+		return sc;
+	}
+
+	test("no comment is marked lost when there is no document to check against", () => {
+		const migrated = migrateSidecar(v1WithComments(), []).sidecar;
+		assert.equal(
+			migrated.comments[0].anchorStatus,
+			undefined,
+			"an unverifiable anchor is not declared lost",
+		);
+		assert.equal(migrated.comments.length, 1, "and the comment is still there");
+	});
+
+	test("changed is false, so a read cannot persist anything", () => {
+		const out = migrateSidecar(v1WithComments(), []);
+		assert.equal(out.changed, false, "a blind read must not rewrite the sidecar");
+	});
+
+	test("with the document in hand it does migrate and does report changed", () => {
+		const bs = blocks("Alpha paragraph here.");
+		const out = migrateSidecar(v1WithComments(), bs);
+		assert.equal(out.changed, true, "the real migration still happens");
+		assert.ok(out.sidecar.comments[0].anchorId, "and it mints the anchor");
+	});
+});

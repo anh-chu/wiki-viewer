@@ -335,7 +335,13 @@ export function resolveAnchor(
  * caller cannot mistake "unknown" for "successor".
  */
 function successorFor(sidecar: Sidecar, ref: string, blocks: Block[]): Block | null {
-	const order = Object.keys(sidecar.refMap);
+	// Prefer the pre-reparse ordering: `refMap` has already been replaced with the NEW
+	// refs by the time a snapshot is built, so the anchor's own ref — which belongs to
+	// the previous ordering — would not be found in it at all.
+	const order =
+		sidecar.prevRefOrder && sidecar.prevRefOrder.includes(ref)
+			? sidecar.prevRefOrder
+			: Object.keys(sidecar.refMap);
 	const at = order.indexOf(ref);
 	if (at === -1 || at >= blocks.length) return null;
 	const candidate = blocks[at];

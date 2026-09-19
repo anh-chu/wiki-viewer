@@ -234,6 +234,16 @@ export interface Sidecar {
 	// resolve a ref that was renamed before the upgrade.
 	refAliases: Record<string, string>;
 	/**
+	 * The block ordering as it stood BEFORE the most recent reparse (schema >= 2).
+	 *
+	 * Anchors record the ref they were last seen under. That ref is usually gone by the
+	 * time a snapshot is built — the reparse replaces `refMap` with the new refs first —
+	 * so the previous ordering has to be carried forward for a successor lookup to have
+	 * anything to search. Without it a block-granular anchor on a rewritten block could
+	 * not find the block that took its slot.
+	 */
+	prevRefOrder?: string[];
+	/**
 	 * Durable anchors, keyed by anchor id (schema >= 2).
 	 *
 	 * An annotation's identity now lives here rather than in its `ref`, so editing the

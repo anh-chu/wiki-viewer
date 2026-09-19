@@ -815,6 +815,36 @@ found is not drawn at all: a wrong highlight is worse than none. `comment.add` r
 `textAnchor` whose range does not reproduce `selectedText` in the block's current markdown
 (`400 INVALID_PAYLOAD`).
 
+**Annotations hang off durable anchors, not content-derived refs.** Block refs are
+`"b" + sha256(blockMarkdown).slice(0,6)`, so an annotation keyed to a ref was keyed to the
+text it annotated: editing that text changed the ref and destroyed the annotation's
+identity. Four mechanisms existed to guess it back — `refAliases`, `computeRefDelta`,
+positional aliasing, `survivesViaAlias` — and each leaked in production, most visibly as
+suggestions vanishing mid-typing.
+
+Comments and suggestions now reference an `anchorId`. An anchor records the ref it was
+last seen under, a block-local offset, and the quoted text plus 32 characters of context
+either side (the W3C TextQuoteSelector shape). Resolution tries, in order: the recorded
+position; the same block at a new offset; the block that took the old ref's slot; a unique
+match anywhere in the document; and otherwise reports `lost`. It reports `ambiguous` when
+two candidates exist and context cannot separate them, and it **never invents an offset** —
+a wrong range would silently annotate other text, which is worse than a visible loss.
+
+Anchors are resolved **server-side**, per read, against the same blocks the snapshot ships.
+The editor reads its blocks and its sidecar from two independent requests, so a client-side
+resolver would have nothing to resolve against; resolving once per read also guarantees the
+range and the block list describe the same revision. The client uses the resolved offset
+only to choose among repeated occurrences, never as arithmetic — markdown and rendered text
+are different coordinate systems (a list item's markdown carries the `1. ` prefix its node
+does not).
+
+`Comment.textAnchor` is still written for one release so an older reader of a sidecar
+highlights the right words, but resolution no longer consults it. A v1 sidecar is upgraded
+on read: anchors for records whose ref still resolves are lifted from the recorded quote
+verbatim, and a record whose ref is already gone is marked `lost` rather than given an
+invented position. The upgrade is in memory and is **not** persisted by a read, so opening
+a document cannot fire the watcher.
+
 **A successful write must advance the revision the next write sends.** Every write
 response carries the revision it produced, and that value is the `baseRevision` the *next*
 request must send. The comment path passed it through and worked; the suggestion path
