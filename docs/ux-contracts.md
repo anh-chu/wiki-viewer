@@ -889,6 +889,26 @@ produce the "recovered" branch.
 refreshes the decoration layer only — zero `markdownToHtml`, zero `setContent`.
 Selection and scroll position are preserved across the whole annotation loop.
 
+**Backspace in Suggesting mode strikes one character per press.** A suggestion is a
+change the reader can accept or reject, so a deletion does not remove text: it cancels the
+browser's delete and attaches a deletion mark, leaving the characters in place, struck
+through. That cancellation has a consequence recorded here because it produced exactly the
+symptom it looks like it should prevent: **the document does not change, so the caret does
+not move, and the next press recomputes the range it has already marked.** Pressing
+Backspace several times struck the same character repeatedly and the text appeared to stop
+deleting after the first press.
+
+The plugin now moves the caret to the start of the range it just marked, and only when the
+caret is still inside that range — so someone who clicked elsewhere between presses keeps
+the position they chose. Live before: five presses left four identical marks on one
+character. After: `Q`, `R`, `S` and `T` each struck once, text still present for
+accept/reject. A rejected transaction discards its own selection with everything else, so
+"the user moved the caret inside the same press" is not reachable through this path.
+
+**What is correct and unchanged:** deleting in Edit mode applies for real, and deleting a
+multi-character selection in Suggesting mode marks the whole range in one press rather than
+one character per press.
+
 **An annotation op does not rewrite the `.md`.** The sidecar write is what records a
 comment or a suggestion; the markdown is untouched, so the file is only written when its
 bytes actually change (`contentChanged`). This was not always so, and the cost was not a
