@@ -28,3 +28,6 @@ TODO.md
 
 # Live auth DB backup from test-user cleanup (blocker: never commit)
 .backup-authdb/
+
+# Local QA scratch (never commit)
+.qa-*
