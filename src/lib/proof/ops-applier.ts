@@ -166,6 +166,49 @@ function survivesViaAlias(sidecar: Sidecar, ref: string, validRefs: Set<string>)
 	return Boolean(aliased && validRefs.has(aliased));
 }
 
+/**
+ * Refuse a mutation on a suggestion the UI is treating as stale.
+ *
+ * WHY `stale` ALONE IS THE TEST, AND NOT WHETHER THE REF RESOLVES
+ * ---------------------------------------------------------------
+ * `markOrphanedRefsStale` only ever SETS `stale = true`; nothing clears it for
+ * suggestions. Refs are content-derived, so this sequence is reachable:
+ *
+ *   1. `Alpha paragraph.` has ref R; a suggestion targets R.
+ *   2. Delete that paragraph  -> the suggestion is marked stale, and the margin
+ *      stops showing it.
+ *   3. Type the same paragraph again -> R is valid again, but `stale` stays true
+ *      and the UI still hides the suggestion.
+ *   4. `suggestion.accept` now finds its block and WRITES THE FILE for a
+ *      suggestion the user can no longer see.
+ *
+ * An earlier guard only covered a permanently-dead ref such as `bDEAD`, which the
+ * ordinary block lookup refuses with BLOCK_NOT_FOUND. That proved the wrong thing:
+ * it showed a *dead* suggestion cannot be accepted, not that a *stale* one cannot.
+ * The check below is therefore about the recorded state, not about whether the ref
+ * happens to resolve right now — a stale suggestion is one the user was told is
+ * gone, so no mutation may act on it. Recovering one would need an explicit,
+ * validated un-stale transition, which does not exist and is not implied here.
+ */
+function refuseStaleSuggestion(
+	sidecar: Sidecar,
+	mdPath: string,
+	workingBlocks: Block[],
+	suggestionId: string,
+): Extract<ApplyResult, { ok: false }> | null {
+	const sug = sidecar.suggestions.find((s) => s.id === suggestionId);
+	if (!sug || !sug.stale) return null;
+	return {
+		ok: false,
+		status: 409,
+		code: "SUGGESTION_STALE",
+		message:
+			`Suggestion "${suggestionId}" is stale: its anchor was removed, so it cannot be ` +
+			`changed until the anchor is restored and the suggestion is revived.`,
+		snapshot: buildSnapshot(mdPath, workingBlocks, sidecar),
+	};
+}
+
 function markOrphanedRefsStale(sidecar: Sidecar, newRefMap: Record<string, unknown>): void {
 	const validRefs = new Set(Object.keys(newRefMap));
 	for (const s of sidecar.suggestions) {
@@ -1067,6 +1110,13 @@ export async function applyOps(args: {
 				}
 
 				case "suggestion.edit": {
+					const staleEdit = refuseStaleSuggestion(
+						workingSidecar,
+						mdPath,
+						workingBlocks,
+						op.suggestionId,
+					);
+					if (staleEdit) return staleEdit;
 					const sug = workingSidecar.suggestions.find((s) => s.id === op.suggestionId);
 					if (!sug || sug.status !== "pending") {
 						return { ok: false, status: 409, code: "SUGGESTION_NOT_FOUND", message: `Suggestion "${op.suggestionId}" not found or is no longer pending.`, snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar) };
@@ -1078,6 +1128,13 @@ export async function applyOps(args: {
 					break;
 				}
 				case "suggestion.delete": {
+					const staleDel = refuseStaleSuggestion(
+						workingSidecar,
+						mdPath,
+						workingBlocks,
+						op.suggestionId,
+					);
+					if (staleDel) return staleDel;
 					const sugIdx = workingSidecar.suggestions.findIndex((s) => s.id === op.suggestionId);
 					if (sugIdx === -1 || workingSidecar.suggestions[sugIdx].status !== "pending") {
 						return { ok: false, status: 409, code: "SUGGESTION_NOT_FOUND", message: `Suggestion "${op.suggestionId}" not found or is no longer pending.`, snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar) };
@@ -1087,6 +1144,13 @@ export async function applyOps(args: {
 					break;
 				}
 				case "suggestion.accept": {
+					const staleAccept = refuseStaleSuggestion(
+						workingSidecar,
+						mdPath,
+						workingBlocks,
+						op.suggestionId,
+					);
+					if (staleAccept) return staleAccept;
 					const sugIdx = workingSidecar.suggestions.findIndex((s) => s.id === op.suggestionId);
 					if (sugIdx === -1) {
 						return {
@@ -1157,6 +1221,13 @@ export async function applyOps(args: {
 				}
 
 				case "suggestion.reject": {
+					const staleReject = refuseStaleSuggestion(
+						workingSidecar,
+						mdPath,
+						workingBlocks,
+						op.suggestionId,
+					);
+					if (staleReject) return staleReject;
 					const sugIdx = workingSidecar.suggestions.findIndex((s) => s.id === op.suggestionId);
 					if (sugIdx === -1) {
 						return {

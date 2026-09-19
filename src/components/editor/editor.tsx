@@ -30,7 +30,7 @@ import { CommentPip } from "./comment-pip";
 import { SuggestionPip } from "./suggestion-pip";
 import { CommentThread } from "./comment-thread";
 import { CommentMargin } from "./comment-margin";
-import { SuggestEditPopover } from "./suggest-edit-popover";
+import { postOp, SuggestEditPopover } from "./suggest-edit-popover";
 import { useTrackedEditPersistence } from "./use-tracked-edit-persistence";
 import { SuggestionReviewPopover } from "./suggestion-review-popover";
 import { SlashCommands } from "./slash-commands";
@@ -225,13 +225,55 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	const [trackedCount, setTrackedCount] = useState(0);
 	const hasTrackedChanges = trackedCount > 0;
 
-	/** Accept or reject every tracked change in the document, as one undo step. */
+	/**
+	 * Accept or reject every tracked change in the document, as one undo step.
+	 *
+	 * The ProseMirror transaction is only half the operation. Suggestions also
+	 * exist as sidecar records, and a document-wide decision has to settle those
+	 * too: transforming the marks alone left every record `pending` while the
+	 * marks were gone, so the margin kept listing suggestions whose text had
+	 * already been applied or discarded, and a later Accept could write a change
+	 * the user had already rejected. Each record is settled through the same op
+	 * the per-suggestion control uses, so there is one code path for acceptance.
+	 */
 	const resolveAllTracked = useCallback((decision: "accept" | "reject") => {
 		const editor = editorRef.current;
 		if (!editor) return;
 		const tr = acceptTrackedChangesRange(editor.state, decision);
 		if (tr) editor.view.dispatch(tr);
 		setTrackedCount(0);
+
+		const path = useEditorStore.getState().currentPath ?? "";
+		if (!path) return;
+		const pending = (useProofStore.getState().byPath[path]?.sidecar?.suggestions ?? []).filter(
+			(s) => s.status === "pending",
+		);
+		if (pending.length === 0) return;
+
+		void (async () => {
+			// One request for the whole document, not one per suggestion: the ops
+			// array is applied under a single revision check and write lock, so a
+			// partial settle cannot happen halfway through.
+			const ops = pending.map((s) => ({
+				type: decision === "accept" ? "suggestion.accept" : "suggestion.reject",
+				suggestionId: s.id,
+			}));
+			const base = useProofStore.getState().byPath[path]?.snapshotRevision ?? 0;
+			let result = await postOp(path, base, ops);
+			if (!result.ok && result.stale && result.newRevision !== undefined) {
+				await useProofStore.getState().loadSidecar(path);
+				result = await postOp(path, result.newRevision, ops);
+			}
+			if (result.ok) {
+				await useProofStore.getState().loadSidecar(path);
+				return;
+			}
+			console.error(
+				`[editor] could not settle ${pending.length} suggestion(s) in ${path}: ${
+					result.code ?? "unknown"
+				}${result.message ? ` — ${result.message}` : ""}`,
+			);
+		})();
 	}, []);
 
 	// Adopt the new document's mode when the path changes without a remount, and keep

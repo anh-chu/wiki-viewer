@@ -1,122 +1,183 @@
 /**
- * Typed tracked edits must create a sidecar suggestion, not a silent permanent edit.
+ * Typed tracked edits must become durable sidecar suggestions.
  *
- * The defect this pins: `TrackChangesOptions.onTrackedEdit` is documented as "called
- * after a tracked edit lands, so the sidecar can record it", but the editor never
- * passed it. Typing in Suggesting mode therefore stamped marks, and the serialization
- * strip removed them on save — so the text became a plain permanent edit with no
- * suggestion record. On screen it looked pending; in the file it was already applied;
- * a reload showed no suggestion at all. That is worse than either failure alone.
+ * THE DEFECT THIS FILE EXISTS FOR
+ * -------------------------------
+ * Suggesting mode stamped ProseMirror marks, and the serialization strip removed
+ * them on save. So typed text landed in the file as a permanent edit with no
+ * suggestion record at all: pending on screen, already applied on disk, gone on
+ * reload. The `onTrackedEdit` hook existed for this and was never passed.
  *
- * The extension's own test asserted the callback fires, in isolation, and passed
- * while production stayed unwired. These cases check the WIRING, which is where the
- * defect actually lived.
+ * WHY THE FIRST VERSION OF THIS TEST WAS WORTHLESS
+ * ------------------------------------------------
+ * That fix landed with a guard made of regexes over source text: assert the file
+ * mentions `onTrackedEdit:`, contains `COALESCE_MS`, and has a variable named
+ * `continuing`. It passed 8/8 while the feature was still broken, because the
+ * defect was in the state machine, not in the spelling:
+ *
+ *   - `suggestionId` was never bound to the run after `suggestion.add` returned,
+ *     so the run could never be extended;
+ *   - therefore coalescing never happened, every keystroke created a new
+ *     suggestion, and the text was posted as `markdown: ""`;
+ *   - nothing durable ever held the proposal.
+ *
+ * The code satisfied every assertion. A reviewer found it. So the decision logic
+ * now lives in `tracked-edit-runs` as pure functions and is driven directly
+ * below, with no source-text matching anywhere in this file.
  */
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
+import {
+	COALESCE_MS,
+	createOp,
+	decideEdit,
+	editOp,
+	type EditRun,
+	type RunDecision,
+	newRun,
+	runKey,
+	willExtend,
+} from "@/lib/proof/tracked-edit-runs";
 
-const EDITOR = readFileSync(
-	new URL("../../components/editor/editor.tsx", import.meta.url),
-	"utf8",
-);
-const PERSIST = readFileSync(
-	new URL("../../components/editor/use-tracked-edit-persistence.ts", import.meta.url),
-	"utf8",
-);
+const base = { path: "notes.md", ref: "babc123", kind: "insert" as const };
 
-/** Strip comments so assertions are about code that runs, not text that mentions it. */
-function stripComments(source: string): string {
-	return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
+/** A run as it exists once its `suggestion.add` response has supplied an id. */
+function boundRun(overrides: Partial<EditRun> = {}): EditRun {
+	return {
+		key: runKey(base.path, base.ref, base.kind),
+		path: base.path,
+		ref: base.ref,
+		suggestionId: "s0a1b",
+		text: "he",
+		kind: base.kind,
+		...overrides,
+	};
 }
 
-describe("typed tracked edits reach the sidecar", () => {
-	test("the editor passes onTrackedEdit to the extension", () => {
-		const code = stripComments(EDITOR);
-		assert.match(
-			code,
-			/onTrackedEdit:/,
-			"without this the marks are stripped on save and nothing records them",
-		);
+/** Narrow a decision to its "start" arm for the cases that expect one. */
+function startOf(decision: ReturnType<typeof decideEdit>) {
+	assert.equal(decision.action, "start", "expected this edit to start a run");
+	return newRun(decision as Extract<typeof decision, { action: "start" }>);
+}
+
+describe("a typed edit either extends its run or starts one", () => {
+	test("a run with a bound id is extended, and its text accumulates", () => {
+		// The behaviour that was impossible before the fix.
+		const decision = decideEdit(boundRun(), { ...base, text: "llo" });
+		assert.equal(decision.action, "extend");
+		assert.equal(decision.action === "extend" && decision.text, "hello");
 	});
 
-	test("onTrackedEdit is inside the trackChangesExtension options", () => {
-		// Passing it somewhere else would not reach the plugin.
-		const code = stripComments(EDITOR);
-		const at = code.indexOf("trackChangesExtension(");
-		assert.ok(at > 0, "the extension must be registered");
-		const call = code.slice(at, code.indexOf("]) as typeof editorExtensions", at));
-		assert.match(call, /onTrackedEdit:/, "the option belongs in this call");
-		assert.match(call, /author:\s*\(\)\s*=>\s*"human"/, "alongside the author");
+	test("the FIRST edit starts a run, because no record exists yet", () => {
+		const run = startOf(decideEdit(null, { ...base, text: "h" }));
+		assert.equal(run.suggestionId, null, "the id arrives with the create response");
+		assert.equal(run.text, "h");
 	});
 
-	test("the callback writes a suggestion through the agent API", () => {
-		const code = stripComments(PERSIST);
-		assert.match(code, /suggestion\.add/, "a suggestion must be created");
-		assert.match(code, /postOp\(/, "through the same path the Suggest button uses");
+	test("an unbound run does NOT extend — the regression that hid here", () => {
+		// This is the exact condition the old code got wrong. A run whose create
+		// response has not landed has no record to extend, so accumulating text into
+		// it would build a proposal nothing durable holds.
+		const unbound = boundRun({ suggestionId: null });
+		assert.equal(decideEdit(unbound, { ...base, text: "llo" }).action, "start");
+		assert.equal(willExtend(unbound, base), false);
 	});
 
-	test("consecutive keystrokes are coalesced, not one suggestion per character", () => {
-		// onTrackedEdit fires per transaction, so a typed word arrives as several
-		// calls. Without merging, typing "hello" would leave five one-letter cards
-		// in the margin.
-		const code = stripComments(PERSIST);
-		assert.match(code, /COALESCE_MS/, "there must be a coalescing window");
-		assert.match(code, /continuing/, "and a branch that extends the open run");
+	test("changing block starts a new suggestion", () => {
+		const decision = decideEdit(boundRun(), { ...base, ref: "bother1", text: "x" });
+		assert.equal(decision.action, "start", "a run never spans two blocks");
 	});
 
-	test("a run is keyed by block and kind", () => {
-		// Otherwise typing in one paragraph then another appends to the wrong
-		// suggestion, and a deletion folds into an insertion.
-		const code = stripComments(PERSIST);
-		assert.match(code, /`\$\{path\}:\$\{ref\}:\$\{kind\}`/, "the run key names all three");
+	test("changing kind starts a new suggestion", () => {
+		// Typing then deleting in the same block are different proposals.
+		const decision = decideEdit(boundRun(), { ...base, kind: "delete", text: "x" });
+		assert.equal(decision.action, "start");
 	});
 
-	test("the extension list stays stable across renders", () => {
-		// The extensions memo must not depend on the callback, or every render would
-		// rebuild the editor and destroy its state — the remount defect this branch
-		// already had to fix once.
-		const code = stripComments(EDITOR);
-		assert.match(code, /trackedEditRef\.current\(info\)/, "read through a ref");
-		assert.match(code, /trackedEditRef\.current = handleTrackedEdit/, "which is kept current");
+	test("changing document starts a new suggestion", () => {
+		const decision = decideEdit(boundRun(), { ...base, path: "other.md", text: "x" });
+		assert.equal(decision.action, "start");
 	});
 
-	test("the block ref comes from snapshotBlocks, not the DOM attribute", () => {
-		// The wiring test above passed 8/8 while every typed suggestion still no-opped:
-		// the resolver read `data-block-ref`, which live was null on the open document
-		// because only one branch of the geometry effect writes it. The failure was one
-		// layer below the wiring, so it gets its own guard.
-		const code = stripComments(PERSIST);
-		assert.match(code, /snapshotBlocks/, "the ref must come from the sidecar snapshot");
-		assert.doesNotMatch(
-			code,
-			/return\s+\(el\?\.closest\("\[data-block-ref\]"\).*\?\.getAttribute\("data-block-ref"\)\s*\?\?\s*null;/,
-			"the DOM attribute must not be the only source",
-		);
+	test("CONTROL: a bound run with the same key IS extendable", () => {
+		// Without this, the three "starts a new suggestion" cases above would pass
+		// even if the function always returned `start`.
+		assert.equal(willExtend(boundRun(), base), true);
+		assert.equal(decideEdit(boundRun(), { ...base, text: "!" }).action, "extend");
+	});
+});
+
+describe("the proposal text is what gets persisted", () => {
+	test("the create op carries the typed text, not an empty string", () => {
+		// Posting `markdown: ""` is precisely why a reload lost the proposal.
+		const run = startOf(decideEdit(null, { ...base, text: "hello" }));
+		const op = createOp(run) as { markdown?: string; type: string; ref?: string };
+		assert.equal(op.markdown, "hello", "the record must hold the proposed text");
+		assert.equal(op.type, "suggestion.add");
+		assert.equal(op.ref, base.ref);
 	});
 
-	test("the DOM attribute is only a fallback, after the snapshot", () => {
-		// The ordering that matters is in the RETURN, not in the file: the snapshot
-		// is preferred and the attribute is the `??` fallback. Comparing the first
-		// occurrence of each string would match the doc comment instead.
-		const code = stripComments(PERSIST);
-		assert.match(
-			code,
-			/return\s+blocks\[index\]\?\.ref\s*\?\?\s*fromDom\s*\?\?\s*null;/,
-			"the snapshot must be preferred, with the DOM attribute as fallback",
-		);
+	test("the edit op carries the full accumulated text", () => {
+		const op = editOp(boundRun({ text: "hello" })) as {
+			markdown?: string;
+			suggestionId?: string;
+		};
+		assert.equal(op.markdown, "hello");
+		assert.equal(op.suggestionId, "s0a1b", "and targets the run's own record");
 	});
 
-	test("CONTROL: the strip really does remove the marks that were unrecorded", () => {
-		// Establishes the premise. If the strip did not remove insertion marks, the
-		// unwired state would merely save the marks instead of losing them.
-		const code = stripComments(EDITOR);
-		assert.match(code, /stripTrackChangesFromHTML\(editor\.getHTML\(\)\)/);
+	test("CONTROL: a create op for a different run differs", () => {
+		const a = createOp(boundRun({ text: "one" }));
+		const b = createOp(boundRun({ text: "two" }));
+		assert.notDeepEqual(a, b, "the op is genuinely derived from the run");
+	});
+});
+
+describe("a typing burst becomes one suggestion, not one per keystroke", () => {
+	test("five keystrokes produce one create and four edits", () => {
+		// Drives the whole sequence the way `onTrackedEdit` does: per transaction.
+		const creates: unknown[] = [];
+		const edits: unknown[] = [];
+		let run: EditRun | null = null;
+
+		for (const ch of ["h", "e", "l", "l", "o"]) {
+			const decision: RunDecision = decideEdit(run, { ...base, text: ch });
+			if (decision.action === "start") {
+				run = newRun(decision);
+				creates.push(createOp(run));
+				// The create response supplies the id; without this the next keystroke
+				// would start yet another suggestion.
+				run = { ...run, suggestionId: "s0a1b" };
+			} else {
+				run = { ...decision.run, text: decision.text };
+				edits.push(editOp(run));
+			}
+		}
+
+		assert.equal(creates.length, 1, "one card in the margin, not five");
+		assert.equal(edits.length, 4);
+		assert.equal(run?.text, "hello", "and the final text is the whole word");
+		const last = edits.at(-1) as { markdown?: string };
+		assert.equal(last.markdown, "hello", "the sidecar ends up holding the full text");
 	});
 
-	test("CONTROL: the comment stripper used above is not vacuous", () => {
-		assert.equal(stripComments("// onTrackedEdit:\n").includes("onTrackedEdit"), false);
-		assert.equal(stripComments("onTrackedEdit: (i) => i,").includes("onTrackedEdit"), true);
+	test("an unbound run litters the margin — establishes the premise", () => {
+		// The counterfactual, kept so the fix's value is visible rather than asserted.
+		// If the create response never binds an id, every keystroke starts a run.
+		let run: EditRun | null = null;
+		let creates = 0;
+		for (const ch of ["h", "e", "l", "l", "o"]) {
+			const decision: RunDecision = decideEdit(run, { ...base, text: ch });
+			if (decision.action === "start") {
+				creates += 1;
+				run = newRun(decision); // note: id never bound
+			}
+		}
+		assert.equal(creates, 5, "five cards, and no durable text");
+	});
+
+	test("the coalescing window is a real, positive duration", () => {
+		assert.ok(COALESCE_MS > 0, "a zero window would never merge anything");
 	});
 });

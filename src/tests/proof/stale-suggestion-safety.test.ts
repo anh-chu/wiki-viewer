@@ -63,7 +63,12 @@ describe("an orphaned suggestion cannot write into the document", () => {
 		} as never)) as unknown as { ok: boolean; code?: string };
 
 		assert.equal(res.ok, false, "the accept must not succeed");
-		assert.equal(res.code, "BLOCK_NOT_FOUND", "and must say why");
+		// The refusal now comes from the stale guard, which runs BEFORE the block
+		// lookup. The dead ref would also have been caught later by BLOCK_NOT_FOUND,
+		// but the honest reason is that the suggestion is stale — and unlike the
+		// block lookup, the stale guard also covers the reachable case where the ref
+		// resolves again.
+		assert.equal(res.code, "SUGGESTION_STALE", "and must say why");
 	});
 
 	test("the file is untouched", async () => {
@@ -139,5 +144,112 @@ describe("an orphaned suggestion cannot write into the document", () => {
 		assert.equal(res.ok, true, `a live accept must succeed, got ${res.code}`);
 		const onDisk = await readFile(path.join(root, mdPath), "utf8");
 		assert.match(onDisk, /REPLACED FOR REAL/, "and its markdown reaches the file");
+	});
+});
+
+describe("a stale suggestion cannot be accepted once its anchor comes back", () => {
+	/**
+	 * The reachable case the first version of this file missed.
+	 *
+	 * Refs are content-derived, so deleting a block and typing the same text again
+	 * makes the original ref valid a second time — while `stale` stays true, because
+	 * `markOrphanedRefsStale` only ever sets it. The UI keeps filtering the
+	 * suggestion out, so the user cannot see it, but the ref now resolves, which
+	 * means the ordinary BLOCK_NOT_FOUND guard no longer refuses anything.
+	 *
+	 * The earlier tests only covered a ref that can NEVER resolve (`bDEAD`). That
+	 * proved a dead suggestion cannot be accepted; it did not prove a stale one
+	 * cannot. The distinction matters because only the second is reachable by
+	 * normal editing.
+	 */
+	async function seedStaleWithLiveRef() {
+		const root = await mkdtemp(path.join(tmpdir(), "stale-live-"));
+		const mdPath = "s.md";
+		// The block exists, so every ref resolves normally.
+		await writeFile(path.join(root, mdPath), CONTENT, "utf8");
+		const { newRefMap } = assignRefs(parseBlocks(CONTENT), null);
+		const refs = Object.keys(newRefMap);
+
+		const sc = emptySidecar(mdPath);
+		sc.refMap = newRefMap;
+		sc.fingerprint = `sha256:${createHash("sha256").update(CONTENT, "utf8").digest("hex")}`;
+		sc.suggestions.push({
+			id: "sug-stale-live",
+			ref: refs[0],
+			status: "pending",
+			// The state reconciliation leaves behind after delete-then-retype.
+			stale: true,
+			kind: "replace",
+			markdown: "STALE PHANTOM EDIT",
+			createdAt: new Date().toISOString(),
+			by: "human",
+		} as unknown as Suggestion);
+		await writeSidecar(root, mdPath, sc);
+		return { root, mdPath, revision: sc.revision };
+	}
+
+	test("accepting a stale suggestion with a LIVE ref is refused", async () => {
+		const { root, mdPath, revision } = await seedStaleWithLiveRef();
+		const res = (await applyOps({
+			rootDir: root,
+			mdPath,
+			baseRevision: revision,
+			by: "human",
+			ops: [{ type: "suggestion.accept", suggestionId: "sug-stale-live" }],
+		} as never)) as unknown as { ok: boolean; code?: string };
+
+		assert.equal(res.ok, false, "stale is stale even when the ref resolves again");
+		assert.equal(res.code, "SUGGESTION_STALE", "and the refusal names the real reason");
+	});
+
+	test("the file is untouched", async () => {
+		const { root, mdPath, revision } = await seedStaleWithLiveRef();
+		await applyOps({
+			rootDir: root,
+			mdPath,
+			baseRevision: revision,
+			by: "human",
+			ops: [{ type: "suggestion.accept", suggestionId: "sug-stale-live" }],
+		} as never);
+		const onDisk = await readFile(path.join(root, mdPath), "utf8");
+		assert.equal(onDisk, CONTENT, "a hidden suggestion must not edit the document");
+		assert.ok(!onDisk.includes("STALE PHANTOM EDIT"), "specifically not its markdown");
+	});
+
+	test("reject and delete are refused too, not just accept", async () => {
+		// The guard is about the recorded state, so every mutating op must honour it.
+		for (const type of ["suggestion.reject", "suggestion.delete"]) {
+			const { root, mdPath, revision } = await seedStaleWithLiveRef();
+			const res = (await applyOps({
+				rootDir: root,
+				mdPath,
+				baseRevision: revision,
+				by: "human",
+				ops: [{ type, suggestionId: "sug-stale-live" }],
+			} as never)) as unknown as { ok: boolean; code?: string };
+			assert.equal(res.ok, false, `${type} must be refused on a stale suggestion`);
+			assert.equal(res.code, "SUGGESTION_STALE", `${type} names the reason`);
+		}
+	});
+
+	test("CONTROL: the same suggestion is accepted once stale is cleared", async () => {
+		// Proves the refusal is caused by `stale` and not by the seeded ref being wrong.
+		// Clearing the flag is not something production does — it stands in for the
+		// explicit revive transition the API does not have yet.
+		const { root, mdPath, revision } = await seedStaleWithLiveRef();
+		const sc = await readSidecar(root, mdPath);
+		assert.ok(sc, "sidecar must exist");
+		sc.suggestions[0].stale = false;
+		await writeSidecar(root, mdPath, sc);
+
+		const res = (await applyOps({
+			rootDir: root,
+			mdPath,
+			baseRevision: sc.revision,
+			by: "human",
+			ops: [{ type: "suggestion.accept", suggestionId: "sug-stale-live" }],
+		} as never)) as unknown as { ok: boolean; code?: string };
+
+		assert.equal(res.ok, true, `an un-stale suggestion accepts normally, got ${res.code}`);
 	});
 });

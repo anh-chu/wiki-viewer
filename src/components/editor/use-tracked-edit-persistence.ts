@@ -4,6 +4,15 @@ import { useCallback, useRef } from "react";
 import { postOp } from "./suggest-edit-popover";
 import { useEditorStore } from "@/stores/editor-store";
 import { useProofStore } from "@/stores/proof-store";
+import {
+	COALESCE_MS,
+	createOp,
+	decideEdit,
+	editOp,
+	type EditRun,
+	newRun,
+	runKey,
+} from "@/lib/proof/tracked-edit-runs";
 import type { ProofEvent } from "@/lib/proof/types";
 
 /**
@@ -11,31 +20,57 @@ import type { ProofEvent } from "@/lib/proof/types";
  *
  * Without this, typing in Suggesting mode stamped editor marks that the
  * serialization strip removed before saving: the text landed in the file as a
- * plain permanent edit and no suggestion record was ever created. The marks
- * looked like a suggestion on screen and were gone on reload, which is the worst
- * of both — the user believes their change is pending while it has already been
- * applied. The `TrackChangesOptions.onTrackedEdit` hook exists for exactly this
- * ("called after a tracked edit lands, so the sidecar can record it") and was
- * never passed.
+ * plain permanent edit and no suggestion record was ever created.
  *
- * Coalescing is the whole difficulty. `onTrackedEdit` fires per transaction, so a
- * typed word arrives as several calls, one per keystroke. Creating a suggestion
- * per call would litter the margin with one-character suggestions. Consecutive
- * insertions in the same block are therefore merged into a single pending
- * suggestion, and the merge window closes when the block changes, the kind
- * changes, or enough idle time passes.
+ * The durability rule, which an earlier version of this file got wrong:
+ * **the sidecar must hold the proposed text, not just the marks.** The marks live
+ * in the editor and die on reload; `suggestion.text` on screen was being
+ * reconstructed from them. So the typed text has to reach the sidecar, and an
+ * earlier version posted `markdown: ""` and never bound the returned id, which
+ * meant no text was ever recorded and no run could ever continue. A reload lost
+ * the proposal entirely while the screen had shown it as pending.
+ *
+ * Two structural consequences follow:
+ *
+ *   - The id returned by `suggestion.add` is bound to the run, so the run
+ *     continues instead of starting a new suggestion per keystroke.
+ *   - Writes are SERIALIZED. Every `postOp` carries a base revision, so two
+ *     overlapping requests both read revision R, one wins, and the loser retries
+ *     against R+1 — and a second consecutive failure used to be dropped on the
+ *     floor. A single promise chain per document removes the interleaving rather
+ *     than trying to recover from it.
+ *
+ * Coalescing remains the visible behaviour: `onTrackedEdit` fires per
+ * transaction, so a typed word arrives as several calls, and consecutive
+ * insertions in the same block merge into one suggestion that is updated in
+ * place. The merge window closes when the block changes, the kind changes, or
+ * enough idle time passes.
  */
 
-/** How long a run of typing stays open before it becomes its own suggestion. */
-const COALESCE_MS = 1200;
+/** A run plus the React-side timer that closes its merge window. */
+type Run = EditRun & { timer: ReturnType<typeof setTimeout> | null };
 
-type Run = {
-	key: string;
-	suggestionId: string | null;
-	text: string;
-	kind: "insert" | "delete";
-	timer: ReturnType<typeof setTimeout> | null;
-};
+/**
+ * One write queue per document, shared by every run in this module.
+ *
+ * Module scope, not component scope: a remount must not leave an older request
+ * chain running unobserved, and two hooks in one page must not write to the same
+ * file concurrently. Keyed by path so two documents still write in parallel.
+ */
+const writeQueues = new Map<string, Promise<unknown>>();
+
+/** Serialize a write against every other write to the same document. */
+function enqueueWrite<T>(path: string, work: () => Promise<T>): Promise<T> {
+	const prior = writeQueues.get(path) ?? Promise.resolve();
+	// Chain off the settled prior regardless of its outcome, so one failed write
+	// cannot stall the queue for the rest of the session.
+	const next = prior.then(work, work);
+	writeQueues.set(
+		path,
+		next.catch(() => {}),
+	);
+	return next;
+}
 
 export function useTrackedEditPersistence() {
 	const runRef = useRef<Run | null>(null);
@@ -51,6 +86,36 @@ export function useTrackedEditPersistence() {
 		runRef.current = null;
 	}, []);
 
+	/**
+	 * Push a run's current text into its suggestion record.
+	 *
+	 * Queued, so a run that grows while an earlier edit is still in flight cannot
+	 * issue two requests against the same base revision. The text is read at call
+	 * time inside the queued work, so a queued write always sends the latest text
+	 * rather than the text as it was when the write was requested.
+	 */
+	const writeRun = useCallback(
+		(run: Run): void => {
+			if (!run.suggestionId) return;
+			void enqueueWrite(run.path, async () => {
+				// Read the text inside the queued work, so a queued write always sends
+				// the latest text rather than the text as it was when it was requested.
+				const op = editOp(run);
+				const first = await postOp(run.path, currentRevision(), [op]);
+				if (first.ok) return;
+				if (first.stale && first.newRevision !== undefined) {
+					await useProofStore.getState().loadSidecar(run.path);
+					const retry = await postOp(run.path, first.newRevision, [op]);
+					if (retry.ok) return;
+					reportWriteFailure(run.path, retry);
+					return;
+				}
+				reportWriteFailure(run.path, first);
+			});
+		},
+		[currentRevision],
+	);
+
 	const handleTrackedEdit = useCallback(
 		(info: { markName: string; from: number; to: number; text: string }) => {
 			if (!info.text) return;
@@ -62,56 +127,102 @@ export function useTrackedEditPersistence() {
 			const ref = resolveBlockRefFor(info.from);
 			if (!ref) return;
 
-			// A run is keyed by block and kind, so moving to another paragraph or
-			// switching between typing and deleting starts a new suggestion rather
-			// than appending to an unrelated one.
-			const key = `${path}:${ref}:${kind}`;
-			const open = runRef.current;
-			const continuing =
-				open !== null && open.key === key && open.suggestionId !== null;
+			// The decision itself is pure and lives in `tracked-edit-runs`, so the
+			// behaviour is directly testable instead of only describable in prose.
+			const decision = decideEdit(runRef.current, {
+				path,
+				ref,
+				kind,
+				text: info.text,
+			});
 
-			if (continuing) {
-				open.text += info.text;
+			if (decision.action === "extend") {
+				const open = decision.run;
+				open.text = decision.text;
 				if (open.timer) clearTimeout(open.timer);
-				open.timer = setTimeout(close, COALESCE_MS);
-				// The first call in the run already created the record; the mark
-				// itself carries the full text, so nothing more needs writing until
-				// the run closes.
+				open.timer = setTimeout(() => close(), COALESCE_MS);
+				// Push the grown text to the sidecar so the proposal is durable as it
+				// accumulates, not only when the run closes. Without this an interrupted
+				// session (reload, navigation, crash) loses everything typed since the
+				// first character, which is the defect this file exists to fix.
+				writeRun(open);
 				return;
 			}
 
 			close();
-			const run: Run = {
-				key,
-				suggestionId: null,
-				text: info.text,
-				kind,
-				timer: null,
-			};
+			const run: Run = { ...newRun(decision), timer: null };
 			runRef.current = run;
 
-			const op =
-				kind === "insert"
-					? { type: "suggestion.add", ref, kind: "insert", basis: "suggested", markdown: "" }
-					: { type: "suggestion.add", ref, kind: "delete", basis: "suggested" };
+			void enqueueWrite(path, async () => {
+				const op = createOp(run);
 
-			void (async () => {
 				const first = await postOp(path, currentRevision(), [op]);
-				if (!first.ok && first.stale && first.newRevision !== undefined) {
-					await useProofStore.getState().loadSidecar(path);
-					const retry = await postOp(path, first.newRevision, [op]);
-					if (retry.ok) recordSuggestion(path, retry.snapshot);
+				if (first.ok && first.snapshot) {
+					// Bind the id BEFORE any later edit can look for it. This is the line
+					// whose absence made the run permanently non-extendable.
+					bindCreatedId(run, first.snapshot);
+					recordSuggestion(path, first.snapshot);
 					return;
 				}
-				if (first.ok) recordSuggestion(path, first.snapshot);
-			})();
+				// The document moved under us. Re-read the sidecar and retry once at the
+				// new revision; report loudly if that also fails rather than dropping it,
+				// because a silently discarded write is a lost suggestion.
+				if (first.stale && first.newRevision !== undefined) {
+					await useProofStore.getState().loadSidecar(path);
+					const retry = await postOp(path, first.newRevision, [op]);
+					if (retry.ok && retry.snapshot) {
+						bindCreatedId(run, retry.snapshot);
+						recordSuggestion(path, retry.snapshot);
+						return;
+					}
+					reportWriteFailure(path, retry);
+					return;
+				}
+				reportWriteFailure(path, first);
+			});
 
 			run.timer = setTimeout(close, COALESCE_MS);
 		},
-		[close, currentRevision],
+		[close, currentRevision, writeRun],
 	);
 
 	return { handleTrackedEdit, flush: close };
+}
+
+/**
+ * Bind the id of the suggestion a create response produced to its run.
+ *
+ * This is the step an earlier version omitted, and its absence was invisible: the
+ * run kept `suggestionId: null`, so `decideEdit` could never return `extend`, so
+ * every keystroke started a new suggestion and no typed text was ever durable.
+ * A test asserting the words `COALESCE_MS` and `continuing` appeared in the file
+ * passed the whole time.
+ */
+function bindCreatedId(run: Run, snapshot: unknown): void {
+	const snap = snapshot as { suggestions?: { id?: string }[] } | undefined;
+	const id = snap?.suggestions?.at(-1)?.id;
+	if (typeof id === "string") run.suggestionId = id;
+}
+
+/**
+ * Report a suggestion write that could not be persisted.
+ *
+ * Deliberately loud. The failure mode this guards is a suggestion that looks
+ * pending on screen while nothing durable holds it, so silence is the one
+ * unacceptable outcome. Errors go to the console rather than a toast because the
+ * editor has no notice surface for this today; adding one is a UX decision, not
+ * a correctness fix, and inventing a store field here would be scaffolding for a
+ * UI nobody has asked for.
+ */
+function reportWriteFailure(
+	path: string,
+	result: { code?: string; message?: string },
+): void {
+	console.error(
+		`[tracked-edit] could not persist the suggestion for ${path}: ${result.code ?? "unknown"}${
+			result.message ? ` — ${result.message}` : ""
+		}`,
+	);
 }
 
 /** Surface the new suggestion in the sidecar store so the margin can show it. */
