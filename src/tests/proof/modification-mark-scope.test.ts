@@ -68,6 +68,31 @@ describe("a pending modification protects the file", () => {
 		assert.doesNotMatch(out, /data-tracked/);
 	});
 
+	test("a link inside the wrapper keeps its destination", () => {
+		// A link's href is content, not formatting. Stripping the anchor deleted the
+		// destination and left the words: `[the docs](https://x.test)` became
+		// `the docs`. Nothing about a formatting suggestion says where a link points.
+		const out = stripTrackChangesFromHTML(
+			'<p>see <span data-tracked="modification"><a href="https://x.test">the docs</a></span> now</p>',
+		);
+		assert.match(out, /href="https:\/\/x\.test"/, "the destination must survive");
+		assert.match(out, /the docs/, "and the text");
+		assert.doesNotMatch(out, /data-tracked/, "without leaking the wrapper");
+	});
+
+	test("the link case and the bold case are treated differently, on purpose", () => {
+		// Both sit inside a modification; only one is a proposal. Guards against a
+		// future tidy-up making the two consistent in the wrong direction.
+		const bold = stripTrackChangesFromHTML(
+			'<p><span data-tracked="modification"><strong>x</strong></span></p>',
+		);
+		const link = stripTrackChangesFromHTML(
+			'<p><span data-tracked="modification"><a href="https://x.test">x</a></span></p>',
+		);
+		assert.doesNotMatch(bold, /<strong>/, "the proposal goes");
+		assert.match(link, /<a href=/, "the destination stays");
+	});
+
 	test("CONTROL: the editor never creates a modification mark", () => {
 		// This bounds the cost of the blunt strip. The mark is registered in the
 		// schema and consumed by accept/reject, but nothing applies it, so no user

@@ -166,5 +166,13 @@ export function stripTrackChangesFromHTML(html: string): string {
  * which is why the second attempt was reverted rather than kept.
  */
 function neutralizeModification(inner: string): string {
-	return inner.replace(/<\/?(strong|b|em|i|u|s|mark|code|span|a)\b[^>]*>/gi, "");
+		// Formatting tags go, because inside the wrapper they ARE the proposal.
+	//
+	// Anchors are kept, and that asymmetry is deliberate: a link's href is content,
+	// not formatting. Stripping it deleted the destination and left the words —
+	// measured, `[the docs](https://x.test)` became `the docs`. A formatting change
+	// says nothing about where a link points, so there is no proposal to suppress.
+	return inner
+		.replace(/<\/?(strong|b|em|i|u|s|mark|code|span)\b[^>]*>/gi, "")
+		.replace(/<\/?span\b[^>]*data-tracked="modification"[^>]*>/gi, "");
 }
