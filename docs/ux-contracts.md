@@ -836,6 +836,17 @@ produce the "recovered" branch.
 refreshes the decoration layer only — zero `markdownToHtml`, zero `setContent`.
 Selection and scroll position are preserved across the whole annotation loop.
 
+**An annotation op does not rewrite the `.md`.** The sidecar write is what records a
+comment or a suggestion; the markdown is untouched, so the file is only written when its
+bytes actually change (`contentChanged`). This was not always so, and the cost was not a
+wasted write: rewriting the file bumped its mtime, chokidar reported the change, and the
+client watching its own open document read that as an external edit — reloading the
+snapshot and the sidecar, and in view mode reloading the page. Because every keystroke in
+Suggesting mode posts an op, **every character typed triggered a full document refresh
+under the cursor**, which is what made Suggesting mode feel unstable. Measured live: one
+keystroke went from `3 POST + 6 GET` to `1 POST + 0 GET`, and a comment op now leaves the
+`.md` mtime untouched while the sidecar still advances.
+
 **Why it matters:** Comment ops never change file content (revision stays
 fixed), so the pip/thread loop is the safe annotation path that must not bump the
 file revision. Anchoring by identity is what makes three comments on three blocks

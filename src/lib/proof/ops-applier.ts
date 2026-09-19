@@ -1325,8 +1325,20 @@ export async function applyOps(args: {
 			trimEvents(workingSidecar, SIDECAR_EVENT_TRIM_SIZE);
 		}
 
-		// Atomic write
-		await writeFile(path.join(rootDir, mdPath), newMarkdown, "utf-8");
+		// Write the .md only when its content actually changed.
+		//
+		// This used to be unconditional, and the cost was not a wasted write: touching the
+		// file bumps its mtime, chokidar reports the change, and the client watching its own
+		// open document treats that as an external edit — reloading the snapshot and the
+		// sidecar, and in view mode reloading the page. A comment or a suggestion does not
+		// alter the markdown (`contentChanged` is false), yet every such op rewrote the file,
+		// so EVERY keystroke in Suggesting mode refreshed the whole document under the user's
+		// cursor. That is the glitch this fixes.
+		//
+		// It also keeps the file's mtime honest: it moves only when the bytes move.
+		if (contentChanged) {
+			await writeFile(path.join(rootDir, mdPath), newMarkdown, "utf-8");
+		}
 		await writeSidecar(rootDir, mdPath, workingSidecar);
 
 		return {
