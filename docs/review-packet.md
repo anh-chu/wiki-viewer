@@ -9,7 +9,7 @@ session; anything I could not verify is labelled as such rather than rounded up.
 |---|---|
 | Worktree | `/home/sil/wiki-viewer/.worktrees/comments-rebuild` |
 | Branch | `feat/comments-rebuild` (no upstream — never pushed) |
-| HEAD | `d3288c9` (the packet commit itself) |
+| HEAD | `b3cc5f9` — the commit under review. The packet itself lands in later commits (docs only). |
 | Base | `main` @ `d8e6982` (tag v2.20.1) |
 | Size | 51 commits, 59 files, +8900 / −863 |
 | State | tree clean, nothing merged, nothing published |
@@ -60,7 +60,7 @@ floor moved 704 → 835.
 
 ## Evidence, by gate
 
-All re-run at `b3cc5f9` (one commit before the packet):
+All re-run at `b3cc5f9`, the commit under review:
 
 | Gate | Result |
 |---|---|
