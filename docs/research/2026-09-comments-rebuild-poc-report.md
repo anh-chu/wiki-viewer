@@ -187,6 +187,35 @@ on only one path in the geometry effect and was `null` on the open document live
 would have made every typed suggestion silently no-op. The resolver now reads the
 sidecar's `snapshotBlocks` by index, the same source the selection path uses.
 
+### Two review findings, one fixed and one resolved by narrowing the claim
+
+**A reachable bypass of the no-op guard — fixed.** `toggleSourceMode`'s exit branch
+called `updateContent(sourceText)` and `setContent(html)` but never re-seeded
+`lastSerializedRef`. The baseline is the round-tripped form (`1.  one`) while source mode
+holds the file's own text (`1. one`), so the comparison missed and the update that
+`setContent` fires saved a reformatted document. Opening source mode and closing it again
+with no edit rewrote list markers. The branch now re-seeds from the editor's own stripped
+serialization after `setContent`. Guard fails on the old code: 3 of 7 cases.
+
+**The dead doc-level walker — the finding was half right.** A reviewer reported
+`stripTrackChanges` as dead code shipping behind a weaker regex layer, citing the
+module's own claim that the tree walk is "strictly stronger". Two corrections:
+
+  - It cannot be the serialization path. It returns plain TEXT, so it can never preserve
+    formatting; it is a verification instrument, and the regex layer is the real path.
+  - The collateral damage it reported is real but narrower than described. Formatting
+    merely NESTED near a modification was being stripped along with the proposal.
+    Formatting outside the wrapper now survives.
+
+The proposed repair — keep the formatting inside the wrapper — was implemented, and the
+byte-identity gate rejected it: `<strong>fox</strong>` reaches Turndown as `**fox**`, so a
+pending SUGGESTION would have changed the canonical file. That is the contract this module
+exists to enforce, so the change was reverted and the tradeoff recorded instead.
+
+The cost is bounded, and now asserted: the modification mark is registered in the schema
+and consumed by accept/reject, but **nothing ever applies it**. No user action can produce
+the collateral case — it is reachable only through pasted or agent-supplied HTML.
+
 ### The margin column had its own version of this
 
 The margin column was reported working on the strength of its layout tests, its card

@@ -1369,6 +1369,19 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 				isLoadingRef.current = true;
 				const html = await markdownToHtml(sourceText, currentPath ?? undefined);
 				editor.commands.setContent(html);
+				// Re-seed the no-op baseline from what the editor now holds.
+				//
+				// Without this the guard compares against a baseline from BEFORE source
+				// mode. The baseline is the round-tripped form (`1.  one`) while source
+				// mode holds the file's own text (`1. one`), so the comparison misses and
+				// the next update — which `setContent` triggers — saves a reformatted
+				// document. Measured: opening source mode and closing it again with no
+				// edit rewrote the list markers. The content is unchanged either way, so
+				// seeding here keeps closing source mode a genuine no-op.
+				lastSerializedRef.current = htmlToMarkdown(
+					stripTrackChangesFromHTML(editor.getHTML()),
+					currentPath ?? undefined,
+				);
 				setTimeout(() => {
 					isLoadingRef.current = false;
 				}, 50);

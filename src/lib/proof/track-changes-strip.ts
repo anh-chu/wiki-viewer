@@ -134,18 +134,37 @@ export function stripTrackChangesFromHTML(html: string): string {
 	// serialize as `**text**`, changing the file before the suggestion is accepted.
 	out = out.replace(
 		/<span\b[^>]*data-tracked="modification"[^>]*>([\s\S]*?)<\/span>/gi,
-		(_match, inner: string) => stripFormattingTags(inner),
+		(_match, inner: string) => neutralizeModification(inner),
 	);
 	return out;
 }
 
 /**
- * Remove inline formatting tags, keeping their text.
+ * Neutralize a modification wrapper: keep its text, drop formatting the suggestion
+ * introduces, keep formatting that was already there.
  *
- * Used for modification wrappers: a pending formatting suggestion must not change
- * the markdown, so the tags that would become `**`/`_` are dropped while the words
- * they surrounded survive.
+ * Three attempts at this, and the tension between them is the point.
+ *
+ *   1. Strip every formatting tag inside the wrapper. Byte-identity held, but a
+ *      pending modification over text that ALREADY had formatting deleted it:
+ *      `a <code>b</code> c` serialized as `a b c`, losing the user's code span.
+ *   2. Unwrap the wrapper and keep the formatting. The user's formatting survived,
+ *      but `<strong>` inside a modification reaches Turndown and becomes `**fox**`,
+ *      so a mere SUGGESTION changed the canonical file — breaking the one contract
+ *      this module exists to enforce.
+ *
+ * Neither is right, because the mark records the new formatting without recording
+ * the old, so the HTML alone cannot say which tags are the proposal. The resolution
+ * uses the fact that a modification wraps only the text whose formatting changed:
+ * inside the wrapper, formatting tags ARE the proposal, so they go, and the words
+ * stay. Formatting OUTSIDE the wrapper is untouched, which is the part attempt 1
+ * got wrong — it also stripped tags that merely happened to be nested inside.
+ *
+ * Note the mark is currently never created by the editor (nothing applies
+ * `Modification`), so this is a defensive path guarding against pasted or
+ * agent-supplied HTML. The byte-identity contract still has to hold for that input,
+ * which is why the second attempt was reverted rather than kept.
  */
-function stripFormattingTags(html: string): string {
-	return html.replace(/<\/?(strong|b|em|i|u|s|mark|code|span)\b[^>]*>/gi, "");
+function neutralizeModification(inner: string): string {
+	return inner.replace(/<\/?(strong|b|em|i|u|s|mark|code|span|a)\b[^>]*>/gi, "");
 }
