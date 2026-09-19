@@ -12,7 +12,7 @@ import type {
 	Suggestion,
 	AnchorStatus,
 } from "./types";
-import { anchorForBlock, anchorForRange, projectCommentViews, resolveAnchor } from "./anchor";
+import { anchorForBlock, anchorForRange, migrateSidecar, projectCommentViews, resolveAnchor } from "./anchor";
 import { parseBlocks, blockToMarkdown, blocksToMarkdown } from "./blocks";
 import { assignRefs, resolveRef, computeRefDelta, textHash } from "./block-refs";
 import { readSidecar, writeSidecar, emptySidecar } from "./sidecar";
@@ -174,7 +174,11 @@ export function reconcileRefsAndCancelOrphans(sidecar: Sidecar, content: string)
  * (cancellation has no un-cancel path).
  */
 function survivesViaAlias(sidecar: Sidecar, ref: string, validRefs: Set<string>): boolean {
-	const aliased = sidecar.refAliases[ref];
+	// Optional: migration drops `refAliases` (see anchor.ts), so a sidecar that has
+	// been migrated no longer carries the map this reads. Absent means "no alias
+	// recorded", which is the honest answer — the alias mechanism is exactly what
+	// the anchor record replaces.
+	const aliased = sidecar.refAliases?.[ref];
 	return Boolean(aliased && validRefs.has(aliased));
 }
 
@@ -309,6 +313,23 @@ export async function reconcileSidecar(args: {
 	const { rootDir, mdPath, content, sidecar, by, eventType, fingerprint } = args;
 	const nodes = parseBlocks(content);
 	const { blocks, newRefMap } = assignRefs(nodes, sidecar);
+
+	// Migrate BEFORE anything judges an annotation by its ref.
+	//
+	// This is the only production site with the blocks that migration needs, and
+	// until recently nothing called it here: every `readSidecar` call passes two
+	// arguments, so migration never ran outside tests and legacy records never
+	// acquired an anchor. That left `markOrphanedRefsStale` below deciding
+	// orphanhood purely from ref disappearance — the content-derived identity this
+	// rebuild exists to stop relying on. Migrating first means a record that has an
+	// anchor is judged against it, and one that cannot be anchored is marked lost
+	// honestly rather than cancelled because a hash moved.
+	//
+	// `blocks` here are the pre-edit shape on the write path, which is what the
+	// stored offsets and quotes were taken against.
+	const migrated = migrateSidecar(sidecar, blocks);
+	if (migrated.changed) Object.assign(sidecar, migrated.sidecar);
+
 	const oldFingerprint = sidecar.fingerprint;
 	sidecar.refMap = newRefMap;
 	sidecar.revision += 1;
@@ -387,11 +408,23 @@ export async function readSnapshot(
 	const nodes = parseBlocks(content);
 	const { blocks, newRefMap } = assignRefs(nodes, sidecar);
 
+	// Migrate here too: this is the first production path where a read has the
+	// document, and `buildSnapshot` below projects comment views from anchors. A
+	// record that is still legacy at this point has no anchor to project, so the
+	// migration has to happen before the snapshot is built, not after.
+	const migrated = migrateSidecar(sidecar, blocks);
+	if (migrated.changed) Object.assign(sidecar, migrated.sidecar);
+
 	// Sync sidecar refMap if it's empty (first read) and persist fingerprint
 	if (Object.keys(sidecar.refMap).length === 0) {
 		sidecar.refMap = newRefMap;
 		sidecar.fingerprint = fingerprint;
 		// Persist so future readSnapshot calls can detect external edits
+		await writeSidecar(rootDir, mdPath, sidecar);
+	} else if (migrated.changed) {
+		// A migrated sidecar must reach disk deliberately. Without this it is
+		// migrated in memory on every read and re-derived each time, so an external
+		// edit arriving first would still be reconciled against the legacy shape.
 		await writeSidecar(rootDir, mdPath, sidecar);
 	}
 
