@@ -12,7 +12,7 @@ import type {
 	Suggestion,
 	AnchorStatus,
 } from "./types";
-import { projectCommentViews, resolveAnchor } from "./anchor";
+import { anchorForBlock, anchorForRange, projectCommentViews, resolveAnchor } from "./anchor";
 import { parseBlocks, blockToMarkdown, blocksToMarkdown } from "./blocks";
 import { assignRefs, resolveRef, computeRefDelta, textHash } from "./block-refs";
 import { readSidecar, writeSidecar, emptySidecar } from "./sidecar";
@@ -704,7 +704,23 @@ export async function applyOps(args: {
 
 		const currentRefs = () => new Set(workingBlocks.map((b) => b.ref));
 
-		function findBlockIndex(ref: string): number {
+		/**
+		 * Locate the block an op addresses, by anchor when it has one.
+		 *
+		 * An anchor is the durable identity, so it wins: the ref it was last seen under
+		 * may no longer exist because the text changed, while the anchor still resolves
+		 * by content. Falls back to the ref lookup for ops that carry only a ref, which
+		 * is every v1-era caller.
+		 */
+		function findBlockIndex(ref: string, anchorId?: string): number {
+			if (anchorId) {
+				const anchor = workingSidecar.anchors[anchorId];
+				if (anchor) {
+					const r = resolveAnchor(workingSidecar, anchor, workingBlocks);
+					if (r.ref) return workingBlocks.findIndex((b) => b.ref === r.ref);
+					return -1;
+				}
+			}
 			const resolved = resolveRef(workingSidecar, ref, currentRefs());
 			if (!resolved) return -1;
 			return workingBlocks.findIndex((b) => b.ref === resolved);
@@ -904,12 +920,40 @@ export async function applyOps(args: {
 								snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar),
 							};
 						}
+						// Mint a durable anchor rather than storing offsets as identity.
+						// `textAnchor` is written too, for one release, so an older reader
+						// of this sidecar still highlights the right words; the anchor is
+						// what resolution uses from here on.
+						const minted = anchorForRange(
+							block.markdown,
+							block.ref,
+							anchor.start,
+							anchor.end - anchor.start,
+							at,
+							new Set(Object.keys(workingSidecar.anchors)),
+						);
+						workingSidecar.anchors[minted.id] = minted;
+						comment.anchorId = minted.id;
 						comment.textAnchor = {
 							start: anchor.start,
 							end: anchor.end,
 							selectedText: anchor.selectedText,
 							baseMarkdown: anchor.baseMarkdown ?? block.markdown,
 						};
+					} else {
+						// No selection: the comment covers its block. Anchoring it is what
+						// lets the highlight follow the block instead of dying with its ref.
+						const block = workingBlocks.find((b) => b.ref === resolved);
+						if (block) {
+							const minted = anchorForBlock(
+								block.markdown,
+								block.ref,
+								at,
+								new Set(Object.keys(workingSidecar.anchors)),
+							);
+							workingSidecar.anchors[minted.id] = minted;
+							comment.anchorId = minted.id;
+						}
 					}
 					if (op.kind === "instruction") {
 						comment.kind = "instruction";
@@ -1107,9 +1151,30 @@ export async function applyOps(args: {
 						};
 					}
 
+					// A suggestion gets an anchor too. This is the half that made typed
+					// runs vanish: a suggestion carried only a content-derived `ref`, so
+					// the moment its block's text changed the ref died and the pending
+					// suggestion could no longer be placed. `quote` is sliced from the
+					// block at the range it replaces, which is the only honest record of
+					// what it was about.
+					const anchorBlock = workingBlocks.find((b) => b.ref === resolved);
+					let anchorId: string | undefined;
+					if (anchorBlock) {
+						const start = op.range?.start ?? 0;
+						const end = op.range?.end ?? start;
+						const used = new Set(Object.keys(workingSidecar.anchors));
+						const minted =
+							end > start
+								? anchorForRange(anchorBlock.markdown, anchorBlock.ref, start, end - start, at, used)
+								: anchorForBlock(anchorBlock.markdown, anchorBlock.ref, at, used);
+						workingSidecar.anchors[minted.id] = minted;
+						anchorId = minted.id;
+					}
+
 					const suggestion: Suggestion = {
 						id: shortId("s"),
 						ref: resolved,
+						anchorId,
 						kind: op.kind,
 						status: "pending",
 						by,
@@ -1202,7 +1267,7 @@ export async function applyOps(args: {
 					const sug = workingSidecar.suggestions[sugIdx];
 					let acceptedMarkdown = sug.markdown ?? "";
 					if (sug.range && sug.baseMarkdown !== undefined) {
-						const blockIdx = findBlockIndex(sug.ref);
+						const blockIdx = findBlockIndex(sug.ref, sug.anchorId);
 						if (blockIdx !== -1) {
 							const currentMarkdown = workingBlocks[blockIdx].markdown;
 							if (currentMarkdown !== sug.baseMarkdown) {
@@ -1265,7 +1330,7 @@ export async function applyOps(args: {
 								// Both need the range: without it there is nowhere to splice the
 								// text, and accepting would have to guess where it belonged.
 								if (!sug.range) return null;
-								const blockIdx = findBlockIndex(sug.ref);
+								const blockIdx = findBlockIndex(sug.ref, sug.anchorId);
 								if (blockIdx === -1) return null;
 								const base = workingBlocks[blockIdx].markdown;
 								const spliced =
