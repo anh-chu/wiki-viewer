@@ -31,3 +31,6 @@ TODO.md
 
 # Local QA scratch (never commit)
 .qa-*
+
+# Generated review patches
+.review/
