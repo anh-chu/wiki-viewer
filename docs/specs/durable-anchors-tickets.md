@@ -740,7 +740,7 @@ the comment is created with a `ref` and no `anchorId`; `comment-anchor-view.test
 
 **Outcome:** the two machine-readable inventories and the acceptance checklist agree with the
 code — the anchor module, the resolution pass and the migration are named in
-`isometric-codebase-map.json`/`.html`, §5.1 and §5.3 of `docs/ux-contracts.md` describe
+§5.1 and §5.3 of `docs/ux-contracts.md` describe
 resolution and loss as built, and the spec's live check (acceptance criterion 6) has been
 performed and recorded.
 
@@ -752,8 +752,6 @@ or it documents a plan rather than a product.
 - `docs/ux-contracts.md` — §5.1 and §5.3 final text.
 - `docs/specs/durable-anchors.md` — status from `proposed` to `implemented`, with the live
   check's outcome appended.
-- `isometric-codebase-map.json`, `isometric-codebase-map.html` — the anchor module and the
-  resolution pass.
 - `docs/agent-collab-plan.md` — the anchor-addressed op vocabulary.
 
 **Smallest sufficient change**
@@ -765,16 +763,10 @@ paragraph's comment is untouched. Its outcome is recorded in the spec file, incl
 negative result if the check fails — a documented failure is worth more than an unperformed
 "pass".
 
-The map keeps existing structure ids stable and adds one for the anchor module. Both map
-files are validated with the repo's own commands rather than by inspection.
-
 **GATES**
 
 | gate | exact command | expected result |
 |---|---|---|
-| map JSON | `node -e 'JSON.parse(require("fs").readFileSync("isometric-codebase-map.json", "utf8")); console.log("valid JSON")'` | prints `valid JSON`, exit 0 |
-| map HTML | `python3 /home/sil/.pi/agent/skills/isometric/scripts/validate_isometric.py isometric-codebase-map.html` | validator passes |
-| map script | extract the inline `<script>` to `/tmp/isometric-map-script.js` then `node --check /tmp/isometric-map-script.js` | exit 0 |
 | vocabulary | `HOME=/tmp/wiki-viewer-test-home ./node_modules/.bin/tsx --test src/tests/proof/user-facing-vocabulary.test.ts` | `fail 0`; no `redline`/`orphan`/`annotation`/`pip` in visible strings |
 | typecheck | `HOME=/tmp/wiki-viewer-test-home ./node_modules/.bin/tsc --noEmit` | exactly 1 error, the pre-existing `TS7022` |
 | suite | `HOME=/tmp/wiki-viewer-test-home ./node_modules/.bin/tsx scripts/test-floor.mjs` | all pass, floor unchanged |

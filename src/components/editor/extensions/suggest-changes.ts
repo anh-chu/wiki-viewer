@@ -32,10 +32,8 @@
 import { Extension, Mark, mergeAttributes } from "@tiptap/core";
 import {
 	addSuggestionMarks,
-	transformToSuggestionTransaction,
+	withSuggestChanges,
 	suggestChanges,
-	suggestChangesKey,
-	isSuggestChangesEnabled,
 } from "@/vendor/prosemirror-suggest-changes/index.js";
 
 const specs = addSuggestionMarks({});
@@ -111,20 +109,23 @@ export const SuggestChanges = Extension.create({
 	},
 
 	dispatchTransaction({ transaction, next }) {
-		const state = this.editor.state;
-		// The library's own commands - accept, reject, select - set `skip` on the
-		// transaction they dispatch. Rewriting those would re-mark the very edits
-		// they are trying to settle: measured before this guard, "Accept all" on a
-		// document with 2 suggestions left 6 of them, each accept becoming a fresh
-		// deletion/insertion pair around the text it was meant to resolve.
-		if (transaction.getMeta(suggestChangesKey)?.skip) {
-			next(transaction);
-			return;
-		}
-		if (!isSuggestChangesEnabled(state)) {
-			next(transaction);
-			return;
-		}
-		next(transformToSuggestionTransaction(transaction, state));
+		// Route through the library's OWN dispatch decorator rather than calling the
+		// raw rewriter. The raw path only knew about `skip`, so it rewrote every
+		// other transaction it was handed - including undo/redo and any collab or
+		// y-sync traffic. `withSuggestChanges` is the guard the library ships for
+		// exactly this, and it declines all of:
+		//
+		//   - `skip` on suggestChangesKey  (its own accept/reject/select commands)
+		//   - `history$`                   (prosemirror-history undo/redo)
+		//   - `collab$`                    (prosemirror-collab rebase)
+		//   - y-sync undo/redo + change-origin
+		//
+		// Rewriting an undo as a suggestion is the bad case: the user's undo would
+		// come back as a new tracked deletion instead of reverting the last one.
+		// The `skip` guard alone was measured to matter - before it, "Accept all" on
+		// a document with 2 suggestions left 6, each accept re-marking the edit it
+		// was meant to settle.
+		const guarded = withSuggestChanges((tr) => next(tr));
+		guarded.call(this.editor.view, transaction);
 	},
 });

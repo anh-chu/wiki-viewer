@@ -476,10 +476,15 @@ export function migrateSidecar(
 	// without parsing the markdown — so a block-less read reports "not migrated" rather
 	// than destroying anchor state. `changed: false` keeps the read from persisting it.
 	if (blocks.length === 0 && sidecar.comments.length + sidecar.suggestions.length > 0) {
-		return {
-			sidecar: { ...sidecar, schemaVersion: 3, anchors: sidecar.anchors ?? {} },
-			changed: false,
-		};
+		// Return the sidecar UNCHANGED — deliberately not stamped version 3.
+		//
+		// `readSidecar` discards the `changed` flag and hands this object to callers
+		// that write snapshots back. Stamping 3 here would persist "migrated, nothing
+		// to migrate", and every later migration would exit at the `schemaVersion >= 3`
+		// guard above. The annotations would stay legacy forever — the exact
+		// durable-anchor loss this module exists to prevent. Leaving the version alone
+		// means the next read WITH blocks migrates properly.
+		return { sidecar: { ...sidecar, anchors: sidecar.anchors ?? {} }, changed: false };
 	}
 
 	const now = sidecar.updatedAt || new Date().toISOString();

@@ -394,6 +394,32 @@ describe("a block-less read does not destroy anchor state", () => {
 		assert.equal(out.changed, false, "a blind read must not rewrite the sidecar");
 	});
 
+	test("REGRESSION: a block-less read does not stamp schemaVersion 3", () => {
+		// The bug this pins: the block-less branch used to return version 3 with empty
+		// anchors, and `readSidecar` DISCARDS `changed` — so any caller that wrote the
+		// snapshot back persisted "migrated, nothing to migrate". Every later migration
+		// then exited at the `schemaVersion >= 3` guard, and the annotations stayed
+		// legacy forever.
+		//
+		// Asserting `changed === false` alone does NOT catch it, because the old code
+		// reported false too. The version is the thing that has to be pinned.
+		const out = migrateSidecar(v1WithComments(), []);
+		assert.ok(
+			out.sidecar.schemaVersion < 3,
+			`a blind read must leave the version alone, got ${out.sidecar.schemaVersion}`,
+		);
+	});
+
+	test("REGRESSION: migration still succeeds after a prior block-less read", () => {
+		// The end-to-end consequence, which is what a user actually felt: read the
+		// sidecar without blocks (as the activity aggregator does), THEN read it with
+		// the document. The second read must still migrate.
+		const blind = migrateSidecar(v1WithComments(), []).sidecar;
+		const withDoc = migrateSidecar(blind, blocks("Alpha paragraph here."));
+		assert.equal(withDoc.changed, true, "the later read with blocks still migrates");
+		assert.ok(withDoc.sidecar.comments[0].anchorId, "and the anchor is minted");
+	});
+
 	test("with the document in hand it does migrate and does report changed", () => {
 		const bs = blocks("Alpha paragraph here.");
 		const out = migrateSidecar(v1WithComments(), bs);

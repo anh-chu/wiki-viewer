@@ -15,9 +15,6 @@ importers:
       '@excalidraw/excalidraw':
         specifier: 0.18.1
         version: 0.18.1(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
-      '@floating-ui/dom':
-        specifier: ^1.8.0
-        version: 1.8.0
       '@mdx-js/mdx':
         specifier: ^3.1.1
         version: 3.1.1

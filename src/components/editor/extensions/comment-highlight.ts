@@ -24,7 +24,6 @@ import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import type { EditorView } from "@tiptap/pm/view";
 import type { Comment } from "@/lib/proof/types";
-import { mapCommentDecorations, toCommentDecorations } from "@/lib/proof/comment-decorator";
 
 export const commentHighlightKey = new PluginKey("comment-highlight");
 

@@ -439,13 +439,23 @@ prevents silent JSX corruption on save.
 **Contract:** Two modes: `viewing | editing`. The status bar shows a save pill
 (Saving… / Saved / Save failed; hidden when idle). Viewing mode forces
 non-editable and disables task checkboxes; editing mode autosaves (debounced
-500 ms). There is **no separate "suggesting" mode**: a suggestion is created
-deliberately by selecting text and choosing **Suggest** (see §5.2 and §6),
-never by a global typing mode.
+500 ms).
 
-**Why it matters:** Collapsing to a single edit surface removes the fragile
-live-capture path; suggestions are discrete, reviewed items rather than a
-mode that silently reroutes every keystroke.
+Editing carries a **Suggesting** toggle. With it on, the ProseMirror transaction
+that would have changed the text is rewritten to add a suggestion mark instead,
+so a suggestion is created by editing normally — §6.0 and §6.3.
+
+An earlier version of this contract stated there is "no separate suggesting
+mode" and that a suggestion is created by choosing **Suggest** from the bubble
+menu. That was true of the popover design, which has been removed. It is now
+the opposite: suggesting IS a typing mode, and there is deliberately no
+select-and-submit path.
+
+**Why it matters:** The mark is the record. A mode that reroutes every keystroke
+into a mark is safe precisely because the mark lives in the document — it
+serializes, it survives reload, and accept/reject is a document transform. The
+previous design's fragility came from *persisting a guess about intent* to a
+sidecar per keystroke, not from the mode itself.
 
 **Verification pointer:** `src/components/editor/editor.tsx`,
 `src/stores/editor-store.ts`
@@ -749,11 +759,13 @@ the interleaving. A refused write is reported to the console with the server's o
 because `postOp` previously collapsed every 409 to "not stale" and made a refused write
 indistinguishable from a transport error.
 
-**Accept all / Reject all settle the sidecar records, not only the editor marks.**
-Transforming the tracked marks alone left every record `pending` while the marks were
-gone, so the column kept listing suggestions whose text had already been applied or
-discarded, and a later Accept could write a change the user had already rejected. The
-whole set is settled in one request, so a partial settle cannot happen.
+**Accept all / Reject all settle the editor marks, and nothing else.** Typed
+suggestions are marks with no sidecar record, so there is no second thing to settle.
+The buttons also appear only when tracked marks exist, so an earlier version of this
+contract was actively harmful: clicking "Accept all" because you could see two redlines
+would also accept every pending agent proposal in the sidecar that you had never
+opened. Agent proposals are reviewed one at a time through the §6.2 popover, which is
+the only thing that settles them.
 
 **Resolved threads keep the reply box, and the vocabulary is fixed.** Two constraints
 checked against the running app rather than the source. A resolved thread expands with
@@ -1290,23 +1302,26 @@ the text a suggestion refers to cannot orphan it.
 
 ### 6.3 Creating a suggestion
 
-**Contract:** Suggestions are created by one deliberate action, never by a
-typing mode. Select text, then choose **Suggest** — from the selection bubble
-menu in editing, or the view-mode Suggest button (§5.2) in viewing. That opens
-the suggest-edit popover scoped to the selection's block; on submit it posts a
-single sidecar-only `suggestion.add` to `/api/agent/files/<path>` and the
-proposal renders as an inline redline (§6.1–6.2) until Accept/Reject. Nothing is
-written to the document before Accept. There is no live block-capture and no
-auto-suggestion from raw typing.
+**Contract:** A human suggests by turning on **Suggesting** mode and editing. Every
+insertion becomes an `<ins data-id>` mark and every deletion a `<del data-id>` mark,
+in the document, and that mark IS the record. There is no popover, no submit step, and
+no sidecar write — the marks serialize into the `.md` and come back on reload (§6.2a).
 
-**Why it matters:** One intentional action = one well-formed suggestion. This
-replaces the removed "suggesting mode" live capture (block-diff on blur, revert,
-failed-capture autosave fallback), which was the source of cursor jumps,
-flicker, and un-reviewed edits leaking to disk.
+The block-level **suggest-edit popover is removed** (§6.1). It select-text → choose
+Suggest → submit `suggestion.add` through the sidecar, keyed to a content-derived block
+ref, which is the model that orphaned suggestions. Agents can still create suggestions
+through `suggestion.add`; they review through the §6.2 popover. What is gone is the
+human surface for it.
 
-**Verification pointer:** `src/components/editor/suggest-edit-popover.tsx`,
-`src/components/editor/bubble-menu.tsx`,
-`src/components/editor/view-mode-comment-button.tsx`
+**Why it matters:** One model, not two. The popover produced a proposal stored *beside*
+the document and the typing path produces a change *inside* it — two lifecycles, two
+failure modes, and the weaker one was reachable from the UI. The typing path is also
+the Google Docs model, which is the stated standard.
+
+**Verification pointer:** `src/components/editor/extensions/suggest-changes.ts`,
+`src/tests/proof/suggestion-roundtrip.test.ts`,
+`src/tests/proof/mode-affordance.test.ts` (asserts no Suggest affordance on either
+surface)
 
 ### 6.4 Copy as prompt
 

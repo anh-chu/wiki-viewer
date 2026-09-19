@@ -231,15 +231,21 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	const hasTrackedChanges = trackedCount > 0;
 
 	/**
-	 * Accept or reject every tracked change in the document, as one undo step.
+	 * Accept or reject every TRACKED CHANGE — the marks — in the document, as one
+	 * undo step.
 	 *
-	 * The ProseMirror transaction is only half the operation. Suggestions also
-	 * exist as sidecar records, and a document-wide decision has to settle those
-	 * too: transforming the marks alone left every record `pending` while the
-	 * marks were gone, so the margin kept listing suggestions whose text had
-	 * already been applied or discarded, and a later Accept could write a change
-	 * the user had already rejected. Each record is settled through the same op
-	 * the per-suggestion control uses, so there is one code path for acceptance.
+	 * This settles marks and nothing else. It deliberately does NOT touch the
+	 * sidecar's `suggestions`: those are a separate source (agent-authored
+	 * proposals reviewed one at a time through the review popover), and the button
+	 * that calls this only appears when `hasTrackedChanges` is true. Settling
+	 * sidecar records here meant a user who saw two redlines and clicked "Accept
+	 * all" also accepted every pending agent proposal they had never opened.
+	 *
+	 * The earlier coupling was real once — typed suggestions used to be sidecar
+	 * records, so the marks and the records moved together and had to be settled
+	 * together. Typed suggestions are now document marks with no sidecar record,
+	 * so that coupling is gone and settling one from the other is just a way to
+	 * write a change the user did not ask for.
 	 */
 	const resolveAllTracked = useCallback((decision: "accept" | "reject") => {
 		const editor = editorRef.current;
@@ -251,38 +257,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 			decision === "accept" ? applySuggestions : revertSuggestions;
 		command(editor.state, editor.view.dispatch);
 		setTrackedCount(0);
-
-		const path = useEditorStore.getState().currentPath ?? "";
-		if (!path) return;
-		const pending = (useProofStore.getState().byPath[path]?.sidecar?.suggestions ?? []).filter(
-			(s) => s.status === "pending",
-		);
-		if (pending.length === 0) return;
-
-		void (async () => {
-			// One request for the whole document, not one per suggestion: the ops
-			// array is applied under a single revision check and write lock, so a
-			// partial settle cannot happen halfway through.
-			const ops = pending.map((s) => ({
-				type: decision === "accept" ? "suggestion.accept" : "suggestion.reject",
-				suggestionId: s.id,
-			}));
-			const base = useProofStore.getState().byPath[path]?.snapshotRevision ?? 0;
-			let result = await postOp(path, base, ops);
-			if (!result.ok && result.stale && result.newRevision !== undefined) {
-				await useProofStore.getState().loadSidecar(path);
-				result = await postOp(path, result.newRevision, ops);
-			}
-			if (result.ok) {
-				await useProofStore.getState().loadSidecar(path);
-				return;
-			}
-			console.error(
-				`[editor] could not settle ${pending.length} suggestion(s) in ${path}: ${
-					result.code ?? "unknown"
-				}${result.message ? ` — ${result.message}` : ""}`,
-			);
-		})();
 	}, []);
 
 	// Adopt the new document's mode when the path changes without a remount, and keep
