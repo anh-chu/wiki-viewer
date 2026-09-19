@@ -93,6 +93,16 @@ describe("a pending modification protects the file", () => {
 		assert.match(link, /<a href=/, "the destination stays");
 	});
 
+	test("the reachable path into this code is paste, not typing", () => {
+		// The claim "the editor never creates a modification mark" is true of typing, and
+		// it is not the whole story. The schema PARSES `data-tracked="modification"`
+		// spans, so pasted HTML carrying one is admitted, and the strip runs over it on
+		// the next save. That is what makes this path load-bearing rather than
+		// theoretical, and why the link case above had to be fixed.
+		const parsesModification = /data-tracked="modification"/.test(TRACK_CHANGES);
+		assert.ok(parsesModification, "the schema admits pasted modification spans");
+	});
+
 	test("CONTROL: the editor never creates a modification mark", () => {
 		// This bounds the cost of the blunt strip. The mark is registered in the
 		// schema and consumed by accept/reject, but nothing applies it, so no user
