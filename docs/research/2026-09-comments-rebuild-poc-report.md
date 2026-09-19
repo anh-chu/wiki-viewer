@@ -159,6 +159,34 @@ a mistake there means silently losing text. Driven in the browser in Suggesting 
 Reject restores and Accept discards, as they must, and both were confirmed by the
 resulting text rather than by the absence of an error.
 
+### A typed suggestion was silently applied rather than recorded
+
+Found by independent review, confirmed, then fixed and verified live.
+
+`trackChangesExtension` was constructed with only `author`. `onTrackedEdit` is documented
+as "called after a tracked edit lands, so the sidecar can record it" and was never passed.
+So typing in Suggesting mode stamped marks, the toolbar lit up, and the text looked
+pending — and on save `stripTrackChangesFromHTML` removed the marks, writing the text to
+the file as an ordinary permanent edit with no suggestion record.
+
+That is the worst combination: the user is told a change awaits review while it has
+already been applied, and a reload shows no suggestion at all. The selection bubble's
+Suggest button was unaffected, which is why the divergence survived.
+
+Wiring the callback is the fix; coalescing is the substance of it, because the callback
+fires per transaction, so a typed word arrives as several calls and a naive wiring left
+one single-character card per keystroke. Runs are keyed by document, block ref and kind,
+closing after 1.2s idle, on block change, or when typing turns into deleting.
+
+Confirmed in the browser after the fix: typing in Suggesting mode produced `<ins>` marks
+AND a real sidecar record (`sa551`, `insert`, `pending`), while the file stayed at exactly
+166 bytes. Rejecting it cleared the marks and left the file unchanged.
+
+The first attempt at the ref lookup was wrong: it read `data-block-ref`, which is written
+on only one path in the geometry effect and was `null` on the open document live. That
+would have made every typed suggestion silently no-op. The resolver now reads the
+sidecar's `snapshotBlocks` by index, the same source the selection path uses.
+
 ### The margin column had its own version of this
 
 The margin column was reported working on the strength of its layout tests, its card

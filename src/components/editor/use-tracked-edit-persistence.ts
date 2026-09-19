@@ -132,9 +132,13 @@ function recordSuggestion(path: string, snapshot: unknown): void {
 }
 
 /**
- * Which block a document position sits in, by reading the `data-block-ref` that
- * every top-level element is stamped with. Same mechanism the pip and margin
- * geometry use, rather than a second source of truth about block boundaries.
+ * Which block a tracked edit belongs to.
+ *
+ * Reads the same source `resolveSelectionBlock` uses: the sidecar's `snapshotBlocks`
+ * paired with the top-level `.ProseMirror` children by index, with the DOM
+ * `data-block-ref` attribute as a fallback. The attribute alone is not enough — it is
+ * only written on one path in the geometry effect, and a live check showed it null on
+ * the open document, which would have made every typed suggestion silently no-op.
  */
 function resolveBlockRefFor(pos: number): string | null {
 	if (typeof window === "undefined") return null;
@@ -144,8 +148,10 @@ function resolveBlockRefFor(pos: number): string | null {
 	const children = Array.from(pm.children) as HTMLElement[];
 	if (children.length === 0) return null;
 
-	// Prefer the element containing the live selection; fall back to the first
-	// child, which is where a caret in an empty document sits.
+	const path = useEditorStore.getState().currentPath ?? "";
+	const blocks = useProofStore.getState().byPath[path]?.snapshotBlocks ?? [];
+
+	// Prefer the element holding the live selection, since that is where the edit is.
 	const sel = window.getSelection();
 	const anchor =
 		sel && sel.rangeCount > 0 ? sel.getRangeAt(0).commonAncestorContainer : null;
@@ -156,36 +162,30 @@ function resolveBlockRefFor(pos: number): string | null {
 				? (anchor as HTMLElement)
 				: anchor.parentElement;
 
-	let el: HTMLElement | null = null;
+	let index = -1;
 	if (anchorEl) {
-		el = children.find((c) => c === anchorEl || c.contains(anchorEl)) ?? null;
+		index = children.findIndex((c) => c === anchorEl || c.contains(anchorEl));
 	}
-	if (!el) {
-		// Map the ProseMirror offset onto a top-level child by walking siblings.
-		let topIndex = 0;
-		try {
-			topIndex = document.querySelector(".ProseMirror") ? posToTopIndex(pos) : 0;
-		} catch {
-			topIndex = 0;
-		}
-		el = children[Math.min(topIndex, children.length - 1)] ?? null;
-	}
-	return (el?.closest("[data-block-ref]") ?? el)?.getAttribute("data-block-ref") ?? null;
+	if (index < 0) index = Math.min(posToTopIndex(pos), children.length - 1);
+
+	const el = children[index] ?? null;
+	const fromDom = el?.getAttribute("data-block-ref") ?? null;
+	return blocks[index]?.ref ?? fromDom ?? null;
 }
 
 /**
  * Convert a ProseMirror document offset into a top-level child index.
  *
- * ProseMirror's own resolver needs the editor view, which this module does not
- * hold. The view is reachable from the DOM node's `pmViewDesc`, but that is
- * internal API; the sibling walk below is stable and only needs to be roughly
- * right, because the caller prefers the selection's element when there is one.
+ * An approximation on purpose. ProseMirror's exact resolver needs the editor view,
+ * which this module does not hold, and reaching for `pmViewDesc` would depend on
+ * internal API. The live selection is the primary signal; this is the fallback for
+ * when there is none.
  */
 function posToTopIndex(pos: number): number {
-	let remaining = pos;
-	let index = 0;
 	const pm = document.querySelector(".ProseMirror");
 	if (!pm) return 0;
+	let remaining = pos;
+	let index = 0;
 	for (const child of Array.from(pm.children)) {
 		const len = (child.textContent ?? "").length + 1;
 		if (remaining <= len) return index;
