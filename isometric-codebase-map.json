@@ -160,7 +160,7 @@
      "name": "Comment and suggestion surfaces",
      "h": 7,
      "what": "Shows comments in a margin column beside the text and lets people author suggestions by typing over the document.",
-     "how": "comment-margin.tsx renders cards in a fixed-width column and resolves collisions by pushing overlapping cards down; extensions/comment-highlight.ts paints the exact commented words by searching ProseMirror text runs rather than by offset arithmetic; extensions/track-changes.ts plus track-changes-behavior.ts mark typed insertions and deletions in suggesting mode, and handleUpdate strips those marks before markdown conversion so .md stays byte-identical while suggestions are pending."
+     "how": "comment-margin.tsx renders cards in a fixed-width column and resolves collisions by pushing overlapping cards down; extensions/comment-highlight.ts paints the exact commented words by searching ProseMirror text runs rather than by offset arithmetic; extensions/suggest-changes.ts wraps the vendored prosemirror-suggest-changes marks as Tiptap marks and rewrites each transaction to add them, so typing and deleting in suggesting mode produce suggestions in the document rather than a sidecar record. The marks ARE the suggestion: to-markdown.ts has ins/del rules that serialize them as <ins data-id>/<del data-id>, and sanitize-schema.ts allowlists dataId so the id survives the sanitizer on the way back. There is no strip step and no keystroke persistence."
     }
    ]
   },
@@ -737,7 +737,7 @@
      "name": "Redline rendering",
      "h": 7,
      "what": "Render suggestions as in-place tracked changes.",
-     "how": "suggestion-decorator.ts maps block refs to ProseMirror positions and describes inline redlines; word-diff.ts computes the word-level diff via jsdiff over the app tokenizer; track-changes-strip.ts strips insertion/deletion/modification marks from the doc before serialization so the .md stays byte-identical while suggestions are pending."
+     "how": "suggestion-decorator.ts maps block refs to ProseMirror positions and describes inline redlines; word-diff.ts computes the word-level diff via jsdiff over the app tokenizer. Since suggestions became document marks, the marks are the record and the .md holds them (see the Comment and suggestion surfaces entry); there is no strip-before-serialization step left."
     },
     {
      "code": "SC",
