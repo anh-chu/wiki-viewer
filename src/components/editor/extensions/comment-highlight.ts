@@ -90,8 +90,17 @@ function docTextRuns(doc: {
  * "Reactions in app" painting "Reactions ". Searching is exact by construction
  * and is the same find-not-verify property the anchor model exists to provide.
  *
- * `preferNear` still biases among duplicate hits, using the anchor's own offset
- * as a hint, so a phrase appearing twice re-anchors to the instance commented on.
+ * A comment is anchored to a BLOCK (`comment.ref`), so the search is scoped to that
+ * block before the words are looked for. Searching the whole document instead is a
+ * real defect, not a theoretical one: with two paragraphs both containing "target",
+ * the first `indexOf` hit always won, so a comment on the second paragraph
+ * highlighted the first. Scoping by ref is what makes the anchor mean anything.
+ *
+ * Positions still come from searching the block's TEXT RUNS rather than from offset
+ * arithmetic against the block markdown: those offsets describe a different string
+ * (a list item's markdown carries a "1. " prefix the rendered node does not), so
+ * applying them to rendered text highlights the wrong characters — observed live as
+ * a comment on "Reactions in app" painting "Reactions ".
  *
  * A comment whose words cannot be found is skipped rather than guessed. It is
  * cancelled elsewhere; drawing it in the wrong place would be worse than absent.
@@ -109,23 +118,32 @@ export function buildCommentDecorations(
 	const runs = docTextRuns(doc);
 	if (runs.length === 0 || comments.length === 0) return DecorationSet.empty;
 
+	// Where each top-level block starts and ends, so a comment's search can be
+	// limited to its own block. Position order matches `snapshotBlocks` order: the
+	// editor stamps `data-block-ref` onto top-level children index-for-index from
+	// that snapshot, so a ref's index in `_blocks` is its index in the document.
+	const spans = topLevelSpans(doc);
+	const indexOfRef = new Map(_blocks.map((b, i) => [b.ref, i]));
+
 	const decorations: Decoration[] = [];
 
 	for (const comment of comments) {
 		if (!comment.textAnchor || comment.resolved || comment.stale || !comment.ref) continue;
-		const { selectedText, start } = comment.textAnchor;
+		const { selectedText } = comment.textAnchor;
 		if (!selectedText) continue;
 
-		const hit = findInRuns(runs, selectedText, start);
+		// Scope to the commented block when it can be identified. Falling back to the
+		// whole document preserves the previous behaviour for a block the snapshot no
+		// longer lists, rather than dropping the highlight entirely.
+		const scope = scopeForRef(runs, indexOfRef.get(comment.ref) ?? -1, spans);
+
+		const hit = findInRuns(scope, selectedText);
 		if (!hit) continue;
 
 		decorations.push(
 			Decoration.inline(hit.from, hit.to, {
-				class: hit.recovered
-					? `${COMMENT_HIGHLIGHT_CLASS} ${COMMENT_HIGHLIGHT_RECOVERED_CLASS}`
-					: COMMENT_HIGHLIGHT_CLASS,
+				class: COMMENT_HIGHLIGHT_CLASS,
 				"data-comment-id": comment.id,
-				"data-comment-recovered": hit.recovered ? "true" : "false",
 				// Hovering a margin card lights its words, the link Google Docs uses
 				// to tie a comment in the column to the text it is about.
 				"data-hovered": hoveredRef === comment.ref ? "true" : "false",
@@ -138,6 +156,41 @@ export function buildCommentDecorations(
 }
 
 /**
+ * The runs belonging to the block at `index`, or every run when the block cannot be
+ * identified.
+ *
+ * Returning all runs is the deliberate fallback: a missing span must degrade to the
+ * old behaviour rather than silently dropping a highlight the user can still see a
+ * margin card for.
+ */
+function scopeForRef(
+	runs: readonly { from: number; to: number; text: string }[],
+	index: number,
+	spans: readonly { from: number; to: number }[],
+): readonly { from: number; to: number; text: string }[] {
+	if (index < 0) return runs;
+	const span = spans[index];
+	if (!span) return runs;
+	const scoped = runs.filter((r) => r.from >= span.from && r.to <= span.to);
+	// An empty scope means the block's runs could not be matched to its span, which
+	// is a worse signal than "not found" — fall back rather than drop the comment.
+	return scoped.length > 0 ? scoped : runs;
+}
+
+/** The document-position span of each top-level child. */
+function topLevelSpans(doc: {
+	forEach?: (cb: (node: DocNode, offset: number) => void) => void;
+}): { from: number; to: number }[] {
+	const spans: { from: number; to: number }[] = [];
+	doc.forEach?.((node: DocNode, offset: number) => {
+		const size = (node as unknown as { nodeSize?: number }).nodeSize ??
+			(node.textContent?.length ?? 0) + 2;
+		spans.push({ from: offset, to: offset + size });
+	});
+	return spans;
+}
+
+/**
  * Find `needle` in the document's text runs, returning exact doc offsets.
  *
  * Searches each run on its own first. Only when a run does not contain the phrase
@@ -147,23 +200,22 @@ export function buildCommentDecorations(
  * match backwards — the live failure where "Reactions in app" painted as
  * "Reactions in a", exactly two positions early.
  *
- * `preferNear` only decides the recovered/exact label: offsets equal to the
- * anchor's mean nothing moved, anything else means the text was found by search.
+ * `preferNear` used to decide a "recovered" label by comparing the match offset to
+ * `textAnchor.start`. That comparison was meaningless — `start` is a block-local
+ * markdown offset while the match is a document-global ProseMirror position, so the
+ * two numbers describe different coordinate systems and can never legitimately be
+ * equal. It is gone, and with it the false distinction between an "exact" and a
+ * "recovered" highlight: a match inside the commented block is simply the match.
  */
 function findInRuns(
 	runs: readonly { from: number; to: number; text: string }[],
 	needle: string,
-	preferNear: number,
-): { from: number; to: number; recovered: boolean } | null {
+): { from: number; to: number } | null {
 	// Pass 1: a single run containing the whole phrase.
 	for (const run of runs) {
 		const at = run.text.indexOf(needle);
 		if (at === -1) continue;
-		return {
-			from: run.from + at,
-			to: run.from + at + needle.length,
-			recovered: run.from + at !== preferNear,
-		};
+		return { from: run.from + at, to: run.from + at + needle.length };
 	}
 
 	// Pass 2: the phrase spans touching runs (inline marks split a sentence).
@@ -192,7 +244,7 @@ function findInRuns(
 			consumed = runEnd;
 		}
 		if (from === -1 || to === -1 || remaining > 0) continue;
-		return { from, to, recovered: from !== preferNear };
+		return { from, to };
 	}
 	return null;
 }
@@ -264,6 +316,5 @@ export function refreshCommentHighlights(view: EditorView): void {
 	view.dispatch(view.state.tr.setMeta(commentHighlightKey, { refresh: true }));
 }
 
-/** Decoration classes; kept here so the CSS and the decorator cannot drift. */
+/** Decoration class; kept here so the CSS and the decorator cannot drift. */
 export const COMMENT_HIGHLIGHT_CLASS = "comment-highlight";
-export const COMMENT_HIGHLIGHT_RECOVERED_CLASS = "comment-highlight-recovered";

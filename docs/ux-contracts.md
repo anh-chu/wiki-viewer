@@ -722,6 +722,28 @@ leave five one-letter cards in the column. A run is keyed by document, block ref
 kind, and closes after 1.2s idle, when the block changes, or when typing turns into
 deleting.
 
+A run is only extendable once its `suggestion.add` response has supplied an id, and the
+proposal text reaches the sidecar as the run grows rather than only when it closes. Both
+details were wrong in the first implementation: the returned id was never bound to the
+run, so no run could ever be extended, every keystroke created a fresh suggestion, and
+the text was posted as `markdown: ""` — leaving nothing durable to reload. The decision
+logic lives in `src/lib/proof/tracked-edit-runs.ts` so it can be driven directly by tests;
+the guard that missed this defect was regexes over source text, which the broken code
+satisfied.
+
+Writes to a document are serialized. Every op carries a base revision, so two overlapping
+requests both read revision R, one wins, and the loser retries against R+1; a second
+consecutive failure used to be discarded silently. One promise chain per document removes
+the interleaving. A refused write is reported to the console with the server's own code,
+because `postOp` previously collapsed every 409 to "not stale" and made a refused write
+indistinguishable from a transport error.
+
+**Accept all / Reject all settle the sidecar records, not only the editor marks.**
+Transforming the tracked marks alone left every record `pending` while the marks were
+gone, so the column kept listing suggestions whose text had already been applied or
+discarded, and a later Accept could write a change the user had already rejected. The
+whole set is settled in one request, so a partial settle cannot happen.
+
 **Resolved threads keep the reply box, and the vocabulary is fixed.** Two constraints
 checked against the running app rather than the source. A resolved thread expands with
 its composer present (confirmed on a resolved card showing "Reopen"), because hiding the
@@ -771,21 +793,34 @@ The highlight covers **only those words** — a comment on "brown fox" marks tho
 two words, not the paragraph. Comments without an anchor stay block-granular
 (legacy) and render no text highlight.
 
-Positions are found by **searching the document's text runs** for `selectedText`.
-Offset arithmetic against block markdown is explicitly NOT used to place the
-highlight: those offsets describe a different string, because a list item's
-markdown reads `2. Reactions in app` while its rendered node reads
+Positions are found by **searching the commented block's text runs** for
+`selectedText`. Offset arithmetic against block markdown is explicitly NOT used to
+place the highlight: those offsets describe a different string, because a list
+item's markdown reads `2. Reactions in app` while its rendered node reads
 `Reactions in app`. Applying them to rendered text painted the wrong characters
 (observed live as `"Reactions in a"`). Text runs come from ProseMirror's own
 `descendants` positions, and a match never crosses a structural gap, so text at
 the end of one block cannot match text at the start of the next.
 
-A highlight is labelled `comment-highlight`, plus `comment-highlight-recovered`
-when it was found by searching rather than landing on the stored offset — the
-visible signal that the comment followed its text after an edit. A comment whose
-`selectedText` cannot be found is not drawn at all: a wrong highlight is worse
-than none. `comment.add` rejects a `textAnchor` whose range does not reproduce
-`selectedText` in the block's current markdown (`400 INVALID_PAYLOAD`).
+**The search is scoped to the block the comment names.** `comment.ref` identifies the
+block, so the runs considered are limited to that block's position span; the block list
+the decorator receives (`snapshotBlocks`) is what supplies the ordering, matching how the
+editor stamps `data-block-ref` onto top-level children. Searching the whole document was a
+real defect: the first match won, so with two paragraphs both containing "target" a
+comment on the second paragraph highlighted the first. When a comment's block cannot be
+identified the scope falls back to the whole document rather than dropping the highlight.
+
+A highlight is labelled `comment-highlight`. A comment whose `selectedText` cannot be
+found is not drawn at all: a wrong highlight is worse than none. `comment.add` rejects a
+`textAnchor` whose range does not reproduce `selectedText` in the block's current markdown
+(`400 INVALID_PAYLOAD`).
+
+The earlier `comment-highlight-recovered` label is **gone**. It compared the match
+position against `textAnchor.start`, but `start` is a block-local markdown offset while a
+match position is a document-global ProseMirror position — different coordinate systems,
+so the comparison could never legitimately succeed and the flag carried no information
+about anything. Its test had to pass an offset that did not index the phrase in order to
+produce the "recovered" branch.
 
 **Comment ops never rebuild the document.** A comment/reply/resolve/reopen
 refreshes the decoration layer only — zero `markdownToHtml`, zero `setContent`.
@@ -890,8 +925,16 @@ of an agent. Resolving it removes it from that path.
 
 - The previous one-way `stale` latch is gone; it had no reset site for block-ref
   comments and no surface anywhere in the UI.
-- Suggestions keep `stale: true` — their review flow already gives them a path
-  back, so they are not cancelled.
+- Suggestions keep `stale: true`, and no mutation may act on one. The review flow
+  was previously described here as "a path back", which was wrong: nothing clears
+  the flag, so there is no path back. What the flag actually does is latch, and
+  because refs are content-derived it can latch while the ref becomes valid again —
+  delete a paragraph, retype the same text, and the suggestion is still `stale`
+  (hidden from the UI) while `suggestion.accept` finds its block and writes the
+  file. So `suggestion.accept`, `.reject`, `.edit` and `.delete` all refuse a stale
+  suggestion with `409 SUGGESTION_STALE`, keyed on the recorded state rather than on
+  whether the ref currently resolves. Reviving a stale suggestion needs an explicit,
+  validated transition, which does not exist and is not implied by any current op.
 - The record survives in the sidecar with its reason, so an audit can still
   explain why a comment disappeared even though the UI no longer shows it.
 - A cancelled comment renders no card, no pip and no highlight.

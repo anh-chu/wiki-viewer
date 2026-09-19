@@ -150,7 +150,7 @@ describe("an expanded margin card can be collapsed again", () => {
 		);
 		assert.match(
 			EDITOR,
-			/if \(blockRef\) expandedMarginByPath\.set\(key, blockRef\);/,
+			/if \(blockRef\) remember\(expandedMarginByPath, key, blockRef\);/,
 			"expanding must be recorded immediately",
 		);
 		assert.match(

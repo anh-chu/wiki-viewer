@@ -31,6 +31,12 @@ import { SuggestionPip } from "./suggestion-pip";
 import { CommentThread } from "./comment-thread";
 import { CommentMargin } from "./comment-margin";
 import { postOp, SuggestEditPopover } from "./suggest-edit-popover";
+import {
+	MODULE_MAP_LIMIT,
+	remember,
+	shouldRestoreDraft,
+	type SourceDraft,
+} from "./editor-module-state";
 import { useTrackedEditPersistence } from "./use-tracked-edit-persistence";
 import { SuggestionReviewPopover } from "./suggestion-review-popover";
 import { SlashCommands } from "./slash-commands";
@@ -134,7 +140,7 @@ interface KBEditorProps {
  * Keyed by path for the same reason as the margin expansion: a draft belongs to the
  * document it was typed in.
  */
-const sourceDraftByPath = new Map<string, string>();
+const sourceDraftByPath = new Map<string, SourceDraft>();
 const sourceModeByPath = new Map<string, boolean>();
 
 /**
@@ -292,7 +298,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		setSuggesting((prev) => {
 			const next = !prev;
 			const key = useEditorStore.getState().currentPath ?? "";
-			if (next) suggestingModeByPath.set(key, true);
+			if (next) remember(suggestingModeByPath, key, true);
 			else suggestingModeByPath.delete(key);
 			if (editorRef.current) {
 				setEditMode({ storage: editorRef.current.storage }, next ? "suggesting" : "editing");
@@ -302,7 +308,14 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	}, []);
 
 	const [sourceText, setSourceText] = useState(
-		() => sourceDraftByPath.get(currentPath ?? "") ?? "",
+		// Seed only from a draft whose revision still matches; the effect below re-checks
+		// once the sidecar for this path has loaded.
+		() => {
+			const key = currentPath ?? "";
+			const draft = sourceDraftByPath.get(key);
+			const revision = useProofStore.getState().byPath[key]?.snapshotRevision ?? 0;
+			return shouldRestoreDraft(draft, revision) ? (draft as SourceDraft).text : "";
+		},
 	);
 
 	// Record Source mode and its draft on every change, not only when toggling. The
@@ -317,13 +330,21 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 			// than persisting this document's draft against the new path.
 			sourcePathRef.current = key;
 			setSourceMode(sourceModeByPath.get(key) ?? false);
-			setSourceText(sourceDraftByPath.get(key) ?? "");
+			// Restore the draft only against the revision it was typed at. A draft from
+			// an older revision would silently revert whatever changed the file since.
+			const draft = sourceDraftByPath.get(key);
+			const revision = useProofStore.getState().byPath[key]?.snapshotRevision ?? 0;
+			setSourceText(shouldRestoreDraft(draft, revision) ? (draft as SourceDraft).text : "");
 			return;
 		}
-		if (sourceMode) sourceModeByPath.set(key, true);
+		if (sourceMode) remember(sourceModeByPath, key, true);
 		else sourceModeByPath.delete(key);
-		if (sourceText) sourceDraftByPath.set(key, sourceText);
-		else sourceDraftByPath.delete(key);
+		if (sourceText) {
+			remember(sourceDraftByPath, key, {
+				text: sourceText,
+				revision: useProofStore.getState().byPath[key]?.snapshotRevision ?? 0,
+			});
+		} else sourceDraftByPath.delete(key);
 	}, [sourceMode, sourceText, currentPath]);
 
 	// Prime the slug index once on mount so wiki-link broken-state and
@@ -534,7 +555,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	const setActiveMarginRefNow = useCallback(
 		(blockRef: string | null) => {
 			const key = currentPath ?? "";
-			if (blockRef) expandedMarginByPath.set(key, blockRef);
+			if (blockRef) remember(expandedMarginByPath, key, blockRef);
 			else expandedMarginByPath.delete(key);
 			setActiveMarginRef(blockRef);
 		},
@@ -554,7 +575,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 			setActiveMarginRef(expandedMarginByPath.get(key) ?? null);
 			return;
 		}
-		if (activeMarginRef) expandedMarginByPath.set(key, activeMarginRef);
+		if (activeMarginRef) remember(expandedMarginByPath, key, activeMarginRef);
 		else expandedMarginByPath.delete(key);
 	}, [activeMarginRef, currentPath]);
 	const [threadTarget, setThreadTarget] = useState<

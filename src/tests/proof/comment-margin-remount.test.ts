@@ -58,7 +58,7 @@ describe("the expansion survives an editor remount", () => {
 	test("the stored value tracks the live value", () => {
 		assert.match(
 			EDITOR,
-			/if \(activeMarginRef\) expandedMarginByPath\.set\(key, activeMarginRef\);/,
+			/if \(activeMarginRef\) remember\(expandedMarginByPath, key, activeMarginRef\);/,
 			"an expansion must be written back",
 		);
 		assert.match(
@@ -93,7 +93,7 @@ describe("the expansion survives an editor remount", () => {
 			EDITOR.indexOf("const [threadTarget, setThreadTarget]"),
 		);
 		const returnAt = effect.indexOf("return;");
-		const writeAt = effect.indexOf("expandedMarginByPath.set(key, activeMarginRef)");
+		const writeAt = effect.indexOf("remember(expandedMarginByPath, key, activeMarginRef)");
 		assert.ok(
 			returnAt > 0 && writeAt > returnAt,
 			"the stale-path branch must return before any write-back",
@@ -196,7 +196,7 @@ describe("Suggesting mode survives a remount", () => {
 		);
 		assert.match(
 			toggle,
-			/suggestingModeByPath\.set\(key, true\)/,
+			/remember\(suggestingModeByPath, key, true\)/,
 			"enabling must record against the document",
 		);
 		assert.match(

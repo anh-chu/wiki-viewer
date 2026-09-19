@@ -57,9 +57,24 @@ function commentFor(ref: string, selectedText: string, start: number, end?: numb
 	};
 }
 
+/**
+ * One `{ref, markdown}` entry per top-level node, in document order.
+ *
+ * This mirrors what the editor hands the decorator: `snapshotBlocks`, whose order the
+ * editor stamps onto top-level children index-for-index as `data-block-ref`. Tests that
+ * passed `[]` were not exercising the scoping path at all.
+ */
+function blocksFor(doc: ReturnType<typeof paragraphs>) {
+	const blocks: { ref: string; markdown: string }[] = [];
+	doc.forEach((node) => {
+		blocks.push({ ref: `blk${blocks.length}`, markdown: node.textContent });
+	});
+	return blocks;
+}
+
 /** Decorate, then read back what the decorations actually cover in the doc. */
 function covered(doc: ReturnType<typeof paragraphs>, comments: unknown[]) {
-	const set = buildCommentDecorations(doc as never, [], comments as never);
+	const set = buildCommentDecorations(doc as never, blocksFor(doc), comments as never);
 	return set.find().map((d) => doc.textBetween(d.from, d.to));
 }
 
@@ -85,34 +100,53 @@ describe("exact-word comment highlights", () => {
 		assert.deepEqual(out, ["surveys"], "must not paint 'ys'");
 	});
 
-	test("the recovered flag distinguishes search hits from offset hits", () => {
-		// Anchor offsets are recorded against BLOCK MARKDOWN, so they legitimately
-		// differ from document positions by the block's structural prefix. The flag
-		// therefore means "found by searching after the text moved", not "offsets are
-		// numerically equal" — and a moved anchor is exactly what must be visible, so
-		// that a reader can tell the comment followed its text.
-		const doc = paragraphs("Preface. The brown fox");
+	test("a phrase in two blocks highlights the block that was commented on", () => {
+		// The defect a reviewer found: the search was document-global and returned the
+		// FIRST `indexOf` hit, so a comment on the second of two identical paragraphs
+		// always painted the first. `comment.ref` is what says which block is meant,
+		// and it was accepted as `_blocks` and never used.
+		//
+		// Ref names here are assigned positionally by the decorator, so the second
+		// paragraph is addressed by an index no earlier block claims.
+		const doc = paragraphs("The target word.", "The target word.");
+		const out = covered(doc, [commentFor("blk1", "target", 4, 10)]);
+		assert.deepEqual(out, ["target"], "one range, and the right one");
+	});
 
-		// Same text, offsets taken from a string the text no longer matches.
-		const moved = buildCommentDecorations(
+	test("CONTROL: two comments on two identical blocks stay distinct", () => {
+		// Without scoping both comments resolve to the same first hit, so the count
+		// would still be 2 while the positions collapsed onto one another. Asserting
+		// distinct offsets is what makes the scoping real.
+		const doc = paragraphs("The target word.", "The target word.");
+		const found = buildCommentDecorations(
+			doc as never,
+			blocksFor(doc),
+			[
+				commentFor("blk0", "target", 5, 11),
+				commentFor("blk1", "target", 5, 11),
+			] as never,
+		).find();
+		const ranges = found.map((d) => `${d.from}-${d.to}`);
+		assert.equal(ranges.length, 2, "both comments are drawn");
+		assert.notEqual(ranges[0], ranges[1], "and they must not land on the same words");
+		// Both must still cover the phrase itself.
+		for (const d of found) {
+			assert.equal(doc.textBetween(d.from, d.to), "target");
+		}
+	});
+
+	test("a match inside the block is reported as a match, not a recovery", () => {
+		// The old "recovered" flag compared a block-local markdown offset against a
+		// document-global position — different coordinate systems, so the comparison
+		// could never legitimately succeed and the flag carried no information.
+		const doc = paragraphs("Preface. The brown fox");
+		const found = buildCommentDecorations(
 			doc as never,
 			[],
 			[commentFor("b1", "brown fox", 10, 19)] as never,
 		).find();
-		assert.equal(moved.length, 1);
-		const movedAttrs = (moved[0] as { type?: { attrs?: Record<string, string> } }).type?.attrs;
-		assert.equal(movedAttrs?.["data-comment-recovered"], "true", "text was found by search");
-
-		// Nothing moved: offsets index the phrase exactly, so the hit is not "recovered".
-		const still = buildCommentDecorations(
-			doc as never,
-			[],
-			[commentFor("b1", "brown fox", 14, 23)] as never,
-		).find();
-		assert.equal(still.length, 1);
-		const stillAttrs = (still[0] as { type?: { attrs?: Record<string, string> } }).type?.attrs;
-		assert.notEqual(stillAttrs?.["data-comment-recovered"], "true", "offsets landed exactly");
-		assert.equal(doc.textBetween(still[0].from, still[0].to), "brown fox");
+		assert.equal(found.length, 1);
+		assert.equal(doc.textBetween(found[0].from, found[0].to), "brown fox");
 	});
 
 	test("a phrase spanning styled text is highlighted as one range", () => {

@@ -112,7 +112,7 @@ describe("source mode survives an editor remount", () => {
 	test("the component actually implements this arrangement", () => {
 		assert.match(
 			EDITOR,
-			/const sourceDraftByPath = new Map<string, string>\(\);/,
+			/const sourceDraftByPath = new Map<string, SourceDraft>\(\);/,
 			"expected module-scope draft storage",
 		);
 		assert.match(
@@ -128,8 +128,8 @@ describe("source mode survives an editor remount", () => {
 		}
 		assert.match(
 			EDITOR,
-			/useState\(\s*\(\) => sourceDraftByPath\.get\(currentPath \?\? ""\) \?\? "",?\s*\)/,
-			"the draft must be re-seeded on mount",
+			/shouldRestoreDraft\(draft, revision\)/,
+			"the draft must be re-seeded on mount, against its own revision",
 		);
 	});
 
@@ -143,7 +143,7 @@ describe("source mode survives an editor remount", () => {
 		assert.ok(effect.length > 0, "expected to find the write-back effect");
 		assert.match(
 			effect,
-			/if \(sourceText\) sourceDraftByPath\.set\(key, sourceText\);/,
+			/remember\(sourceDraftByPath, key, \{/,
 			"every draft change must be persisted",
 		);
 		assert.match(
@@ -209,7 +209,7 @@ describe("source mode does not leak into the read-only view", () => {
 		// gets a markdown textarea instead of the rendered document.
 		assert.match(
 			EDITOR,
-			/if \(sourceMode\) sourceModeByPath\.set\(key, true\);\s*else sourceModeByPath\.delete\(key\);/,
+			/if \(sourceMode\) remember\(sourceModeByPath, key, true\);\s*else sourceModeByPath\.delete\(key\);/,
 			"the write-back must clear the map when the mode turns off",
 		);
 	});
