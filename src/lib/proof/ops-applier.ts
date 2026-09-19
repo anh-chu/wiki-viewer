@@ -129,15 +129,47 @@ function opMarkdownToBlocks(
  */
 export function reconcileRefsAndCancelOrphans(sidecar: Sidecar, content: string): void {
 	const nodes = parseBlocks(content);
-	const { newRefMap } = assignRefs(nodes, sidecar);
+
+	// Build the hash -> ref map that `assignRefs` used last time, so a block whose
+	// text is unchanged but whose ref was taken by an identical sibling can be
+	// aliased rather than reported as gone.
+	const oldHashToRef = new Map<string, string>();
+	for (const [ref, entry] of Object.entries(sidecar.refMap)) {
+		if (!oldHashToRef.has(entry.textHash)) oldHashToRef.set(entry.textHash, ref);
+	}
+
+	const { blocks, newRefMap } = assignRefs(nodes, sidecar);
+	const { refAliases } = computeRefDelta(sidecar.refMap, oldHashToRef, blocks);
+
 	sidecar.refMap = newRefMap;
+	// Keep the previous generation of aliases alongside the new one, as applyOps does.
+	sidecar.refAliases = { ...sidecar.refAliases, ...refAliases };
 	markOrphanedRefsStale(sidecar, newRefMap);
+}
+
+/**
+ * True when `ref` is gone but its content survives under another ref.
+ *
+ * Refs are content-derived, so two identical blocks are genuinely different blocks
+ * that happen to share a hash: the first gets `b<sha>`, the second `b<sha>_1`. Delete
+ * the first and the survivor reclaims `b<sha>` while `b<sha>_1` simply disappears —
+ * even though the text a comment was anchored to is still sitting in the document.
+ * Cancelling there is wrong: the user deleted a *different* paragraph.
+ *
+ * `computeRefDelta` already records exactly this as an alias, so this asks whether the
+ * dead ref was aliased to a ref that still exists. Without it, deleting one of two
+ * identical paragraphs silently cancels the comment on the other, which is one-way
+ * (cancellation has no un-cancel path).
+ */
+function survivesViaAlias(sidecar: Sidecar, ref: string, validRefs: Set<string>): boolean {
+	const aliased = sidecar.refAliases[ref];
+	return Boolean(aliased && validRefs.has(aliased));
 }
 
 function markOrphanedRefsStale(sidecar: Sidecar, newRefMap: Record<string, unknown>): void {
 	const validRefs = new Set(Object.keys(newRefMap));
 	for (const s of sidecar.suggestions) {
-		if (s.status === "pending" && !validRefs.has(s.ref)) {
+		if (s.status === "pending" && !validRefs.has(s.ref) && !survivesViaAlias(sidecar, s.ref, validRefs)) {
 			s.stale = true;
 		}
 	}
@@ -151,7 +183,7 @@ function markOrphanedRefsStale(sidecar: Sidecar, newRefMap: Record<string, unkno
 	// set that Copy-as-prompt reads, so a deleted sentence cannot leak a phantom
 	// instruction into an agent's prompt.
 	for (const c of sidecar.comments) {
-		if (!c.resolved && c.ref && !validRefs.has(c.ref)) {
+		if (!c.resolved && c.ref && !validRefs.has(c.ref) && !survivesViaAlias(sidecar, c.ref, validRefs)) {
 			c.resolved = true;
 			c.cancelledAt = new Date().toISOString();
 			c.cancelReason = "anchor-lost";

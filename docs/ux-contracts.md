@@ -576,7 +576,10 @@ overlap the one above it down to one `CARD_GAP` (8px) below that card's measured
 bottom, so comments on adjacent lines cannot stack. Cards without a measurable
 anchor default to the top rather than disappearing: a comment you cannot see is
 indistinguishable from a comment that was lost. The column renders only when at
-least one comment exists, and cards are excluded once resolved or cancelled.
+least one comment exists, and cards are excluded once **cancelled** — not once
+resolved. Resolved threads deliberately stay (see the resolved-thread contract
+below): dropping them unmounted the card and with it the thread, so a successful
+Resolve closed the thread and took the reply box with it.
 
 At rest a card shows avatar, author, the first turn's text (clamped to 3 lines),
 and a reply count; clicking expands the full thread **in place**, so opening a

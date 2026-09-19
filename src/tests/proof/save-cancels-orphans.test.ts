@@ -30,6 +30,17 @@ const ROUTE = readFileSync(
 	"utf8",
 );
 
+
+/** Strip line and block comments so an assertion is about code, not about text. */
+function stripComments(source: string): string {
+	return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
+}
+
+/** True when `name` appears as a live (non-commented) call in `source`. */
+function hasLiveCall(source: string, name: string): boolean {
+	return new RegExp(`\\b${name}\\s*\\(`).test(stripComments(source));
+}
+
 /** The user's document, exactly as it was when the defect was observed. */
 const CONTENT =
 	"1. Non-product surveys\n\n2. Reactions in app\n\n   1. like/dislike\n\n   2. Input - what's real?\n\n3. Collect info:\n\n   1. Majors?\n\n   2. School\n\n   3. Job\n\n4. LLM to test\n";
@@ -90,18 +101,37 @@ describe("a direct save cancels comments whose anchor it removed", () => {
 
 	test("the save route calls it", () => {
 		// The fix is only real if the route that saves the file uses it.
-		assert.match(
-			ROUTE,
-			/reconcileRefsAndCancelOrphans\(sc, content\);/,
+		assert.ok(
+			hasLiveCall(ROUTE, "reconcileRefsAndCancelOrphans"),
 			"the save route must reconcile refs after writing",
+		);
+	});
+
+	test("CONTROL: a commented-out call does not count", () => {
+		// This guard exists because the first version of the test above used an
+		// unanchored regex, which matched the call inside a comment: commenting the
+		// real call out left the suite green. Verified by perturbing the route, which
+		// passed 5/5 with the call disabled. Stripping comments is what makes the
+		// assertion about executed code rather than about text.
+		assert.ok(
+			!hasLiveCall(
+				"\t\t// reconcileRefsAndCancelOrphans(sc, content);\n",
+				"reconcileRefsAndCancelOrphans",
+			),
+			"a commented-out call must not satisfy the guard",
+		);
+		assert.ok(
+			hasLiveCall("\t\treconcileRefsAndCancelOrphans(sc, content);\n", "reconcileRefsAndCancelOrphans"),
+			"and a real one must",
 		);
 	});
 
 	test("CONTROL: reconciliation happens after the content is written", () => {
 		// Reconciling against the wrong content would cancel healthy comments.
-		const writeAt = ROUTE.indexOf("await writeFile(filePath, content");
-		const reconcileAt = ROUTE.indexOf("reconcileRefsAndCancelOrphans(sc, content);");
-		assert.ok(writeAt > 0 && reconcileAt > 0, "both steps must be present");
+		const code = stripComments(ROUTE);
+		const writeAt = code.indexOf("await writeFile(filePath, content");
+		const reconcileAt = code.indexOf("reconcileRefsAndCancelOrphans(sc, content);");
+		assert.ok(writeAt > 0 && reconcileAt > 0, "both steps must be present as live code");
 		assert.ok(
 			writeAt < reconcileAt,
 			"the file must be written before refs are recomputed from its content",

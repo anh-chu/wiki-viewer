@@ -23,6 +23,19 @@ eight modules never reached the UI:
 | `track-changes-strip` | no | no in-place suggestion editing existed |
 | `pip-geometry` | no | pips were not repositioned through it |
 
+**Correction to criterion 4.** This row first read "delivered", citing `pip-geometry`.
+That module is new on this branch and is imported by exactly one file — its own test.
+No production file calls `placePip` or `PIP_GUTTER_OFFSET`; the pips that do render are
+positioned by `blockRefPositions` arithmetic in `editor.tsx`. So the row was evidencing
+the criterion with the same unimported-module pattern this section exists to correct,
+and it survived the correction pass that removed the others.
+
+What is true: a real pip surface still exists and renders (`CommentPip` and
+`SuggestionPip` are imported and mounted in `editor.tsx`), so the criterion is not
+wholly false — the overclaim is narrower than the original 8/8. The new geometry module
+is dead code presented as the fix. It is left in place rather than deleted so this note
+stays checkable.
+
 A passing test on unimported code proves the code works, not that anything changed
 for the user. The honest score at that commit was **3 of 8**: pip consistency, no
 full reload, and the dead-branch removal. Suggesting mode had not been built at
@@ -90,7 +103,7 @@ guard — a protection wired but never triggered.
 | 1 | Comment highlights exact text; survives nearby edits | ✅ delivered (margin column + exact-word highlight + cancellation) |
 | 2 | Suggest mode is in-place edit-over-document | ✅ **delivered** — Editing/Suggesting toggle; insertions, deletions and Accept/Reject all exercised live in the browser, not just in tests |
 | 3 | Markdown byte-identical with pending suggestions | ✅ delivered — enforced at the single serialization path, with a control proving the leak is real |
-| 4 | Pips correctly positioned | ✅ delivered — though the pip gutter is no longer the primary surface; the margin column is. A per-block pip variant survives for compatibility |
+| 4 | Pips correctly positioned | ⚠️ partial — see the correction below; the module named as the fix is still unimported |
 | 5 | Zero reload on annotation ops | ✅ delivered |
 | 6 | Orphaned anchor visible and recoverable | ✅ **resolved differently** — cancelled and removed, at user's direction |
 | 7 | One selection surface; no dead `readOnly` branch | ✅ delivered |
