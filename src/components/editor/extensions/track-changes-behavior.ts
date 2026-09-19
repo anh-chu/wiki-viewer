@@ -330,6 +330,27 @@ export function createTrackChangesPlugin(opts: {
 							text: tr.doc.textBetween(from, to, "\n"),
 						});
 					}
+					// Advance the caret to the START of what was just marked deleted.
+					//
+					// `filterTransaction` CANCELS the deletion rather than applying it, so the
+					// document is unchanged and the selection does not move by itself. A second
+					// Backspace therefore recomputed the same range and re-marked a character
+					// that was already struck through: pressing Backspace several times looked
+					// like it removed nothing, because every press but the first targeted the
+					// position it had already dealt with. Reported live as "cannot delete
+					// multiple chars in a row with backspace".
+					//
+					// Only when the caret is still inside the marked range, so a user who moved
+					// it between presses keeps the position they chose.
+					if (deletions.length > 0) {
+						const last = deletions[deletions.length - 1];
+						const sel = view.state.selection;
+						if (sel.from >= last.from && sel.to <= last.to) {
+							tr.setSelection(
+								TextSelection.create(tr.doc, Math.min(last.from, tr.doc.content.size)),
+							);
+						}
+					}
 					view.dispatch(tr);
 				},
 			};

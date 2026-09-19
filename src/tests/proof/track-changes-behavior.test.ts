@@ -17,7 +17,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { Schema } from "@tiptap/pm/model";
-import { EditorState } from "@tiptap/pm/state";
+import { EditorState, TextSelection } from "@tiptap/pm/state";
 import type { Transaction } from "@tiptap/pm/state";
 import {
 	__test as behaviorTest,
@@ -77,6 +77,10 @@ function makeEditor(
 		// ProseMirror invokes the view hook after the state is applied.
 		spec.update?.(harness);
 	};
+
+	// A real editor starts with a caret, not at position 0. Put it at the end of the
+	// paragraph, which is where Backspace has somewhere to go.
+	harness.dispatch(state.tr.setSelection(TextSelection.create(state.doc, text.length + 1)));
 	return harness;
 }
 
@@ -163,6 +167,67 @@ describe("deleting in suggesting mode", () => {
 			struck.marks.includes("deletion"),
 			`deleted text must carry the deletion mark, got ${JSON.stringify(marksOf(h))}`,
 		);
+	});
+
+	test("REGRESSION: repeated Backspace strikes successive characters, not the same one", () => {
+		// Reported live as "cannot delete multiple chars in a row with backspace".
+		//
+		// Each Backspace arrives as its own transaction carrying the CURRENT selection.
+		// The plugin cancels the delete and marks the text instead, so unless the caret
+		// moves on, every press recomputes the range it has already marked and the text
+		// stops disappearing after the first hit. This drives the transaction the way the
+		// browser does: a delete at the live selection, repeated.
+		const h = makeEditor("abcdef", "suggesting");
+
+		for (let i = 0; i < 3; i += 1) {
+			const at = h.state.selection.from;
+			const target = Math.max(1, at - 1);
+			h.dispatch(h.state.tr.delete(target, at));
+		}
+
+		const parts = marksOf(h);
+		const struck = parts
+			.filter((p) => p.marks.includes("deletion"))
+			.map((p) => p.text)
+			.join("");
+		assert.equal(
+			struck,
+			"def",
+			`three backspaces must strike three different characters, got ${JSON.stringify(parts)}`,
+		);
+		assert.equal(h.state.doc.textContent, "abcdef", "and none of them is removed");
+	});
+
+	test("the caret ends up before the text it struck", () => {
+		const h = makeEditor("abcdef", "suggesting");
+		const at = h.state.selection.from;
+		h.dispatch(h.state.tr.delete(at - 1, at));
+
+		assert.equal(
+			h.state.selection.from,
+			at - 1,
+			"the caret must sit before the struck character so the next press targets the previous one",
+		);
+	});
+
+	test("the correction only fires for a caret inside the range just marked", () => {
+		// The repositioning is a repair for the specific stuck case: the caret parked in
+		// the text that was just struck through. A caret anywhere else must be untouched,
+		// or a user editing mid-paragraph would be yanked to the deletion on every press.
+		//
+		// Reaching the guard from outside is not possible through a rejected transaction —
+		// `filterTransaction` returning false discards the whole thing, selection included —
+		// so this asserts the boundary directly.
+		const h = makeEditor("abcdef", "suggesting");
+		const at = h.state.selection.from;
+		assert.equal(at, 7, "the harness starts with the caret at the paragraph end");
+
+		h.dispatch(h.state.tr.delete(at - 1, at));
+
+		// One character struck, caret moved to sit before it.
+		assert.equal(h.state.selection.from, 6, "the caret follows the deletion leftwards");
+		const struck = marksOf(h).filter((p) => p.marks.includes("deletion"));
+		assert.equal(struck.length, 1, "exactly one character was struck");
 	});
 
 	test("editing mode deletes for real", () => {
