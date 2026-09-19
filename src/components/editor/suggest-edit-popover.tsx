@@ -15,6 +15,14 @@ export async function postOp(
 ): Promise<{
 	ok: boolean;
 	stale: boolean;
+	/**
+	 * The revision the server left behind, on success.
+	 *
+	 * Callers must adopt it: it is the `baseRevision` their NEXT request sends, so a
+	 * caller that drops it re-sends a revision the server has already passed and is
+	 * refused `409 STALE_REVISION` for every write thereafter.
+	 */
+	revision?: number;
 	newRevision?: number;
 	/** Machine-readable failure code from the server, when it sent one. */
 	code?: string;
@@ -43,7 +51,16 @@ export async function postOp(
 		return { ok: false, stale: false, code: data.code, message: data.message };
 	}
 	if (!res.ok) return { ok: false, stale: false, code: `HTTP_${res.status}` };
-	return { ok: true, stale: false, snapshot: (await res.json()) as Snapshot };
+	// The response's own `revision` is the authoritative base for the next write. It is
+	// read here because callers previously had no way to reach it, which is how a
+	// successful write could still leave the client stale.
+	const body = (await res.json()) as Snapshot;
+	return {
+		ok: true,
+		stale: false,
+		snapshot: body,
+		revision: typeof body.revision === "number" ? body.revision : undefined,
+	};
 }
 
 interface Props {
@@ -122,7 +139,7 @@ export function SuggestEditPopover({ path, blockRef, currentMarkdown, anchor, on
 			if (result.ok && result.snapshot) {
 				const suggestion = result.snapshot.suggestions.at(-1);
 				if (suggestion) {
-					const event: ProofEvent = { id: result.snapshot.lastEventId, type: "suggestion.added", at: new Date().toISOString(), by: "human", suggestionId: suggestion.id, suggestion };
+					const event: ProofEvent = { id: result.snapshot.lastEventId, type: "suggestion.added", at: new Date().toISOString(), by: "human", suggestionId: suggestion.id, suggestion, ...(typeof result.snapshot.revision === "number" ? { revision: result.snapshot.revision } : {}) };
 					useProofStore.getState().applyEvent(path, event);
 				}
 				onClose();

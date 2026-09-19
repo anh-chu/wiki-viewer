@@ -815,6 +815,17 @@ found is not drawn at all: a wrong highlight is worse than none. `comment.add` r
 `textAnchor` whose range does not reproduce `selectedText` in the block's current markdown
 (`400 INVALID_PAYLOAD`).
 
+**A successful write must advance the revision the next write sends.** Every write
+response carries the revision it produced, and that value is the `baseRevision` the *next*
+request must send. The comment path passed it through and worked; the suggestion path
+applied the response's suggestion to the store but dropped the revision. So the next
+keystroke sent the revision its own previous write had already superseded, the server
+refused it `409 STALE_REVISION`, the one-shot retry re-sent the same stale base, and the
+typed suggestion never persisted — while the UI kept showing it as pending. `applyEvent`
+reads the revision from the event it applies, and `adoptRevision` covers writes that apply
+no local event; neither ever moves the base backwards, so a late reply for an older write
+cannot undo a newer one.
+
 **Editing a block keeps its annotations.** Refs are content-derived, so changing a
 block's text changes its ref. `computeRefDelta` aliased only when a block's content MOVED
 to another ref, so a block edited in place got no alias at all and every comment and

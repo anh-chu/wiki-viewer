@@ -102,11 +102,19 @@ export function useTrackedEditPersistence() {
 				// the latest text rather than the text as it was when it was requested.
 				const op = editOp(run);
 				const first = await postOp(run.path, currentRevision(), [op]);
-				if (first.ok) return;
+				if (first.ok) {
+					// An edit response has no new suggestion to apply locally, but it still
+					// advances the revision, and the next keystroke's base depends on it.
+					useProofStore.getState().adoptRevision(run.path, first.revision);
+					return;
+				}
 				if (first.stale && first.newRevision !== undefined) {
 					await useProofStore.getState().loadSidecar(run.path);
 					const retry = await postOp(run.path, first.newRevision, [op]);
-					if (retry.ok) return;
+					if (retry.ok) {
+						useProofStore.getState().adoptRevision(run.path, retry.revision);
+						return;
+					}
 					reportWriteFailure(run.path, retry);
 					return;
 				}
@@ -233,7 +241,11 @@ function reportWriteFailure(
 
 /** Surface the new suggestion in the sidecar store so the margin can show it. */
 function recordSuggestion(path: string, snapshot: unknown): void {
-	const snap = snapshot as { suggestions?: unknown[]; lastEventId?: number } | undefined;
+	const snap = snapshot as {
+		suggestions?: unknown[];
+		lastEventId?: number;
+		revision?: number;
+	} | undefined;
 	if (!snap?.suggestions) return;
 	const suggestion = snap.suggestions.at(-1);
 	if (!suggestion) return;
@@ -244,6 +256,13 @@ function recordSuggestion(path: string, snapshot: unknown): void {
 		by: "human",
 		suggestionId: (suggestion as { id: string }).id,
 		suggestion: suggestion as never,
+		// Adopt the revision this write produced. `snapshotRevision` is the baseRevision
+		// the NEXT request sends, so dropping it here meant every following keystroke
+		// re-sent the revision the write had just superseded — the server rejected it
+		// `409 STALE_REVISION`, the retry sent the same stale base again, and the
+		// suggestion never persisted. The comment path already passed this; the typing
+		// path did not, which is why comments synced and suggestions did not.
+		...(typeof snap.revision === "number" ? { revision: snap.revision } : {}),
 	};
 	useProofStore.getState().applyEvent(path, event);
 }

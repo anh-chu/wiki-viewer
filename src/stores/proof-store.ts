@@ -19,6 +19,15 @@ interface ProofState {
 	loadSnapshot(path: string): Promise<void>;
 	pollEvents(path: string): Promise<void>;
 	applyEvent(path: string, e: ProofEvent): void;
+	/**
+	 * Move the store's revision to one a write produced.
+	 *
+	 * `snapshotRevision` is the `baseRevision` the next request sends. A write that
+	 * succeeds without applying a local event — a `suggestion.edit`, say — still
+	 * advances the server's revision, so not adopting it makes the next request stale
+	 * by construction and it is refused `409` with no way to recover but a reload.
+	 */
+	adoptRevision(path: string, revision: unknown): void;
 	reset(path: string): void;
 }
 
@@ -105,6 +114,23 @@ export const useProofStore = create<ProofState>((set, get) => ({
 		}
 	},
 
+	adoptRevision: (path: string, revision: unknown) => {
+		if (typeof revision !== "number") return;
+		set((s) => {
+			const prev = s.byPath[path];
+			if (!prev) return s;
+			// Never move backwards: a late response for an older write must not undo a
+			// newer one that already advanced the revision.
+			if (prev.snapshotRevision >= revision) return s;
+			return {
+				byPath: {
+					...s.byPath,
+					[path]: { ...prev, snapshotRevision: revision },
+				},
+			};
+		});
+	},
+
 	applyEvent: (path: string, e: ProofEvent) => {
 		set((s) => {
 			const prev = s.byPath[path] ?? defaultEntry();
@@ -145,7 +171,9 @@ export const useProofStore = create<ProofState>((set, get) => ({
 				sidecar.revision = typeof e.revision === "number" ? e.revision : sidecar.revision;
 				sidecar.updatedAt = e.at;
 			}
-			return { byPath: { ...s.byPath, [path]: { ...prev, sidecar, snapshotRevision: typeof e.revision === "number" ? e.revision : prev.snapshotRevision, lastEventId: Math.max(prev.lastEventId, e.id) } } };
+			// The write's revision, never a step backwards.
+			const newSnapshotRevision = typeof e.revision === "number" ? e.revision : prev.snapshotRevision;
+			return { byPath: { ...s.byPath, [path]: { ...prev, sidecar, snapshotRevision: Math.max(prev.snapshotRevision, newSnapshotRevision), lastEventId: Math.max(prev.lastEventId, e.id) } } };
 		});
 	}, 
 

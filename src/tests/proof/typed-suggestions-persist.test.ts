@@ -28,6 +28,7 @@
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { useProofStore } from "@/stores/proof-store";
 import {
 	COALESCE_MS,
 	createOp,
@@ -190,5 +191,109 @@ describe("a typing burst becomes one suggestion, not one per keystroke", () => {
 
 	test("the coalescing window is a real, positive duration", () => {
 		assert.ok(COALESCE_MS > 0, "a zero window would never merge anything");
+	});
+});
+describe("a write must advance the revision the next write sends", () => {
+	/**
+	 * Found live: every keystroke logged `409 (Conflict)` and
+	 * "[tracked-edit] could not persist the suggestion ... Base revision 6 does not match
+	 * current revision 7."
+	 *
+	 * A successful POST returns the revision it produced, and that value is the
+	 * `baseRevision` the NEXT request must send. The typing path applied the response's
+	 * suggestion to the store but dropped its revision, so the very next keystroke sent
+	 * the revision its own previous write had already superseded. The server refused it,
+	 * the retry re-sent the same stale base, and the suggestion never persisted — while
+	 * the comment path, which DID pass the revision through, kept working. That asymmetry
+	 * is the tell.
+	 *
+	 * These drive the real store: `applyEvent` must adopt the event's revision, and
+	 * `adoptRevision` covers writes that apply no local event.
+	 */
+	function seed() {
+		useProofStore.setState({ byPath: {} });
+		useProofStore.getState().applyEvent("d.md", {
+			id: 0,
+			type: "suggestion.added",
+			at: new Date().toISOString(),
+			by: "human",
+			revision: 6,
+		});
+		// A loaded sidecar, as the editor would have.
+		useProofStore.setState((s) => ({
+			byPath: {
+				...s.byPath,
+				"d.md": {
+					...s.byPath["d.md"],
+					sidecar: {
+						schemaVersion: 1,
+						path: "d.md",
+						revision: 6,
+						createdAt: "",
+						updatedAt: "",
+						refMap: {},
+						refAliases: {},
+						comments: [],
+						suggestions: [],
+						archivedSuggestions: [],
+						events: [],
+						nextEventId: 1,
+						lastAck: {},
+						fingerprint: "",
+					} as never,
+					snapshotRevision: 6,
+				},
+			},
+		}));
+	}
+
+	test("applyEvent adopts the revision the write produced", () => {
+		seed();
+		useProofStore.getState().applyEvent("d.md", {
+			id: 12,
+			type: "suggestion.added",
+			at: new Date().toISOString(),
+			by: "human",
+			revision: 7,
+		});
+		assert.equal(
+			useProofStore.getState().byPath["d.md"]?.snapshotRevision,
+			7,
+			"the next write's base must be 7, not the superseded 6",
+		);
+	});
+
+	test("REGRESSION: an event with no revision leaves the next write stale", () => {
+		seed();
+		// What the buggy path sent: the suggestion, without the revision.
+		useProofStore.getState().applyEvent("d.md", {
+			id: 12,
+			type: "suggestion.added",
+			at: new Date().toISOString(),
+			by: "human",
+			suggestionId: "s1",
+		});
+		assert.equal(
+			useProofStore.getState().byPath["d.md"]?.snapshotRevision,
+			6,
+			"still 6 — this is the state that made every later write 409",
+		);
+	});
+
+	test("adoptRevision covers a write that applies no local event", () => {
+		seed();
+		useProofStore.getState().adoptRevision("d.md", 7);
+		assert.equal(useProofStore.getState().byPath["d.md"]?.snapshotRevision, 7);
+	});
+
+	test("a late response for an older write cannot un-advance the base", () => {
+		seed();
+		useProofStore.getState().adoptRevision("d.md", 9);
+		useProofStore.getState().adoptRevision("d.md", 8);
+		assert.equal(
+			useProofStore.getState().byPath["d.md"]?.snapshotRevision,
+			9,
+			"revision only moves forward",
+		);
 	});
 });

@@ -164,6 +164,17 @@ export interface ProofEvent {
 	type: string;
 	at: string;
 	by: string;
+	/**
+	 * The sidecar revision this event left behind, when the producer knows it.
+	 *
+	 * A write response carries one, and applying that event must move the store's
+	 * `snapshotRevision` to it: that value is the `baseRevision` the next request sends,
+	 * so a client that does not adopt its own write's revision sends a base the server
+	 * has already passed and every subsequent op is rejected `409 STALE_REVISION`. This
+	 * field was read on the apply path but never populated by any producer, so the
+	 * update looked handled and silently was not.
+	 */
+	revision?: number;
 	[k: string]: unknown;
 }
 
