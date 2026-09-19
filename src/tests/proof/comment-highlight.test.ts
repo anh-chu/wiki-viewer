@@ -247,3 +247,68 @@ describe("a block comment with no text anchor", () => {
 		assert.deepEqual(covered(doc, [stale]), []);
 	});
 });
+
+describe("ref aliasing when a block is edited", () => {
+	/**
+	 * Refs are content-derived (`b` + sha256(markdown)), so editing a block changes its
+	 * ref. `computeRefDelta` only aliased when a hash MOVED, so a block that was edited
+	 * in place got no alias and every annotation on it was orphaned the instant the user
+	 * typed — the sidecar still held the comment or suggestion, but its ref no longer
+	 * existed in the document. Observed live as suggestions disappearing after typing.
+	 *
+	 * These pin the recovery AND its limits: position may only adopt a ref that is
+	 * genuinely gone, or an annotation would be dragged onto unrelated text.
+	 */
+	async function delta(before: string, after: string, oldOrderOverride?: string[]) {
+		const { assignRefs, computeRefDelta } = await import("@/lib/proof/block-refs");
+		const { parseBlocks } = await import("@/lib/proof/blocks");
+		const { blocks: b1, newRefMap: m1 } = assignRefs(parseBlocks(before), null);
+		const { blocks: b2 } = assignRefs(parseBlocks(after), null);
+		const hashToRef = new Map<string, string>();
+		for (const [ref, e] of Object.entries(m1)) {
+			if (!hashToRef.has(e.textHash)) hashToRef.set(e.textHash, ref);
+		}
+		return {
+			oldRefs: b1.map((b) => b.ref),
+			newRefs: b2.map((b) => b.ref),
+			aliases: computeRefDelta(m1, hashToRef, b2, oldOrderOverride ?? Object.keys(m1)).refAliases,
+		};
+	}
+
+	test("an edited block aliases its old ref", async () => {
+		const { oldRefs, newRefs, aliases } = await delta(
+			"Alpha paragraph here.\n",
+			"Alpha paragraph here.XYZ\n",
+		);
+		assert.equal(aliases[oldRefs[0]], newRefs[0], "the annotation follows the edit");
+	});
+
+	test("only the edited block is aliased, not its neighbours", async () => {
+		const { oldRefs, aliases } = await delta(
+			"Alpha paragraph here.\n\nBeta paragraph here.\n",
+			"Alpha paragraph here.XYZ\n\nBeta paragraph here.\n",
+		);
+		assert.equal(Object.keys(aliases).length, 1, "one edit, one alias");
+		assert.ok(aliases[oldRefs[0]], "the block that changed");
+		assert.equal(aliases[oldRefs[1]], undefined, "the untouched neighbour keeps its ref");
+	});
+
+	test("an insertion at the front does not alias the following block", async () => {
+		// A new first block pushes the others down. Their refs still exist, so they are
+		// NOT aliased — a positional alias here would point a comment at the new block.
+		const { aliases } = await delta(
+			"Alpha paragraph here.\n",
+			"Brand new first block.\n\nAlpha paragraph here.\n",
+		);
+		assert.deepEqual(aliases, {}, "an insertion is not an edit");
+	});
+
+	test("a reordering moves content but does not alias across blocks", async () => {
+		const { aliases } = await delta(
+			"Alpha paragraph here.\n\nBeta paragraph here.\n",
+			"Beta paragraph here.\n\nAlpha paragraph here.\n",
+		);
+		// Both refs survive (their content moved), so nothing is orphaned to recover.
+		assert.deepEqual(aliases, {});
+	});
+});

@@ -815,6 +815,18 @@ found is not drawn at all: a wrong highlight is worse than none. `comment.add` r
 `textAnchor` whose range does not reproduce `selectedText` in the block's current markdown
 (`400 INVALID_PAYLOAD`).
 
+**Editing a block keeps its annotations.** Refs are content-derived, so changing a
+block's text changes its ref. `computeRefDelta` aliased only when a block's content MOVED
+to another ref, so a block edited in place got no alias at all and every comment and
+suggestion anchored to it was orphaned the moment the user typed — the sidecar still held
+them, but their ref no longer existed in the document. Observed live as suggestions
+vanishing after a keystroke. The delta now also considers position: the ref that occupied
+a slot before the op is aliased to the ref occupying it after, so an edited block's
+annotations follow it. Position only ever adopts a ref that is **genuinely gone** — an
+insertion that merely pushes blocks down, or a reorder that moves content, aliases nothing,
+because a live old ref means a different block took the slot and aliasing there would drag
+an annotation onto unrelated text.
+
 **A comment with no `textAnchor` highlights its whole block.** Only a comment made from a
 text selection carries an anchor; the thread UI sends none for a plain block comment
 (`...(textAnchor ? { textAnchor } : {})`). The decorator used to require an anchor and skip
