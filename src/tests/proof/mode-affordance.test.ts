@@ -79,10 +79,14 @@ test("P7: both selection surfaces still exist and are mode-gated by the editor",
 	);
 });
 
-test("P7: the bubble menu still offers Comment and Suggest in editing mode", () => {
+test("P7: the bubble menu still offers Comment in editing mode", () => {
+	// Comment only, since the block-suggest flow was removed from both surfaces.
 	const source = read(BUBBLE_MENU);
 	assert.ok(source.includes("onComment"), "Comment remains available");
-	assert.ok(source.includes("onSuggestEdit"), "Suggest edit remains available");
+	assert.ok(
+		!source.includes("onSuggestEdit"),
+		"the removed Suggest affordance must not come back here",
+	);
 });
 
 test("P7: the view-mode surface keeps its own selectionchange handling", () => {
@@ -100,50 +104,48 @@ test("P7: the view-mode surface keeps its own selectionchange handling", () => {
  * The PARITY invariant, as distinct from the per-surface checks above.
  *
  * The tests above each confirm that one surface has its handlers. Neither
- * compares them, so deleting `onSuggest` from the view-mode button would leave
- * every one of them passing while a reader silently lost the ability to propose
- * a change. That is the regression this asserts against: the capability SETS
- * must match, even though the components and their labels differ.
+ * compares them, so deleting a handler from one component would leave every one
+ * of them passing while half the app silently lost the capability. That is the
+ * regression this asserts against: the capability SETS must match, even though
+ * the components and their labels differ.
+ *
+ * SCOPE: this now covers Comment only. The block-level "suggest edit" flow was
+ * removed from BOTH surfaces together, so Suggest is no longer a capability
+ * either surface offers and there is no parity left to assert for it. Removing
+ * it from one surface alone would still be the failure this file guards: the
+ * capability sets would diverge and only one of them would be reachable.
  */
 describe("view and edit surfaces offer the same capabilities", () => {
-	/** Which of the two annotation capabilities a file wires up. */
-	function capabilities(file: string): { comment: boolean; suggest: boolean } {
-		const source = read(file);
-		return {
-			// The prop names differ per component (onComment/onSuggestEdit vs
-			// onComment/onSuggest), so match the shared prefix.
-			comment: /\bonComment\b/.test(source),
-			suggest: /\bonSuggest\w*\b/.test(source),
-		};
+	/** Whether a file wires up the Comment capability. */
+	function hasComment(file: string): boolean {
+		return /\bonComment\b/.test(read(file));
 	}
 
 	test("both surfaces expose Comment", () => {
-		assert.ok(capabilities(BUBBLE_MENU).comment, "editing surface offers Comment");
-		assert.ok(capabilities(VIEW_MODE).comment, "viewing surface offers Comment");
+		assert.ok(hasComment(BUBBLE_MENU), "editing surface offers Comment");
+		assert.ok(hasComment(VIEW_MODE), "viewing surface offers Comment");
 	});
 
-	test("both surfaces expose Suggest", () => {
-		assert.ok(capabilities(BUBBLE_MENU).suggest, "editing surface offers Suggest");
-		assert.ok(capabilities(VIEW_MODE).suggest, "viewing surface offers Suggest");
+	test("the editor wires Comment to both surfaces", () => {
+		// Parity is only real if the editor actually passes the handler through. A
+		// surface that accepts a handler it is never given is equivalent to not
+		// having it.
+		const count = (read(EDITOR).match(/\bonComment=/g) ?? []).length;
+		assert.ok(
+			count >= 2,
+			`Comment must be passed to BOTH surfaces, found ${count} call site(s)`,
+		);
 	});
 
-	test("the editor passes both handlers to whichever surface it mounts", () => {
-		// Parity is only real if the editor actually wires both through. A surface
-		// that accepts a handler it is never given is equivalent to not having it.
-		//
-		// The prop NAMES differ by surface — `onSuggestEdit` on the bubble menu,
-		// `onSuggest` on the view-mode button — so matching a single literal name
-		// undercounts. Match the shared prefix instead; the capability is what must
-		// be equal, not the spelling.
-		const editor = read(EDITOR);
-		for (const [capability, pattern] of [
-			["Comment", /\bonComment=/g],
-			["Suggest", /\bonSuggest\w*=/g],
-		] as const) {
-			const count = (editor.match(pattern) ?? []).length;
+	test("CONTROL: the removed block-suggest flow is gone from both surfaces", () => {
+		// The removal has to be symmetric. If Suggest reappears on one surface only,
+		// the capability sets diverge again and a user gets a feature in one mode
+		// that does not exist in the other — the exact failure the parity tests
+		// above exist to catch, just in the other direction.
+		for (const file of [BUBBLE_MENU, VIEW_MODE]) {
 			assert.ok(
-				count >= 2,
-				`${capability} must be passed to BOTH surfaces, found ${count} call site(s)`,
+				!/\bonSuggest\w*\b/.test(read(file)),
+				`${file} must not offer a Suggest affordance`,
 			);
 		}
 	});

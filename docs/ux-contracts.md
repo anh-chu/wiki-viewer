@@ -500,9 +500,17 @@ links navigable and self-healing.
 **Contract:** The toolbar offers H1/H2/H3, bold/italic/underline/strike/
 inline-code/link, bullet/ordered list, blockquote, checklist, code block,
 divider, align L/C/R/justify, superscript/subscript, insert image/video,
-undo/redo, and an RTL toggle. The bubble menu adds Comment / Suggest edit
-and (read-only) only Comment. Link editing uses a popover (`Add link`/`Edit link`,
-Enter applies, empty cancels, ⌘E opens a prompt for a selected link).
+undo/redo, and an RTL toggle. The bubble menu adds Comment. Link editing uses a
+popover (`Add link`/`Edit link`, Enter applies, empty cancels, ⌘E opens a prompt
+for a selected link).
+
+The block-level "Suggest edit" affordance was removed from both surfaces. It
+opened a popover that proposed a whole-block replacement through the sidecar,
+which is a different and weaker model than the mark-based typing path in §6.0:
+that one produces a suggestion in the document, and this one produced a proposal
+stored beside it. Two ways to suggest, one of them the fragile kind, was worse
+than one way that works. `suggestion.add` remains part of the agent API — this
+removed the HUMAN surface, not the operation.
 
 **Why it matters:** The toolbar/bubble menus are the primary edit affordances;
 the read-only bubble showing only Comment is the correct gate for view mode.
@@ -708,10 +716,10 @@ in `collab-state`), so latching `stale` is enough and a cancel flag would be red
 state.
 
 **Typing in Suggesting mode creates a real suggestion, recorded in the document.**
-There are two ways to suggest: the selection bubble's Suggest button, and typing with
-the mode toggle set to Suggesting. A typed run carries an `insertion` mark with a
-`data-id`, and that mark IS the record — it is written to the `.md` and read back on
-reload.
+Typing with the mode toggle set to Suggesting is the one human way to suggest. (It
+used to share that role with the block-level suggest-edit popover, removed — see
+§6.1.) A typed run carries an `insertion` mark with a `data-id`, and that mark IS the
+record — it is written to the `.md` and read back on reload.
 
 An earlier implementation recorded typed suggestions in the sidecar instead, firing a
 write per keystroke. That path failed in a way worth recording: the marks were stamped,
@@ -998,8 +1006,8 @@ mode:
 
 | Mode | `contenteditable` | Affordances offered |
 |---|---|---|
-| View | `false` | "Add comment", "Suggest edit" |
-| Edit | `true` | "Comment — discuss or annotate this selection", "Suggest — propose a human edit for review" |
+| View | `false` | "Add comment" |
+| Edit | `true` | "Comment — discuss or annotate this selection" |
 
 The wording differs because the components are separate; the capability set must not.
 This is stated as an invariant because the failure is silent: adding `!isViewing` in
@@ -1142,19 +1150,32 @@ made to it), `src/lib/markdown/to-markdown.ts` (the `ins` / `del` rules),
 `src/lib/markdown/sanitize-schema.ts` (the `dataId` allowlist entries),
 `src/tests/proof/suggestion-roundtrip.test.ts`
 
-### 6.1 Suggest-edit popover
+### 6.1 Suggest-edit popover (REMOVED)
 
-**Contract:** Opened via the bubble "Suggest edit" or the view-mode button, the
-popover offers kind chips Replace block / Insert after / Insert before / Delete
-block, a markdown textarea, and an optional reason. `⌘↵` submits
-`suggestion.add {ref, kind, basis:"suggested", markdown?, basisDetail?}`;
-`409 STALE_REVISION` retries once. Suggest is disabled when markdown is empty
-(delete exempt).
+**Status:** removed. This section is kept as a tombstone so the contract does not
+silently lose a heading that other sections and tests referenced.
 
-**Why it matters:** Suggestions are proposed-not-applied edits; the basis and
-kind are what let the reviewer see exactly what changed without touching the file.
+The popover opened from a bubble "Suggest edit" button or the view-mode button and
+submitted `suggestion.add` with a kind chip (Replace block / Insert after / Insert
+before / Delete block), a markdown textarea, and an optional reason.
 
-**Verification pointer:** `src/components/editor/suggest-edit-popover.tsx`
+It was removed because it was a second, weaker way to suggest alongside the
+mark-based typing path in §6.0. The popover produced a proposal stored in the
+sidecar, keyed to a content-derived block ref — the same design that orphaned
+suggestions and that §6.2a records as the reason suggestions moved into the
+document. Keeping two paths meant keeping the fragile one alive purely because
+the UI still offered it.
+
+**What remains.** `suggestion.add` is still part of the agent API, so an agent can
+propose a suggestion and it appears through the §6.2 review popover exactly as
+before. Reviewing, accepting and rejecting committed suggestions is unchanged.
+What is gone is the human block-level authoring surface. A human suggests by
+turning on Suggesting mode and typing, which is the Google Docs model.
+
+**Verification pointer:** `src/lib/proof/post-op.ts` (the write path that
+survived, extracted from the deleted popover file),
+`src/tests/proof/mode-affordance.test.ts` (asserts the affordance is gone from
+both surfaces)
 
 ### 6.2 Suggestion review (redline retired)
 

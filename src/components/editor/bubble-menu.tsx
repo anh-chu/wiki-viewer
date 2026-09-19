@@ -12,7 +12,6 @@ import {
 	Italic,
 	Link as LinkIcon,
 	MessageCircle,
-	MessageSquarePlus,
 	Strikethrough,
 	Subscript as SubIcon,
 	Superscript as SuperIcon,
@@ -24,8 +23,6 @@ import { LinkPopover } from "./link-popover";
 
 interface Props {
 	editor: Editor | null;
-	/** Open the human "suggest edit" flow for the current selection's block. */
-	onSuggestEdit?: () => void;
 	/** Open a comment thread on the current selection's block. */
 	onComment?: () => void;
 }
@@ -40,7 +37,7 @@ type OpenPopover =
 			anchor: { top: number; left: number };
 	  };
 
-export function EditorBubbleMenu({ editor, onSuggestEdit, onComment }: Props) {
+export function EditorBubbleMenu({ editor, onComment }: Props) {
 	const [popover, setPopover] = useState<OpenPopover>(null);
 
 	useEffect(() => {
@@ -212,7 +209,7 @@ export function EditorBubbleMenu({ editor, onSuggestEdit, onComment }: Props) {
 				>
 					<LinkIcon className="w-3.5 h-3.5" />
 				</button>
-				{(onSuggestEdit || onComment) && (
+				{onComment && (
 					<div className="w-px h-5 bg-border mx-1" />
 				)}
 				{onComment && (
@@ -228,21 +225,6 @@ export function EditorBubbleMenu({ editor, onSuggestEdit, onComment }: Props) {
 						title="Comment — discuss or annotate this selection"
 					>
 						<MessageCircle className="w-3.5 h-3.5" />
-					</button>
-				)}
-				{onSuggestEdit && (
-					<button
-						type="button"
-						className={btn(false)}
-						onMouseDown={(e) => e.preventDefault()}
-						onClick={(e) => {
-							e.preventDefault();
-							onSuggestEdit();
-						}}
-						aria-label="Suggest edit"
-						title="Suggest — propose a human edit for review"
-					>
-						<MessageSquarePlus className="w-3.5 h-3.5" />
 					</button>
 				)}
 				<div className="w-px h-5 bg-border mx-1" />

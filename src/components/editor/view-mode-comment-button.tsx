@@ -1,13 +1,12 @@
 "use client";
 
-import { MessageCircle, PencilLine } from "lucide-react";
+import { MessageCircle } from "lucide-react";
 import { type RefObject, useEffect, useState } from "react";
 
 interface Props {
 	/** The scrollable container that wraps the editor content. */
 	containerRef: RefObject<HTMLElement | null>;
 	onComment: () => void;
-	onSuggest?: () => void;
 	/**
 	 * "center": floating above the selection, centered (markdown default).
 	 * "left": pinned to the container's left edge, beside the selected line
@@ -27,7 +26,6 @@ interface Props {
 export function ViewModeCommentButton({
 	containerRef,
 	onComment,
-	onSuggest,
 	align = "center",
 }: Props) {
 	const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -91,21 +89,6 @@ export function ViewModeCommentButton({
 				<MessageCircle className="w-3.5 h-3.5" />
 				<span>Comment</span>
 			</button>
-			{onSuggest && (
-				<button
-					type="button"
-					className="flex items-center gap-1 px-2 py-1 text-[12px] text-foreground/80 hover:text-foreground hover:bg-accent rounded-sm transition-colors [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11"
-					onClick={() => {
-						onSuggest();
-						setPos(null);
-					}}
-					aria-label="Suggest edit"
-					title="Suggest edit"
-				>
-					<PencilLine className="w-3.5 h-3.5" />
-					<span>Suggest</span>
-				</button>
-			)}
 		</div>
 	);
 }

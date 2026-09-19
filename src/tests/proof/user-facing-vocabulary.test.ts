@@ -25,7 +25,6 @@ const USER_FACING = [
 	"src/components/editor/comment-margin.tsx",
 	"src/components/editor/comment-thread.tsx",
 	"src/components/editor/view-mode-comment-button.tsx",
-	"src/components/editor/suggest-edit-popover.tsx",
 ];
 
 /** The internal terms that must not appear in rendered strings. */

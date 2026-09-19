@@ -30,7 +30,7 @@ import { CommentPip } from "./comment-pip";
 import { SuggestionPip } from "./suggestion-pip";
 import { CommentThread } from "./comment-thread";
 import { CommentMargin } from "./comment-margin";
-import { postOp, SuggestEditPopover } from "./suggest-edit-popover";
+import { postOp } from "@/lib/proof/post-op";
 import {
 	MODULE_MAP_LIMIT,
 	remember,
@@ -637,11 +637,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	//
 	const showCommentMargin = marginThreads.length > 0 && !marginCollapsed;
 
-	/** Tracks the open human "suggest edit" popover (block + anchor + content). */
-	const [suggestTarget, setSuggestTarget] = useState<
-		{ blockRef: string; markdown: string; anchor: { top: number; left: number } } | null
-	>(null);
-
 	/**
 	 * Resolve the current editor selection to a top-level block.
 	 *
@@ -746,17 +741,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 
 		return { blockRef, blockEl, markdown, selectionText, selectionStart, selectionEnd };
 	}, [snapshotBlockOffset]);
-
-	const openSuggestForSelection = useCallback(() => {
-		const resolved = resolveSelectionBlock();
-		if (!resolved) return;
-		const rect = resolved.blockEl.getBoundingClientRect();
-		setSuggestTarget({
-			blockRef: resolved.blockRef,
-			markdown: resolved.markdown,
-			anchor: { top: rect.bottom + 4, left: rect.left },
-		});
-	}, [resolveSelectionBlock]);
 
 	const openCommentForSelection = useCallback(() => {
 		const resolved = resolveSelectionBlock();
@@ -1678,16 +1662,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 						/>
 									)}
 
-									{/* Human suggest-edit popover — driven by suggestTarget */}
-									{suggestTarget && currentPath && (
-										<SuggestEditPopover
-											path={currentPath}
-											blockRef={suggestTarget.blockRef}
-											currentMarkdown={suggestTarget.markdown}
-											anchor={suggestTarget.anchor}
-											onClose={() => setSuggestTarget(null)}
-										/>
-									)}
 									{reviewTarget && reviewSuggestion && reviewBlock && currentPath && (
 										<SuggestionReviewPopover
 											path={currentPath}
@@ -1720,7 +1694,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 										<>
 											<EditorBubbleMenu
 												editor={editor}
-												onSuggestEdit={openSuggestForSelection}
 												onComment={openCommentForSelection}
 											/>
 											<TableMenu editor={editor} />
@@ -1735,7 +1708,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 										<ViewModeCommentButton
 											containerRef={scrollContainerRef}
 											onComment={openCommentForSelection}
-											onSuggest={openSuggestForSelection}
 										/>
 									)}
 									{/* AI Edit Prompt + slash hint */}
