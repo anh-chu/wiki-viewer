@@ -75,9 +75,48 @@ export interface TextRangeAnchor {
 	baseMarkdown?: string;
 }
 
+/**
+ * A durable, opaque pointer to a place in the document.
+ *
+ * `id` is deliberately not derived from content — that is the point. The quote fields
+ * follow the W3C TextQuoteSelector so the anchor can be re-found after an edit.
+ */
+export interface Anchor {
+	id: string;
+	/** Last known block ref. A hint for resolution, not the identity. */
+	ref: string;
+	/** Block-local character offset of the quoted text. */
+	offset: number;
+	/** Quoted length; 0 means the anchor covers its whole block. */
+	length: number;
+	/** The exact text at creation. This is what makes the anchor findable again. */
+	quote: string;
+	/** Up to 32 chars before the quote, for disambiguating repeated text. */
+	prefix: string;
+	/** Up to 32 chars after the quote, likewise. */
+	suffix: string;
+	createdAt: string;
+	updatedAt: string;
+}
+
+/**
+ * How confidently an anchor was placed.
+ *
+ * - `exact`     — still where it was recorded.
+ * - `moved`     — found again elsewhere; the offset here is the NEW one.
+ * - `ambiguous` — found more than once and context could not fully separate them.
+ * - `lost`      — the recorded text is gone. Surfaced, never silently dropped.
+ */
+export type AnchorStatus = "exact" | "moved" | "ambiguous" | "lost";
+
 export interface Comment {
 	id: string; // "c" + 4-hex
-	ref?: string; // block ref it's attached to (markdown only)
+	/** The durable anchor this comment hangs off. Absent on v1 records. */
+	anchorId?: string;
+	/** Resolved position, filled by the server read. Never persisted. */
+	anchorStatus?: AnchorStatus;
+	ref?: string; // LEGACY v1: block ref. Read-only fallback. */
+
 	lineAnchor?: LineAnchor;
 	/** Exact commented text. Absent => block-granular (legacy comment). */
 	textAnchor?: TextRangeAnchor;
@@ -134,7 +173,11 @@ export interface SuggestionRange {
 
 export interface Suggestion {
 	id: string; // "s" + 4-hex
-	ref: string;
+	ref: string; // LEGACY v1: block ref. Read-only fallback.
+	/** The durable anchor this suggestion hangs off. Absent on v1 records. */
+	anchorId?: string;
+	/** Resolved position, filled by the server read. Never persisted. */
+	anchorStatus?: AnchorStatus;
 	kind: SuggestionKind;
 	status: SuggestionStatus;
 	by: string;
@@ -179,7 +222,7 @@ export interface ProofEvent {
 }
 
 export interface Sidecar {
-	schemaVersion: 1;
+	schemaVersion: 1 | 2 | 3;
 	path: string;
 	revision: number;
 	createdAt: string;
@@ -187,7 +230,16 @@ export interface Sidecar {
 	// Map of block.ref -> current text fingerprint (sha256 of block markdown, first 12 hex).
 	refMap: Record<string, { textHash: string; lastSeenAt: string }>;
 	// History of ref renames. Old ref -> new ref, kept for ONE generation.
+	// LEGACY (schema <= 2). Superseded by `anchors`; still read so a v1 sidecar can
+	// resolve a ref that was renamed before the upgrade.
 	refAliases: Record<string, string>;
+	/**
+	 * Durable anchors, keyed by anchor id (schema >= 2).
+	 *
+	 * An annotation's identity now lives here rather than in its `ref`, so editing the
+	 * text under an annotation moves its anchor instead of destroying it.
+	 */
+	anchors: Record<string, Anchor>;
 	comments: Comment[];
 	suggestions: Suggestion[];
 	archivedSuggestions: Suggestion[];
@@ -301,6 +353,13 @@ export interface Snapshot {
 	updatedAt: string;
 	fingerprint: string;
 	blocks: Block[];
+	/**
+	 * Every comment resolved against `blocks` in this same read.
+	 *
+	 * Shipped because the editor's blocks and its sidecar arrive from two independent
+	 * requests, so a client-side resolver would have nothing to resolve against.
+	 */
+	commentViews?: Record<string, import("./anchor").CommentView>;
 	comments: Comment[]; // unresolved + resolved (separately by client)
 	suggestions: Suggestion[]; // pending only by default
 	lastEventId: number;

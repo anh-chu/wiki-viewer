@@ -46,7 +46,12 @@ export async function aggregateActivity(
 				try {
 					const raw = await readFile(fullPath, "utf-8");
 					sc = JSON.parse(raw) as Sidecar;
-					if (sc.schemaVersion !== 1) continue;
+					// Accept every version this build understands. Pinning this to the
+					// literal 1 made a schema bump silently empty the activity feed: the
+					// guard skipped each file and the caller saw zero events rather than
+					// an error. `events` is version-independent, so a newer sidecar reads
+					// fine here.
+					if (![1, 2, 3].includes(sc.schemaVersion)) continue;
 				} catch {
 					continue;
 				}
