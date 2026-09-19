@@ -9,9 +9,9 @@ session; anything I could not verify is labelled as such rather than rounded up.
 |---|---|
 | Worktree | `/home/sil/wiki-viewer/.worktrees/comments-rebuild` |
 | Branch | `feat/comments-rebuild` (no upstream — never pushed) |
-| HEAD | `b3cc5f9` — the commit under review. The packet itself lands in later commits (docs only). |
+| HEAD | `ffba2bc` — the commit under review. |
 | Base | `main` @ `d8e6982` (tag v2.20.1) |
-| Size | 51 commits, 59 files, +8900 / −863 |
+| Size | 60 commits, 61 files |
 | State | tree clean, nothing merged, nothing published |
 
 Nothing is merged or published, and that requires the user's explicit confirmation.
@@ -55,16 +55,16 @@ Heavily modified: `src/components/editor/editor.tsx` (1758), `comment-thread.tsx
 `src/components/wiki/viewer-pane.tsx` (831), `src/lib/proof/ops-applier.ts`,
 `src/app/api/wiki/content/route.ts`, `docs/ux-contracts.md` (+455/−73).
 
-Test growth: **731 → 915**. Both measured with the same runner in this session; the
+Test growth: **731 → 944**. Both measured with the same runner in this session; the
 floor moved 704 → 835.
 
 ## Evidence, by gate
 
-All re-run at `b3cc5f9`, the commit under review:
+All re-run at `ffba2bc`, the commit under review:
 
 | Gate | Result |
 |---|---|
-| Suite | **915 pass / 0 fail**, floor 835 |
+| Suite | **944 pass / 0 fail**, floor 835 |
 | Typecheck | **1 error**, the pre-existing `main` baseline (`anchor-sibling-orphaning.test.ts(150,9) TS7022`) |
 | Lint | clean, 390 files, 3 warnings |
 | Production build | **passes** — `Compiled successfully in 41s`, 51/51 pages, standalone `server.js` emitted and booted |
@@ -165,3 +165,33 @@ These are generated scratch output, not part of the deliverable; `.review/` is i
   stale?
 - **Whether each guard actually tests behaviour** or merely asserts that source text
   contains a string. Several do the latter — a deliberate tradeoff, but worth judging.
+
+## Review history
+
+This worktree has now been reviewed by five independent reviewers. Findings and their
+disposition, so a reader can judge what was already examined:
+
+| # | Finding | Disposition |
+|---|---|---|
+| 1 | `PUT /wiki/content` never recomputed `refMap`; orphaned comments were never cancelled | fixed, live-verified (4 → 3 cards) |
+| 2 | A surviving duplicate cancelled its sibling's comment (refs are content-derived) | fixed; guard fails 3/6 on old code |
+| 3 | The route guard matched commented-out code (vacuous) | fixed; fails 4/2 when disabled |
+| 4 | `ux-contracts.md` contradicted code and itself on resolved cards | doc corrected |
+| 5 | Criterion 4 scored "delivered" on `pip-geometry`, imported only by its test | row corrected to "partial" |
+| 6 | Weak CONTROL asserting only that `.filter(` exists | strengthened; fails 4/2 on removal |
+| 7 | 115 test fixtures committed (55 added by this branch) | untracked and ignored |
+| 8 | **Typed suggestions were never recorded** — marks stripped on save, text applied as a permanent edit | fixed, live-verified (record `sa551`, file held at 166 bytes) |
+| 9 | Source-mode exit never re-seeded the no-op baseline | fixed, live-verified byte-identical |
+| 10 | Modification strip deleted pre-existing formatting | partially fixed (outside the wrapper); inside is a documented tradeoff |
+
+Two findings were **rejected after investigation**, and the reasons are worth knowing:
+
+- A predicted "stale suggestion can be accepted and writes phantom markdown" was
+  disproved by experiment: accept re-emits a block op that fails the ordinary guard with
+  `409 BLOCK_NOT_FOUND`, leaving the file untouched.
+- "Make the doc-level strip the shipped path" was implemented and the byte-identity gate
+  rejected it: keeping formatting inside a modification wrapper lets `**bold**` reach the
+  canonical file. The claim was narrowed instead.
+
+A review finding is a hypothesis. Two of the ten above did not survive being checked, and
+one of my own fixes passed its own guard while the feature was still broken.
