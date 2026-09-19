@@ -82,7 +82,16 @@ export const useProofStore = create<ProofState>((set, get) => ({
 					[path]: {
 						...(s.byPath[path] ?? defaultEntry()),
 						snapshotBlocks: snap.blocks,
-						snapshotRevision: snap.revision,
+						// Never move the base backwards. A GET issued before a write can
+						// resolve after it, and this used to assign `snap.revision`
+						// unconditionally — so a late read rolled the revision back and the
+						// NEXT write was refused `409 STALE_REVISION` against a base the
+						// client had already moved past. A read can only ever advance the
+						// base, exactly as `applyEvent` and `adoptRevision` do.
+						snapshotRevision: Math.max(
+							s.byPath[path]?.snapshotRevision ?? 0,
+							snap.revision,
+						),
 					},
 				},
 			}));

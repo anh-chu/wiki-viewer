@@ -297,3 +297,56 @@ describe("a write must advance the revision the next write sends", () => {
 		);
 	});
 });
+
+describe("the base revision can only move forward", () => {
+	/**
+	 * The client sent `Base revision 0 does not match current revision 6`, then kept
+	 * sending it. Revisions arrive from three places — a snapshot GET, a sidecar GET and
+	 * a write response — and they race: a GET issued before a write can resolve after it.
+	 * Any of them assigning its value unconditionally lets a late read roll the base
+	 * backwards, after which every write is refused against a revision the client had
+	 * already moved past, and the retry repeats the same stale base forever.
+	 *
+	 * These drive the real store methods against a stubbed fetch, so the guard is tested
+	 * where it lives rather than re-implemented in the test.
+	 */
+	function seed(revision: number) {
+		useProofStore.setState({
+			byPath: {
+				"d.md": {
+					sidecar: null,
+					snapshotRevision: revision,
+					lastEventId: 0,
+					snapshotBlocks: [],
+				},
+			},
+		});
+	}
+
+	function stubSnapshot(revision: number) {
+		// `loadSnapshot` reads `revision` and `blocks` from the response.
+		globalThis.fetch = (async () =>
+			new Response(JSON.stringify({ revision, blocks: [] }), {
+				status: 200,
+				headers: { "Content-Type": "application/json" },
+			})) as unknown as typeof fetch;
+	}
+
+	test("REGRESSION: a late snapshot read cannot lower the base", async () => {
+		seed(7);
+		stubSnapshot(6); // the GET left before the write that produced 7
+		await useProofStore.getState().loadSnapshot("d.md");
+		assert.equal(
+			useProofStore.getState().byPath["d.md"]?.snapshotRevision,
+			7,
+			"a read that is behind must not roll the base back",
+		);
+	});
+
+	test("a newer snapshot read still advances the base", async () => {
+		seed(6);
+		stubSnapshot(8);
+		await useProofStore.getState().loadSnapshot("d.md");
+		assert.equal(useProofStore.getState().byPath["d.md"]?.snapshotRevision, 8);
+	});
+});
