@@ -82,6 +82,32 @@ describe("typed tracked edits reach the sidecar", () => {
 		assert.match(code, /trackedEditRef\.current = handleTrackedEdit/, "which is kept current");
 	});
 
+	test("the block ref comes from snapshotBlocks, not the DOM attribute", () => {
+		// The wiring test above passed 8/8 while every typed suggestion still no-opped:
+		// the resolver read `data-block-ref`, which live was null on the open document
+		// because only one branch of the geometry effect writes it. The failure was one
+		// layer below the wiring, so it gets its own guard.
+		const code = stripComments(PERSIST);
+		assert.match(code, /snapshotBlocks/, "the ref must come from the sidecar snapshot");
+		assert.doesNotMatch(
+			code,
+			/return\s+\(el\?\.closest\("\[data-block-ref\]"\).*\?\.getAttribute\("data-block-ref"\)\s*\?\?\s*null;/,
+			"the DOM attribute must not be the only source",
+		);
+	});
+
+	test("the DOM attribute is only a fallback, after the snapshot", () => {
+		// The ordering that matters is in the RETURN, not in the file: the snapshot
+		// is preferred and the attribute is the `??` fallback. Comparing the first
+		// occurrence of each string would match the doc comment instead.
+		const code = stripComments(PERSIST);
+		assert.match(
+			code,
+			/return\s+blocks\[index\]\?\.ref\s*\?\?\s*fromDom\s*\?\?\s*null;/,
+			"the snapshot must be preferred, with the DOM attribute as fallback",
+		);
+	});
+
 	test("CONTROL: the strip really does remove the marks that were unrecorded", () => {
 		// Establishes the premise. If the strip did not remove insertion marks, the
 		// unwired state would merely save the marks instead of losing them.
