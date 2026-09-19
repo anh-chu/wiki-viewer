@@ -815,6 +815,16 @@ found is not drawn at all: a wrong highlight is worse than none. `comment.add` r
 `textAnchor` whose range does not reproduce `selectedText` in the block's current markdown
 (`400 INVALID_PAYLOAD`).
 
+**A comment with no `textAnchor` highlights its whole block.** Only a comment made from a
+text selection carries an anchor; the thread UI sends none for a plain block comment
+(`...(textAnchor ? { textAnchor } : {})`). The decorator used to require an anchor and skip
+on its absence, so a block comment showed a card in the margin and an icon beside the
+paragraph while marking **nothing** in the text — the reader had a comment they could not
+locate. Two comments in one document therefore rendered differently for no visible reason.
+Such a comment now marks every text run in the block it names (Google Docs marks the block
+in the same situation), and still cannot bleed into a neighbouring block. An anchored
+comment is unaffected: it highlights only its words, never the whole block.
+
 The earlier `comment-highlight-recovered` label is **gone**. It compared the match
 position against `textAnchor.start`, but `start` is a block-local markdown offset while a
 match position is a document-global ProseMirror position — different coordinate systems,

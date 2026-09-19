@@ -128,14 +128,42 @@ export function buildCommentDecorations(
 	const decorations: Decoration[] = [];
 
 	for (const comment of comments) {
-		if (!comment.textAnchor || comment.resolved || comment.stale || !comment.ref) continue;
-		const { selectedText } = comment.textAnchor;
-		if (!selectedText) continue;
+		if (comment.resolved || comment.stale || !comment.ref) continue;
+
+		// A comment carries a text anchor only when its author had a selection. The
+		// UI sends none for a plain block comment (`...(textAnchor ? {...} : {})` in
+		// comment-thread), so requiring one here meant a comment with a visible card
+		// in the margin and an icon beside the paragraph highlighted NOTHING — the
+		// reader could not tell which words it was about. Google Docs marks the whole
+		// block in that case, which is what the fallback below does.
+		const selectedText = comment.textAnchor?.selectedText;
+		const blockIndex = indexOfRef.get(comment.ref) ?? -1;
+
+		if (!selectedText) {
+			// No selection: mark the commented block itself, rather than nothing.
+			const span = spans[blockIndex];
+			if (!span) continue;
+			const inBlock = runs.filter((r) => r.from >= span.from && r.to <= span.to);
+			// An empty block has no text to decorate; inline decorations over a
+			// zero-length range paint nothing anyway, so there is nothing to add.
+			if (inBlock.length === 0) continue;
+			for (const run of inBlock) {
+				decorations.push(
+					Decoration.inline(run.from, run.to, {
+						class: COMMENT_HIGHLIGHT_CLASS,
+						"data-comment-id": comment.id,
+						"data-block-scoped": "true",
+						"data-hovered": hoveredRef === comment.ref ? "true" : "false",
+					}),
+				);
+			}
+			continue;
+		}
 
 		// Scope to the commented block when it can be identified. Falling back to the
 		// whole document preserves the previous behaviour for a block the snapshot no
 		// longer lists, rather than dropping the highlight entirely.
-		const scope = scopeForRef(runs, indexOfRef.get(comment.ref) ?? -1, spans);
+		const scope = scopeForRef(runs, blockIndex, spans);
 
 		const hit = findInRuns(scope, selectedText);
 		if (!hit) continue;

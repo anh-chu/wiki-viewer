@@ -203,3 +203,47 @@ describe("exact-word comment highlights", () => {
 		assert.deepEqual(out, ["Second"]);
 	});
 });
+describe("a block comment with no text anchor", () => {
+	/**
+	 * Found by looking at the rendered page, not at the DOM.
+	 *
+	 * A comment carries a `textAnchor` only when its author had a selection; the UI
+	 * sends none for a plain block comment. The decorator required an anchor and
+	 * `continue`d without one, so such a comment showed a card in the margin and an
+	 * icon beside the paragraph while highlighting NOTHING in the text. Two comments in
+	 * the same document therefore looked different for no reason the reader could see:
+	 * the selected one was underlined, the block one was invisible.
+	 *
+	 * Google Docs marks the whole block in this case, which is what these pin.
+	 */
+	function blockComment(ref: string) {
+		return { id: `c-${ref}-block`, ref, resolved: false, createdAt: "", turns: [] };
+	}
+
+	test("marks the commented block instead of nothing", () => {
+		const doc = paragraphs("Alpha paragraph here.", "Beta paragraph here.");
+		const out = covered(doc, [blockComment("blk0")]);
+		assert.deepEqual(out, ["Alpha paragraph here."], "the block it is about, and only that");
+	});
+
+	test("does not bleed into the neighbouring block", () => {
+		const doc = paragraphs("Alpha paragraph here.", "Beta paragraph here.");
+		const out = covered(doc, [blockComment("blk1")]);
+		assert.deepEqual(out, ["Beta paragraph here."], "the second block, not the first");
+	});
+
+	test("an anchored comment on the same block still highlights just its words", () => {
+		// The fallback must not widen an existing anchor into a whole-block mark.
+		const doc = paragraphs("Alpha paragraph here.");
+		const out = covered(doc, [commentFor("blk0", "paragraph", 6)]);
+		assert.deepEqual(out, ["paragraph"], "the anchor is still honoured");
+	});
+
+	test("resolved and stale comments still highlight nothing", () => {
+		const doc = paragraphs("Alpha paragraph here.");
+		const resolved = { ...blockComment("blk0"), resolved: true };
+		const stale = { ...blockComment("blk0"), stale: true };
+		assert.deepEqual(covered(doc, [resolved]), []);
+		assert.deepEqual(covered(doc, [stale]), []);
+	});
+});
