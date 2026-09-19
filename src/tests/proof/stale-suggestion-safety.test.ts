@@ -253,3 +253,163 @@ describe("a stale suggestion cannot be accepted once its anchor comes back", () 
 		assert.equal(res.ok, true, `an un-stale suggestion accepts normally, got ${res.code}`);
 	});
 });
+
+describe("accepting a typed insertion must not destroy its block", () => {
+	/**
+	 * Found live, not by reading: accepting a typed suggestion DELETED the whole
+	 * paragraph it was typed into.
+	 *
+	 * Suggesting mode records a run of characters as `kind: "insert"`. The accept chain
+	 * mapped kinds to block ops and ended in an unguarded `block.delete`, so a kind it
+	 * did not enumerate — `insert` — fell through to deleting the block. The user's
+	 * added words were removed along with every other word in the paragraph.
+	 *
+	 * Two things were wrong and both are pinned here: `insert` was not in the accept
+	 * chain at all, and the fallthrough guessed instead of refusing.
+	 */
+	async function seedTypedInsertion(range?: { start: number; end: number }) {
+		const root = await mkdtemp(path.join(tmpdir(), "typed-ins-"));
+		const mdPath = "s.md";
+		await writeFile(path.join(root, mdPath), CONTENT, "utf8");
+		const { newRefMap } = assignRefs(parseBlocks(CONTENT), null);
+		const refs = Object.keys(newRefMap);
+
+		const sc = emptySidecar(mdPath);
+		sc.refMap = newRefMap;
+		sc.fingerprint = `sha256:${createHash("sha256").update(CONTENT, "utf8").digest("hex")}`;
+		sc.suggestions.push({
+			id: "sug-typed",
+			ref: refs[0],
+			status: "pending",
+			kind: "insert",
+			markdown: "XYZ",
+			range,
+			createdAt: new Date().toISOString(),
+			by: "human",
+		} as unknown as Suggestion);
+		await writeSidecar(root, mdPath, sc);
+		return { root, mdPath, revision: sc.revision };
+	}
+
+	test("the paragraph survives, with the typed text spliced in", async () => {
+		// "Alpha paragraph." is 16 characters, so offset 16 is the end of the block.
+		const { root, mdPath, revision } = await seedTypedInsertion({ start: 16, end: 16 });
+		const res = (await applyOps({
+			rootDir: root,
+			mdPath,
+			baseRevision: revision,
+			by: "human",
+			ops: [{ type: "suggestion.accept", suggestionId: "sug-typed" }],
+		} as never)) as unknown as { ok: boolean; code?: string };
+
+		assert.equal(res.ok, true, `accept must succeed, got ${res.code}`);
+		const onDisk = await readFile(path.join(root, mdPath), "utf8");
+		assert.match(onDisk, /Alpha paragraph\./, "the commented block must still exist");
+		assert.match(onDisk, /XYZ/, "and carry the accepted text");
+		assert.match(onDisk, /Beta paragraph\./, "and leave its neighbour alone");
+	});
+
+	test("the text lands at the recorded offset, not at the block's start", async () => {
+		// Offset 5 is between "Alpha" and " paragraph." — splicing at 0 instead would
+		// still pass a "contains XYZ" check while placing it in the wrong place.
+		const { root, mdPath, revision } = await seedTypedInsertion({ start: 5, end: 5 });
+		await applyOps({
+			rootDir: root,
+			mdPath,
+			baseRevision: revision,
+			by: "human",
+			ops: [{ type: "suggestion.accept", suggestionId: "sug-typed" }],
+		} as never);
+		const onDisk = await readFile(path.join(root, mdPath), "utf8");
+		assert.match(onDisk, /AlphaXYZ paragraph\./, "spliced at the offset, not prepended");
+	});
+
+	test("an insertion with no range is REFUSED, not guessed at", async () => {
+		// The old code silently turned this into a block delete. Refusing is the only
+		// safe answer: there is no offset, so any placement would be invention.
+		const { root, mdPath, revision } = await seedTypedInsertion(undefined);
+		const res = (await applyOps({
+			rootDir: root,
+			mdPath,
+			baseRevision: revision,
+			by: "human",
+			ops: [{ type: "suggestion.accept", suggestionId: "sug-typed" }],
+		} as never)) as unknown as { ok: boolean; code?: string };
+
+		assert.equal(res.ok, false, "must not apply");
+		assert.equal(res.code, "SUGGESTION_UNPLACEABLE");
+		const onDisk = await readFile(path.join(root, mdPath), "utf8");
+		assert.equal(onDisk, CONTENT, "and must not touch the file");
+	});
+
+	test("a typed deletion removes only its range", async () => {
+		const root = await mkdtemp(path.join(tmpdir(), "typed-del-"));
+		const mdPath = "s.md";
+		await writeFile(path.join(root, mdPath), CONTENT, "utf8");
+		const { newRefMap } = assignRefs(parseBlocks(CONTENT), null);
+		const refs = Object.keys(newRefMap);
+		const sc = emptySidecar(mdPath);
+		sc.refMap = newRefMap;
+		sc.fingerprint = `sha256:${createHash("sha256").update(CONTENT, "utf8").digest("hex")}`;
+		sc.suggestions.push({
+			id: "sug-typed-del",
+			ref: refs[0],
+			status: "pending",
+			kind: "remove",
+			markdown: "",
+			range: { start: 0, end: 5 }, // "Alpha"
+			createdAt: new Date().toISOString(),
+			by: "human",
+		} as unknown as Suggestion);
+		await writeSidecar(root, mdPath, sc);
+
+		const res = (await applyOps({
+			rootDir: root,
+			mdPath,
+			baseRevision: sc.revision,
+			by: "human",
+			ops: [{ type: "suggestion.accept", suggestionId: "sug-typed-del" }],
+		} as never)) as unknown as { ok: boolean; code?: string };
+		assert.equal(res.ok, true, `accept must succeed, got ${res.code}`);
+
+		const onDisk = await readFile(path.join(root, mdPath), "utf8");
+		assert.match(onDisk, / paragraph\./, "the rest of the block survives");
+		assert.doesNotMatch(onDisk, /Alpha/, "and only the range is gone");
+	});
+
+	test("CONTROL: a whole-block delete still deletes its block", async () => {
+		// The `delete` kind must keep working — the fix routes `insert`/`remove`
+		// separately rather than removing the whole-block branch.
+		const root = await mkdtemp(path.join(tmpdir(), "blk-del-"));
+		const mdPath = "s.md";
+		await writeFile(path.join(root, mdPath), CONTENT, "utf8");
+		const { newRefMap } = assignRefs(parseBlocks(CONTENT), null);
+		const refs = Object.keys(newRefMap);
+		const sc = emptySidecar(mdPath);
+		sc.refMap = newRefMap;
+		sc.fingerprint = `sha256:${createHash("sha256").update(CONTENT, "utf8").digest("hex")}`;
+		sc.suggestions.push({
+			id: "sug-blk-del",
+			ref: refs[0],
+			status: "pending",
+			kind: "delete",
+			markdown: "",
+			createdAt: new Date().toISOString(),
+			by: "human",
+		} as unknown as Suggestion);
+		await writeSidecar(root, mdPath, sc);
+
+		const res = (await applyOps({
+			rootDir: root,
+			mdPath,
+			baseRevision: sc.revision,
+			by: "human",
+			ops: [{ type: "suggestion.accept", suggestionId: "sug-blk-del" }],
+		} as never)) as unknown as { ok: boolean; code?: string };
+		assert.equal(res.ok, true, `accept must succeed, got ${res.code}`);
+
+		const onDisk = await readFile(path.join(root, mdPath), "utf8");
+		assert.doesNotMatch(onDisk, /Alpha paragraph\./, "the block is gone");
+		assert.match(onDisk, /Beta paragraph\./, "its neighbour is not");
+	});
+});

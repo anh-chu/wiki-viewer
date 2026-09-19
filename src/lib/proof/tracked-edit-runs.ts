@@ -26,7 +26,13 @@
 /** How long a run of typing stays open before it becomes its own suggestion. */
 export const COALESCE_MS = 1200;
 
-export type RunKind = "insert" | "delete";
+/**
+ * The kind of a typed run, in the schema's vocabulary.
+ *
+ * `remove`, not `delete`: `delete` is a whole-block op, and sending it for a typed
+ * backspace made accept remove the entire paragraph rather than the characters.
+ */
+export type RunKind = "insert" | "remove";
 
 /** A run of consecutive tracked edits being merged into one suggestion. */
 export interface EditRun {
@@ -41,14 +47,30 @@ export interface EditRun {
 	suggestionId: string | null;
 	/** The proposed text accumulated so far. */
 	text: string;
+	/**
+	 * Where in the block's markdown the run sits, block-local.
+	 *
+	 * Without it accept cannot place a typed insertion: it has text and a block but
+	 * no offset, and an insertion with nowhere to go used to fall through to a
+	 * whole-block delete, destroying the paragraph.
+	 */
+	range: { start: number; end: number };
 	kind: RunKind;
 }
 
 export type RunDecision<R extends EditRun = EditRun> =
 	/** Extend the open run: append text, then push it to the sidecar. */
-	| { action: "extend"; run: R; text: string }
+	| { action: "extend"; run: R; text: string; range: { start: number; end: number } }
 	/** Start a new run; its suggestion does not exist yet, so create it. */
-	| { action: "start"; key: string; path: string; ref: string; text: string; kind: RunKind };
+	| {
+			action: "start";
+			key: string;
+			path: string;
+			ref: string;
+			text: string;
+			range: { start: number; end: number };
+			kind: RunKind;
+	  };
 
 /** The key that scopes a run. */
 export function runKey(path: string, ref: string, kind: RunKind): string {
@@ -64,11 +86,14 @@ export function runKey(path: string, ref: string, kind: RunKind): string {
  */
 export function decideEdit<R extends EditRun>(
 	open: R | null,
-	edit: { path: string; ref: string; kind: RunKind; text: string },
+	edit: { path: string; ref: string; kind: RunKind; text: string; offset: number },
 ): RunDecision<R> {
 	const key = runKey(edit.path, edit.ref, edit.kind);
 	if (open !== null && open.key === key && open.suggestionId !== null) {
-		return { action: "extend", run: open, text: open.text + edit.text };
+		// The run's span grows with the text; an insertion extends the end, a
+		// deletion extends the end of what it consumes.
+		const range = { start: open.range.start, end: open.range.end + edit.text.length };
+		return { action: "extend", run: open, text: open.text + edit.text, range };
 	}
 	return {
 		action: "start",
@@ -76,6 +101,8 @@ export function decideEdit<R extends EditRun>(
 		path: edit.path,
 		ref: edit.ref,
 		text: edit.text,
+		// A new run covers exactly the characters it is about.
+		range: { start: edit.offset, end: edit.offset + edit.text.length },
 		kind: edit.kind,
 	};
 }
@@ -101,6 +128,7 @@ export function newRun(decision: Extract<RunDecision, { action: "start" }>): Edi
 		ref: decision.ref,
 		suggestionId: null,
 		text: decision.text,
+		range: decision.range,
 		kind: decision.kind,
 	};
 }
@@ -114,11 +142,18 @@ export function createOp(run: EditRun): Record<string, unknown> {
 		// The proposed text is recorded. An earlier version posted "" here, so the
 		// suggestion existed but held nothing and a reload lost the proposal.
 		markdown: run.text,
+		// And the offset, without which accept cannot place the text.
+		range: run.range,
 		basis: "suggested",
 	};
 }
 
 /** The op that updates a run that already has a record. */
 export function editOp(run: EditRun): Record<string, unknown> {
-	return { type: "suggestion.edit", suggestionId: run.suggestionId, markdown: run.text };
+	return {
+		type: "suggestion.edit",
+		suggestionId: run.suggestionId,
+		markdown: run.text,
+		range: run.range,
+	};
 }

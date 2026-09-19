@@ -104,10 +104,26 @@ export interface Comment {
 	fromCommentId?: string;
 }
 
+/**
+ * What a suggestion proposes.
+ *
+ * `replace`/`insertAfter`/`insertBefore`/`delete` address a whole block and are what
+ * the Suggest button produces. `insert`/`remove` describe a run of typed characters
+ * inside a block, which is what Suggesting mode records; they carry `markdown` plus
+ * the `range` the text belongs at, and `insert`/`remove` need that range to be placed.
+ *
+ * The distinction matters at accept time. A typed insertion is not a whole-block
+ * replacement, and treating it as one replaces the block — so the kinds are named
+ * separately here rather than folded into `insertAfter`.
+ */
 export type SuggestionKind =
 	| "replace"
 	| "insertAfter"
 	| "insertBefore"
+	/** A run of typed characters inserted inside a block, at `range`. */
+	| "insert"
+	/** A run of deleted characters, at `range`. */
+	| "remove"
 	| "delete";
 export type SuggestionStatus = "pending" | "accepted" | "rejected";
 

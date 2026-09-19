@@ -60,6 +60,10 @@ const KIND_LABELS: Record<SuggestionKind, string> = {
 	insertAfter: "Insert after",
 	insertBefore: "Insert before",
 	delete: "Delete block",
+	// Typed runs are not offered by this popover, but the map is exhaustive over
+	// `SuggestionKind`, so they need a label rather than a silent hole.
+	insert: "Typed insertion",
+	remove: "Typed deletion",
 };
 
 export function SuggestEditPopover({ path, blockRef, currentMarkdown, anchor, onClose }: Props) {

@@ -1207,14 +1207,51 @@ export async function applyOps(args: {
 						});
 					}
 
-					// Apply as block op
-					const applyOp: Op = sug.kind === "replace"
+					// Apply as block op.
+					//
+					// A typed run (`insert`/`remove`) is spliced into the block's own
+					// markdown at its recorded range, rather than replacing or deleting
+					// the block. This is where a typed insertion was being LOST: the
+					// chain below used to end in an unguarded `block.delete`, so a kind
+					// it did not recognise — `insert`, which is what Suggesting mode
+					// records — deleted the entire paragraph the user had just added
+					// words to. The `default` arm now refuses instead of guessing.
+					const applyOp: Op | null = sug.kind === "replace"
 						? { type: "block.replace", ref: sug.ref, markdown: acceptedMarkdown }
 						: sug.kind === "insertAfter"
 						? { type: "block.insertAfter", ref: sug.ref, markdown: sug.markdown ?? "" }
 						: sug.kind === "insertBefore"
 						? { type: "block.insertBefore", ref: sug.ref, markdown: sug.markdown ?? "" }
-						: { type: "block.delete", ref: sug.ref };
+						: sug.kind === "insert" || sug.kind === "remove"
+						? (() => {
+								// Both need the range: without it there is nowhere to splice the
+								// text, and accepting would have to guess where it belonged.
+								if (!sug.range) return null;
+								const blockIdx = findBlockIndex(sug.ref);
+								if (blockIdx === -1) return null;
+								const base = workingBlocks[blockIdx].markdown;
+								const spliced =
+									sug.kind === "insert"
+										? base.slice(0, sug.range.start) + (sug.markdown ?? "") + base.slice(sug.range.start)
+										: base.slice(0, sug.range.start) + base.slice(sug.range.end);
+								return { type: "block.replace" as const, ref: sug.ref, markdown: spliced };
+							})()
+						: sug.kind === "delete"
+						? { type: "block.delete", ref: sug.ref }
+						: null;
+
+					if (!applyOp) {
+						return {
+							ok: false,
+							status: 400,
+							code: "SUGGESTION_UNPLACEABLE",
+							message:
+								`Suggestion "${op.suggestionId}" (kind "${sug.kind}") cannot be placed: ` +
+								`${sug.range ? "its block was not found" : "it carries no range"}. ` +
+								`Refusing rather than applying it in the wrong place.`,
+							snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar),
+						};
+					}
 					ops.push(applyOp);
 					workingEvents.push({ type: "suggestion.accepted", at, by, suggestionId: op.suggestionId });
 					break;

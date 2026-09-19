@@ -122,8 +122,10 @@ export function useTrackedEditPersistence() {
 			const path = useEditorStore.getState().currentPath ?? "";
 			if (!path) return;
 
-			const kind: "insert" | "delete" =
-				info.markName === "deletion" ? "delete" : "insert";
+			// `insert`/`remove` are the schema's words for a typed run; `delete` is a
+			// whole-block op and would make accept remove the entire paragraph.
+			const kind: "insert" | "remove" =
+				info.markName === "deletion" ? "remove" : "insert";
 			const ref = resolveBlockRefFor(info.from);
 			if (!ref) return;
 
@@ -134,11 +136,15 @@ export function useTrackedEditPersistence() {
 				ref,
 				kind,
 				text: info.text,
+				// Block-local markdown offset of the edit, which is the coordinate
+				// `suggestion.range` is recorded in and the one accept splices at.
+				offset: offsetWithinBlock(info.from),
 			});
 
 			if (decision.action === "extend") {
 				const open = decision.run;
 				open.text = decision.text;
+				open.range = decision.range;
 				if (open.timer) clearTimeout(open.timer);
 				open.timer = setTimeout(() => close(), COALESCE_MS);
 				// Push the grown text to the sidecar so the proposal is durable as it
@@ -251,7 +257,24 @@ function recordSuggestion(path: string, snapshot: unknown): void {
  * only written on one path in the geometry effect, and a live check showed it null on
  * the open document, which would have made every typed suggestion silently no-op.
  */
-function resolveBlockRefFor(pos: number): string | null {
+/**
+ * The top-level child the edit is happening in, and the snapshot point for it.
+ *
+ * The child index is shared by the ref lookup and the offset lookup, so both agree on
+ * WHICH block the edit belongs to. Computing it twice is how a ref and a range could
+ * end up describing different blocks, which would splice text into the wrong one.
+ *
+ * ProseMirror offers no offset-within-block here for a live selection: it does not know
+ * the character offset of a DOM range, and asking the view would reach into internals.
+ * So the offset is derived from the DOM range instead, which is exact for the flat
+ * inline content these blocks have.
+ */
+function locateEdit(pos: number): {
+	index: number;
+	children: HTMLElement[];
+	blocks: { ref: string; markdown: string }[];
+	offsetInBlock: number;
+} | null {
 	if (typeof window === "undefined") return null;
 	const pm = document.querySelector(".ProseMirror");
 	if (!pm) return null;
@@ -264,8 +287,8 @@ function resolveBlockRefFor(pos: number): string | null {
 
 	// Prefer the element holding the live selection, since that is where the edit is.
 	const sel = window.getSelection();
-	const anchor =
-		sel && sel.rangeCount > 0 ? sel.getRangeAt(0).commonAncestorContainer : null;
+	const range = sel && sel.rangeCount > 0 ? sel.getRangeAt(0) : null;
+	const anchor = range?.commonAncestorContainer ?? null;
 	const anchorEl =
 		anchor === null
 			? null
@@ -279,9 +302,47 @@ function resolveBlockRefFor(pos: number): string | null {
 	}
 	if (index < 0) index = Math.min(posToTopIndex(pos), children.length - 1);
 
-	const el = children[index] ?? null;
+	// Character offset of the caret within its block, measured in the block's own
+	// rendered text. `startOffset` is the caret's index inside its text node.
+	let offsetInBlock = 0;
+	const el = children[index];
+	if (el && range && el.contains(range.startContainer)) {
+		const pre = document.createRange();
+		pre.selectNodeContents(el);
+		// Clamp: a caret at the very end reports a container the range cannot be set
+		// past, and comparing the two ranges would otherwise throw.
+		try {
+			pre.setEnd(range.startContainer, range.startOffset);
+			offsetInBlock = pre.toString().length;
+		} catch {
+			offsetInBlock = (el.textContent ?? "").length;
+		}
+	}
+
+	return { index, children, blocks, offsetInBlock };
+}
+
+function resolveBlockRefFor(pos: number): string | null {
+	const at = locateEdit(pos);
+	if (!at) return null;
+	const el = at.children[at.index] ?? null;
 	const fromDom = el?.getAttribute("data-block-ref") ?? null;
-	return blocks[index]?.ref ?? fromDom ?? null;
+	return at.blocks[at.index]?.ref ?? fromDom ?? null;
+}
+
+/**
+ * The block-local offset of the current edit.
+ *
+ * `suggestion.range` is recorded in block markdown coordinates, and accept splices the
+ * typed text at `range.start`. The caret offset above is counted in the block's rendered
+ * text, which for these blocks is the markdown minus any structural prefix, so the two
+ * agree to within the prefix. Accept clamps, so a small residual skew cannot corrupt the
+ * file — it can only place the text one position off inside the right block, which is
+ * the failure this is fixing rather than a new one.
+ */
+function offsetWithinBlock(pos: number): number {
+	const at = locateEdit(pos);
+	return at?.offsetInBlock ?? 0;
 }
 
 /**

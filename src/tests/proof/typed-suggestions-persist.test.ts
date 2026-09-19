@@ -40,7 +40,7 @@ import {
 	willExtend,
 } from "@/lib/proof/tracked-edit-runs";
 
-const base = { path: "notes.md", ref: "babc123", kind: "insert" as const };
+const base = { path: "notes.md", ref: "babc123", kind: "insert" as const, offset: 4 };
 
 /** A run as it exists once its `suggestion.add` response has supplied an id. */
 function boundRun(overrides: Partial<EditRun> = {}): EditRun {
@@ -50,6 +50,7 @@ function boundRun(overrides: Partial<EditRun> = {}): EditRun {
 		ref: base.ref,
 		suggestionId: "s0a1b",
 		text: "he",
+		range: { start: 4, end: 6 },
 		kind: base.kind,
 		...overrides,
 	};
@@ -67,6 +68,8 @@ describe("a typed edit either extends its run or starts one", () => {
 		const decision = decideEdit(boundRun(), { ...base, text: "llo" });
 		assert.equal(decision.action, "extend");
 		assert.equal(decision.action === "extend" && decision.text, "hello");
+		// The span grows with the text, so accept can still place the whole run.
+		assert.deepEqual(decision.action === "extend" && decision.range, { start: 4, end: 9 });
 	});
 
 	test("the FIRST edit starts a run, because no record exists yet", () => {
@@ -91,7 +94,7 @@ describe("a typed edit either extends its run or starts one", () => {
 
 	test("changing kind starts a new suggestion", () => {
 		// Typing then deleting in the same block are different proposals.
-		const decision = decideEdit(boundRun(), { ...base, kind: "delete", text: "x" });
+		const decision = decideEdit(boundRun(), { ...base, kind: "remove", text: "x" });
 		assert.equal(decision.action, "start");
 	});
 
@@ -112,19 +115,27 @@ describe("the proposal text is what gets persisted", () => {
 	test("the create op carries the typed text, not an empty string", () => {
 		// Posting `markdown: ""` is precisely why a reload lost the proposal.
 		const run = startOf(decideEdit(null, { ...base, text: "hello" }));
-		const op = createOp(run) as { markdown?: string; type: string; ref?: string };
+		const op = createOp(run) as {
+			markdown?: string;
+			type: string;
+			ref?: string;
+			range?: { start: number; end: number };
+		};
 		assert.equal(op.markdown, "hello", "the record must hold the proposed text");
 		assert.equal(op.type, "suggestion.add");
 		assert.equal(op.ref, base.ref);
+		assert.deepEqual(op.range, { start: 4, end: 9 }, "and the offset accept splices at");
 	});
 
 	test("the edit op carries the full accumulated text", () => {
 		const op = editOp(boundRun({ text: "hello" })) as {
 			markdown?: string;
 			suggestionId?: string;
+			range?: { start: number; end: number };
 		};
 		assert.equal(op.markdown, "hello");
 		assert.equal(op.suggestionId, "s0a1b", "and targets the run's own record");
+		assert.ok(op.range, "the range travels with the edit, not only with the create");
 	});
 
 	test("CONTROL: a create op for a different run differs", () => {
@@ -150,7 +161,7 @@ describe("a typing burst becomes one suggestion, not one per keystroke", () => {
 				// would start yet another suggestion.
 				run = { ...run, suggestionId: "s0a1b" };
 			} else {
-				run = { ...decision.run, text: decision.text };
+				run = { ...decision.run, text: decision.text, range: decision.range };
 				edits.push(editOp(run));
 			}
 		}
