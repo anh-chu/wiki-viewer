@@ -26,13 +26,19 @@ const MARGIN = readFileSync(
 	"utf8",
 );
 
-describe("the column shows pending suggestions", () => {
-	test("marginSuggestions is built from the document's marks", () => {
+describe("suggestions are reviewed in the annotations panel, not the anchored column", () => {
+	// The split exists because the column's whole mechanism is ALIGNMENT: a card sits
+	// beside the text it discusses. That is true of a comment, which annotates a block,
+	// and false of a suggestion, which is a mark over a few words inside one — a redline
+	// in paragraph 3 and one in paragraph 40 produced two cards whose position said
+	// nothing. So the column keeps comments, and the panel lists everything.
+
+	test("the panel's card list is built from the document's marks", () => {
 		const block = EDITOR.slice(
-			EDITOR.indexOf("const marginSuggestions = useMemo("),
-			EDITOR.indexOf("const showCommentMargin ="),
+			EDITOR.indexOf("const panelSuggestions = useMemo("),
+			EDITOR.indexOf("const annotationCount ="),
 		);
-		assert.ok(block.length > 0, "expected to find the marginSuggestions memo");
+		assert.ok(block.length > 0, "expected to find the panelSuggestions memo");
 		assert.match(
 			block,
 			/trackedMarks\.map/,
@@ -40,36 +46,67 @@ describe("the column shows pending suggestions", () => {
 		);
 	});
 
-	test("the column is shown when there are suggestions even with no comments", () => {
-		// The regression: keying visibility on comments alone means a document whose only
-		// annotation is a suggestion shows no column, so the suggestion cannot be
-		// approved at all.
+	test("the panel receives the suggestions with both settlement handlers", () => {
 		const block = EDITOR.slice(
-			EDITOR.indexOf("const showCommentMargin ="),
-			EDITOR.indexOf("const showCommentMargin =") + 200,
+			EDITOR.indexOf("<AnnotationsPanel"),
+			EDITOR.indexOf("<AnnotationsPanel") + 1400,
 		);
-		assert.match(block, /marginThreads\.length > 0/);
-		assert.match(
-			block,
-			/marginSuggestions\.length > 0/,
-			"suggestions alone must be enough to show the column",
+		assert.ok(block.length > 0, "expected to find the AnnotationsPanel render");
+		assert.match(block, /suggestions=\{panelSuggestions\}/);
+		assert.match(block, /onAcceptSuggestion=/);
+		assert.match(block, /onRejectSuggestion=/);
+	});
+
+	test("the anchored margin is COMMENTS ONLY", () => {
+		// Passing suggestions here would put the cards back where the alignment cannot
+		// describe them. The margin's props must not carry a suggestion list at all.
+		const block = EDITOR.slice(
+			EDITOR.indexOf("<CommentMargin"),
+			EDITOR.indexOf("<CommentMargin") + 900,
+		);
+		assert.ok(block.length > 0, "expected to find the CommentMargin render");
+		assert.ok(
+			!/suggestions=\{/.test(block),
+			"the column must not be handed suggestions",
+		);
+		assert.ok(
+			!/onAcceptSuggestion|onRejectSuggestion/.test(block),
+			"settlement controls belong to the panel, not the column",
 		);
 	});
 
-	test("the cards are passed to the margin with both handlers", () => {
-		assert.match(EDITOR, /suggestions=\{marginSuggestions\}/);
-		assert.match(EDITOR, /onAcceptSuggestion=/);
-		assert.match(EDITOR, /onRejectSuggestion=/);
+	test("the margin component no longer defines a suggestion card", () => {
+		assert.ok(
+			!/<SuggestionMarginCard/.test(MARGIN),
+			"the column must not render suggestion cards",
+		);
+		assert.ok(
+			!/MarginSuggestion/.test(MARGIN),
+			"the column must not carry the suggestion type",
+		);
 	});
 
-	test("the margin renders a card for a suggestion item, not just for a thread", () => {
-		// `layout` returns both kinds, and the render branches on the key. A render that
-		// skipped the threadless entries would drop every suggestion card silently.
-		assert.match(MARGIN, /<SuggestionMarginCard/);
+	test("the panel renders a suggestion card with both decisions", () => {
+		const PANEL = readFileSync(
+			new URL("../../components/editor/annotations-panel.tsx", import.meta.url),
+			"utf8",
+		);
+		assert.match(PANEL, /<SuggestionCard/);
+		assert.match(PANEL, /onAccept/);
+		assert.match(PANEL, /onReject/);
+	});
+
+	test("the panel is reachable even when the only annotation is a suggestion", () => {
+		// The regression this guards: keying the review surface on comments alone means a
+		// document whose only annotation is a suggestion offers no way to approve it.
+		const PANEL = readFileSync(
+			new URL("../../components/editor/annotations-panel.tsx", import.meta.url),
+			"utf8",
+		);
 		assert.match(
-			MARGIN,
-			/key\.startsWith\("suggestion:"\)/,
-			"the render must distinguish a suggestion entry from a thread entry",
+			PANEL,
+			/threads\.length \+ suggestions\.length/,
+			"the trigger count must include suggestions",
 		);
 	});
 });
@@ -150,5 +187,58 @@ describe("a mark with no assigned id is not shown as a card", () => {
 		);
 		assert.match(block, /Math\.min\(existing\.from, from\)/);
 		assert.match(block, /Math\.max\(existing\.to, to\)/);
+	});
+});
+describe("the panel stacks with the outline instead of covering it", () => {
+	const PANEL = readFileSync(
+		new URL("../../components/editor/annotations-panel.tsx", import.meta.url),
+		"utf8",
+	);
+	const OUTLINE = readFileSync(
+		new URL("../../components/editor/document-outline.tsx", import.meta.url),
+		"utf8",
+	);
+
+	test("the panel's trigger clears the outline's toggle", () => {
+		// The outline's small-screen toggle is `right-2 top-10`. If the panel also sat at
+		// `top-10` below `xl`, the two would occupy one position and one would be
+		// unreachable - not a stacking preference but a dead control.
+		assert.match(
+			OUTLINE,
+			/absolute right-2 top-10 z-30 xl:hidden/,
+			"the outline's toggle position is the constraint this test encodes",
+		);
+		// The className sits BEFORE the attribute, so the slice has to start above it.
+		const at = PANEL.indexOf("data-annotations-panel");
+		const trigger = PANEL.slice(Math.max(0, at - 200), at + 40);
+		assert.ok(trigger.length > 0, "expected to find the panel trigger root");
+		assert.match(trigger, /top-20/, "the panel must sit below the outline's toggle");
+		assert.match(
+			trigger,
+			/xl:top-10/,
+			"and rise at xl, where the outline becomes a rail and frees the corner",
+		);
+	});
+
+	test("the panel body scrolls, with the filter row outside the scroll", () => {
+		// The user asked for scrollable content like the outline overlay. The scroll has
+		// to be on the BODY: putting it on the whole panel would carry the filter row and
+		// close button off-screen as the list scrolls.
+		assert.match(PANEL, /min-h-0 flex-1 overflow-y-auto/, "the body must scroll");
+		assert.match(
+			PANEL,
+			/max-h-\[60vh\]/,
+			"the panel must be bounded, or it grows past the viewport instead of scrolling",
+		);
+	});
+
+	test("the panel is contained, not an alignment overlay", () => {
+		// The anchored column is absolute-positioned per card against the document. The
+		// panel must NOT reuse that: it is a bordered box with its own scroll.
+		assert.match(PANEL, /rounded-lg border border-border bg-popover/, "contained box");
+		assert.ok(
+			!/inset-y-0/.test(PANEL),
+			"the panel must not stretch the full editor height",
+		);
 	});
 });

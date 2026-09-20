@@ -971,6 +971,37 @@ mdast block into several DOM nodes.
 `src/components/editor/comment-pip.tsx`, `src/lib/proof/pip-alignment.ts`,
 `src/lib/proof/comment-decorator.ts`
 
+**Three surfaces, split by what each can actually show.**
+
+| Surface | Shows | Reached from |
+| --- | --- | --- |
+| Anchored comment column | Comments only, one card per commented block, aligned to its text | Header comment toggle |
+| Anchored redline in the text | Each pending suggestion, as `ins`/`del` marks | Always visible |
+| Annotations panel | **Everything**: every comment and every pending suggestion, with Approve/Reject | Header count button, top-right of the editor |
+
+**Suggestions belong to the panel, not the column.** The column's whole mechanism is
+ALIGNMENT — a card sits at its anchor's vertical offset so it reads beside the text it
+discusses. That is true of a comment, which annotates a block, and false of a
+suggestion, which is a mark over a few words *inside* one: a redline in paragraph 3 and
+one in paragraph 40 gave two cards whose position told the reader nothing, because both
+sat at their block's top edge. The panel instead lists each change with the words it
+covers, which is the information the anchored position was trying and failing to convey.
+The column therefore takes no suggestion props at all, so the two kinds cannot drift back
+together.
+
+**The column is toggled, not automatic.** The header button shows or hides it and carries
+the comment count. It is disabled rather than hidden when there are no comments, so the
+control does not move under the cursor as comments come and go.
+
+**The panel stacks UNDER the outline in the same corner.** The outline's toggle is at
+`right-2 top-10`, so the panel's trigger sits at `top-20` below `xl` and rises to `top-10`
+only at `xl` and up, where the outline becomes a rail at `right-1 top-10` and leaves the
+corner free. Two controls at one position is not a stacking question — one of them is
+simply unreachable.
+
+**Verification pointer:** `src/components/editor/annotations-panel.tsx`,
+`src/components/editor/comment-margin.tsx`, `src/components/editor/editor.tsx`
+
 **The margin must OVERLAY, never sit in the flex row.** The column is
 `absolute inset-y-0 right-0 w-[19rem]`, not a flex sibling with `shrink-0`.
 

@@ -1,5 +1,5 @@
 /**
- * Google-Docs-style comment margin.
+ * Google-Docs-style comment margin: the anchored comment column.
  *
  * The old shape was a gutter pip plus a floating popover: one dot per block, and
  * the thread only existed while you held it open. Docs instead keeps every
@@ -14,10 +14,16 @@
  * scroll container, then pushed down if it would overlap the card above it. That
  * collision pass is what keeps two comments on adjacent lines from stacking on
  * top of each other — the failure mode a naive absolute layout always has.
+ *
+ * COMMENTS ONLY. Suggestions used to share this column, which made the alignment
+ * meaningless for them: a suggestion is a mark over a few words inside a block,
+ * not an annotation on the block, so a redline in paragraph 3 and one in
+ * paragraph 40 gave two cards whose position told the reader nothing. They now
+ * live in `AnnotationsPanel`, which lists everything and is reached from the
+ * header. The column keeps only what the alignment actually describes.
  */
 
 import { useEffect, useState } from "react";
-import type { MarkId } from "@/lib/proof/suggestion-mark";
 import type { Comment } from "@/lib/proof/types";
 import { CommentThread } from "./comment-thread";
 
@@ -27,35 +33,11 @@ export interface MarginThread {
 	comments: Comment[];
 }
 
-/**
- * A pending suggested change, as the column needs to draw it.
- *
- * `id` is the mark's `data-id`, which is also what settles it: accepting or rejecting
- * calls the vendored `applySuggestion(id, from, to)`, so the card needs the range too.
- */
-export interface MarginSuggestion {
-	/** The mark's `data-id`, keeping its original type — see `MarkId`. */
-	id: MarkId;
-	kind: "insert" | "remove" | "modify";
-	from: number;
-	to: number;
-	/** Live vertical offset (px) of the mark, from the top of the scroll content. */
-	top: number;
-	/** The text the mark covers, for the card's one-line summary. */
-	text: string;
-}
-
 interface Props {
 	path: string;
 	threads: readonly MarginThread[];
 	/** Live per-ref vertical offsets (px) from the top of the scroll content. */
 	blockOffsets: ReadonlyMap<string, number>;
-	/** Pending suggested changes, aligned to their marks in the document. */
-	suggestions?: readonly MarginSuggestion[];
-	/** Accept a suggested change, identified by its mark id and range. */
-	onAcceptSuggestion?: (id: MarkId, from: number, to: number) => void;
-	/** Reject a suggested change, identified by its mark id and range. */
-	onRejectSuggestion?: (id: MarkId, from: number, to: number) => void;
 	/** The thread being edited right now; null means all are read-only cards. */
 	activeRef: string | null;
 	/** Open a thread for composing; used when the column shows a new comment. */
@@ -71,9 +53,6 @@ export function CommentMargin({
 	path,
 	threads,
 	blockOffsets,
-	suggestions = [],
-	onAcceptSuggestion,
-	onRejectSuggestion,
 	activeRef,
 	onActivate,
 	onClose,
@@ -99,29 +78,14 @@ export function CommentMargin({
 				);
 				if (el) next[t.blockRef] = el.offsetHeight;
 			}
-			for (const sg of suggestions) {
-				const el = document.querySelector<HTMLElement>(
-					`[data-margin-card="suggestion:${sg.id}"]`,
-				);
-				if (el) next[`suggestion:${sg.id}`] = el.offsetHeight;
-			}
 			return next;
 		});
-	}, [threads, activeRef, suggestions]);
+	}, [threads, activeRef]);
 
 	// One collision pass over BOTH kinds of card. Two independent layouts would let a
 	// comment and a suggestion on the same line print on top of each other, which is
 	// the failure mode this column exists to avoid.
-	const laid = layout(
-		threads,
-		blockOffsets,
-		heights,
-		suggestions.map((sg) => ({
-			key: `suggestion:${sg.id}`,
-			desired: sg.top,
-			height: heights[`suggestion:${sg.id}`] ?? 84,
-		})),
-	);
+	const laid = layout(threads, blockOffsets, heights);
 
 	if (laid.length === 0) return null;
 
@@ -131,10 +95,7 @@ export function CommentMargin({
 			data-comment-margin
 		>
 			{laid.map(({ key, thread, top }) => {
-				const suggestion = key.startsWith("suggestion:")
-					? suggestions.find((sg) => `suggestion:${sg.id}` === key)
-					: undefined;
-				if (!thread && !suggestion) return null;
+				if (!thread) return null;
 				return (
 				<div
 					key={key}
@@ -145,13 +106,7 @@ export function CommentMargin({
 					className="pointer-events-auto absolute left-0 right-0"
 					style={{ top }}
 				>
-					{suggestion ? (
-						<SuggestionMarginCard
-							suggestion={suggestion}
-							onAccept={() => onAcceptSuggestion?.(suggestion.id, suggestion.from, suggestion.to)}
-							onReject={() => onRejectSuggestion?.(suggestion.id, suggestion.from, suggestion.to)}
-						/>
-					) : thread && activeRef === thread.blockRef ? (
+					{activeRef === thread.blockRef ? (
 						<CommentThread
 							path={path}
 							anchorKey={thread.blockRef}
@@ -230,64 +185,6 @@ function CollapsedCard({
 				)}
 			</div>
 		</button>
-	);
-}
-
-/**
- * A pending suggested change: what it is, and the two decisions on it.
- *
- * Deliberately the same shape as a collapsed comment card — avatar row, summary,
- * actions — because both live in one column and a reader should not have to learn
- * two card grammars to scan it.
- *
- * Approve and Reject settle the mark itself via the vendored library, so the card
- * needs the mark's id AND its range: `applySuggestion(id, from, to)` is id-scoped,
- * which is what makes per-suggestion settlement possible at all.
- */
-function SuggestionMarginCard({
-	suggestion,
-	onAccept,
-	onReject,
-}: {
-	suggestion: MarginSuggestion;
-	onAccept: () => void;
-	onReject: () => void;
-}) {
-	return (
-		<div className="w-full rounded-lg border border-border bg-popover p-2.5 shadow-sm">
-			<div className="flex items-start gap-2">
-				<span
-					aria-hidden="true"
-					className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-500/15 text-[9px] font-medium uppercase text-amber-600"
-				>
-					s
-				</span>
-				<span className="min-w-0 flex-1">
-					<span className="block text-[11px] font-medium text-foreground">
-						{suggestion.kind === "remove" ? "Suggested deletion" : "Suggested insertion"}
-					</span>
-					<span className="mt-0.5 block line-clamp-3 text-[11px] leading-snug text-muted-foreground line-through decoration-inherit">
-						{suggestion.text || "(no text)"}
-					</span>
-				</span>
-			</div>
-			<div className="mt-2 flex items-center gap-2">
-				<button
-					type="button"
-					onClick={onReject}
-					className="rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-				>
-					Reject
-				</button>
-				<button
-					type="button"
-					onClick={onAccept}
-					className="rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-				>
-					Approve
-				</button>
-			</div>
-		</div>
 	);
 }
 

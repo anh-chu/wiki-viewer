@@ -3,7 +3,7 @@
 import { cellAround, isInTable } from "@tiptap/pm/tables";
 import { EditorContent, useEditor } from "@tiptap/react";
 import type { Editor } from "@tiptap/core";
-import { AlertCircle, Check, Code2, FilePlus, Loader2, PenLine, PencilLine, Sparkles } from "lucide-react";
+import { AlertCircle, Check, Code2, FilePlus, Loader2, MessageSquare, PenLine, PencilLine, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { markdownToHtml } from "@/lib/markdown/to-html";
 import { htmlToMarkdown } from "@/lib/markdown/to-markdown";
@@ -38,6 +38,7 @@ import {
 	type SourceDraft,
 } from "./editor-module-state";
 import { SlashCommands } from "./slash-commands";
+import { AnnotationsPanel } from "./annotations-panel";
 import { DocumentOutline } from "./document-outline";
 import { ReadingExperiments } from "./experiments";
 import { BacklinksPanel } from "./backlinks-panel";
@@ -1177,30 +1178,38 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	}, [trackedMarks]);
 
 	/**
-	 * The pending suggestions the column draws, aligned to their marks.
+	 * The pending suggestions the annotations panel lists.
 	 *
-	 * `text` is read from the document for the card's summary line. A modification
-	 * carries its own before/after in its attributes rather than covering text, so it
-	 * falls back to the mark's type name.
+	 * `text` is read from the document for the card's summary line — it is the words
+	 * the mark covers, which is the one thing the old anchored column could not show
+	 * (a mark covers a few words, not a block edge). A modification carries its own
+	 * before/after in its attributes rather than covering text, so it falls back to
+	 * the mark's type name.
+	 *
+	 * No `top`: the panel is a list, not an alignment, so it never asks for an offset.
 	 */
-	const marginSuggestions = useMemo(
+	const panelSuggestions = useMemo(
 		() =>
 			trackedMarks.map((mark) => ({
 				id: mark.id,
 				kind: mark.kind,
 				from: mark.from,
 				to: mark.to,
-				top: markOffsets.get(mark.id) ?? 0,
 				text:
 					mark.kind === "modify"
 						? "modification"
 						: editor?.state.doc.textBetween(mark.from, mark.to, " ") ?? "",
 			})),
-		[trackedMarks, markOffsets, editor],
+		[trackedMarks, editor],
 	);
 
-	const showCommentMargin =
-		(marginThreads.length > 0 || marginSuggestions.length > 0) && !marginCollapsed;
+	const annotationCount = marginThreads.length + panelSuggestions.length;
+
+	// The anchored column is COMMENTS ONLY, and is now toggled from the header
+	// rather than appearing on its own. `marginCollapsed` is the reader's choice and
+	// survives across documents in the session; the default is open, because a
+	// document with comments and no visible cards looks like it has none.
+	const showCommentMargin = marginThreads.length > 0 && !marginCollapsed;
 
 
 	// Keep the Accept/Reject controls in step with the document. Counted from the
@@ -1510,6 +1519,29 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 										</button>
 									</span>
 								)}
+								{/* Show/hide the anchored comment cards. Disabled with no
+								    comments rather than hidden, so the control does not
+								    move under the cursor as comments come and go. */}
+								{!sourceMode && (
+									<button
+										onClick={() => setMarginCollapsed((c) => !c)}
+										disabled={marginThreads.length === 0}
+										title={
+											marginThreads.length === 0
+												? "No comments to show"
+												: showCommentMargin
+													? "Hide comment cards"
+													: "Show comment cards"
+										}
+										aria-pressed={showCommentMargin}
+										className="mr-1 flex items-center gap-1 px-2 py-1 text-[11px] rounded-md border border-border text-muted-foreground hover:bg-accent transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
+									>
+										<MessageSquare className="h-3 w-3" />
+										{marginThreads.length > 0 && (
+											<span className="tabular-nums">{marginThreads.length}</span>
+										)}
+									</button>
+								)}
 								{!sourceMode && (
 									<button
 										onClick={toggleSuggestingMode}
@@ -1562,6 +1594,26 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 						) : (
 							<div className="flex-1 relative flex min-h-0" dir={isRtl ? "rtl" : undefined}>
 								<DocumentOutline editor={editor} scrollContainerRef={scrollContainerRef} />
+								<AnnotationsPanel
+									threads={marginThreads}
+									suggestions={panelSuggestions}
+									onAcceptSuggestion={(id, from, to) =>
+										resolveOneTracked(id, from, to, "accept")
+									}
+									onRejectSuggestion={(id, from, to) =>
+										resolveOneTracked(id, from, to, "reject")
+									}
+									onJumpToRef={(blockRef) => {
+										// Reach the text the comment sits on, then expand its
+										// card so the reader lands on the thread itself
+										// rather than merely near it.
+										const el = editor?.view.dom.querySelector(
+											`[data-block-ref="${blockRef}"]`,
+										);
+										el?.scrollIntoView({ behavior: "smooth", block: "center" });
+									}}
+									onFocusThread={(blockRef) => setActiveMarginRefNow(blockRef)}
+								/>
 								<ReadingExperiments editor={editor} scrollContainerRef={scrollContainerRef} />
 								<div className="flex-1 relative min-w-0">
 								<div
@@ -1715,22 +1767,15 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 								</div>
 								</div>
 
-								{/* Google-Docs-style comment margin. Sits OUTSIDE the scroll
-								    container so cards stay put while the document scrolls
-								    under them; the collapse control lets it get out of the
-								    way on narrow screens. */}
+								{/* Google-Docs-style comment margin: COMMENTS ONLY (see
+								    comment-margin.tsx). Sits OUTSIDE the scroll container so
+								    cards stay put while the document scrolls under them, and
+								    the header toggle is what shows or hides it. */}
 								{showCommentMargin && (
 									<CommentMargin
 										path={currentPath ?? ""}
 										threads={marginThreads}
 										blockOffsets={marginOffsets}
-										suggestions={marginSuggestions}
-										onAcceptSuggestion={(id, from, to) =>
-											resolveOneTracked(id, from, to, "accept")
-										}
-										onRejectSuggestion={(id, from, to) =>
-											resolveOneTracked(id, from, to, "reject")
-										}
 										activeRef={activeMarginRef}
 										onActivate={(blockRef) =>
 											// Expand the card IN PLACE — the thread lives in the
