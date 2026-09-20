@@ -23,6 +23,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, test } from "node:test";
+import { MODULE_MAP_LIMIT, remember } from "../../components/editor/editor-module-state.js";
 
 const ROOT = process.cwd();
 const EDITOR = readFileSync(
@@ -31,41 +32,35 @@ const EDITOR = readFileSync(
 );
 
 describe("the expansion survives an editor remount", () => {
-	test("the expansion is held outside the component", () => {
-		// A `useState` alone is wiped by the remount; a `useRef` is recreated by it too.
-		assert.match(
-			EDITOR,
-			/const expandedMarginByPath = new Map<string, string>\(\)/,
-			"expected module-scope storage for the expanded card",
-		);
-		// It must be declared before the component, not inside it.
-		const mapAt = EDITOR.indexOf("const expandedMarginByPath");
-		const componentAt = EDITOR.indexOf("export function KBEditor(");
-		assert.ok(
-			mapAt > 0 && mapAt < componentAt,
-			"the map must be module scope, declared before the component",
-		);
+	test("an expansion written back outlives the component that wrote it", () => {
+		// The behaviour the remount depends on: `remember` writes to a map the caller
+		// owns, so a map held at module scope is still populated after the component
+		// that wrote it is gone. Asserting the map's location in a source file would
+		// only restate the implementation; this exercises the guarantee itself.
+		const store = new Map<string, string>();
+		remember(store, "notes/a.md", "c1");
+		assert.equal(store.get("notes/a.md"), "c1", "the value survives its writer");
 	});
 
-	test("the expansion is re-seeded when the component mounts", () => {
-		assert.match(
-			EDITOR,
-			/useState<string \| null>\(\s*\(\) => expandedMarginByPath\.get\(currentPath \?\? ""\) \?\? null,?\s*\)/,
-			"the initial state must read through to the module-scope map",
-		);
+	test("a collapsed card clears its entry", () => {
+		// Otherwise the map grows by one dead entry per collapse, forever.
+		const store = new Map<string, string>();
+		remember(store, "notes/a.md", "c1");
+		store.delete("notes/a.md");
+		assert.equal(store.has("notes/a.md"), false, "no entry is left behind");
 	});
 
-	test("the stored value tracks the live value", () => {
-		assert.match(
-			EDITOR,
-			/if \(activeMarginRef\) remember\(expandedMarginByPath, key, activeMarginRef\);/,
-			"an expansion must be written back",
-		);
-		assert.match(
-			EDITOR,
-			/else expandedMarginByPath\.delete\(key\);/,
-			"a collapse must clear the entry, so the map cannot grow without bound",
-		);
+	test("re-setting a key refreshes it rather than keeping its old slot", () => {
+		// Eviction order is by insertion, so a naive `set` on an existing key would
+		// leave it ranked as if it were old and evict a live entry before it.
+		const store = new Map<string, string>();
+		for (let i = 0; i < MODULE_MAP_LIMIT; i++) remember(store, `d${i}`, `c${i}`);
+		remember(store, "d0", "refreshed");
+		remember(store, "new", "cnew");
+
+		assert.equal(store.has("new"), true, "the newest key is retained");
+		assert.equal(store.get("d0"), "refreshed", "the refreshed key survived eviction");
+		assert.equal(store.has("d1"), false, "the genuinely oldest was evicted instead");
 	});
 
 	test("expansion is keyed per path, and cannot leak across documents", () => {

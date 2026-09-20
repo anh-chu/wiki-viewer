@@ -37,15 +37,12 @@ const CONTEXT_CHARS = 32;
  * `ref`/`offset`/`length` are block-local so a `moved` result is a one-field copy
  * rather than a remap across every annotation.
  */
-export interface ResolvedAnchor {
+interface ResolvedAnchor {
 	ref: string | null;
 	offset: number;
 	length: number;
 	status: AnchorStatus;
 }
-
-/** Why a resolution failed, for the surfaces that explain loss to a user. */
-export type AnchorLossReason = "block-gone" | "text-not-found";
 
 export interface TextQuoteSelector {
 	exact: string;
@@ -62,7 +59,7 @@ let anchorCounter = 0;
  * a random suffix keeps ids unique within a sidecar without any dependence on the text
  * the anchor points at.
  */
-export function mintAnchorId(used: Set<string> = new Set()): string {
+function mintAnchorId(used: Set<string> = new Set()): string {
 	for (;;) {
 		anchorCounter = (anchorCounter + 1) % 0xffffff;
 		const id = `a${anchorCounter.toString(16).padStart(6, "0")}`;
@@ -91,7 +88,7 @@ export function parseTextQuote(value: unknown): TextQuoteSelector | null {
 }
 
 /** The `prefix`/`suffix` around a block-local range, for disambiguation later. */
-export function quoteContext(
+function quoteContext(
 	markdown: string,
 	offset: number,
 	length: number,
@@ -278,21 +275,18 @@ export function resolveAnchor(
 		}
 
 		// 2b. The block is still here under its own ref, but the quoted span is not
-		//    verbatim inside it. Report the BLOCK and say the span is not certain.
+		//    verbatim inside it. Report the BLOCK; keep the span uncertain.
 		//
-		//    Returning `lost` here was wrong and destructive. The callers that accept
-		//    a ranged suggestion resolve the anchor only to find the block, then
-		//    three-way merge `baseMarkdown` against the block's current text. An
-		//    edit ELSEWHERE in the same block changes the text without disturbing the
-		//    quoted span at all, so the quote stops matching while the anchor is
-		//    perfectly good — the whole point of the merge is to reconcile exactly
-		//    that case. Reporting `lost` made the lookup return -1, the merge was
-		//    skipped, and the concurrent edit was silently overwritten.
+		//    `lost` here was destructive, not merely pessimistic. Accepting a ranged
+		//    suggestion resolves the anchor only to find the block, then three-way
+		//    merges `baseMarkdown` against the block's current text — which is exactly
+		//    the case where an edit ELSEWHERE in the block leaves the quoted span
+		//    untouched but stops it matching. Reporting `lost` returned -1, so the
+		//    merge was skipped and the concurrent edit was overwritten.
 		//
-		//    `offset`/`length` are deliberately 0 here: no position was found, and
-		//    the spec forbids inventing one. Callers that need a span for painting
-		//    treat `ambiguous` as "re-search within the block", which is what the
-		//    highlight already does.
+		//    offset/length stay 0: no position was found and the spec forbids
+		//    inventing one. Callers wanting a span treat `ambiguous` as "re-search
+		//    within the block", which is what the highlight does.
 		return { ref: own.ref, offset: 0, length: 0, status: "ambiguous" };
 	}
 
@@ -310,28 +304,17 @@ export function resolveAnchor(
 			};
 		}
 
-		// 3b. The slot is occupied by a block whose text has CHANGED, so the quote no
-		//     longer matches — and that is exactly the case the merge exists for.
-		//
-		//     An edit anywhere in a block rewrites its text and therefore its content
-		//     hash, so the block comes back under a NEW ref while the span the anchor
-		//     quotes may be untouched. Reporting `lost` made `findBlockIndex` return -1,
-		//     the caller skipped `mergeBlock`, and the concurrent edit was silently
-		//     overwritten — a data-loss bug, not a missing feature.
-		//
-		//     Reporting the block is right for the same reason the block-granular branch
-		//     above follows its slot: the anchor's identity is the slot it occupies, and
-		//     `prevRefOrder` is how that slot survives a rehash. `ambiguous` (not `moved`)
-		//     because the exact span was NOT located — offset and length stay 0 rather
-		//     than becoming a guess, per the spec's rule that a wrong range is worse than
-		//     a visible loss.
+		// 3b. Same situation as 2b, one generation on: the block was rehashed by an
+		//     edit, so it now lives under a NEW ref and the quote no longer matches.
+		//     See 2b for why `lost` here loses the concurrent edit.
 		//
 		//     Gated on `prevRefOrder` being present, and that gate is load-bearing.
-		//     Without it `successorFor` falls back to the CURRENT refMap key order, which
-		//     after a delete-and-replace names whatever now sits at that index — a
-		//     stranger. Attaching an annotation to unrelated text is worse than losing
-		//     it, so the slot is only followed when a reparse actually recorded a
+		//     Without it `successorFor` falls back to the CURRENT refMap key order,
+		//     which after a delete-and-replace names whatever now sits at that index —
+		//     a stranger. Attaching an annotation to unrelated text is worse than
+		//     losing it, so the slot is followed only when a reparse recorded a
 		//     previous ordering; otherwise this stays `lost`.
+		//     (anchor-resolution.test.ts case 3c pins that.)
 		if (sidecar.prevRefOrder) {
 			return { ref: successor.ref, offset: 0, length: 0, status: "ambiguous" };
 		}
@@ -392,12 +375,6 @@ function successorFor(sidecar: Sidecar, ref: string, blocks: Block[]): Block | n
 	// A block still named by a ref different from the dead one is a genuine occupant of
 	// the slot. If the dead ref is somehow still present, this is not a successor case.
 	return candidate && candidate.ref !== ref ? candidate : null;
-}
-
-/** Convenience for the write paths, which only need a ref. */
-export function resolveAnchorToRef(sidecar: Sidecar, anchor: Anchor, blocks: Block[]): string | null {
-	const resolved = resolveAnchor(sidecar, anchor, blocks);
-	return resolved.ref;
 }
 
 /**
@@ -465,29 +442,6 @@ function viewFor(
 		status: resolved.status,
 		...(block ? { blockMarkdown: block.markdown } : {}),
 	};
-}
-
-/**
- * Which annotations the resolver could not place, for the lost surface.
- *
- * Returned rather than applied, because a resolution is a READ: marking anything
- * persistent during a read would make a GET a write.
- */
-export function lostAnnotationIds(
-	sidecar: Sidecar,
-	blocks: Block[],
-): { comments: string[]; suggestions: string[] } {
-	const comments: string[] = [];
-	for (const c of sidecar.comments) {
-		const anchor = c.anchorId ? sidecar.anchors[c.anchorId] : undefined;
-		if (anchor && resolveAnchor(sidecar, anchor, blocks).status === "lost") comments.push(c.id);
-	}
-	const suggestions: string[] = [];
-	for (const s of sidecar.suggestions) {
-		const anchor = s.anchorId ? sidecar.anchors[s.anchorId] : undefined;
-		if (anchor && resolveAnchor(sidecar, anchor, blocks).status === "lost") suggestions.push(s.id);
-	}
-	return { comments, suggestions };
 }
 
 export type { Anchor, AnchorStatus, Comment, Sidecar, Suggestion };

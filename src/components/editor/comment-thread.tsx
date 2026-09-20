@@ -363,7 +363,6 @@ export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnc
 		// — the collapsed card that would toggle it back unmounts on expand, and
 		// measured live, every button left in the expanded card was an edit action.
 		return (
-			// biome-ignore lint/a11y/noStaticElementInteractions: hover only drives the linked highlight
 			<div
 				onMouseEnter={() => onHoverChange?.(true)}
 				onMouseLeave={() => onHoverChange?.(false)}

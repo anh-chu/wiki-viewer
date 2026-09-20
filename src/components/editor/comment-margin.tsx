@@ -62,7 +62,6 @@ export function CommentMargin({
 	// The expanded card then overlapped the cards below it: measured live, an
 	// expanded card spanning 45-230px had the next two sitting at 108-163 and
 	// 171-226, i.e. printed on top of its body.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: activeRef is the point
 	useEffect(() => {
 		setHeights((prev) => {
 			const next = { ...prev };

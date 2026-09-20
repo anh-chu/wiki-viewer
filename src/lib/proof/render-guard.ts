@@ -40,7 +40,7 @@ export interface RenderInputs {
 	annotationChanged: boolean;
 }
 
-export interface RenderDecision {
+interface RenderDecision {
 	rerender: boolean;
 	reason:
 		| "no-editor"

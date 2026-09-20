@@ -234,7 +234,6 @@ export function ViewerPane({
 	}, [fileLoading]);
 	// Reset when the file genuinely changes: a different document may need its own
 	// first-load spinner.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: the path IS the trigger
 	useEffect(() => {
 		setHasRenderedEditor(false);
 	}, [openFile.path]);

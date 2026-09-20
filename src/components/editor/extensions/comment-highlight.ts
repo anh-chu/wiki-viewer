@@ -25,7 +25,7 @@ import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import type { EditorView } from "@tiptap/pm/view";
 import type { Comment } from "@/lib/proof/types";
 
-export const commentHighlightKey = new PluginKey("comment-highlight");
+const commentHighlightKey = new PluginKey("comment-highlight");
 
 interface DocNode {
 	textContent: string;
@@ -389,4 +389,4 @@ export function refreshCommentHighlights(view: EditorView): void {
 }
 
 /** Decoration class; kept here so the CSS and the decorator cannot drift. */
-export const COMMENT_HIGHLIGHT_CLASS = "comment-highlight";
+const COMMENT_HIGHLIGHT_CLASS = "comment-highlight";

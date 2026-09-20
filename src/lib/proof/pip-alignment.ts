@@ -20,7 +20,7 @@
  * the old index-based loop is gone rather than kept around for a test to call.
  */
 
-export interface BlockPosition {
+interface BlockPosition {
 	top: number;
 	left: number;
 	width: number;
@@ -35,7 +35,7 @@ export interface BlockElementLike {
 	measure(): BlockPosition;
 }
 
-export interface AlignResult {
+interface AlignResult {
 	positions: Map<string, BlockPosition>;
 	/** Refs that had no matching element — surfaced, never silently dropped. */
 	unmatchedRefs: string[];
