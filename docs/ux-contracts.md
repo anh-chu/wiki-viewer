@@ -971,59 +971,47 @@ mdast block into several DOM nodes.
 `src/components/editor/comment-pip.tsx`, `src/lib/proof/pip-alignment.ts`,
 `src/lib/proof/comment-decorator.ts`
 
-**Three surfaces, split by what each can actually show.**
+**Two surfaces: the panel beside the text, and the redlines in it.**
 
 | Surface | Shows | Reached from |
 | --- | --- | --- |
-| Anchored comment column | Comments only, one card per commented block, aligned to its text | Header comment toggle |
-| Anchored redline in the text | Each pending suggestion, as `ins`/`del` marks | Always visible |
-| Annotations panel | **Everything**: every comment and every pending suggestion, with Approve/Reject | Header count button, top-right of the editor |
+| The pushed panel | Comments AND suggested changes, one card each, anchored to their block | Overlay button, top-right of the editor |
+| Anchored redlines in the text | Each pending suggestion, as `ins`/`del` marks | Always visible |
 
-**Suggestions belong to the panel, not the column.** The column's whole mechanism is
-ALIGNMENT — a card sits at its anchor's vertical offset so it reads beside the text it
-discusses. That is true of a comment, which annotates a block, and false of a
-suggestion, which is a mark over a few words *inside* one: a redline in paragraph 3 and
-one in paragraph 40 gave two cards whose position told the reader nothing, because both
-sat at their block's top edge. The panel instead lists each change with the words it
-covers, which is the information the anchored position was trying and failing to convey.
-The column therefore takes no suggestion props at all, so the two kinds cannot drift back
-together.
+**The two kinds share one panel, and that reverses an earlier split.** They were once
+separate — an anchored comment column and a floating list of suggestions — on the argument
+that a comment annotates a BLOCK (so aligning its card to the block's top edge is
+meaningful) while a suggestion is a mark over a few words (so the same alignment tells the
+reader nothing). That argument is sound about alignment and wrong about what to do with it.
+The answer is to anchor a suggestion to the block its mark sits in AND quote the words the
+mark covers: the card then says both "near here" and "these words", which is more than
+either surface showed alone. One panel also means one collision pass, so a comment and a
+suggestion on the same line cannot print on top of each other.
 
-**The column is toggled from the TOP BAR, not the editor.** The control lives in
-`viewer-pane`'s top bar, which is shared chrome rendering in BOTH editing and viewing. It
-carries a label (`Hide comments` / `Show comments`) and the comment count, and it renders
-only when the open document has comments.
+**The tabs live on the panel's own header**, not in a popup over it. All / Comments /
+Changes sit in a row at the top of the pushed column, with the cards below. An earlier
+version opened a floating box of tabs beneath the corner button while the panel positioned
+itself independently; two elements computing their own place is how they end up overlapping.
+A tab with nothing behind it is disabled rather than hidden, so the other two do not move
+under the cursor.
 
-Three failed attempts are worth recording, because each was found by the user rather than
-by a test:
+**The corner button is the outline's overlay pattern**: a small backdrop-blurred control at
+`right-2 top-20`, rising to `top-10` at `xl` where the outline becomes a rail. The outline's
+own small-screen toggle is at `right-2 top-10`, so at the same position one of the two would
+be unreachable — not a stacking preference but a dead control. It is a plain show/hide
+toggle; it holds no tabs, so it cannot disagree with the panel about which is active.
 
-1. An icon and a bare count, **disabled** when there were no comments. Disabled renders at
-   40% opacity, so the control looked inert in exactly the state a reader hunts for it in.
-   It is now hidden instead — off until a comment exists, so it cannot shift the toolbar
-   under the cursor.
-2. It sat in the **editor's own toolbar row**, which is `!isViewing`. The control therefore
-   did not exist in view mode at all — the mode comments are most often read in.
-3. It was then floated over the editor. It belongs in the top bar.
+**The card offsets are measured from the SCROLL CONTAINER, but the cards render below the
+tab header.** The two therefore disagree by exactly the header's height, and without
+compensation every card is high by that much and the topmost one overlaps the tabs. The
+header is MEASURED (`ResizeObserver`, since its height depends on font metrics and on
+whether the counts render) and the layout is shifted by that measurement plus the standard
+gap. It is applied to the layout values, not as CSS padding: padding would shrink the box
+the cards scroll in and put the last card's end out of reach.
 
-**Visibility state is shared, in `comment-column-store`.** The top bar owns the control and
-the editor owns the document, so the store carries two fields with different writers:
-`count` is published by the editor (only it can see the comments) and `collapsed` is the
-reader's choice, written only by the top bar. They are separate so that a collapse survives
-a document with no comments, while a document that gains one still shows its column. The
-count is cleared when the editor unmounts, or the next document inherits a stale count and
-the top bar offers a toggle for comments that are not there.
-
-Jumping to a comment from the panel calls `expand` first. Without it the jump scrolls to
-the text and expands a card that is not on screen, so it appears to do nothing.
-
-**The panel stacks UNDER the outline in the same corner.** The outline's toggle is at
-`right-2 top-10`, so the panel's trigger sits at `top-20` below `xl` and rises to `top-10`
-only at `xl` and up, where the outline becomes a rail at `right-1 top-10` and leaves the
-corner free. Two controls at one position is not a stacking question — one of them is
-simply unreachable.
-
-**Verification pointer:** `src/components/editor/annotations-panel.tsx`,
-`src/components/editor/comment-margin.tsx`, `src/components/editor/editor.tsx`
+**Verification pointer:** `src/components/editor/comment-margin.tsx` (`PanelHeader`, the
+`aside` root, `layout`'s inset), `src/components/editor/annotations-button.tsx`,
+`src/stores/annotation-panel-store.ts` (`panelContents`).
 
 **The margin PUSHES the document; it must not overlay it.** The column is a `shrink-0`
 flex sibling with a `relative` root, not an `absolute inset-y-0` overlay.

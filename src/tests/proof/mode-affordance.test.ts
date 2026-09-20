@@ -173,7 +173,10 @@ describe("the comment margin is identical in view and edit mode", () => {
 	// for what would look like a reasonable reason.
 	test("the visibility guard does not consult the mode", () => {
 		const source = read(EDITOR);
-		const at = source.indexOf("const showCommentMargin");
+		// Renamed when comments and suggestions were merged into one panel; the
+		// invariant is unchanged, so this follows the expression rather than the
+		// expression being kept alive for the test.
+		const at = source.indexOf("const panelShowingAnything");
 		assert.ok(at > 0, "expected to find the guard");
 		const guard = source.slice(at, at + 120);
 		assert.ok(

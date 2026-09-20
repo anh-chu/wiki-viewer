@@ -26,88 +26,75 @@ const MARGIN = readFileSync(
 	"utf8",
 );
 
-describe("suggestions are reviewed in the annotations panel, not the anchored column", () => {
-	// The split exists because the column's whole mechanism is ALIGNMENT: a card sits
-	// beside the text it discusses. That is true of a comment, which annotates a block,
-	// and false of a suggestion, which is a mark over a few words inside one — a redline
-	// in paragraph 3 and one in paragraph 40 produced two cards whose position said
-	// nothing. So the column keeps comments, and the panel lists everything.
+describe("comments and suggestions share one panel", () => {
+	// These were two surfaces: an anchored comment column and a floating list of
+	// suggestions. They were merged because the split forced a false choice — the
+	// column had POSITION but could not describe a change (a suggestion is a mark over
+	// a few words, so aligning its card to the block edge said nothing about which
+	// words), and the list had WORDS but no position. Anchoring a suggestion to the
+	// block its mark sits in and quoting the covered words gives both, in the surface
+	// that was already beside the text.
+	const MARGIN = readFileSync(
+		new URL("../../components/editor/comment-margin.tsx", import.meta.url),
+		"utf8",
+	);
 
-	test("the panel's card list is built from the document's marks", () => {
-		const block = EDITOR.slice(
-			EDITOR.indexOf("const panelSuggestions = useMemo("),
-			EDITOR.indexOf("const annotationCount ="),
-		);
-		assert.ok(block.length > 0, "expected to find the panelSuggestions memo");
+	test("the panel draws both kinds of card", () => {
+		assert.match(MARGIN, /thread: MarginThread \| null/, "comment cards ride on `thread`");
 		assert.match(
-			block,
-			/trackedMarks\.map/,
-			"the card list must come from the enumerated marks, not a store",
+			MARGIN,
+			/suggestion: PanelSuggestion \| null/,
+			"suggestion cards ride on `suggestion`",
+		);
+		assert.match(MARGIN, /<SuggestionCard/, "and a suggestion card is rendered");
+	});
+
+	test("one collision pass covers both kinds", () => {
+		// Two independent layouts would let a comment and a suggestion on the same line
+		// print on top of each other — the failure the anchored layout exists to avoid.
+		assert.match(
+			MARGIN,
+			/function layout\(\s*threads: readonly MarginThread\[\],\s*suggestions: readonly PanelSuggestion\[\],/,
+			"layout must take both lists and interleave them by anchor",
 		);
 	});
 
-	test("the panel receives the suggestions with both settlement handlers", () => {
-		const block = EDITOR.slice(
-			EDITOR.indexOf("<AnnotationsPanel"),
-			EDITOR.indexOf("<AnnotationsPanel") + 1400,
-		);
-		assert.ok(block.length > 0, "expected to find the AnnotationsPanel render");
-		assert.match(block, /suggestions=\{panelSuggestions\}/);
-		assert.match(block, /onAcceptSuggestion=/);
-		assert.match(block, /onRejectSuggestion=/);
+	test("the editor passes suggestions into the panel with both handlers", () => {
+		assert.match(EDITOR, /suggestions=\{panelSuggestions\}/);
+		assert.match(EDITOR, /onAcceptSuggestion=\{/);
+		assert.match(EDITOR, /onRejectSuggestion=\{/);
 	});
 
-	test("the anchored margin is COMMENTS ONLY", () => {
-		// Passing suggestions here would put the cards back where the alignment cannot
-		// describe them. The margin's props must not carry a suggestion list at all.
-		const block = EDITOR.slice(
-			EDITOR.indexOf("<CommentMargin"),
-			EDITOR.indexOf("<CommentMargin") + 900,
-		);
-		assert.ok(block.length > 0, "expected to find the CommentMargin render");
+	test("the floating annotations panel is gone", () => {
+		// Deleted with its component and tests; the panel beside the text replaced it.
 		assert.ok(
-			!/suggestions=\{/.test(block),
-			"the column must not be handed suggestions",
-		);
-		assert.ok(
-			!/onAcceptSuggestion|onRejectSuggestion/.test(block),
-			"settlement controls belong to the panel, not the column",
+			!/AnnotationsPanel/.test(EDITOR),
+			"the old floating panel must not still be rendered",
 		);
 	});
 
-	test("the margin component no longer defines a suggestion card", () => {
-		assert.ok(
-			!/<SuggestionMarginCard/.test(MARGIN),
-			"the column must not render suggestion cards",
-		);
-		assert.ok(
-			!/MarginSuggestion/.test(MARGIN),
-			"the column must not carry the suggestion type",
-		);
-	});
-
-	test("the panel renders a suggestion card with both decisions", () => {
-		const PANEL = readFileSync(
-			new URL("../../components/editor/annotations-panel.tsx", import.meta.url),
-			"utf8",
-		);
-		assert.match(PANEL, /<SuggestionCard/);
-		assert.match(PANEL, /onAccept/);
-		assert.match(PANEL, /onReject/);
-	});
-
-	test("the panel is reachable even when the only annotation is a suggestion", () => {
-		// The regression this guards: keying the review surface on comments alone means a
-		// document whose only annotation is a suggestion offers no way to approve it.
-		const PANEL = readFileSync(
-			new URL("../../components/editor/annotations-panel.tsx", import.meta.url),
-			"utf8",
+	test("each suggestion is anchored to the block its mark sits in", () => {
+		// Without this the card could only be listed, which is what the old surface did.
+		assert.match(
+			EDITOR,
+			/blockRef: string \| null/,
+			"the panel suggestion type must carry an anchor",
 		);
 		assert.match(
-			PANEL,
-			/threads\.length \+ suggestions\.length/,
-			"the trigger count must include suggestions",
+			EDITOR,
+			/suggestionBlocks\[index\]\?\.ref \?\? null/,
+			"resolved by top-level block index, as the comment path does",
 		);
+	});
+
+	test("the old comment-only gate is gone", () => {
+		// `showCommentMargin` required comments specifically, so a document with only
+		// suggestions still showed nothing. The panel now opens for either kind.
+		assert.ok(
+			!/showCommentMargin/.test(EDITOR),
+			"visibility must not be keyed on comments alone",
+		);
+		assert.match(EDITOR, /panelShowingAnything/);
 	});
 });
 
@@ -189,9 +176,18 @@ describe("a mark with no assigned id is not shown as a card", () => {
 		assert.match(block, /Math\.max\(existing\.to, to\)/);
 	});
 });
-describe("the panel stacks with the outline instead of covering it", () => {
-	const PANEL = readFileSync(
-		new URL("../../components/editor/annotations-panel.tsx", import.meta.url),
+describe("the annotations control is a plain toggle; the tabs live on the panel", () => {
+	// The first version opened a floating popup of tabs below the button, with the
+	// panel positioned independently beneath it. Two elements computing their own
+	// place is exactly how they end up overlapping — the failure the user reported.
+	// The tabs moved onto the panel's OWN header, so there is one surface and no
+	// second thing to collide with.
+	const BUTTON = readFileSync(
+		new URL("../../components/editor/annotations-button.tsx", import.meta.url),
+		"utf8",
+	);
+	const MARGIN = readFileSync(
+		new URL("../../components/editor/comment-margin.tsx", import.meta.url),
 		"utf8",
 	);
 	const OUTLINE = readFileSync(
@@ -199,141 +195,75 @@ describe("the panel stacks with the outline instead of covering it", () => {
 		"utf8",
 	);
 
-	test("the panel's trigger clears the outline's toggle", () => {
-		// The outline's small-screen toggle is `right-2 top-10`. If the panel also sat at
-		// `top-10` below `xl`, the two would occupy one position and one would be
-		// unreachable - not a stacking preference but a dead control.
+	test("the button clears the outline's own toggle", () => {
+		// The outline's small-screen toggle is `right-2 top-10`. At the same position
+		// one of the two would be unreachable — not a stacking preference but a dead
+		// control.
 		assert.match(
 			OUTLINE,
 			/absolute right-2 top-10 z-30 xl:hidden/,
-			"the outline's toggle position is the constraint this test encodes",
+			"the outline's position is the constraint this test encodes",
 		);
-		// The className sits BEFORE the attribute, so the slice has to start above it.
-		const at = PANEL.indexOf("data-annotations-panel");
-		const trigger = PANEL.slice(Math.max(0, at - 200), at + 40);
-		assert.ok(trigger.length > 0, "expected to find the panel trigger root");
-		assert.match(trigger, /top-20/, "the panel must sit below the outline's toggle");
+		const cls = BUTTON.slice(
+			BUTTON.indexOf("className={cn("),
+			BUTTON.indexOf("data-annotations-button"),
+		);
+		assert.ok(cls.length > 0 || BUTTON.includes("top-20"), "expected the button's classes");
+		assert.match(BUTTON, /top-20/, "it must sit below the outline's toggle");
+		assert.match(BUTTON, /xl:top-10/, "and rise at xl, where the outline frees the corner");
+	});
+
+	test("the button only shows and hides; it does not hold the tabs", () => {
+		// If the tabs were here as well as on the panel, the two could disagree about
+		// which tab is active.
+		assert.ok(
+			!/role="tablist"/.test(BUTTON),
+			"the tablist belongs on the panel, not the button",
+		);
+		assert.match(BUTTON, /togglePanel/);
+	});
+
+	test("the tabs are All, Comments and Changes, on the panel's header", () => {
+		assert.match(MARGIN, /label: "All"/);
+		assert.match(MARGIN, /label: "Comments"/);
+		assert.match(MARGIN, /label: "Changes"/);
+		assert.match(MARGIN, /role="tablist"/);
+		assert.match(MARGIN, /<PanelHeader/, "and they are rendered as the panel's header");
+	});
+
+	test("the header is OUTSIDE the anchored card area", () => {
+		// The cards are absolutely positioned against the box they sit in. If the
+		// header were inside that box, a card anchored near the top would print over
+		// the tabs.
+		const header = MARGIN.indexOf("<PanelHeader");
+		const body = MARGIN.indexOf("data-annotations-body");
+		assert.ok(header > 0 && body > header, "the header must precede the body");
 		assert.match(
-			trigger,
-			/xl:top-10/,
-			"and rise at xl, where the outline becomes a rail and frees the corner",
+			MARGIN.slice(body - 120, body + 20),
+			/className="relative min-h-0 flex-1"/,
+			"the body must be its own positioned box",
 		);
 	});
 
-	test("the panel body scrolls, with the filter row outside the scroll", () => {
-		// The user asked for scrollable content like the outline overlay. The scroll has
-		// to be on the BODY: putting it on the whole panel would carry the filter row and
-		// close button off-screen as the list scrolls.
-		assert.match(PANEL, /min-h-0 flex-1 overflow-y-auto/, "the body must scroll");
+	test("a tab with nothing behind it is disabled, not hidden", () => {
+		// The three tabs are one control: hiding one would move the others under the
+		// cursor as annotations come and go.
+		assert.match(MARGIN, /disabled=\{t\.count === 0\}/);
+	});
+
+	test("no control at all when the document has nothing to annotate", () => {
 		assert.match(
-			PANEL,
-			/max-h-\[60vh\]/,
-			"the panel must be bounded, or it grows past the viewport instead of scrolling",
+			BUTTON,
+			/if \(total === 0\) return null;/,
+			"a button that opens an empty panel is worse than no button",
 		);
 	});
 
-	test("the panel is contained, not an alignment overlay", () => {
-		// The anchored column is absolute-positioned per card against the document. The
-		// panel must NOT reuse that: it is a bordered box with its own scroll.
-		assert.match(PANEL, /rounded-lg border border-border bg-popover/, "contained box");
-		assert.ok(
-			!/inset-y-0/.test(PANEL),
-			"the panel must not stretch the full editor height",
-		);
-	});
-});
-
-describe("the comment column's toggle lives in the shared top bar", () => {
-	// Three things went wrong here in sequence, each found by the user rather than by a
-	// test, so all three are pinned now.
-	//
-	//   1. The control was an icon and a bare count with no label, and it was DISABLED
-	//      (40% opacity) when the document had no comments — the state a reader is most
-	//      likely to be hunting for it in. The user could not find it.
-	//   2. It sat in the EDITOR's toolbar row, which is `!isViewing`, so it did not exist
-	//      in view mode at all — the mode comments are most often read in.
-	//   3. It was then floating over the editor; the user asked for it in the top bar.
-	const PANE = readFileSync(
-		new URL("../../components/wiki/viewer-pane.tsx", import.meta.url),
-		"utf8",
-	);
-
-	test("it is in the top bar, which renders in BOTH editing and viewing", () => {
-		const control = PANE.indexOf("isMarkdown(openFile.name) && commentCount");
-		assert.ok(control > 0, "expected to find the comment toggle in viewer-pane");
-		// The two mode-specific guards must both come AFTER it: if the control sat inside
-		// either one, one of the two modes would have no control at all.
-		const editGuard = PANE.indexOf("{isText(openFile.name) && !editing", control - 2000);
-		const viewingGuard = PANE.indexOf("{isText(openFile.name) && editing", control - 2000);
-		assert.ok(
-			editGuard === -1 || editGuard > control,
-			"the toggle must not sit inside the viewing-only guard",
-		);
-		assert.ok(
-			viewingGuard === -1 || viewingGuard > control,
-			"the toggle must not sit inside the editing-only guard",
-		);
-	});
-
-	test("it is NOT in the editor's edit-only toolbar row", () => {
-		// The editor's toolbar row is `!isViewing`. A toggle there is invisible in view
-		// mode, which is the defect this asserts against.
-		const row = EDITOR.indexOf("{!isViewing && (");
-		const rowEnd = EDITOR.indexOf("{sourceMode ? (", row);
-		assert.ok(row > 0 && rowEnd > row, "expected to find the editor's toolbar row");
-		const toolbarRow = EDITOR.slice(row, rowEnd);
-		assert.ok(
-			!/Hide comments|Show comments/.test(toolbarRow),
-			"the toggle must not be back inside the edit-only toolbar row",
-		);
-	});
-
-	test("it is hidden, not disabled, when there are no comments", () => {
-		// `disabled` still renders, at reduced opacity, and reads as a broken control.
-		assert.match(
-			PANE,
-			/isMarkdown\(openFile\.name\) && commentCount > 0 && \(/,
-			"the control appears only when there is something to hide",
-		);
-		assert.ok(
-			!/disabled=\{commentCount === 0\}/.test(PANE),
-			"and must not render disabled",
-		);
-	});
-
-	test("it is an icon plus count, with the verb in the tooltip", () => {
-		// The visible LABEL was removed on request: one button shouting "Hide comments"
-		// beside icon-only neighbours was visually wrong. The verb still has to exist for
-		// anyone not reading iconography, so it lives in `title` AND `aria-label` —
-		// `title` alone is not announced by screen readers.
-		const control = PANE.slice(
-			PANE.indexOf("{/* Show/hide the anchored comment cards."),
-			PANE.indexOf("{isText(openFile.name) && !editing"),
-		);
-		assert.ok(control.length > 0, "expected to find the control block");
-		assert.ok(
-			!/\{commentColumnCollapsed \? "Show comments"/.test(control),
-			"the visible label must be gone",
-		);
-		assert.match(control, /title=\{commentColumnCollapsed \? "Show comment cards"/);
-		assert.match(control, /aria-label=\{commentColumnCollapsed \? "Show comment cards"/);
-		assert.match(control, /\{commentCount\}/, "the count stays visible");
-		assert.match(control, /aria-pressed=\{!commentColumnCollapsed\}/);
-	});
-
-	test("the count is published by the editor, which is the only thing that sees comments", () => {
-		assert.match(
-			EDITOR,
-			/useCommentColumnStore\(\(state\) => state\.count\)|setCommentCount\(marginThreads\.length\)/,
-			"the editor must publish the count",
-		);
-		// Reset on unmount, or the next document inherits a stale count and the top bar
-		// offers a toggle for comments that are not there.
-		assert.match(
-			EDITOR,
-			/return \(\) => setCommentCount\(0\)/,
-			"the count must be cleared when the editor unmounts",
-		);
+	test("the badge and the panel read the same function", () => {
+		// A badge that advertises a count the panel does not draw is the one failure
+		// that would make the reviewer distrust every number on screen.
+		assert.match(BUTTON, /panelContents\(/);
+		assert.match(EDITOR, /panelContents\(/);
 	});
 });
 

@@ -43,7 +43,6 @@ import {
 
 import { CsvViewer } from "@/components/editor/csv-viewer";
 import { KBEditor } from "@/components/editor/editor";
-import { useCommentColumnStore } from "@/stores/comment-column-store";
 import { FileFallbackViewer } from "@/components/editor/file-fallback-viewer";
 import { LargeFileGate } from "@/components/editor/large-file-gate";
 import { ImageViewer } from "@/components/editor/image-viewer";
@@ -230,12 +229,6 @@ export function ViewerPane({
 	// Sticky: once the editor has rendered for this file, the spinner must not replace
 	// it. Written from an effect, not during render, so concurrent rendering cannot
 	// observe a half-updated value.
-	// The comment column's count and visibility, published by the editor and shown here
-	// in the top bar. The count is what decides whether the control is offered at all.
-	const commentCount = useCommentColumnStore((state) => state.count);
-	const commentColumnCollapsed = useCommentColumnStore((state) => state.collapsed);
-	const toggleCommentColumn = useCommentColumnStore((state) => state.toggle);
-
 	const [hasRenderedEditor, setHasRenderedEditor] = useState(false);
 	useEffect(() => {
 		if (!fileLoading) setHasRenderedEditor(true);
@@ -565,30 +558,6 @@ export function ViewerPane({
 								</>
 							)}
 						</>,
-					)}
-					{/* Show/hide the anchored comment cards. Sits in the TOP BAR, not the
-					    editor's toolbar row, because that row is `!isViewing` — the control
-					    did not exist in view mode, which is where comments are most often
-					    read. Icon plus COUNT, matching the icon-only controls beside it; the
-					    tooltip and `aria-label` carry the verb, since a label here made one
-					    control shout while its neighbours stayed quiet. Rendered only when
-					    the open document has comments, so it never advertises an empty
-					    column. */}
-					{isMarkdown(openFile.name) && commentCount > 0 && (
-						<Button
-							size="sm"
-							variant="ghost"
-							className="h-7 gap-1 px-2"
-							title={commentColumnCollapsed ? "Show comment cards" : "Hide comment cards"}
-							aria-label={commentColumnCollapsed ? "Show comment cards" : "Hide comment cards"}
-							aria-pressed={!commentColumnCollapsed}
-							onClick={toggleCommentColumn}
-						>
-							<MessageSquare className="h-3.5 w-3.5" />
-							<span className="text-[11px] tabular-nums text-muted-foreground">
-								{commentCount}
-							</span>
-						</Button>
 					)}
 					{isText(openFile.name) && !editing &&
 						(fileContent !== null || isMarkdown(openFile.name)) && (

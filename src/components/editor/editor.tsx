@@ -38,8 +38,11 @@ import {
 	type SourceDraft,
 } from "./editor-module-state";
 import { SlashCommands } from "./slash-commands";
-import { AnnotationsPanel } from "./annotations-panel";
-import { useCommentColumnStore } from "@/stores/comment-column-store";
+import { AnnotationsButton } from "./annotations-button";
+import {
+	panelContents,
+	useAnnotationPanelStore,
+} from "@/stores/annotation-panel-store";
 import { DocumentOutline } from "./document-outline";
 import { ReadingExperiments } from "./experiments";
 import { BacklinksPanel } from "./backlinks-panel";
@@ -1184,21 +1187,46 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	 * before/after in its attributes rather than covering text, so it falls back to
 	 * the mark's type name.
 	 *
-	 * No `top`: the panel is a list, not an alignment, so it never asks for an offset.
+	 * `blockRef` anchors the card beside the block the mark sits in. The panel shows
+	 * where a change is AND quotes the words it covers, which is more than either
+	 * surface managed alone: the old anchored column had the position but no words,
+	 * and the old floating list had the words but no position.
+	 *
+	 * Resolved by top-level block index — the same `$pos.index(0)` indexing the
+	 * comment path uses — because PM doc offsets are not markdown offsets. A mark
+	 * whose block cannot be resolved keeps `null`; the panel places it at the top
+	 * rather than dropping it, since a change that cannot be seen is a change that
+	 * cannot be settled.
 	 */
 	const panelSuggestions = useMemo(
 		() =>
-			trackedMarks.map((mark) => ({
-				id: mark.id,
-				kind: mark.kind,
-				from: mark.from,
-				to: mark.to,
-				text:
-					mark.kind === "modify"
-						? "modification"
-						: editor?.state.doc.textBetween(mark.from, mark.to, " ") ?? "",
-			})),
-		[trackedMarks, editor],
+			trackedMarks.map((mark) => {
+				let blockRef: string | null = null;
+				if (editor) {
+					try {
+						const $pos = editor.state.doc.resolve(mark.from);
+						const index = $pos.depth > 0 ? $pos.index(0) : 0;
+						blockRef = suggestionBlocks[index]?.ref ?? null;
+					} catch {
+						// `resolve` throws on an out-of-range offset, which can happen for one
+						// render after the document changes under an existing mark. The card
+						// still appears; it just cannot be anchored this frame.
+						blockRef = null;
+					}
+				}
+				return {
+					id: mark.id,
+					kind: mark.kind,
+					from: mark.from,
+					to: mark.to,
+					text:
+						mark.kind === "modify"
+							? "modification"
+							: editor?.state.doc.textBetween(mark.from, mark.to, " ") ?? "",
+					blockRef,
+				};
+			}),
+		[trackedMarks, editor, suggestionBlocks],
 	);
 
 	// The anchored column is COMMENTS ONLY, and is toggled from the TOP BAR — shared
@@ -1208,10 +1236,22 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	//
 	// The store holds the reader's choice; the editor publishes the count, because it is
 	// the only thing that can see the document's comments.
-	const marginCollapsed = useCommentColumnStore((state) => state.collapsed);
-	const setCommentCount = useCommentColumnStore((state) => state.setCount);
-	const expandCommentColumn = useCommentColumnStore((state) => state.expand);
-	const showCommentMargin = marginThreads.length > 0 && !marginCollapsed;
+	const panelOpen = useAnnotationPanelStore((state) => state.panelOpen);
+	const tab = useAnnotationPanelStore((state) => state.tab);
+	const setPanelCounts = useAnnotationPanelStore((state) => state.setCounts);
+	const revealComments = useAnnotationPanelStore((state) => state.revealComments);
+
+	// What the panel renders, from the same pure function the overlay button badges
+	// with — so a badge can never advertise a count the panel does not draw.
+	const contents = panelContents({
+		commentCount: marginThreads.length,
+		suggestionCount: panelSuggestions.length,
+		panelOpen,
+		tab,
+	});
+	const showCommentCards = contents.comments > 0;
+	const showSuggestionCards = contents.suggestions > 0;
+	const panelShowingAnything = panelOpen && (showCommentCards || showSuggestionCards);
 
 	/**
 	 * The reading column keeps its full width setting; the COMMENT COLUMN is additional
@@ -1236,11 +1276,11 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	 */
 	const editorMaxWWithMargin = editorMaxW;
 	useEffect(() => {
-		setCommentCount(marginThreads.length);
-		// Reset to 0 when this editor unmounts, or the next document inherits a stale
-		// count and the top bar offers a toggle for comments that are not there.
-		return () => setCommentCount(0);
-	}, [marginThreads.length, setCommentCount]);
+		setPanelCounts(marginThreads.length, panelSuggestions.length);
+		// Reset when this editor unmounts, or the next document inherits stale counts
+		// and the overlay button offers toggles for annotations that are not there.
+		return () => setPanelCounts(0, 0);
+	}, [marginThreads.length, panelSuggestions.length, setPanelCounts]);
 
 
 	// Keep the Accept/Reject controls in step with the document. Counted from the
@@ -1602,33 +1642,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 						) : (
 							<div className="flex-1 relative flex min-h-0" dir={isRtl ? "rtl" : undefined}>
 								<DocumentOutline editor={editor} scrollContainerRef={scrollContainerRef} />
-								<AnnotationsPanel
-									threads={marginThreads}
-									suggestions={panelSuggestions}
-									onAcceptSuggestion={(id, from, to) =>
-										resolveOneTracked(id, from, to, "accept")
-									}
-									onRejectSuggestion={(id, from, to) =>
-										resolveOneTracked(id, from, to, "reject")
-									}
-									onJumpToRef={(blockRef) => {
-										// Reach the text the comment sits on, then expand its
-										// card so the reader lands on the thread itself
-										// rather than merely near it.
-										const el = editor?.view.dom.querySelector(
-											`[data-block-ref="${blockRef}"]`,
-										);
-										el?.scrollIntoView({ behavior: "smooth", block: "center" });
-									}}
-									onFocusThread={(blockRef) => {
-										// Re-show the column first. Jumping to a comment
-										// while the column is hidden would scroll to the text
-										// and expand a card that is not on screen — the jump
-										// would appear to do nothing.
-										expandCommentColumn();
-										setActiveMarginRefNow(blockRef);
-									}}
-								/>
+								<AnnotationsButton />
 								<ReadingExperiments editor={editor} scrollContainerRef={scrollContainerRef} />
 								<div className="flex-1 relative min-w-0">
 								<div
@@ -1786,7 +1800,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 								    comment-margin.tsx). Sits OUTSIDE the scroll container so
 								    cards stay put while the document scrolls under them, and
 								    the header toggle is what shows or hides it. */}
-								{showCommentMargin && (
+								{panelShowingAnything && (
 									<CommentMargin
 										path={currentPath ?? ""}
 										threads={marginThreads}
@@ -1808,6 +1822,15 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 											)
 										}
 										onClose={() => setActiveMarginRefNow(null)}
+										suggestions={panelSuggestions}
+										onAcceptSuggestion={(id, from, to) =>
+											resolveOneTracked(id, from, to, "accept")
+										}
+										onRejectSuggestion={(id, from, to) =>
+											resolveOneTracked(id, from, to, "reject")
+										}
+										showComments={showCommentCards}
+										showSuggestions={showSuggestionCards}
 										onHoverChange={(blockRef, hovered) =>
 											setHoveredMarginRef(hovered ? blockRef : null)
 										}

@@ -8,6 +8,7 @@
  */
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 import { __test } from "@/components/editor/comment-margin";
 
@@ -19,7 +20,7 @@ function thread(blockRef: string) {
 
 describe("comment margin layout", () => {
 	test("a single card sits at its anchor", () => {
-		const out = layout([thread("a")], new Map([["a", 120]]), { a: 72 });
+		const out = layout([thread("a")], [], new Map([["a", 120]]), { a: 72 });
 		assert.equal(out.length, 1);
 		assert.equal(out[0].top, 120);
 	});
@@ -27,6 +28,7 @@ describe("comment margin layout", () => {
 	test("cards far apart keep their anchors", () => {
 		const out = layout(
 			[thread("a"), thread("b")],
+			[],
 			new Map([
 				["a", 0],
 				["b", 400],
@@ -41,6 +43,7 @@ describe("comment margin layout", () => {
 		// a: 0..72, b wants 40 -> would overlap by 32.
 		const out = layout(
 			[thread("a"), thread("b")],
+			[],
 			new Map([
 				["a", 0],
 				["b", 40],
@@ -58,6 +61,7 @@ describe("comment margin layout", () => {
 		const heights = Object.fromEntries(refs.map((r) => [r, 72]));
 		const out = layout(
 			refs.map(thread),
+			[],
 			offsets,
 			heights,
 		);
@@ -84,6 +88,7 @@ describe("comment margin layout", () => {
 	test("a tall card pushes the next one further", () => {
 		const out = layout(
 			[thread("a"), thread("b")],
+			[],
 			new Map([
 				["a", 0],
 				["b", 10],
@@ -96,6 +101,7 @@ describe("comment margin layout", () => {
 	test("input order does not matter — output is sorted by anchor", () => {
 		const out = layout(
 			[thread("b"), thread("a")],
+			[],
 			new Map([
 				["a", 0],
 				["b", 400],
@@ -109,7 +115,7 @@ describe("comment margin layout", () => {
 	});
 
 	test("an unknown anchor offset defaults to the top rather than vanishing", () => {
-		const out = layout([thread("ghost")], new Map(), { ghost: 72 });
+		const out = layout([thread("ghost")], [], new Map(), { ghost: 72 });
 		assert.equal(out.length, 1, "a card with no measured anchor is still shown");
 		assert.equal(out[0].top, 0);
 	});
@@ -130,13 +136,13 @@ describe("comment margin layout", () => {
 		]);
 
 		// Collapsed: three 55px cards pack tightly.
-		const collapsed = layout(threads, offsets, { a: 55, b: 55, c: 55 });
+		const collapsed = layout(threads, [], offsets, { a: 55, b: 55, c: 55 });
 		assert.equal(collapsed[0].top, 0);
 		assert.equal(collapsed[1].top, 63);
 
 		// Expanded: the first card grew. Every later card must move DOWN, and none
 		// may start before the previous card ends.
-		const expanded = layout(threads, offsets, { a: 185, b: 55, c: 55 });
+		const expanded = layout(threads, [], offsets, { a: 185, b: 55, c: 55 });
 		for (let i = 1; i < expanded.length; i++) {
 			const prev = expanded[i - 1];
 			const prevEnd = prev.top + (prev.key === "a" ? 185 : 55);
@@ -161,7 +167,7 @@ describe("comment margin layout", () => {
 			["a", 0],
 			["b", 63],
 		]);
-		const stale = layout(threads, offsets, { a: 55, b: 55 });
+		const stale = layout(threads, [], offsets, { a: 55, b: 55 });
 		const realEndOfA = 0 + 185;
 		assert.ok(
 			stale[1].top < realEndOfA,
@@ -181,9 +187,12 @@ describe("suggestion cards share the comment column's collision pass", () => {
 	test("a suggestion and a comment on the same line do not overlap", () => {
 		const threads = [thread("a")];
 		const offsets = new Map([["a", 0]]);
-		const laid = layout(threads, offsets, { a: 72 }, [
-			{ key: "suggestion:1", desired: 0, height: 84 },
-		]);
+		const laid = layout(
+			threads,
+			[suggestion(1, "a", 0)],
+			offsets,
+			{ a: 72, "suggestion:1": 84 },
+		);
 
 		assert.equal(laid.length, 2, "both kinds of card must be laid out");
 		const [first, second] = laid;
@@ -196,10 +205,11 @@ describe("suggestion cards share the comment column's collision pass", () => {
 
 	test("cards are ordered by their anchor position, not by kind", () => {
 		const threads = [thread("b")];
-		const offsets = new Map([["b", 400]]);
-		const laid = layout(threads, offsets, { b: 72 }, [
-			{ key: "suggestion:9", desired: 10, height: 84 },
+		const offsets = new Map([
+			["b", 400],
+			["a", 10],
 		]);
+		const laid = layout(threads, [suggestion(9, "a", 10)], offsets, { b: 72 });
 
 		assert.deepEqual(
 			laid.map((c) => c.key),
@@ -209,21 +219,100 @@ describe("suggestion cards share the comment column's collision pass", () => {
 	});
 
 	test("a suggestion card carries no thread, so the render can branch on it", () => {
-		const laid = layout([], new Map(), {}, [{ key: "suggestion:3", desired: 0, height: 84 }]);
+		// The render picks the card by testing `thread` first, then `suggestion`. If a
+		// suggestion ever arrived with a thread attached it would render as a comment,
+		// showing an author that does not exist.
+		const laid = layout([], [suggestion(1, "a", 0)], new Map([["a", 0]]), {});
 		assert.equal(laid.length, 1);
 		assert.equal(laid[0].thread, null);
-		assert.equal(laid[0].key, "suggestion:3");
+		assert.ok(laid[0].suggestion, "the suggestion must ride on its own field");
 	});
 
-	test("CONTROL: with no collision pass the two cards WOULD overlap", () => {
-		// Pins that the assertion above is load-bearing: placed independently, both
-		// cards want the same top offset.
-		const desiredForComment = 0;
-		const desiredForSuggestion = 0;
+	test("a suggestion with no resolvable block is placed at the top, not dropped", () => {
+		// A mark whose block could not be resolved still has to be reviewable, or the
+		// change cannot be settled from the only surface that can settle it.
+		const laid = layout([], [suggestion(1, null, 0)], new Map(), {});
+		assert.equal(laid.length, 1, "an unanchorable change must still be shown");
+		assert.equal(laid[0].top, 0);
+	});
+});
+
+function suggestion(id: number, blockRef: string | null, from: number) {
+	return {
+		id,
+		kind: "insert" as const,
+		from,
+		to: from + 4,
+		text: "word",
+		blockRef,
+	};
+}
+
+describe("the first card clears the tab header", () => {
+	// Regression the user caught twice. The card offsets are measured from the SCROLL
+	// CONTAINER, but the cards render in a box that begins BELOW the panel's tab
+	// header. The column is therefore high by exactly the header's height, and the
+	// topmost card sits on the tabs. My first attempt added 8px of CSS padding, which
+	// does not address the mismatch at all — it was a guess dressed as a fix.
+
+	test("layout shifts every card by the inset", () => {
+		const threads = [thread("a"), thread("b")];
+		const offsets = new Map([
+			["a", 0],
+			["b", 63],
+		]);
+		const INSET = 41;
+		const laid = layout(threads, [], offsets, { a: 55, b: 55 }, INSET);
+
+		assert.equal(laid[0].top, INSET, "the first card must clear the header");
+		assert.ok(
+			laid[1].top >= laid[0].top + 55 + 8,
+			"and the collision pass must still hold with the inset applied",
+		);
+	});
+
+	test("the inset does not change the spacing BETWEEN cards", () => {
+		// It shifts the column, it does not stretch it: a second magic number here is
+		// how two cards drift apart only when a header is present.
+		const threads = [thread("a"), thread("b")];
+		const offsets = new Map([
+			["a", 100],
+			["b", 200],
+		]);
+		const noInset = layout(threads, [], offsets, { a: 55, b: 55 });
+		const withInset = layout(threads, [], offsets, { a: 55, b: 55 }, 41);
 		assert.equal(
-			desiredForComment,
-			desiredForSuggestion,
-			"both cards want the same offset, which is exactly why one pass must place both",
+			withInset[1].top - withInset[0].top,
+			noInset[1].top - noInset[0].top,
+			"the gap between two cards must be identical either way",
+		);
+	});
+
+	test("the inset applies to suggestion cards too", () => {
+		// Both kinds share the column, so a suggestion left un-shifted would overlap
+		// the tabs while the comments below it did not.
+		const laid = layout([], [suggestion(1, "a", 0)], new Map([["a", 0]]), {}, 41);
+		assert.equal(laid[0].top, 41);
+	});
+
+	test("the inset is the measured header height, not a constant", () => {
+		// The header's height depends on font metrics and on whether counts render, so
+		// a hardcoded number would be wrong on another machine by a few pixels — enough
+		// to overlap or to leave a visible gap.
+		const MARGIN = readFileSync(
+			new URL("../../components/editor/comment-margin.tsx", import.meta.url),
+			"utf8",
+		);
+		assert.match(MARGIN, /ResizeObserver/, "the header must be measured, not assumed");
+		assert.match(
+			MARGIN,
+			/headerHeight \+ BODY_GAP/,
+			"and the layout must be shifted by that measurement",
+		);
+		assert.ok(
+			!/paddingTop: headerHeight/.test(MARGIN),
+			"it must NOT be CSS padding: that shrinks the scrollable box and puts the " +
+				"last card out of reach",
 		);
 	});
 });
