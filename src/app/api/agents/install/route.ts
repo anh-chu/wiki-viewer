@@ -113,7 +113,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 			],
 			tiers: {
 				tier1: "Raw FS — /api/agent/fs/* — all file types, fast, light audit (ETag/sha256, file.rawWritten event, audit table).",
-				tier2: "Collab — /api/agent/files/*.md — markdown only, block-scoped clean-markdown writes with revision checks, comments, suggestions. Provenance lands in the activity feed/audit log.",
+				tier2: "Collab — /api/agent/files/*.md — markdown only, block-scoped writes with revision checks, comments, and inline suggestion marks. Suggestion marks are document content in the .md source; provenance lands in the activity feed/audit log.",
 			},
 		},
 		mcpAdapter: {
@@ -136,10 +136,6 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 			"comment.resolve",
 			"comment.reopen",
 			"suggestion.add",
-			"suggestion.edit",
-			"suggestion.delete",
-			"suggestion.accept",
-			"suggestion.reject",
 		],
 	});
 }

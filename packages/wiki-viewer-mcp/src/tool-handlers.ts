@@ -51,7 +51,7 @@ function collabActiveMessage(path: string, snapshotUrl: string | null): string {
   return (
     `⚠️  COLLAB ACTIVE: "${path}" is being actively collaborated on by a human.\n` +
     `Raw writes are blocked to protect pending review artifacts.\n` +
-    `→ Use wiki-viewer Tier-2 block-ops (POST /api/agent/files/<path>.md with block.replace / suggestion.*) so your edit becomes a reviewable suggestion.${tier2}\n` +
+    `→ Use wiki-viewer Tier-2 block-ops (POST /api/agent/files/<path>.md). Use suggestion.add for an inline <ins>/<del> mark the human can accept or reject in the editor, or use block.* when the change should apply immediately.${tier2}\n` +
     `→ Alternatively, re-read the file and pass ifCollabMatch with the current X-Collab-Revision if you have confirmed with the human that a direct raw write is intended.`
   );
 }

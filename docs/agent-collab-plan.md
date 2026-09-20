@@ -330,6 +330,30 @@ If the op originates from an AI agent (`by` starts with `ai:`), the **inserted t
 
 On accept: apply the suggestion as the corresponding `block.*` op, then mark suggestion `accepted` in sidecar. On reject: mark `rejected` and prune from active list (move to `archivedSuggestions` array, keep for event history but don't include in default snapshot).
 
+> **Superseded — suggestions are document marks (2026-09).** The suggestion lifecycle
+> described in this section is no longer how suggestions work. A suggestion is now a
+> ProseMirror mark in the document (`<ins data-id="N">` / `<del data-id="N">`) and the
+> `.md` file is the source of truth; there is no sidecar suggestion record, no
+> `archivedSuggestions`, and no `suggestionId`.
+>
+> What changed for an agent:
+>
+> - `suggestion.add` takes `kind: "insert" | "remove"` plus a block-local Markdown
+>   `range`, and splices the corresponding mark into the block's markdown. Insertions
+>   also supply the text to insert.
+> - `suggestion.accept`, `suggestion.reject`, `suggestion.edit` and
+>   `suggestion.delete` no longer exist. A human settles marks in the editor. An agent
+>   that wants an immediate committed change posts `block.replace`,
+>   `block.insertAfter`, `block.insertBefore` or `block.delete` directly.
+> - `status: "accepted"` on `suggestion.add` is refused with
+>   `400 UNSUPPORTED_SUGGESTION_STATUS`, because applying a change is what the
+>   `block.*` ops are for.
+> - `Snapshot.suggestions` is gone; read the marks out of the block markdown.
+> - Writing a mark changes document bytes and bumps the revision, unlike `comment.add`.
+>
+> The `block.*` op vocabulary, the block-ref model and the revision checks below are
+> all still accurate. See `docs/ux-contracts.md` §6 for the current contract.
+
 ### 4.5 Response codes
 
 | Status | Code field                                   | Meaning                                                                  |

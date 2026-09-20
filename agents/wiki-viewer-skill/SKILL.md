@@ -143,7 +143,6 @@ Returns a Snapshot:
     { "ref": "b7f2c1", "type": "paragraph", "markdown": "Ship in June." }
   ],
   "comments": [...],
-  "suggestions": [...],
   "lastEventId": 12
 }
 ```
@@ -196,22 +195,21 @@ Block ops write clean markdown verbatim. Provenance is recorded in the activity 
 { "type": "comment.reopen",  "commentId": "c4a1" }
 ```
 
-**Suggestion ops** — proposed edits the human must accept:
+**Suggestion ops** — document marks for reviewable inline edits:
 
 ```json
 {
   "type": "suggestion.add",
   "ref": "b7f2c1",
-  "kind": "replace",
-  "markdown": "Ship the rewrite by July 15.",
-  "basis": "described",
-  "basisDetail": "user mentioned slippage in chat"
+  "kind": "insert",
+  "range": { "start": 5, "end": 5 },
+  "markdown": "very "
 }
 ```
 
-Suggestion kinds: `"replace" | "insertAfter" | "insertBefore" | "delete"`.
+For `insert`, `range` is a block-local Markdown offset and `markdown` is the text to insert. For `remove`, use the selected block-local `{start,end}` range; the server writes a `<del data-id="N">…</del>` mark. An insertion is written as `<ins data-id="N">…</ins>`. The mark is the suggestion record and the `.md` file is the source of truth, so adding one changes document bytes and the revision. There is no sidecar suggestion record or agent settle operation. A human accepts or rejects marks in the editor; an agent that wants an immediate change should use the direct `block.*` ops instead.
 
-Suggestions are separate UI objects for proposed edits. Direct block ops commit clean markdown immediately; both actions are recorded in audit/activity logs.
+Direct block ops commit clean markdown immediately; all content changes are recorded in the activity feed/audit log.
 
 ## Polling events
 
@@ -219,7 +217,7 @@ Suggestions are separate UI objects for proposed edits. Direct block ops commit 
 GET /api/agent/events/<path>.md?after=<lastEventId>
 ```
 
-Returns events emitted since `lastEventId`: human comments, accepted suggestions, external file edits (the human opened the file in vim), and so on. Use this to react when the human responds to one of your comments or suggestions.
+Returns events emitted since `lastEventId`: human comments, document edits involving suggestion marks, external file edits (the human opened the file in vim), and so on. Use this to react when the human responds to one of your comments or when the document changes.
 
 Acknowledge:
 
@@ -387,7 +385,7 @@ Every `GET /api/agent/fs/file/<path>` (and every Tier-2 snapshot read) returns `
 
 | `X-Collab-State` | Meaning                                                                                       | Use                                                                                                  |
 | ---------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `active`         | Human has this `.md` open in the editor, OR it has pending suggestions / unresolved comments. | **Tier 2 block-ops only.** A raw `PUT` returns `409 COLLAB_ACTIVE`.                                  |
+| `active`         | Human has this `.md` open in the editor, OR it has unresolved comments. | **Tier 2 block-ops only.** A raw `PUT` returns `409 COLLAB_ACTIVE`.                                  |
 | `tracked`        | `.md` has a sidecar (prior collab history), no active session.                                | Prefer Tier-2 for prose/semantic edits. Raw ok for mechanical/whole-file ops (reformat, regenerate). |
 | `untracked`      | `.md`, no sidecar yet.                                                                        | Raw is fine. Tier-2 creates a sidecar (starts provenance tracking).                                  |
 | `not-markdown`   | Any non-`.md` file.                                                                           | **Tier-1 raw only.** Tier 2 does not apply.                                                          |
@@ -423,7 +421,7 @@ Every `GET /api/agent/fs/file/<path>` (and every Tier-2 snapshot read) returns `
 - One file per request. There is no batch-across-files endpoint.
 - Atomic ops. Each POST applies all its ops or none. Order matters within a batch.
 - Write clean markdown. Legacy `basis`, `basisDetail`, and `inResponseTo` fields are accepted but ignored for backward compatibility.
-- Prefer comments and suggestions over silent edits. The human is your collaborator, not your reviewer-of-last-resort.
+- Use `suggestion.add` when the human should review an inline marked change; use direct `block.*` ops when the change should apply immediately. The human is your collaborator, not your reviewer-of-last-resort.
 - Poll events between turns when the human is reviewing your work; respond to their comments rather than re-litigating.
 
 ## Sample first interaction

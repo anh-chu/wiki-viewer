@@ -60,9 +60,9 @@ down turns "did we regress the loop?" into a diff against this file.
   - [5.2 View-mode and source-line comments](#52-view-mode-and-source-line-comments)
   - [5.3 Orphaned annotations (marked lost, never destroyed)](#53-orphaned-annotations-marked-lost-never-destroyed)
 - [6. Suggestions](#6-suggestions)
-  - [6.1 Suggest-edit popover (REMOVED)](#61-suggest-edit-popover-removed)
-  - [6.2 Suggestion inline redline + review popover](#62-suggestion-inline-redline--review-popover)
-  - [6.2a Tracked changes and the markdown byte-identity invariant](#62a-tracked-changes-and-the-markdown-byte-identity-invariant)
+  - [6.1 Suggestion review and settlement](#61-suggestion-review-and-settlement)
+  - [6.2 Suggestion round-trip and agent authoring](#62-suggestion-round-trip-and-agent-authoring)
+  - [6.2a Suggestions and the markdown round-trip](#62a-suggestions-and-the-markdown-round-trip)
   - [6.3 Creating a suggestion](#63-creating-a-suggestion)
 - [7. Search](#7-search)
   - [7.1 Command palette and sidebar search](#71-command-palette-and-sidebar-search)
@@ -990,11 +990,7 @@ document stays selectable in the gutter beside them.
 
 ### 5.2 View-mode and source-line comments
 
-**Contract:** In read-only markdown mode, floating **Comment** and **Suggest**
-buttons appear over a non-collapsed selection (the Suggest button opens the same
-suggest-edit popover as edit mode and posts a sidecar-only `suggestion.add`; it
-renders only when a suggest handler is wired, so the source viewer stays
-comment-only). In the source viewer, comments anchor to
+**Contract:** In read-only markdown mode, floating **Comment** appears over a non-collapsed selection. Suggestions are authored in the editor as marks; the source viewer remains comment-only. In the source viewer, comments anchor to
 `lineStart:lineEnd:12-hex-SHA-256-of-selected-text`, with pips keyed by that
 triple and the active thread's lines highlighted `bg-amber-400/25`.
 
@@ -1070,18 +1066,7 @@ orphans it.
 
 - The previous one-way `stale` latch is gone for comments; it had no reset site
   and no surface anywhere in the UI.
-- Suggestions keep `stale: true`, and no mutation may act on one. The review flow
-  was previously described here as "a path back", which was wrong: nothing clears
-  the flag, so there is no path back. What the flag actually does is latch, and
-  because refs are content-derived it can latch while the ref becomes valid again —
-  delete a paragraph, retype the same text, and the suggestion is still `stale`
-  (hidden from the UI) while `suggestion.accept` finds its block and writes the
-  file. So `suggestion.accept`, `.reject`, `.edit` and `.delete` all refuse a stale
-  suggestion with `409 SUGGESTION_STALE`, keyed on the recorded state rather than on
-  whether the ref currently resolves. Reviving a stale suggestion needs an explicit,
-  validated transition, which does not exist and is not implied by any current op.
-- The record survives in the sidecar with its status, so nothing the user wrote
-  depends on somebody else's save to remain readable.
+- Suggestion marks are document content, not sidecar records, so they do not use a ref-based `stale` latch or agent settlement path. A raw overwrite can change the document, but any marks present remain governed by the markdown source of truth.
 - A lost comment renders a card but no pip and no highlight.
 
 **Why it matters:** An external edit used to make a comment vanish with no signal,
@@ -1183,68 +1168,18 @@ made to it), `src/lib/markdown/to-markdown.ts` (the `ins` / `del` rules),
 `src/lib/markdown/sanitize-schema.ts` (the `dataId` allowlist entries),
 `src/tests/proof/suggestion-roundtrip.test.ts`
 
-### 6.1 Suggest-edit popover (REMOVED)
+### 6.1 Suggestion review and settlement
 
-**Status:** removed. This section is kept as a tombstone so the contract does not
-silently lose a heading that other sections and tests referenced.
+**Contract:** Suggestions are ProseMirror marks in the document, rendered inline as redlines: insertions use `<ins data-id="N">…</ins>` and deletions use `<del data-id="N">…</del>`. The mark is the record and the `.md` file is the source of truth. There is no sidecar suggestion record, review popover, gutter pip, or agent operation that settles a suggestion. A human reviews the inline redline in the editor and uses its Accept or Reject controls; those controls apply document transforms and drop the mark. Accept keeps inserted text and removes deleted text; Reject removes inserted text and restores deleted text. Writing a mark changes file bytes and bumps the revision.
 
-The popover opened from a bubble "Suggest edit" button or the view-mode button and
-submitted `suggestion.add` with a kind chip (Replace block / Insert after / Insert
-before / Delete block), a markdown textarea, and an optional reason.
+An agent authors a reviewable inline suggestion with `suggestion.add`, providing a block `ref`, `kind: "insert" | "remove"`, and a block-local Markdown `range`. Insertions also provide the text to insert. The server splices the corresponding mark into that block's markdown. If an agent wants an immediate committed change, it uses `block.replace`, `block.insertAfter`, `block.insertBefore`, or `block.delete` directly instead.
 
-It was removed because it was a second, weaker way to suggest alongside the
-mark-based typing path in §6.0. The popover produced a proposal stored in the
-sidecar, keyed to a content-derived block ref — the same design that orphaned
-suggestions and that §6.2a records as the reason suggestions moved into the
-document. Keeping two paths meant keeping the fragile one alive purely because
-the UI still offered it.
+**Why it matters:** One durable representation prevents the document and a separate suggestion store from drifting, and lets the human review exactly the text that will be written to disk.
 
-**What remains.** `suggestion.add` is still part of the agent API, so an agent can
-propose a suggestion and it appears through the §6.2 review popover exactly as
-before. Reviewing, accepting and rejecting committed suggestions is unchanged.
-What is gone is the human block-level authoring surface. A human suggests by
-turning on Suggesting mode and typing, which is the Google Docs model.
+**Verification pointer:** `src/components/editor/extensions/suggest-changes.ts`, `src/lib/proof/ops-applier.ts`, `src/lib/markdown/to-markdown.ts`, `src/lib/markdown/sanitize-schema.ts`
 
-**Verification pointer:** `src/lib/proof/post-op.ts` (the write path that
-survived, extracted from the deleted popover file),
-`src/tests/proof/mode-affordance.test.ts` (asserts the affordance is gone from
-both surfaces)
+<!-- Retired sidecar-popover prose removed; this heading is retained for stable anchors. -->
 
-### 6.2 Suggestion review (redline retired)
-
-**Contract:** A pending **committed** suggestion (one recorded in the sidecar, e.g.
-proposed by an agent) is reviewed in a viewport-clamped **review popover** showing
-current vs proposed, with **Accept** (`suggestion.accept`, retries once on 409 with
-the latest revision) and **Reject** (`suggestion.reject`, no retry); both reload
-sidecar + snapshot on settle. The popover also exposes **Edit** (`suggestion.edit`,
-pending only) and **Delete** (`suggestion.delete`, pending only, confirm-gated —
-removes the suggestion with no tombstone, unlike Reject which keeps a rejected
-record). `esc` closes. A block with pending suggestions gets a **gutter pip** — a
-small pencil (`SquarePen`) in the left gutter, matching the comment pip's visual
-language, placed just left of the comment pip when a block has both.
-
-**The decoration-based inline redline is retired.** It rendered committed proposals
-as ProseMirror **decorations** over text that had already been replaced —
-word-diff struck/inserted spans plus a block-level struck bar or left-bar fallback.
-That model is wrong for the same reason the old comment pips were: it depicts the
-change from *outside* the document instead of letting the change live *in* it. It
-also could not support in-place authoring, because a decoration cannot hold text
-the document would have to contain for you to type into it.
-
-An edit is now expressed by **marks in the document** (§6.0), and a suggestion is
-surfaced beside the document in the **margin column**, exactly like a comment
-(§5.1). `suggestion-decorator.ts` and its test were deleted rather than left
-mounted-but-unused; `word-diff.ts` survives because the review popover still uses
-it to show current-vs-proposed.
-
-**Why it matters:** one visual language for pending change. Previously a committed
-proposal appeared as a redline decoration while your own typed edit appeared as a
-mark — two renderings of the same idea, with only one of them consistent with
-typing over the document.
-
-**Verification pointer:** `src/components/editor/suggestion-review-popover.tsx`,
-`src/components/editor/suggestion-pip.tsx`,
-`src/components/editor/extensions/suggest-changes.ts`
 
 ### 6.1a Opening a document for editing does not rewrite it
 
@@ -1277,40 +1212,43 @@ A genuine edit still saves; the guard only suppresses no-ops.
 still serializes the whole document, so untouched parts of a file can be reformatted
 (`1. ` -> `1.  `) as a side effect of saving a genuine change. That is pre-existing
 behaviour on `main`, not something this change introduces, and it is distinct from
-the byte-identity contract in §6.2a, which is scoped to *pending* suggestions.
+the round-trip contract in §6.2a.
 Recorded here so the no-op fix is not mistaken for a wider formatting guarantee.
 **Verification pointer:** `src/components/editor/editor.tsx` (`handleUpdate`),
 `src/tests/proof/noop-save-guard.test.ts`
 
 ### 6.2a Suggestions and the markdown round-trip
 
-**Contract:** Markdown files are the source of truth, and a pending suggestion is
-**part of the file** — it must survive a save, a reload, and any reader.
+**Contract:** Markdown files are the source of truth, and a suggestion is **part of
+the file** — it must survive a save, a reload, and any reader.
 
 This reverses an earlier invariant that required `.md` to stay byte-identical while
 suggestions were pending, stripping the marks before conversion and holding the
-suggestions in a `.proof/*.json` sidecar. That is what made suggestions fragile, and the
-failure is worth recording: the file never held them, so the sidecar was the only copy,
-and the block refs keying it were content-derived — recording a suggestion changed the
-block content and orphaned the refs pointing at it. Measured: 11 suggestions, 8 marked
-`stale`, three refs matching no block in the document. The annotation destroyed its own
-anchor, and nothing in the file could restore it.
+suggestions in a `.proof/*.json` sidecar. That is what made suggestions fragile, and
+the failure is worth recording: the file never held them, so the sidecar was the only
+copy, and the block refs keying it were content-derived — recording a suggestion
+changed the block content and orphaned the refs pointing at it. Measured: 11
+suggestions, 8 marked `stale`, three refs matching no block in the document. The
+annotation destroyed its own anchor, and nothing in the file could restore it.
 
 What is required now:
 
-1. **Serialize the marks.** `src/lib/markdown/to-markdown.ts` has `ins` / `del` stub
-   rules that emit the tags with their `data-id`. Without them Turndown keeps the text
-   and drops the tag, silently converting every pending suggestion into an applied
-   edit. Measured: `<ins data-id="7">Added text.</ins>` became plain `Added text.`
+1. **Serialize the marks.** `src/lib/markdown/to-markdown.ts` has `ins` / `del` rules
+   that emit the tags with their `data-id`. Without them Turndown keeps the text and
+   drops the tag, silently converting every pending suggestion into an applied edit.
+   Measured: `<ins data-id="7">Added text.</ins>` became plain `Added text.`
 2. **Let the attribute through the sanitizer.** `src/lib/markdown/sanitize-schema.ts`
    needs `dataId` on `ins` and `del` — rehype-sanitize uses camelCase hast names.
    Without it the attribute is stripped on render, the mark stops parsing, and a
    deletion comes back as plain `<s>` strikethrough. Measured in the browser.
 3. **One serialization path.** The app has exactly one: `editor.getHTML()` in
    `editor.tsx` feeding `htmlToMarkdown`. Any new save path must not reintroduce a
-   strip.
+   strip. Agent-authored marks go through the same path: `suggestion.add` splices
+   `<ins>` / `<del>` into the block markdown, and the editor re-parses the result.
 4. **A control test.** `src/tests/proof/suggestion-roundtrip.test.ts` asserts the marks
-   survive markdown -> HTML -> markdown byte-for-byte, `data-id` included.
+   survive markdown -> HTML -> markdown byte-for-byte, `data-id` included, and
+   `src/tests/proof/suggestion-mark-e2e.test.ts` asserts the same for a mark an agent
+   writes to disk.
 
 **Why it matters:** the property to protect is that a suggestion is never lost. Putting
 it in the document is what makes that possible — there is no second store to drift, and
@@ -1319,6 +1257,7 @@ the text a suggestion refers to cannot orphan it.
 **Verification pointer:** `src/lib/markdown/to-markdown.ts`,
 `src/lib/markdown/sanitize-schema.ts`,
 `src/tests/proof/suggestion-roundtrip.test.ts`,
+`src/tests/proof/suggestion-mark-e2e.test.ts`,
 `src/vendor/prosemirror-suggest-changes/`
 
 ### 6.3 Creating a suggestion
@@ -1328,11 +1267,7 @@ insertion becomes an `<ins data-id>` mark and every deletion a `<del data-id>` m
 in the document, and that mark IS the record. There is no popover, no submit step, and
 no sidecar write — the marks serialize into the `.md` and come back on reload (§6.2a).
 
-The block-level **suggest-edit popover is removed** (§6.1). It select-text → choose
-Suggest → submit `suggestion.add` through the sidecar, keyed to a content-derived block
-ref, which is the model that orphaned suggestions. Agents can still create suggestions
-through `suggestion.add`; they review through the §6.2 popover. What is gone is the
-human surface for it.
+Agents can create suggestions through `suggestion.add`: the server writes an inline mark using the supplied block ref, kind, and block-local Markdown range. The human reviews that mark in the editor; there is no agent settlement op or sidecar suggestion record.
 
 **Why it matters:** One model, not two. The popover produced a proposal stored *beside*
 the document and the typing path produces a change *inside* it — two lifecycles, two
@@ -1346,16 +1281,13 @@ surface)
 
 ### 6.4 Copy as prompt
 
-**Contract:** A floating **Copy as prompt** dock pill is fixed bottom-center with a theme-token elevated rounded surface (`bg-popover`, `border-border`, `shadow-lg`), count badge, and integrated `✎ N suggestions` review button. It is rendered in **both view and edit mode** (all annotation ops are sidecar-only; the save hint and save-status chip are the edit-only parts of the annotation bar). Shown only when the document has ≥1 open comment or pending
-suggestion; a count badge shows how many. It opens a popover listing those items and serializes
+**Contract:** A floating **Copy as prompt** dock pill is fixed bottom-center with a theme-token elevated rounded surface (`bg-popover`, `border-border`, `shadow-lg`), count badge, and integrated `✎ N suggestions` review button. It is rendered in **both view and edit mode** (comments remain annotation-only; suggestion marks are document content; the save hint and save-status chip are the edit-only parts of the annotation bar). Shown only when the document has ≥1 open comment or suggestion mark; a count badge shows how many. It opens a popover listing those items and serializes
 them into a prompt the user can paste into their own agent, without creating or
 writing anything. Format, numbered from 1:
 `Edit the file \`<path>\` (a Markdown document). Apply these changes:` then a
 blank line, then per item:
 `N. Comment on "<FULL BLOCK TEXT>" (lines X-Y): "<original ask>"` followed by
-each reply as an indented `- <by>: <text>` line; suggestions phrase by kind
-(`Suggestion on "<current block text>": replace with "<proposed>"`,
-`insert after "<block text>": "<proposed>"`, `delete this block`). The quoted
+each reply as an indented `- <by>: <text>` line; suggestion marks are described as inline insertions or deletions using their marked text rather than a sidecar proposal. The quoted
 anchor is the block's full canonical markdown (resolved from the snapshot,
 capped at ~200 chars with `…`), never the ref id; ref-anchored comments omit
 the line range when no line metadata is available, while line-anchored
