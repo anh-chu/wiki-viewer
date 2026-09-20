@@ -105,8 +105,6 @@ export function emptySidecar(mdPath: string): Sidecar {
 		refMap: {},
 		refAliases: {},
 		comments: [],
-		suggestions: [],
-		archivedSuggestions: [],
 		events: [],
 		nextEventId: 1,
 		lastAck: {},

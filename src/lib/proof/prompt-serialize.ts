@@ -1,7 +1,6 @@
 import type {
 	Comment,
 	LineAnchor,
-	Suggestion,
 	SuggestionKind,
 } from "./types";
 

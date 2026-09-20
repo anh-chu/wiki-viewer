@@ -68,11 +68,12 @@ export async function computeCollabState(
 	}
 
 	// Has sidecar, no lease — inspect artifacts
-	const pendingSuggestions = sidecar!.suggestions.filter(
-		(s) => s.status === "pending" && !s.stale,
-	).length;
+	//
+	// Only comments are counted here now. Suggested changes live in the document as
+	// marks, so they are part of the file's own content and a reader sees them; there
+	// is no separate pending queue that could make the file worth opening.
 	const unresolvedComments = sidecar!.comments.filter((c) => !c.resolved).length;
-	if (pendingSuggestions > 0 || unresolvedComments > 0) {
+	if (unresolvedComments > 0) {
 		return { state: "active", revision, snapshotUrl };
 	}
 

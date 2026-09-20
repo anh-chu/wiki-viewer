@@ -140,52 +140,29 @@ export interface Comment {
 /**
  * What a suggestion proposes.
  *
- * `replace`/`insertAfter`/`insertBefore`/`delete` address a whole block and are what
- * the Suggest button produces. `insert`/`remove` describe a run of typed characters
- * inside a block, which is what Suggesting mode records; they carry `markdown` plus
- * the `range` the text belongs at, and `insert`/`remove` need that range to be placed.
+ * `insert` and `remove` are the kinds this codebase actually writes: they describe a run
+ * of text at a `range` inside a block, and `suggestion.add` splices them into the block
+ * markdown as a tracked mark (`<ins data-id>` / `<del data-id>`). That is the same
+ * representation Suggesting mode produces, so an agent-authored suggestion and a typed
+ * one are the same thing.
  *
- * The distinction matters at accept time. A typed insertion is not a whole-block
- * replacement, and treating it as one replaces the block — so the kinds are named
- * separately here rather than folded into `insertAfter`.
+ * The block-level kinds are retained because `prompt-serialize` still reads them to
+ * describe what a suggestion is about when building an agent prompt. Nothing writes
+ * them any more: a whole-block edit is posted as a block op, not as a suggestion.
  */
 export type SuggestionKind =
-	| "replace"
-	| "insertAfter"
-	| "insertBefore"
 	/** A run of typed characters inserted inside a block, at `range`. */
 	| "insert"
 	/** A run of deleted characters, at `range`. */
 	| "remove"
+	/** Legacy: a whole-block replacement. Read-only, kept for prompt serialization. */
+	| "replace"
+	| "insertAfter"
+	| "insertBefore"
 	| "delete";
-export type SuggestionStatus = "pending" | "accepted" | "rejected";
-
 export interface SuggestionRange {
 	start: number;
 	end: number;
-}
-
-export interface Suggestion {
-	id: string; // "s" + 4-hex
-	ref: string; // LEGACY v1: block ref. Read-only fallback.
-	/** The durable anchor this suggestion hangs off. Absent on v1 records. */
-	anchorId?: string;
-	/** Resolved position, filled by the server read. Never persisted. */
-	anchorStatus?: AnchorStatus;
-	kind: SuggestionKind;
-	status: SuggestionStatus;
-	by: string;
-	markdown?: string; // omitted for kind=delete
-	range?: SuggestionRange;
-	/** Snapshot block markdown used as the 3-way merge base for ranged suggestions. */
-	baseMarkdown?: string;
-	basis?: ProvenanceMeta["basis"];
-	basisDetail?: string;
-	createdAt: string;
-	resolvedAt?: string; // when accepted/rejected
-	resolvedBy?: string;
-	/** Set true when a raw .md overwrite orphans the anchor ref (R2 collab-anchor safety). */
-	stale?: boolean;
 }
 
 export interface ProofEvent {
@@ -194,7 +171,7 @@ export interface ProofEvent {
 	 * Known event types:
 	 *   block.replaced | block.inserted | block.deleted
 	 *   comment.added | comment.replied | comment.edited | comment.deleted | comment.resolved | comment.reopened
-	 *   suggestion.added | suggestion.edited | suggestion.deleted | suggestion.accepted | suggestion.rejected
+	 *   suggestion.added
 	 *   file.externallyEdited  — writer unknown (chokidar / external tool)
 	 *   file.rawWritten        — writer known (by: "ai:<id>"), emitted by Tier-1 raw-fs write
 	 */
@@ -245,8 +222,6 @@ export interface Sidecar {
 	 */
 	anchors: Record<string, Anchor>;
 	comments: Comment[];
-	suggestions: Suggestion[];
-	archivedSuggestions: Suggestion[];
 	events: ProofEvent[];
 	nextEventId: number;
 	lastAck: Record<string, number>; // by -> eventId
@@ -337,18 +312,7 @@ export type Op =
 			baseMarkdown?: string;
 			basis?: string;
 			basisDetail?: string;
-			status?: SuggestionStatus;
-	  }
-	| { type: "suggestion.accept"; suggestionId: string }
-	| { type: "suggestion.reject"; suggestionId: string }
-	| {
-			type: "suggestion.edit";
-			suggestionId: string;
-			kind?: SuggestionKind;
-			markdown?: string;
-			range?: SuggestionRange;
-	  }
-	| { type: "suggestion.delete"; suggestionId: string };
+	  };
 
 export interface Snapshot {
 	path: string;
@@ -365,6 +329,5 @@ export interface Snapshot {
 	 */
 	commentViews?: Record<string, import("./anchor").CommentView>;
 	comments: Comment[]; // unresolved + resolved (separately by client)
-	suggestions: Suggestion[]; // pending only by default
 	lastEventId: number;
 }

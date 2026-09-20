@@ -11,7 +11,7 @@
  * same words appear twice and only surrounding context distinguishes them.
  */
 
-import type { Anchor, AnchorStatus, Block, Comment, Sidecar, Suggestion } from "./types";
+import type { Anchor, AnchorStatus, Block, Comment, Sidecar } from "./types";
 
 /** Context length captured either side of the quote, per the W3C selector's guidance. */
 const CONTEXT_CHARS = 32;
@@ -427,7 +427,7 @@ function viewFor(
 	};
 }
 
-export type { Anchor, AnchorStatus, Comment, Sidecar, Suggestion };
+export type { Anchor, AnchorStatus, Comment, Sidecar };
 /**
  * Upgrade a stored sidecar to the current schema.
  *
@@ -456,7 +456,7 @@ export function migrateSidecar(
 	// is a real call pattern — the activity aggregator and `collab-state` read sidecars
 	// without parsing the markdown — so a block-less read reports "not migrated" rather
 	// than destroying anchor state. `changed: false` keeps the read from persisting it.
-	if (blocks.length === 0 && sidecar.comments.length + sidecar.suggestions.length > 0) {
+	if (blocks.length === 0 && sidecar.comments.length > 0) {
 		// Return the sidecar UNCHANGED — deliberately not stamped version 3.
 		//
 		// `readSidecar` discards the `changed` flag and hands this object to callers
@@ -515,35 +515,12 @@ export function migrateSidecar(
 		return { ...c, anchorId: anchor.id };
 	});
 
-	const suggestions = sidecar.suggestions.map((s) => {
-		if (s.anchorId && anchors[s.anchorId]) return s;
-		changed = true;
-		const block = liveRef(s.ref);
-		if (!block) {
-			// Nothing recorded to search for. Marked, never guessed.
-			return { ...s, anchorStatus: "lost" as const, stale: true };
-		}
-		const start = s.range?.start ?? 0;
-		const end = s.range?.end ?? start;
-		// A ranged suggestion's quote is the block text it replaced; an unranged one is
-		// block-granular, matching how the accept path treats it.
-		if (s.range && end > start) {
-			const anchor = anchorForRange(block.markdown, block.ref, start, end - start, now, used);
-			anchors[anchor.id] = anchor;
-			return { ...s, anchorId: anchor.id };
-		}
-		const anchor = anchorForBlock(block.markdown, block.ref, now, used);
-		anchors[anchor.id] = anchor;
-		return { ...s, anchorId: anchor.id };
-	});
-
 	return {
 		sidecar: {
 			...sidecar,
 			schemaVersion: 3,
 			anchors,
 			comments,
-			suggestions,
 			updatedAt: now,
 		},
 		changed,

@@ -9,7 +9,6 @@ import type {
 	Sidecar,
 	ProofEvent,
 	Comment,
-	Suggestion,
 	AnchorStatus,
 } from "./types";
 import { anchorForBlock, anchorForRange, migrateSidecar, projectCommentViews, resolveAnchor } from "./anchor";
@@ -20,6 +19,7 @@ import { withFileMutex, workspaceLockKey } from "./mutex";
 import { emitEvents, trimEvents } from "./event-bus";
 import { SIDECAR_EVENT_TRIM_SIZE, SIDECAR_TRIM_EVERY_N_MUTATIONS } from "../proof-config";
 import { mergeBlock } from "./block-merge";
+import { spliceMark } from "./suggestion-mark";
 
 function sha256file(content: string): string {
 	return "sha256:" + createHash("sha256").update(content, "utf8").digest("hex");
@@ -193,38 +193,6 @@ function survivesViaAlias(sidecar: Sidecar, ref: string, validRefs: Set<string>)
 	return Boolean(aliased && validRefs.has(aliased));
 }
 
-/**
- * Refuse a mutation on a suggestion the UI is treating as stale.
- *
- * The test is the recorded `stale` flag, NOT whether the ref resolves. Nothing clears
- * `stale` for suggestions, and refs are content-derived, so this is reachable: delete
- * the anchored paragraph (suggestion marked stale, margin hides it), then type the same
- * paragraph again — the ref is valid once more, `stale` is still true, the UI still
- * hides it, and `suggestion.accept` would find its block and WRITE THE FILE for a
- * suggestion the user can no longer see.
- *
- * Guarding on a permanently-dead ref instead proves the wrong thing: it shows a dead
- * suggestion cannot be accepted, not that a stale one cannot. Recovering a stale
- * suggestion needs an explicit, validated un-stale transition, which does not exist.
- */
-function refuseStaleSuggestion(
-	sidecar: Sidecar,
-	mdPath: string,
-	workingBlocks: Block[],
-	suggestionId: string,
-): Extract<ApplyResult, { ok: false }> | null {
-	const sug = sidecar.suggestions.find((s) => s.id === suggestionId);
-	if (!sug || !sug.stale) return null;
-	return {
-		ok: false,
-		status: 409,
-		code: "SUGGESTION_STALE",
-		message:
-			`Suggestion "${suggestionId}" is stale: its anchor was removed, so it cannot be ` +
-			`changed until the anchor is restored and the suggestion is revived.`,
-		snapshot: buildSnapshot(mdPath, workingBlocks, sidecar),
-	};
-}
 
 function markOrphanedRefsStale(
 	sidecar: Sidecar,
@@ -274,29 +242,6 @@ function markOrphanedRefsStale(
 		return !survivesViaAlias(sidecar, record.ref, validRefs);
 	};
 
-	for (const s of sidecar.suggestions) {
-		if (s.status !== "pending") continue;
-
-		// A suggestion is also judged against the text it proposed to change, which
-		// `baseMarkdown` records. The anchor alone is not enough here: a suggestion
-		// added without a range gets a BLOCK anchor, and a block anchor follows its
-		// slot, so rewriting the paragraph reports "moved" and the suggestion would
-		// stay applicable to text it was never written against. Applying it would
-		// then overwrite the rewrite with a merge base that no longer exists.
-		if (s.baseMarkdown && blocks.length > 0) {
-			const base = blocks.find((b) => b.ref === s.ref);
-			// Ref gone, or the block no longer contains the text this was written
-			// against — either way the proposal cannot be applied as stated.
-			if (!base || !base.markdown.includes(s.baseMarkdown)) {
-				s.stale = true;
-				continue;
-			}
-		}
-		if (s.stale) continue;
-		if (isOrphaned(s)) {
-			s.stale = true;
-		}
-	}
 	// A comment whose text is gone is MARKED LOST, not destroyed.
 	//
 	// This follows Google Docs, which is the standard this feature is built to: a
@@ -352,7 +297,6 @@ function buildSnapshot(
 		blocks,
 		commentViews: views,
 		comments: withStatus(sidecar.comments),
-		suggestions: withStatus(sidecar.suggestions.filter((s) => s.status === "pending")),
 		lastEventId: sidecar.nextEventId - 1,
 	};
 }
@@ -1261,263 +1205,88 @@ export async function applyOps(args: {
 						};
 					}
 
-					// A suggestion gets an anchor too. This is the half that made typed
-					// runs vanish: a suggestion carried only a content-derived `ref`, so
-					// the moment its block's text changed the ref died and the pending
-					// suggestion could no longer be placed. `quote` is sliced from the
-					// block at the range it replaces, which is the only honest record of
-					// what it was about.
-					const anchorBlock = workingBlocks.find((b) => b.ref === resolved);
-					let anchorId: string | undefined;
-					if (anchorBlock) {
-						const start = op.range?.start ?? 0;
-						const end = op.range?.end ?? start;
-						const used = new Set(Object.keys(workingSidecar.anchors));
-						const minted =
-							end > start
-								? anchorForRange(anchorBlock.markdown, anchorBlock.ref, start, end - start, at, used)
-								: anchorForBlock(anchorBlock.markdown, anchorBlock.ref, at, used);
-						workingSidecar.anchors[minted.id] = minted;
-						anchorId = minted.id;
-					}
-
-					const suggestion: Suggestion = {
-						id: shortId("s"),
-						ref: resolved,
-						anchorId,
-						kind: op.kind,
-						status: "pending",
-						by,
-						markdown: op.markdown,
-						range: op.range,
-						baseMarkdown: op.baseMarkdown,
-						basis: op.basis as Suggestion["basis"],
-						basisDetail: op.basisDetail,
-						createdAt: at,
-					};
-
-					if (op.status === "accepted") {
-						// Refuse the kinds that have no block-level meaning.
-						//
-						// `insert` and `remove` describe a run of typed characters at a
-						// `range` inside a block, not a whole-block edit. The mapping below
-						// used to end in an unconditional `block.delete` catch-all, so an
-						// agent posting `{kind: "insert", status: "accepted"}` DELETED the
-						// block it named — the opposite of what it asked for, and silent.
-						// Accepting a typed run has to splice at its range, which is what
-						// the transaction path does and this op-level path cannot.
-						if (op.kind === "insert" || op.kind === "remove") {
-							return {
-								ok: false,
-								status: 400,
-								code: "UNSUPPORTED_SUGGESTION_KIND",
-								message:
-									`suggestion.add with status "accepted" supports the block-level ` +
-									`kinds replace/insertAfter/insertBefore/delete; "${op.kind}" ` +
-									`describes a typed run inside a block and must be applied at its ` +
-									`range. Post it as "pending" and accept it through the review path.`,
-								snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar),
-							};
-						}
-
-						// Apply immediately
-						suggestion.status = "accepted";
-						suggestion.resolvedAt = at;
-						suggestion.resolvedBy = by;
-						workingSidecar.archivedSuggestions.push(suggestion);
-						workingEvents.push({ type: "suggestion.added", at, by, suggestionId: suggestion.id });
-						workingEvents.push({ type: "suggestion.accepted", at, by, suggestionId: suggestion.id });
-						// Every remaining kind maps to a block op explicitly. No catch-all:
-						// a catch-all is what let a wrong kind become a deletion.
-						const inlineOp: Op =
-							op.kind === "replace"
-								? { type: "block.replace", ref: resolved, markdown: op.markdown ?? "" }
-								: op.kind === "insertAfter"
-									? { type: "block.insertAfter", ref: resolved, markdown: op.markdown ?? "" }
-									: op.kind === "insertBefore"
-										? { type: "block.insertBefore", ref: resolved, markdown: op.markdown ?? "" }
-										: { type: "block.delete", ref: resolved };
-						ops.push(inlineOp);
-					} else {
-						workingSidecar.suggestions.push(suggestion);
-						workingEvents.push({ type: "suggestion.added", at, by, suggestionId: suggestion.id });
-					}
-					break;
-				}
-
-				case "suggestion.edit": {
-					const staleEdit = refuseStaleSuggestion(
-						workingSidecar,
-						mdPath,
-						workingBlocks,
-						op.suggestionId,
-					);
-					if (staleEdit) return staleEdit;
-					const sug = workingSidecar.suggestions.find((s) => s.id === op.suggestionId);
-					if (!sug || sug.status !== "pending") {
-						return { ok: false, status: 409, code: "SUGGESTION_NOT_FOUND", message: `Suggestion "${op.suggestionId}" not found or is no longer pending.`, snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar) };
-					}
-					if (op.kind !== undefined) sug.kind = op.kind;
-					if (op.markdown !== undefined) sug.markdown = op.markdown;
-					if (op.range !== undefined) sug.range = op.range;
-					workingEvents.push({ type: "suggestion.edited", at, by, suggestionId: op.suggestionId, kind: op.kind, markdown: op.markdown, range: op.range });
-					break;
-				}
-				case "suggestion.delete": {
-					const staleDel = refuseStaleSuggestion(
-						workingSidecar,
-						mdPath,
-						workingBlocks,
-						op.suggestionId,
-					);
-					if (staleDel) return staleDel;
-					const sugIdx = workingSidecar.suggestions.findIndex((s) => s.id === op.suggestionId);
-					if (sugIdx === -1 || workingSidecar.suggestions[sugIdx].status !== "pending") {
-						return { ok: false, status: 409, code: "SUGGESTION_NOT_FOUND", message: `Suggestion "${op.suggestionId}" not found or is no longer pending.`, snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar) };
-					}
-					workingSidecar.suggestions.splice(sugIdx, 1);
-					workingEvents.push({ type: "suggestion.deleted", at, by, suggestionId: op.suggestionId });
-					break;
-				}
-				case "suggestion.accept": {
-					const staleAccept = refuseStaleSuggestion(
-						workingSidecar,
-						mdPath,
-						workingBlocks,
-						op.suggestionId,
-					);
-					if (staleAccept) return staleAccept;
-					const sugIdx = workingSidecar.suggestions.findIndex((s) => s.id === op.suggestionId);
-					if (sugIdx === -1) {
-						return {
-							ok: false,
-							status: 409,
-							code: "SUGGESTION_NOT_FOUND",
-							message: `Suggestion "${op.suggestionId}" not found.`,
-							snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar),
-						};
-					}
-					const sug = workingSidecar.suggestions[sugIdx];
-					let acceptedMarkdown = sug.markdown ?? "";
-					if (sug.range && sug.baseMarkdown !== undefined) {
-						const blockIdx = findBlockIndex(sug.ref, sug.anchorId);
-						if (blockIdx !== -1) {
-							const currentMarkdown = workingBlocks[blockIdx].markdown;
-							if (currentMarkdown !== sug.baseMarkdown) {
-								const merged = mergeBlock(sug.baseMarkdown, acceptedMarkdown, currentMarkdown);
-								if (!merged.ok) {
-									return {
-										ok: false,
-										status: 409,
-										code: "STALE_REVISION",
-										message: "Suggestion conflicts with a concurrent block edit.",
-										snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar),
-									};
-								}
-								acceptedMarkdown = merged.merged;
-							}
-						}
-					}
-					sug.status = "accepted";
-					sug.resolvedAt = at;
-					sug.resolvedBy = by;
-					workingSidecar.suggestions.splice(sugIdx, 1);
-					workingSidecar.archivedSuggestions.push(sug);
-
-					// Supersede other pending suggestions for the same ref
-					const toSupersede = workingSidecar.suggestions.filter(
-						(s) => s.ref === sug.ref && s.status === "pending",
-					);
-					for (const other of toSupersede) {
-						other.status = "rejected";
-						other.resolvedAt = at;
-						other.resolvedBy = "system";
-						workingSidecar.suggestions.splice(workingSidecar.suggestions.indexOf(other), 1);
-						workingSidecar.archivedSuggestions.push(other);
-						workingEvents.push({
-							type: "suggestion.rejected",
-							at,
-							by: "system",
-							suggestionId: other.id,
-							reason: "superseded",
-						});
-					}
-
-					// Apply as block op.
-					//
-					// A typed run (`insert`/`remove`) is spliced into the block's own
-					// markdown at its recorded range, rather than replacing or deleting
-					// the block. This is where a typed insertion was being LOST: the
-					// chain below used to end in an unguarded `block.delete`, so a kind
-					// it did not recognise — `insert`, which is what Suggesting mode
-					// records — deleted the entire paragraph the user had just added
-					// words to. The `default` arm now refuses instead of guessing.
-					const applyOp: Op | null = sug.kind === "replace"
-						? { type: "block.replace", ref: sug.ref, markdown: acceptedMarkdown }
-						: sug.kind === "insertAfter"
-						? { type: "block.insertAfter", ref: sug.ref, markdown: sug.markdown ?? "" }
-						: sug.kind === "insertBefore"
-						? { type: "block.insertBefore", ref: sug.ref, markdown: sug.markdown ?? "" }
-						: sug.kind === "insert" || sug.kind === "remove"
-						? (() => {
-								// Both need the range: without it there is nowhere to splice the
-								// text, and accepting would have to guess where it belonged.
-								if (!sug.range) return null;
-								const blockIdx = findBlockIndex(sug.ref, sug.anchorId);
-								if (blockIdx === -1) return null;
-								const base = workingBlocks[blockIdx].markdown;
-								const spliced =
-									sug.kind === "insert"
-										? base.slice(0, sug.range.start) + (sug.markdown ?? "") + base.slice(sug.range.start)
-										: base.slice(0, sug.range.start) + base.slice(sug.range.end);
-								return { type: "block.replace" as const, ref: sug.ref, markdown: spliced };
-							})()
-						: sug.kind === "delete"
-						? { type: "block.delete", ref: sug.ref }
-						: null;
-
-					if (!applyOp) {
+					// `status: "accepted"` used to map the block-level kinds onto a
+					// block op and apply them inline. That is now just a `block.*` op,
+					// posted directly — there is no second path worth keeping, and the
+					// kinds it supported are all still reachable that way. Refused
+					// explicitly rather than left to fall through to the unknown-op
+					// default, so an agent that sends it gets told what to send instead.
+					// Not in the type any more, but a client built against the old vocabulary
+					// can still send it; reading it defensively turns a silent no-op into a
+					// message telling the agent what to post instead.
+					if ((op as { status?: string }).status === "accepted") {
 						return {
 							ok: false,
 							status: 400,
-							code: "SUGGESTION_UNPLACEABLE",
+							code: "UNSUPPORTED_SUGGESTION_STATUS",
 							message:
-								`Suggestion "${op.suggestionId}" (kind "${sug.kind}") cannot be placed: ` +
-								`${sug.range ? "its block was not found" : "it carries no range"}. ` +
-								`Refusing rather than applying it in the wrong place.`,
+								`suggestion.add writes a tracked mark and cannot apply one. Post ` +
+								`the block-level edits as block.replace / block.insertAfter / ` +
+								`block.insertBefore / block.delete instead.`,
 							snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar),
 						};
 					}
-					ops.push(applyOp);
-					workingEvents.push({ type: "suggestion.accepted", at, by, suggestionId: op.suggestionId });
-					break;
-				}
 
-				case "suggestion.reject": {
-					const staleReject = refuseStaleSuggestion(
-						workingSidecar,
-						mdPath,
-						workingBlocks,
-						op.suggestionId,
-					);
-					if (staleReject) return staleReject;
-					const sugIdx = workingSidecar.suggestions.findIndex((s) => s.id === op.suggestionId);
-					if (sugIdx === -1) {
+					const idx = findBlockIndex(resolved);
+					if (idx === -1) {
 						return {
 							ok: false,
 							status: 409,
-							code: "SUGGESTION_NOT_FOUND",
-							message: `Suggestion "${op.suggestionId}" not found.`,
+							code: "BLOCK_NOT_FOUND",
+							message: `Block ref "${op.ref}" not found.`,
 							snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar),
 						};
 					}
-					const sug = workingSidecar.suggestions[sugIdx];
-					sug.status = "rejected";
-					sug.resolvedAt = at;
-					sug.resolvedBy = by;
-					workingSidecar.suggestions.splice(sugIdx, 1);
-					workingSidecar.archivedSuggestions.push(sug);
-					workingEvents.push({ type: "suggestion.rejected", at, by, suggestionId: op.suggestionId });
+
+					// A suggestion is a MARK in the document, which is the same
+					// representation a human produces by typing in Suggesting mode. There
+					// is no sidecar record: the mark is the record, so there is nothing to
+					// keep in step with the file and no anchor to orphan.
+					//
+					// `range` is a MARKDOWN offset into the block, which is why the splice
+					// happens on the markdown string. Converting it to a ProseMirror
+					// position would mean reconciling two coordinate systems that do not
+					// agree (a list item's markdown carries a "1. " prefix its rendered
+					// node does not) — the exact mismatch behind the old "Reactions "
+					// highlight bug.
+					const spliced = spliceMark(
+						workingBlocks[idx].markdown,
+						op.kind === "remove" ? "remove" : "insert",
+						op.range ?? { start: 0, end: 0 },
+						op.markdown,
+					);
+					if (!spliced.ok) {
+						return {
+							ok: false,
+							status: 400,
+							code: spliced.code,
+							message: spliced.message,
+							snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar),
+						};
+					}
+
+					const { nodes: newNodes, refs: newRefs } = opMarkdownToBlocks(
+						spliced.markdown,
+						workingBlocks.filter((_, i) => i !== idx),
+					);
+					workingNodes.splice(idx, 1, ...newNodes);
+					workingBlocks.splice(
+						idx,
+						1,
+						...newNodes.map((n, ni) => ({
+							ref: newRefs[ni],
+							type: "paragraph" as const,
+							markdown: blockToMarkdown(n),
+						})),
+					);
+
+					workingEvents.push({
+						type: "suggestion.added",
+						at,
+						by,
+						ref: resolved,
+						kind: op.kind,
+					});
 					break;
 				}
 
