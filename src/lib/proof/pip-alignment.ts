@@ -1,23 +1,11 @@
 /**
  * Mapping between rendered ProseMirror block elements and snapshot blocks.
  *
- * HISTORY / WHY THIS MODULE EXISTS
- * ---------------------------------
- * The original mapping lived inline in `editor.tsx` and paired DOM children to
- * `snapshotBlocks` **by array index**:
- *
- *     for (let i = 0; i < Math.min(children.length, snapshotBlocks.length - offset); i++)
- *
- * That is wrong whenever the mdast → Tiptap node mapping is not 1:1. One mdast
- * node can expand into several DOM nodes (loose lists become `<ul>` + nested
- * `<li>`s; tables become `<table>` + rows; blockquote wraps a paragraph) or
- * several can collapse into one. Once misaligned, every subsequent ref is
- * wrong, and `Math.min` truncated the loop silently instead of failing.
- *
- * The fix keys on **identity**: every block element carries the ref that was
- * stamped onto it (`data-block-ref`), so we read the ref off the element rather
- * than inferring it from position. `alignByStampedRef` is the only mapping path;
- * the old index-based loop is gone rather than kept around for a test to call.
+ * Keyed on IDENTITY, not position. Pairing DOM children to `snapshotBlocks` by array
+ * index is wrong whenever the mdast → Tiptap mapping is not 1:1 — a loose list becomes
+ * `<ul>` plus nested `<li>`s, a table becomes rows — and once misaligned every
+ * subsequent ref is wrong. Every block element carries the ref stamped onto it
+ * (`data-block-ref`), so the ref is read off the element rather than inferred.
  */
 
 interface BlockPosition {

@@ -1,33 +1,20 @@
 /**
  * Tracked suggestions, backed by the vendored `prosemirror-suggest-changes`.
  *
- * WHY THIS REPLACED THE HAND-WRITTEN TRACK CHANGES
- * ------------------------------------------------
- * The previous implementation intercepted transactions in `filterTransaction`
- * and returned `false` to cancel a delete, then re-added a deletion mark from a
- * later view-update pass. Cancelling meant the document did not change, so the
- * caret never advanced: every Backspace recomputed the range it had already
- * marked and the text appeared to stop deleting after the first press.
+ * The library REWRITES each transaction into one that adds marks, then applies it. The
+ * document stays consistent, the selection moves naturally, and every ProseMirror step
+ * type is covered — ReplaceStep, ReplaceAroundStep, AddMarkStep, RemoveMarkStep,
+ * AddNodeMarkStep, RemoveNodeMarkStep, AttrStep — so splits, joins, mark changes and
+ * attribute changes work, not only typing and Backspace. It ships ProseMirror
+ * `MarkSpec`s rather than Tiptap extensions, so this wraps them.
  *
- * The library instead REWRITES each transaction into one that adds marks, and
- * applies it. The document is consistent, the selection moves naturally, and
- * there is no queue to drain. It handles every ProseMirror step type -
- * ReplaceStep, ReplaceAroundStep, AddMarkStep, RemoveMarkStep, AddNodeMarkStep,
- * RemoveNodeMarkStep, AttrStep - so splits, joins, mark changes and attribute
- * changes are covered, not only typing and Backspace.
- *
- * The library ships ProseMirror `MarkSpec`s, not Tiptap extensions, so this
- * wraps them.
- *
- * KNOWN LIMIT: BLOCK-LEVEL SUGGESTIONS
- * ------------------------------------
- * The library also expresses whole-block suggestions (inserting a list item,
- * splitting a paragraph) by allowing these marks on the `doc` node. Tiptap owns
- * the `doc` node and does not accept block marks, so that case is not available
- * here. Inline and paragraph-level edits - typing, deleting, formatting - are
- * fully covered, which is what markdown documents need. A block-boundary
- * suggestion will apply directly rather than being tracked; `ponytail:` raising
- * it means a custom `doc` node that extends Tiptap's with `marks`.
+ * KNOWN LIMIT: block-level suggestions. The library expresses those (inserting a list
+ * item, splitting a paragraph) by allowing its marks on the `doc` node, but Tiptap owns
+ * `doc` and rejects block marks, so that case is unavailable here. Inline and
+ * paragraph-level edits — typing, deleting, formatting — are fully covered, which is
+ * what markdown documents need; a block-boundary suggestion applies directly instead of
+ * being tracked. ponytail: raising it means a custom `doc` node extending Tiptap's with
+ * `marks`.
  */
 import { Extension, Mark, mergeAttributes } from "@tiptap/core";
 import {
@@ -91,26 +78,16 @@ export const SuggestionInsertion = markExtension("insertion", "ins", "track-inse
 export const SuggestionDeletion = markExtension("deletion", "del", "track-deletion");
 
 /**
- * The modification mark, which needs its own wrapper because it carries state the
- * other two do not.
+ * The modification mark, which needs its own wrapper because it carries state the other
+ * two do not: the vendored spec declares five attributes and serialises four of them,
+ * with `<span>` inline and `<div>` at block level. The generic wrapper above keeps only
+ * `id`, which loses two load-bearing things — `commands.js` reads `mod.attrs.attrName`
+ * to know which node attribute to restore when a modification is rejected, and
+ * `previousValue`/`newValue` are what the change was from and to. Parse also accepts
+ * both element forms where render emitted only `<span>`.
  *
- * The vendored spec declares FIVE attributes (`id`, `type`, `attrName`,
- * `previousValue`, `newValue`) and serialises four of them — `data-type`,
- * `data-mod-type`, `data-mod-prev-val`, `data-mod-new-val` — with `<span>` inline
- * and `<div>` at block level. The generic wrapper above keeps only `id`, so:
- *
- *   - `attrName` was lost, and it is load-bearing rather than decorative:
- *     `commands.js` reads `mod.attrs["attrName"]` to know which node attribute to
- *     restore when a modification is rejected. Without it a rejected attribute
- *     change cannot be undone.
- *   - `previousValue` / `newValue` were lost, so a reload could not tell what the
- *     change was from or to.
- *   - parse and render disagreed on the element: parse accepts both
- *     `span[data-type='modification']` and `div[data-type='modification']`, render
- *     always emitted `<span>`.
- *
- * Shipping the mark without these made accept/reject work in the session that
- * created the change and silently lose information across a reload.
+ * Shipping it without these made accept/reject work in the session that created the
+ * change and silently lose information across a reload.
  */
 export const SuggestionModification = Mark.create({
 	name: "modification",

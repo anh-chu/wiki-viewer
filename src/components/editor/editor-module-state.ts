@@ -1,23 +1,19 @@
 /**
  * Module-scope editor state: the bounded map and the source-draft revision rule.
  *
- * These live outside `editor.tsx` so they can be tested. The component's module-scope
- * maps existed precisely to survive an editor remount, which made them unreachable from a
- * unit test — and so neither the map's growth nor the draft's staleness had any check.
- * Extracting the two decisions costs nothing at runtime and puts both under test.
+ * The editor's maps live at module scope to survive a remount, which also made them
+ * unreachable from a unit test — so neither the map's growth nor the draft's staleness
+ * had any check. These two decisions are extracted to be testable.
  */
 
 /**
  * Bound on how many documents the editor's module maps retain.
  *
- * The maps must outlive the component (an external file change remounts the editor), but
- * "one entry per visited document" is unbounded over a long session, and nothing evicted
- * an entry for a document the reader never returned to. A cap keeps the window that
- * matters — the handful of documents recently open — and drops the rest.
+ * The maps outlive the component, so "one entry per visited document" would grow without
+ * limit over a long session and nothing evicted a document the reader never returned to.
  *
  * ponytail: FIFO by insertion, not LRU. A document revisited without being rewritten can
- * be evicted while still in use, which only costs the state these maps were built to
- * preserve. Re-inserting on read would make it LRU if that ever matters.
+ * be evicted while still in use, costing only the state these maps exist to preserve.
  */
 export const MODULE_MAP_LIMIT = 20;
 
@@ -43,11 +39,9 @@ export function remember<V>(map: Map<string, V>, key: string, value: V): void {
 /**
  * Whether a stored draft may be put back into the editor.
  *
- * Only when it was typed against the revision the document is still at. A draft is
- * unsaved text, so restoring it over a document that changed elsewhere silently reverts
- * those changes and gives the reader no sign that the buffer is older than the file.
- * An absent or empty draft is nothing to restore, and an empty string would blank the
- * view rather than seed it.
+ * Only at the revision the draft was typed against: it is unsaved text, so restoring it
+ * over a document that changed elsewhere would silently revert those changes. An empty
+ * draft is nothing to restore, and would blank the view rather than seed it.
  */
 export function shouldRestoreDraft(
 	draft: SourceDraft | null | undefined,

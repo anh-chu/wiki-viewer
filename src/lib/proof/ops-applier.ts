@@ -196,26 +196,16 @@ function survivesViaAlias(sidecar: Sidecar, ref: string, validRefs: Set<string>)
 /**
  * Refuse a mutation on a suggestion the UI is treating as stale.
  *
- * WHY `stale` ALONE IS THE TEST, AND NOT WHETHER THE REF RESOLVES
- * ---------------------------------------------------------------
- * `markOrphanedRefsStale` only ever SETS `stale = true`; nothing clears it for
- * suggestions. Refs are content-derived, so this sequence is reachable:
+ * The test is the recorded `stale` flag, NOT whether the ref resolves. Nothing clears
+ * `stale` for suggestions, and refs are content-derived, so this is reachable: delete
+ * the anchored paragraph (suggestion marked stale, margin hides it), then type the same
+ * paragraph again — the ref is valid once more, `stale` is still true, the UI still
+ * hides it, and `suggestion.accept` would find its block and WRITE THE FILE for a
+ * suggestion the user can no longer see.
  *
- *   1. `Alpha paragraph.` has ref R; a suggestion targets R.
- *   2. Delete that paragraph  -> the suggestion is marked stale, and the margin
- *      stops showing it.
- *   3. Type the same paragraph again -> R is valid again, but `stale` stays true
- *      and the UI still hides the suggestion.
- *   4. `suggestion.accept` now finds its block and WRITES THE FILE for a
- *      suggestion the user can no longer see.
- *
- * An earlier guard only covered a permanently-dead ref such as `bDEAD`, which the
- * ordinary block lookup refuses with BLOCK_NOT_FOUND. That proved the wrong thing:
- * it showed a *dead* suggestion cannot be accepted, not that a *stale* one cannot.
- * The check below is therefore about the recorded state, not about whether the ref
- * happens to resolve right now — a stale suggestion is one the user was told is
- * gone, so no mutation may act on it. Recovering one would need an explicit,
- * validated un-stale transition, which does not exist and is not implied here.
+ * Guarding on a permanently-dead ref instead proves the wrong thing: it shows a dead
+ * suggestion cannot be accepted, not that a stale one cannot. Recovering a stale
+ * suggestion needs an explicit, validated un-stale transition, which does not exist.
  */
 function refuseStaleSuggestion(
 	sidecar: Sidecar,

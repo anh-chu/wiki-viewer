@@ -1,21 +1,11 @@
 /**
  * Word-level diff for suggestion redlines.
  *
- * REPLACES the hand-rolled 64-line LCS in the original `word-diff.ts`
- * (Phase 2b). `diff` (jsdiff) is one of the most-depended-on packages in the
- * ecosystem and does the same job with a better algorithm and a maintained
- * edge-case surface.
- *
- * WHY THE TOKENIZER IS STILL OURS
- * -------------------------------
- * The redline splits text into words, whitespace runs and individual
- * punctuation, and it must preserve the EXACT source text across the parts —
- * offsets are applied to ProseMirror positions, so a lost or duplicated space
- * shifts the highlight. `diffWords` has its own boundary rules and does not
- * guarantee that property, so we tokenize, diff, then map back to token spans.
- *
- * Output shape is unchanged (`WordDiffPart[]`), so every existing consumer keeps
- * working; `suggestion-decorator.ts` imports only `diffWords`.
+ * The tokenizer is ours even though jsdiff supplies the algorithm. The redline must
+ * preserve the EXACT source text across the parts, because offsets are applied to
+ * ProseMirror positions and a lost or duplicated space shifts the highlight;
+ * `diffWords`' own boundary rules do not guarantee that. So we tokenize, diff, then
+ * map back to token spans.
  */
 import { diffArrays } from "diff";
 

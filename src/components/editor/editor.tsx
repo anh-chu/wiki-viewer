@@ -127,34 +127,31 @@ interface KBEditorProps {
 }
 
 /**
- * Source mode and its unsaved draft, held at module scope.
+ * Module-scope editor state, keyed by document path.
  *
- * Source mode is a plain <textarea> holding the file's markdown. The editor is
- * remounted on external file changes, which reset BOTH `sourceText` (to "") and
- * `sourceMode` (to false) — silently discarding whatever the reader had typed and
- * dropping them back into the rendered view. There is no warning and no undo: the
- * store still holds the older content, so switching back to Source would reload that
+ * These maps exist because the editor is REMOUNTED on external file changes, which
+ * resets component state and refs alike. Keying by path keeps each value with the
+ * document it belongs to; a single global value would carry it across documents.
+ * The specific damage each one prevents is noted at its declaration.
+ */
+
+/**
+ * Source mode and its unsaved draft.
+ *
+ * Source mode is a plain <textarea> holding the file's markdown, so a remount would
+ * reset both `sourceText` (to "") and `sourceMode` (to false) — silently discarding
+ * whatever was typed and dropping the reader back into the rendered view, with no
+ * warning and no undo. Switching back to Source would reload the store's older content
  * rather than the draft.
- *
- * Keyed by path for the same reason as the margin expansion: a draft belongs to the
- * document it was typed in.
  */
 const sourceDraftByPath = new Map<string, SourceDraft>();
 const sourceModeByPath = new Map<string, boolean>();
 
 /**
- * Whether Suggesting mode is on, held at module scope and keyed by document.
+ * Whether Suggesting mode is on.
  *
- * The editor is remounted on external file changes (see `activeMarginRef`), which
- * resets component state. Losing the margin expansion is cosmetic; losing this one
- * means edits stop being tracked without the reader being told. So it has to outlive
- * the component.
- *
- * Keyed by path, like the other three, because mode is a property of the document you
- * are working in — that is also how Google Docs behaves. An earlier version of this
- * used a single global value, which meant switching documents carried the mode with
- * it: turn Suggesting on for one file and the next file you opened was also in
- * Suggesting mode, tracking edits the reader had not asked to track.
+ * Losing the margin expansion to a remount is cosmetic; losing this one means edits
+ * stop being tracked without the reader being told.
  */
 const suggestingModeByPath = new Map<string, boolean>();
 
@@ -207,17 +204,15 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	/**
 	 * Editing vs Suggesting, the Docs mode pair.
 	 *
-	 * Held in React state for rendering and mirrored into editor storage, because
-	 * the transaction filter reads it synchronously — React state would report the
-	 * previous value inside a transaction that fires in the same tick as the click.
+	 * Held in React state for rendering AND mirrored into editor storage, because the
+	 * transaction filter reads it synchronously — React state would report the previous
+	 * value inside a transaction firing in the same tick as the click.
+	 *
+	 * The module-scope copy matters more than the margin expansion's: on remount
+	 * `suggesting` reset to false while the stale ProseMirror storage went with it, so a
+	 * reader who had switched to Suggesting was silently back in Editing and their next
+	 * keystroke edited the document directly instead of being tracked.
 	 */
-	// Survives a remount, like the margin expansion below and for the same reason: the
-	// editor is unmounted on any external file change. The difference here is that
-	// losing it is a DATA problem, not a cosmetic one. On remount `suggesting` reset to
-	// false while the stale ProseMirror storage went with it, so a reader who had
-	// switched to Suggesting would silently be back in Editing and their next keystroke
-	// would edit the document directly instead of being tracked — with the toolbar
-	// showing whichever mode the reset produced.
 	const [suggesting, setSuggesting] = useState(
 		() => suggestingModeByPath.get(currentPath ?? "") ?? false,
 	);
@@ -503,27 +498,18 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 
 	/** Tracks which block's comment thread is open and its anchor element. */
 	/**
-	 * Which margin card is expanded, if any.
+	 * Which margin card is expanded, if any. SEPARATE from `threadTarget`: sharing
+	 * that state made clicking a card render the old portal popover instead of
+	 * expanding the card, so the column was a launcher for the floating thread rather
+	 * than the thread's home.
 	 *
-	 * Deliberately SEPARATE from `threadTarget`. They were the same state, which
-	 * meant clicking a margin card set `threadTarget` and the change rendered the
-	 * old portal popover instead of expanding the card — the column was a launcher
-	 * for the floating thread rather than the thread's home. Because a resolve
-	 * re-renders that popover's comment array, a successful Resolve unmounted the
-	 * thread and took the reply box with it.
+	 * Held at module scope (keyed by path) rather than in a ref, because the editor does
+	 * get remounted — a reply writes the sidecar, the watcher reports an external change,
+	 * and the loader swaps the editor out and back. A ref would be recreated by that same
+	 * remount, and a tag set on `.ProseMirror` before the send was verifiably gone after
+	 * it: the expanded card collapsed the instant you replied, contradicting "successful
+	 * ops keep the thread open", while the reply itself saved correctly.
 	 */
-	// Which margin card is expanded.
-	//
-	// Survives a remount because the editor does get remounted, and component state
-	// would be lost with it. A reply writes the sidecar, the file watcher reports an
-	// external change, `refreshViewer()` flips `fileLoading`, and the loader swaps the
-	// editor out and back — verified live: a tag set on `.ProseMirror` before the send
-	// was gone after it. So the expanded card collapsed the instant you replied,
-	// contradicting "successful ops keep the thread open" while the reply itself saved
-	// correctly (the card gained "1 reply").
-	//
-	// Module scope, not a ref: a ref would be recreated by the same remount. Keyed by
-	// path so two documents never share an expansion.
 	const [activeMarginRef, setActiveMarginRef] = useState<string | null>(
 		() => expandedMarginByPath.get(currentPath ?? "") ?? null,
 	);
@@ -838,23 +824,15 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	/**
 	 * The single serialization path.
 	 *
-	 * SUGGESTIONS ARE WRITTEN TO THE FILE. This reverses an earlier invariant.
+	 * SUGGESTIONS ARE WRITTEN TO THE FILE, reversing the earlier invariant that the
+	 * `.md` stays byte-identical while suggestions are pending. The marks are the record
+	 * now: they serialize as `<ins data-id>` / `<del data-id>` (rules in
+	 * `to-markdown.ts`), so a suggestion survives a save, a reload, and any reader —
+	 * as a Google Docs suggestion lives in the document rather than beside it. The old
+	 * sidecar design meant anything that lost the sidecar lost the suggestions outright.
 	 *
-	 * The previous design stripped tracked marks before markdown conversion so the
-	 * `.md` stayed byte-identical while suggestions were pending, and kept them in
-	 * a sidecar instead. That is what made suggestions fragile: the file never
-	 * held them, so anything that lost or failed to load the sidecar lost the
-	 * suggestions outright, and the content-derived block refs they were keyed to
-	 * rehashed whenever the text changed - the annotation destroying its own
-	 * anchor.
-	 *
-	 * Now the marks are the record. They serialize as `<ins data-id>` / `<del
-	 * data-id>` (see the rules in `to-markdown.ts`), so a suggestion survives a
-	 * save, a reload, and any reader, exactly as a Google Docs suggestion lives in
-	 * the document rather than beside it.
-	 *
-	 * The byte-identity guard below still does its original job: it stops a no-op
-	 * visit from rewriting the file, which is a separate concern.
+	 * The byte-identity guard below is a separate concern: it stops a no-op visit from
+	 * rewriting the file.
 	 */
 	const handleUpdate = useCallback(
 		({ editor }: { editor: ReturnType<typeof useEditor> }) => {

@@ -1,29 +1,14 @@
 /**
  * Durable anchors for annotations.
  *
- * WHY THIS EXISTS
- * ---------------
- * Block refs are content-derived: `"b" + sha256(blockMarkdown).slice(0,6)`. Comments
- * and suggestions used to store the ref of the block they annotate, which made an
- * annotation's identity a FUNCTION OF THE TEXT IT ANNOTATES. Edit that text and the
- * identity is destroyed; the system then guessed it back through `refAliases`,
- * `computeRefDelta`, positional aliasing and `survivesViaAlias` — four mechanisms
- * patching one mistake.
- *
- * An anchor is opaque and durable instead. It records where the text was plus the text
- * itself, and resolution re-finds that text after the document changes. Editing the
- * text under an anchor MOVES it; it does not invalidate it.
+ * Block refs are content-derived, so storing a ref as an annotation's identity makes
+ * that identity a FUNCTION OF THE TEXT IT ANNOTATES: edit the text and the identity is
+ * destroyed. An anchor is opaque instead — it records where the text was plus the text
+ * itself — so editing the text under an anchor MOVES it rather than invalidating it.
  *
  * The quote fields follow the W3C Web Annotation Data Model's TextQuoteSelector
- * (`exact`/`prefix`/`suffix`) rather than inventing a scheme. That is a published
- * answer to "find this text again after the document changed", and the reason
- * `prefix`/`suffix` exist is the ambiguous case: the same words appear twice and only
- * the surrounding context distinguishes them.
- *
- * Note that `Comment.textAnchor` already carried `{start, end, selectedText}`, and
- * `selectedText` was never searched for anywhere in the codebase — it was validated at
- * write time and read for highlighting, but the recovery it was designed for was never
- * written. The data was always there; it just was not the identity.
+ * (`exact`/`prefix`/`suffix`). `prefix`/`suffix` exist for the ambiguous case, where the
+ * same words appear twice and only surrounding context distinguishes them.
  */
 
 import type { Anchor, AnchorStatus, Block, Comment, Sidecar, Suggestion } from "./types";
@@ -32,10 +17,8 @@ import type { Anchor, AnchorStatus, Block, Comment, Sidecar, Suggestion } from "
 const CONTEXT_CHARS = 32;
 
 /**
- * A resolved anchor: where it is NOW, and how confident that is.
- *
- * `ref`/`offset`/`length` are block-local so a `moved` result is a one-field copy
- * rather than a remap across every annotation.
+ * Where an anchor is NOW, and how confident that is. Block-local fields, so a `moved`
+ * result is a one-field copy rather than a remap across every annotation.
  */
 interface ResolvedAnchor {
 	ref: string | null;

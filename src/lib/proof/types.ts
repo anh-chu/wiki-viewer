@@ -53,17 +53,11 @@ export type InstructionState = "draft" | "queued" | "sent" | "answered";
 /**
  * An exact text range inside a block, plus the text itself.
  *
- * WHY BOTH OFFSETS AND TEXT (Phase 2)
- * -----------------------------------
- * `ref` alone is block-granular: it can say "this paragraph" and cannot say
- * "these words", so the UI could not highlight the commented text even though
- * `docs/ux-contracts.md` §5.1 promised it (DoD #1).
- *
- * Offsets alone would be fragile — every nearby edit shifts them. Storing
- * `selectedText` makes the anchor *searchable*, which is what makes an orphaned
- * anchor recoverable at all (DoD #6). The old `LineAnchor.textHash` could
- * VERIFY an anchor and never FIND it, which is why staleness was a one-way
- * latch. Text is the difference between "was here" and "is here".
+ * Offsets alone cannot carry an anchor: `ref` is block-granular ("this paragraph",
+ * not "these words"), and offsets shift under every nearby edit. Storing `selectedText`
+ * makes the anchor SEARCHABLE, which is what makes an orphaned anchor recoverable at
+ * all — a hash can verify an anchor and never find one. Text is the difference between
+ * "was here" and "is here".
  */
 export interface TextRangeAnchor {
 	/** Offsets within the block's markdown at the time of anchoring. */
@@ -115,7 +109,7 @@ export interface Comment {
 	anchorId?: string;
 	/** Resolved position, filled by the server read. Never persisted. */
 	anchorStatus?: AnchorStatus;
-	ref?: string; // LEGACY v1: block ref. Read-only fallback. */
+	ref?: string; // LEGACY v1: block ref. Read-only fallback.
 
 	lineAnchor?: LineAnchor;
 	/** Exact commented text. Absent => block-granular (legacy comment). */

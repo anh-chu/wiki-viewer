@@ -1,22 +1,14 @@
 /**
  * Exact-text comment highlighting.
  *
- * Google Docs highlights the words a comment is attached to, not the whole
- * paragraph. Two facts make that possible here:
- *
- *   1. `comment.textAnchor` records `{start, end, selectedText}` inside the
- *      block's markdown.
- *   2. `locateCommentAnchor` can find that text again after the block moves or
- *      is edited, because `selectedText` is stored — a hash could only verify an
- *      anchor, never find one.
- *
- * What this module supplies is the missing third piece: a ProseMirror position
- * for each block. The document itself carries no refs (refs are stamped onto DOM
- * elements by `editor.tsx`), so positions are derived from the rendered element
- * for each block, converted to doc offsets by walking the editor's own children
- * with `doc.forEach`. Both walks are over the SAME sequence — ProseMirror's
- * top-level children — so pairing them is sound, unlike pairing mdast blocks to
- * DOM nodes, which is where the old index bug lived.
+ * Google Docs highlights the words a comment is attached to, not the whole paragraph.
+ * `comment.textAnchor` records `{start, end, selectedText}` and can be re-found after
+ * edits; what this module adds is a ProseMirror position for each block. The document
+ * carries no refs (they are stamped onto DOM elements by `editor.tsx`), so positions are
+ * derived from each block's rendered element and converted to doc offsets by walking the
+ * editor's children with `doc.forEach`. Both walks cover the SAME sequence —
+ * ProseMirror's top-level children — so pairing them is sound, unlike pairing mdast
+ * blocks to DOM nodes, which is where the old index bug lived.
  */
 
 import { Extension } from "@tiptap/core";
@@ -81,28 +73,20 @@ function docTextRuns(doc: {
 /**
  * Build the decoration set for the current comments.
  *
- * Positions come from searching the document's TEXT RUNS for each comment's
- * anchored words. That is deliberately not offset arithmetic against the block
- * markdown: those offsets describe a different string (a list item's markdown
- * carries a "1. " prefix that the rendered node does not), so applying them to
- * rendered text highlights the wrong characters — observed live as a comment on
- * "Reactions in app" painting "Reactions ". Searching is exact by construction
- * and is the same find-not-verify property the anchor model exists to provide.
+ * Positions come from searching the block's TEXT RUNS for the anchored words, not from
+ * offset arithmetic against the block markdown: those offsets describe a different string
+ * (a list item's markdown carries a "1. " prefix the rendered node does not), so applying
+ * them to rendered text highlights the wrong characters — observed live as a comment on
+ * "Reactions in app" painting "Reactions ". Searching is exact by construction, the same
+ * find-not-verify property the anchor model exists to provide.
  *
- * A comment is anchored to a BLOCK (`comment.ref`), so the search is scoped to that
- * block before the words are looked for. Searching the whole document instead is a
- * real defect, not a theoretical one: with two paragraphs both containing "target",
- * the first `indexOf` hit always won, so a comment on the second paragraph
- * highlighted the first. Scoping by ref is what makes the anchor mean anything.
+ * The search is scoped to the BLOCK a comment is anchored to. Searching the whole
+ * document is a real defect, not a theoretical one: with two paragraphs both containing
+ * "target", the first `indexOf` hit always won, so a comment on the second paragraph
+ * highlighted the first.
  *
- * Positions still come from searching the block's TEXT RUNS rather than from offset
- * arithmetic against the block markdown: those offsets describe a different string
- * (a list item's markdown carries a "1. " prefix the rendered node does not), so
- * applying them to rendered text highlights the wrong characters — observed live as
- * a comment on "Reactions in app" painting "Reactions ".
- *
- * A comment whose words cannot be found is skipped rather than guessed. It is
- * cancelled elsewhere; drawing it in the wrong place would be worse than absent.
+ * A comment whose words cannot be found is skipped rather than guessed; drawing it in
+ * the wrong place would be worse than absent.
  */
 export function buildCommentDecorations(
 	doc: {
