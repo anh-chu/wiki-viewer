@@ -290,3 +290,64 @@ test("a range outside the block is refused rather than clamped", async () => {
 	const onDisk = await readFile(path.join(tmpRoot, name), "utf-8");
 	assert.doesNotMatch(onDisk, /data-id/, "no mark may be written on a refusal");
 });
+test("marks in DIFFERENT blocks get distinct ids, in one write", async () => {
+	// Found by review, and it is the worst class of bug here: ids were allocated per
+	// block, so two paragraphs each started at 1. The editor groups marks by id across
+	// the WHOLE document, so those two independent suggestions collapsed into a single
+	// review card, and settling it settled both ranges. Measured before the fix:
+	// `<del data-id="1">alpha</del>` and `<del data-id="1">beta</del>`.
+	const name = await doc("crossblock.md", "# Title\n\nalpha thing\n\nbeta thing\n");
+	const snap = await readSnapshot(tmpRoot, name);
+	const refs = snap!.blocks.filter((b) => b.markdown.includes("thing")).map((b) => b.ref);
+	assert.equal(refs.length, 2, "fixture needs two separate blocks");
+
+	const res = await applyOps({
+		rootDir: tmpRoot,
+		mdPath: name,
+		baseRevision: snap!.revision,
+		by: "ai:claude",
+		ops: [
+			{ type: "suggestion.add", ref: refs[0], kind: "remove", range: { start: 0, end: 5 } },
+			{ type: "suggestion.add", ref: refs[1], kind: "remove", range: { start: 0, end: 4 } },
+		],
+	});
+	assert.ok(res.ok, `op must succeed: ${JSON.stringify(res)}`);
+
+	const onDisk = await readFile(path.join(tmpRoot, name), "utf-8");
+	assert.match(onDisk, /<del data-id="1">alpha<\/del>/, "the first block's mark");
+	assert.match(onDisk, /<del data-id="2">beta<\/del>/, "the second block's mark");
+	const ids = [...onDisk.matchAll(/data-id="(\d+)"/g)].map((m) => m[1]);
+	assert.equal(
+		new Set(ids).size,
+		ids.length,
+		`every mark needs its own id or the editor merges them; got ${ids.join(", ")}`,
+	);
+});
+
+test("a mark's id clears marks in every block, not only its own", async () => {
+	// The narrower statement of the same rule: a document whose highest id sits in an
+	// EARLIER block must still hand the next mark a higher one.
+	const name = await doc("maxspan.md", "# Title\n\nalpha thing\n\nbeta thing\n");
+	const snap = await readSnapshot(tmpRoot, name);
+	const refs = snap!.blocks.filter((b) => b.markdown.includes("thing")).map((b) => b.ref);
+
+	await applyOps({
+		rootDir: tmpRoot,
+		mdPath: name,
+		baseRevision: snap!.revision,
+		by: "ai:claude",
+		ops: [{ type: "suggestion.add", ref: refs[0], kind: "remove", range: { start: 0, end: 5 } }],
+	});
+	const afterFirst = await readSnapshot(tmpRoot, name);
+	const ref2 = afterFirst!.blocks.find((b) => b.markdown.includes("beta"))!.ref;
+	await applyOps({
+		rootDir: tmpRoot,
+		mdPath: name,
+		baseRevision: afterFirst!.revision,
+		by: "ai:claude",
+		ops: [{ type: "suggestion.add", ref: ref2, kind: "remove", range: { start: 0, end: 4 } }],
+	});
+
+	const onDisk = await readFile(path.join(tmpRoot, name), "utf-8");
+	assert.match(onDisk, /data-id="1"[^]*data-id="2"/, "the second mark must not reuse id 1");
+});

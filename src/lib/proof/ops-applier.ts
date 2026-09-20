@@ -1249,11 +1249,19 @@ export async function applyOps(args: {
 					// agree (a list item's markdown carries a "1. " prefix its rendered
 					// node does not) — the exact mismatch behind the old "Reactions "
 					// highlight bug.
+					//
+					// The id is allocated against EVERY block, not just this one. Ids are
+					// document-scoped because the editor groups marks by id across the whole
+					// document, so two blocks each starting at 1 would produce two marks the
+					// editor reads as one suggestion - measured, one write to two paragraphs
+					// emitted `data-id="1"` twice, collapsing both into a single card whose
+					// Accept settled both ranges.
 					const spliced = spliceMark(
 						workingBlocks[idx].markdown,
 						op.kind === "remove" ? "remove" : "insert",
 						op.range ?? { start: 0, end: 0 },
 						op.markdown,
+						workingBlocks.map((b) => b.markdown),
 					);
 					if (!spliced.ok) {
 						return {

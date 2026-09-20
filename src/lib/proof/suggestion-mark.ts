@@ -50,12 +50,21 @@ export interface SpliceFailure {
  * Scanning for the raw `data-id="N"` is correct here and does not need a parse: the ids
  * only ever appear inside a mark tag, and a mark tag only appears as HTML.
  */
-export function nextMarkId(markdown: string): number {
+export function nextMarkId(markdown: string | readonly string[]): number {
 	let max = 0;
 	const re = /data-id="(\d+)"/g;
-	for (const match of markdown.matchAll(re)) {
-		const n = Number.parseInt(match[1], 10);
-		if (Number.isFinite(n) && n > max) max = n;
+	// Accepts the whole document as well as a single block, because ids are
+	// DOCUMENT-scoped: the editor groups marks by id across the entire document, so
+	// two marks sharing an id are one suggestion to it. Scanning only the block being
+	// edited made two blocks each start at 1 - measured, that produced
+	// `<del data-id="1">alpha</del>` and `<del data-id="1">beta</del>` in one write,
+	// which the editor then collapsed into a single card whose Accept settled both.
+	const sources = typeof markdown === "string" ? [markdown] : markdown;
+	for (const source of sources) {
+		for (const match of source.matchAll(re)) {
+			const n = Number.parseInt(match[1], 10);
+			if (Number.isFinite(n) && n > max) max = n;
+		}
 	}
 	return max + 1;
 }
@@ -101,6 +110,15 @@ export function spliceMark(
 	kind: MarkKind,
 	range: { start: number; end: number },
 	text?: string,
+	/**
+	 * Every mark already in the DOCUMENT, so the new id clears all of them.
+	 *
+	 * Ids are document-scoped because that is how the editor groups them. Passing only
+	 * this block's markdown is a bug when the document has more than one: each block
+	 * would restart at 1 and the editor would merge the marks into one suggestion.
+	 * Omitted only where a single value is genuinely the whole scope.
+	 */
+	documentMarkdown?: string | readonly string[],
 ): SpliceResult | SpliceFailure {
 	const { start, end } = range;
 	if (!Number.isInteger(start) || !Number.isInteger(end)) {
@@ -133,7 +151,9 @@ export function spliceMark(
 		};
 	}
 
-	const id = nextMarkId(markdown);
+	const id = nextMarkId(
+		documentMarkdown === undefined ? markdown : [markdown, ...(typeof documentMarkdown === "string" ? [documentMarkdown] : documentMarkdown)],
+	);
 	const before = markdown.slice(0, start);
 	const middle = start === end ? (text ?? "") : markdown.slice(start, end);
 	const after = markdown.slice(end);

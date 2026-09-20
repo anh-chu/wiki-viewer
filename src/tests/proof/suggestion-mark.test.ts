@@ -133,3 +133,35 @@ describe("a range inside an existing mark tag is refused", () => {
 		assert.equal(out.ok, true);
 	});
 });
+
+describe("ids are document-scoped, not block-scoped", () => {
+	// The editor groups marks by id across the WHOLE document, so two marks sharing an
+	// id are ONE suggestion to it. Allocating per block made each block restart at 1.
+
+	test("nextMarkId takes the maximum across every block when given a list", () => {
+		const id = nextMarkId(['a <del data-id="3">x</del>', 'b <del data-id="7">y</del>']);
+		assert.equal(id, 8, "the highest id anywhere in the document wins");
+	});
+
+	test("a single string is still accepted", () => {
+		assert.equal(nextMarkId('a <del data-id="4">x</del>'), 5);
+	});
+
+	test("splicing with documentMarkdown clears marks in other blocks", () => {
+		const other = 'beta <del data-id="9">thing</del>';
+		const out = spliceMark("alpha thing", "remove", { start: 0, end: 5 }, undefined, [
+			"alpha thing",
+			other,
+		]);
+		assert.ok(out.ok);
+		assert.match(out.markdown, /data-id="10"/, "must clear the other block's id 9");
+	});
+
+	test("CONTROL: without documentMarkdown the id is block-local, which is the bug", () => {
+		// Pins that the parameter is what prevents the collision, rather than the
+		// behaviour happening to work.
+		const out = spliceMark("alpha thing", "remove", { start: 0, end: 5 });
+		assert.ok(out.ok);
+		assert.match(out.markdown, /data-id="1"/, "a block-local scan cannot see other blocks");
+	});
+});
