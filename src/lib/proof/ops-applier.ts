@@ -1285,6 +1285,29 @@ export async function applyOps(args: {
 					};
 
 					if (op.status === "accepted") {
+						// Refuse the kinds that have no block-level meaning.
+						//
+						// `insert` and `remove` describe a run of typed characters at a
+						// `range` inside a block, not a whole-block edit. The mapping below
+						// used to end in an unconditional `block.delete` catch-all, so an
+						// agent posting `{kind: "insert", status: "accepted"}` DELETED the
+						// block it named — the opposite of what it asked for, and silent.
+						// Accepting a typed run has to splice at its range, which is what
+						// the transaction path does and this op-level path cannot.
+						if (op.kind === "insert" || op.kind === "remove") {
+							return {
+								ok: false,
+								status: 400,
+								code: "UNSUPPORTED_SUGGESTION_KIND",
+								message:
+									`suggestion.add with status "accepted" supports the block-level ` +
+									`kinds replace/insertAfter/insertBefore/delete; "${op.kind}" ` +
+									`describes a typed run inside a block and must be applied at its ` +
+									`range. Post it as "pending" and accept it through the review path.`,
+								snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar),
+							};
+						}
+
 						// Apply immediately
 						suggestion.status = "accepted";
 						suggestion.resolvedAt = at;
@@ -1292,16 +1315,16 @@ export async function applyOps(args: {
 						workingSidecar.archivedSuggestions.push(suggestion);
 						workingEvents.push({ type: "suggestion.added", at, by, suggestionId: suggestion.id });
 						workingEvents.push({ type: "suggestion.accepted", at, by, suggestionId: suggestion.id });
-						// Apply as block op inline
-						const inlineOp: Op = op.kind === "replace"
-							? { type: "block.replace", ref: resolved, markdown: op.markdown ?? "" }
-							: op.kind === "insertAfter"
-							? { type: "block.insertAfter", ref: resolved, markdown: op.markdown ?? "" }
-							: op.kind === "insertBefore"
-							? { type: "block.insertBefore", ref: resolved, markdown: op.markdown ?? "" }
-							: { type: "block.delete", ref: resolved };
-						// Recursively handle by pushing to ops (not safe for complex cases, do inline)
-						// For simplicity, fall through to apply the block op directly
+						// Every remaining kind maps to a block op explicitly. No catch-all:
+						// a catch-all is what let a wrong kind become a deletion.
+						const inlineOp: Op =
+							op.kind === "replace"
+								? { type: "block.replace", ref: resolved, markdown: op.markdown ?? "" }
+								: op.kind === "insertAfter"
+									? { type: "block.insertAfter", ref: resolved, markdown: op.markdown ?? "" }
+									: op.kind === "insertBefore"
+										? { type: "block.insertBefore", ref: resolved, markdown: op.markdown ?? "" }
+										: { type: "block.delete", ref: resolved };
 						ops.push(inlineOp);
 					} else {
 						workingSidecar.suggestions.push(suggestion);
