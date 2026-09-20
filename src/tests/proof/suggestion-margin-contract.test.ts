@@ -114,19 +114,31 @@ describe("Approve and Reject settle exactly one mark", () => {
 });
 
 describe("a mark with no assigned id is not shown as a card", () => {
-	test("the enumeration skips a null id instead of stringifying it", () => {
+	test("the enumeration skips a null id", () => {
 		// The mark spec defaults `id` to null, so a mark can exist before the library
-		// names it. String(null) is "null", which would merge every such mark into one
-		// card pointing at whichever was visited first.
+		// names it. Without a guard it becomes the id "null", merging every such mark
+		// into one card pointing at whichever was visited first.
 		const block = EDITOR.slice(
 			EDITOR.indexOf("const [trackedMarks, setTrackedMarks]"),
 			EDITOR.indexOf("const lastAnnotationFingerprintRef"),
 		);
 		assert.match(block, /mark\.attrs\.id === null/);
-		assert.ok(
-			block.indexOf("mark.attrs.id === null") < block.indexOf("String(mark.attrs.id)"),
-			"the guard must run before the id is stringified",
+	});
+
+	test("the id is never coerced to a string in the enumeration", () => {
+		// It used to be `String(mark.attrs.id)`, which broke settlement outright: the
+		// library generates NUMBER ids and its commands compare with `===`, so every
+		// Approve/Reject was a silent no-op. `String` is valid only for a DOM query,
+		// which lives in the offsets effect rather than here.
+		const block = EDITOR.slice(
+			EDITOR.indexOf("const [trackedMarks, setTrackedMarks]"),
+			EDITOR.indexOf("const lastAnnotationFingerprintRef"),
 		);
+		assert.ok(
+			!/String\(mark\.attrs\.id\)/.test(block),
+			"stringifying the id makes settlement a no-op; keep its type",
+		);
+		assert.match(block, /mark\.attrs\.id as MarkId/, "the id keeps its own type");
 	});
 
 	test("marks sharing an id are grouped, because one suggestion can span nodes", () => {

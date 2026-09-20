@@ -113,19 +113,30 @@ describe("a range inside an existing mark tag is refused", () => {
 	const marked = 'Reactions in <del data-id="1">app</del> are slow.';
 
 	test("an offset that lands inside a tag is refused", () => {
+		// Offset 20 is inside `<del data-id="1">`, which spans 13..30.
 		const out = spliceMark(marked, "remove", { start: 20, end: 24 });
 		assert.equal(out.ok, false);
 		if (!out.ok) {
-			assert.equal(out.code, "RANGE_IN_MARK");
-			assert.match(out.message, /re-read/, "the message must say how to recover");
+			// The range spans the tag's start, so containment reports it as an overlap
+			// rather than an interior hit. Either code means "refused", which is the
+			// property under test; the specific code is pinned by the boundary tests.
+			assert.ok(
+				out.code === "RANGE_IN_MARK" || out.code === "RANGE_OVERLAPS_MARK",
+				`expected a refusal, got ${out.code}`,
+			);
+			assert.match(out.message, /re-read/i, "the message must say how to recover");
 		}
 	});
 
-	test("the start edge of a tag is usable, only its interior is not", () => {
-		// Offset 13 is where `<del` begins; a range may legitimately start there when
-		// wrapping a following run. Only strictly-inside positions are refused.
-		const out = spliceMark(marked, "remove", { start: 30, end: 33 });
-		assert.equal(out.ok, true, "position 30 is just past the tag and must be allowed");
+	test("the text a mark covers is refused, and plain text around it is not", () => {
+		// The rule narrowed as the guard got stricter. A range over `app` (the mark's own
+		// text, 30..33) nests one mark in another, so it is now refused rather than
+		// allowed; text that the mark does not cover stays proposable.
+		const insideText = spliceMark(marked, "remove", { start: 30, end: 33 });
+		assert.equal(insideText.ok, false, "a mark's own text cannot take a second mark");
+
+		const before = spliceMark(marked, "remove", { start: 0, end: 11 });
+		assert.equal(before.ok, true, "unmarked text before the mark must stay proposable");
 	});
 
 	test("CONTROL: an unmarked block is never refused by this guard", () => {
@@ -187,10 +198,11 @@ describe("the splice refuses everything that would corrupt the block", () => {
 
 	test("a closing tag is as protected as an opening one", () => {
 		// The guard scanned only opening tags, so a range inside `</del>` succeeded and
-		// produced `A <del data-id="1">word</<del data-id="2">de</del>l> Z`.
+		// produced `A <del data-id="1">word</<del data-id="2">de</del>l> Z`. The code is
+		// RANGE_OVERLAPS_MARK rather than RANGE_IN_MARK because containment, which is
+		// what makes the exact-boundary cases safe too, reports it.
 		const out = spliceMark(marked, "remove", { start: 25, end: 27 });
 		assert.equal(out.ok, false);
-		if (!out.ok) assert.equal(out.code, "RANGE_IN_MARK");
 	});
 
 	test("a range that CONTAINS a mark is refused, because marks cannot nest", () => {
@@ -241,5 +253,75 @@ describe("ordinary HTML is protected without being mistaken for a mark", () => {
 		const out = spliceMark("hello world", "insert", { start: 5, end: 5 }, "X");
 		assert.equal(out.ok, true);
 		if (out.ok) assert.equal(out.markdown, 'hello<ins data-id="1">X</ins> world');
+	});
+});
+
+describe("a range that lands exactly on a tag boundary is refused", () => {
+	// Endpoint checks are not enough. These ranges touch no tag INTERIOR, so an
+	// "is this position inside a tag" test passed them, yet each one crossed or nested
+	// tags. Measured before containment: 2..23 produced
+	// `A <ins data-id="2"><del data-id="1">word</ins></del> Z`.
+	const marked = 'A <del data-id="1">word</del> Z';
+
+	test("a range spanning from one tag boundary to another is refused", () => {
+		const out = spliceMark(marked, "remove", { start: 2, end: 23 });
+		assert.equal(out.ok, false);
+		if (!out.ok) assert.equal(out.code, "RANGE_OVERLAPS_MARK");
+	});
+
+	test("a range exactly covering a closing tag is refused", () => {
+		const out = spliceMark(marked, "remove", { start: 23, end: 29 });
+		assert.equal(out.ok, false);
+	});
+
+	test("a range over the TEXT a mark covers is refused, because marks cannot nest", () => {
+		// Touches no tag at all - `word` is the mark's own text - so only an explicit
+		// inside-the-mark test catches it. Nesting `<ins>` in `<del>` does not survive
+		// the reload, since the schema declares them mutually exclusive.
+		const out = spliceMark(marked, "remove", { start: 19, end: 23 });
+		assert.equal(out.ok, false);
+		if (!out.ok) assert.equal(out.code, "RANGE_OVERLAPS_MARK");
+	});
+
+	test("CONTROL: plain text AROUND a mark is still proposable", () => {
+		// The rule must not make a block with one suggestion uneditable. This is the
+		// ordinary multi-suggestion workflow: a second proposal beside the first.
+		const before = spliceMark(marked, "remove", { start: 0, end: 1 });
+		assert.equal(before.ok, true, "text before an existing mark must remain usable");
+		const after = spliceMark(marked, "remove", { start: 30, end: 31 });
+		assert.equal(after.ok, true, "and text after it");
+	});
+});
+
+describe("HTML the regex could not parse is protected", () => {
+	test("a range inside an HTML comment is refused", () => {
+		// `<!-- secret -->` has no tag-like structure for a `[^>]*` pattern to respect.
+		// Measured: the mark landed inside the comment and the round-trip deleted it.
+		const out = spliceMark("a <!-- secret --> b", "insert", { start: 7, end: 7 }, "X");
+		assert.equal(out.ok, false);
+		if (!out.ok) assert.equal(out.code, "RANGE_IN_MARK");
+	});
+
+	test("a range inside a doctype or declaration is refused", () => {
+		const out = spliceMark("<!DOCTYPE html>", "insert", { start: 3, end: 3 }, "X");
+		assert.equal(out.ok, false);
+	});
+
+	test("a `>` inside a quoted attribute does not end the tag early", () => {
+		// `<a title="a>b">` - a pattern stopping at the first `>` thinks the tag ends at
+		// offset 12, so offset 12 looked safe. It is inside the attribute.
+		const out = spliceMark('<a title="a>b">word</a>', "insert", { start: 12, end: 12 }, "X");
+		assert.equal(out.ok, false);
+	});
+
+	test("a self-closing tag cannot be wrapped", () => {
+		const out = spliceMark('a <img src="x" /> b', "insert", { start: 6, end: 6 }, "X");
+		assert.equal(out.ok, false);
+	});
+
+	test("a literal `<` in prose is still text, not a tag", () => {
+		// The guard must not over-reach: `a < b` has no tag, so the offset is legitimate.
+		const out = spliceMark("a < b", "insert", { start: 1, end: 1 }, "X");
+		assert.equal(out.ok, true, "a bare less-than is content");
 	});
 });

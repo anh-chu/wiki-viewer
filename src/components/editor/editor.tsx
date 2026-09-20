@@ -1211,13 +1211,18 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 			// One suggestion per distinct mark id. Counting ranges would report a
 			// single edit as several, because a run of text is split across text
 			// nodes by the schema as the user keeps typing.
-			const ids = new Set<string>();
+			// `MarkId`, not `string`: stringifying here made numeric 1 and legacy "1"
+			// one entry, so the count under-reported how many suggestions are pending.
+			// The same reasoning as `trackedMarks` - an id is compared by identity
+			// elsewhere, so it must not be coerced for convenience.
+			const ids = new Set<MarkId>();
 			editor.state.doc.descendants((node) => {
 				for (const mark of node.marks) {
 					if (mark.type.name.startsWith("insertion") ||
 						mark.type.name === "deletion" ||
 						mark.type.name === "modification") {
-						ids.add(String(mark.attrs.id));
+						if (mark.attrs.id === null || mark.attrs.id === undefined) continue;
+						ids.add(mark.attrs.id as MarkId);
 					}
 				}
 				return true;

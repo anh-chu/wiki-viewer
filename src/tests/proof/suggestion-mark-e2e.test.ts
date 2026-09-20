@@ -180,8 +180,15 @@ test("a STALE range is refused instead of corrupting the earlier mark", async ()
 	});
 	assert.equal(res.ok, false, "a stale range must be refused");
 	if (!res.ok) {
-		assert.equal(res.code, "RANGE_IN_MARK");
-		assert.match(res.message, /re-read/, "the message must say how to recover");
+		// The guard tightened from "is this position inside a tag" to full interval
+		// containment, so a range that spans part of a tag is now reported as an
+		// overlap. Both codes mean refused; the specific code is pinned by the
+		// boundary tests in suggestion-mark.test.ts.
+		assert.ok(
+			res.code === "RANGE_IN_MARK" || res.code === "RANGE_OVERLAPS_MARK",
+			`expected a refusal, got ${res.code}`,
+		);
+		assert.match(res.message, /re-read/i, "the message must say how to recover");
 	}
 
 	const onDisk = await readFile(path.join(tmpRoot, name), "utf-8");

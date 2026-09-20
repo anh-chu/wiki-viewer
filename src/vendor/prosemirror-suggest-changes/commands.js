@@ -72,7 +72,15 @@ function revertModifications(node, pos, tr) {
     const existingMods = node.marks.filter((mark)=>mark.type === modification);
     for (const mod of existingMods){
         if (mod.attrs["type"] === "attr" && typeof mod.attrs["attrName"] === "string") {
-            tr.setNodeAttribute(pos, mod.attrs["attrName"], mod.attrs["previousValue"]);
+            // LOCAL EDIT (wiki-viewer): `setNodeAttribute` on a TEXT node throws
+            // `NodeType.create can't construct text nodes`, which killed the whole
+            // revert. Text carries no attributes, so an "attr" modification over text
+            // has nothing to restore and the mark is simply removed. Guarding here
+            // keeps a modification that cannot be reverted from taking the command
+            // down with it. See VENDORED.md.
+            if (!node.isText) {
+                tr.setNodeAttribute(pos, mod.attrs["attrName"], mod.attrs["previousValue"]);
+            }
         } else if (mod.attrs["type"] === "mark") {
             if (mod.attrs["previousValue"]) {
                 tr.addNodeMark(0, node.type.schema.markFromJSON(mod.attrs["previousValue"]));
@@ -81,7 +89,13 @@ function revertModifications(node, pos, tr) {
             }
         } else if (mod.attrs["type"] === "nodeType") {
             tr.setNodeMarkup(pos, node.type.schema.nodes[mod.attrs["previousValue"]], null);
-        } else {
+        } else if (mod.attrs["type"] !== "text") {
+            // LOCAL EDIT (wiki-viewer): `"text"` is a legitimate type - this app writes
+            // it as the default in `suggest-changes.ts` and `to-markdown.ts` - but
+            // upstream only handles attr/mark/nodeType and threw for it. A text
+            // modification records a wording change, so there is no node state to
+            // restore and removing the mark IS the revert. Only genuinely unknown types
+            // throw now. See VENDORED.md.
             throw new Error("Unknown modification type");
         }
     }
@@ -92,21 +106,33 @@ function modificationIsInSet(modification, id, marks) {
     if (mark?.attrs["id"] === id) return mark;
     return undefined;
 }
-function applyModificationsToTransform(node, tr, dir, suggestionId, from, to) {
+function applyModificationsToTransform(node, tr, dir, suggestionId, from, to, startPos = 0) {
     const { modification } = getSuggestionMarks(node.type.schema);
     const isModification = modificationIsInSet(modification, suggestionId, node.marks);
     if (isModification) {
+        const pos = startPos;
         let prevLength;
         do {
             // https://github.com/ProseMirror/prosemirror/issues/1525
             prevLength = tr.steps.length;
-            tr.removeNodeMark(0, modification);
+            // LOCAL EDIT (wiki-viewer): `removeNodeMark` removes a mark from a NODE,
+            // and throws `NodeType.create can't construct text nodes` when the mark
+            // sits on text - which is the usual case for a modification over words.
+            // Text carries inline marks, so those need `removeMark` over the node's
+            // range. See VENDORED.md.
+            if (node.isText) {
+                tr.removeMark(pos, pos + node.nodeSize, modification);
+            } else {
+                tr.removeNodeMark(pos, modification);
+            }
         }while (tr.steps.length > prevLength);
         if (dir < 0) {
-            revertModifications(node, 0, tr);
+            revertModifications(node, startPos, tr);
         }
     }
     node.descendants((child, pos)=>{
+        // `pos` is relative to `node`; the transform needs an absolute position.
+        pos += startPos;
         if (from !== undefined && pos < from) {
             return true;
         }
@@ -121,7 +147,13 @@ function applyModificationsToTransform(node, tr, dir, suggestionId, from, to) {
         do {
             // https://github.com/ProseMirror/prosemirror/issues/1525
             prevLength = tr.steps.length;
-            tr.removeNodeMark(pos, modification);
+            // Same node-vs-text distinction as above: a mark on text is an inline mark
+            // and `removeNodeMark` throws for it.
+            if (child.isText) {
+                tr.removeMark(pos, pos + child.nodeSize, modification);
+            } else {
+                tr.removeNodeMark(pos, modification);
+            }
         }while (tr.steps.length > prevLength);
         if (dir < 0) {
             revertModifications(child, pos, tr);
@@ -193,7 +225,12 @@ export function applySuggestionsToRange(doc, from, to) {
         const { deletion, insertion } = getSuggestionMarks(state.schema);
         const tr = state.tr;
         applySuggestionsToTransform(state.doc, tr, insertion, deletion, suggestionId, from, to);
-        applyModificationsToTransform(tr.doc, tr, 1, undefined, from, to);
+        // LOCAL EDIT (wiki-viewer): pass `suggestionId`, which upstream dropped as
+        // `undefined`. `applyModificationsToTransform` already scopes by id through
+        // `modificationIsInSet`, so omitting it applied EVERY modification in
+        // [from, to] - approving one card settled others that happened to fall in the
+        // same range. See VENDORED.md.
+        applyModificationsToTransform(tr.doc, tr, 1, suggestionId, from, to);
         if (!tr.steps.length) return false;
         tr.setMeta(suggestChangesKey, {
             skip: true
@@ -249,11 +286,17 @@ export function applySuggestionsToRange(doc, from, to) {
         const { deletion, insertion } = getSuggestionMarks(state.schema);
         const tr = state.tr;
         applySuggestionsToTransform(state.doc, tr, deletion, insertion, suggestionId, from, to);
+        // LOCAL EDIT (wiki-viewer): the `return false` used to run BEFORE the
+        // modification pass, so rejecting a modification-only suggestion dispatched
+        // nothing and the card stayed on screen. The guard only means "no insertion or
+        // deletion mark was touched", which is the normal case for a modification, so
+        // the modification pass runs first and the emptiness check moves after it.
+        // `suggestionId` is passed for the same reason as in `applySuggestion`.
+        applyModificationsToTransform(tr.doc, tr, -1, suggestionId, from, to);
         if (!tr.steps.length) return false;
         tr.setMeta(suggestChangesKey, {
             skip: true
         });
-        applyModificationsToTransform(tr.doc, tr, -1, undefined, from, to);
         dispatch?.(tr);
         return true;
     };

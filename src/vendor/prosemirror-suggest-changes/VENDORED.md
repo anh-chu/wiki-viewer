@@ -33,4 +33,30 @@ ProseMirror build. Both alternatives were tried and rejected:
   as a type" errors.
 
 Rewriting the imports touches only the vendored files and leaves the rest of the
-app's module resolution alone. The vendored code is otherwise unmodified.
+app's module resolution alone. ## Local edits beyond the import rewrite
+
+Two behavioural fixes in `commands.js`, both marked `LOCAL EDIT (wiki-viewer)` inline
+and both reported by adversarial review. Upstream 0.1.8:
+
+1. Passed `undefined` instead of `suggestionId` to `applyModificationsToTransform` in
+   both `applySuggestion` and `revertSuggestion`. That function already scopes by id
+   via `modificationIsInSet`, so the id being dropped meant approving one card applied
+   every modification inside the range, including another suggestion's.
+2. `revertSuggestion` returned early on `!tr.steps.length` BEFORE the modification
+   pass. A modification-only suggestion leaves insertion/deletion marks untouched, so
+   that early return made rejecting one a silent no-op. The check now runs after the
+   modification pass, where it still correctly reports "nothing happened".
+
+3. `revertModifications` called `tr.setNodeAttribute` for an `attr` modification even
+   when the mark sat on a TEXT node, where ProseMirror throws
+   `NodeType.create can't construct text nodes` and the whole revert fails. Text nodes
+   carry no attributes, so there is nothing to restore and the branch is now skipped
+   for them.
+
+4. `revertModifications` threw `Unknown modification type` for `type: "text"`, even
+   though this app writes `"text"` as the default modification type. A text
+   modification records a wording change, so there is no node state to restore and
+   dropping the mark is the revert; only genuinely unknown types throw now.
+
+All four are narrow and carry inline comments; the rest of the vendored code is
+unmodified.

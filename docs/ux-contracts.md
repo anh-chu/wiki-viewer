@@ -1174,6 +1174,21 @@ made to it), `src/lib/markdown/to-markdown.ts` (the `ins` / `del` rules),
 
 An agent authors a reviewable inline suggestion with `suggestion.add`, providing a block `ref`, `kind: "insert" | "remove"`, and a block-local Markdown `range`. Insertions also provide the text to insert. The server splices the corresponding mark into that block's markdown. If an agent wants an immediate committed change, it uses `block.replace`, `block.insertAfter`, `block.insertBefore`, or `block.delete` directly instead.
 
+**A range must cover plain, unmarked text.** Anything else is refused with a 4xx that says to re-read the block, because every such input produced markup that could not round-trip. The refusals and what they prevent:
+
+| Refused | Code | What it prevented |
+| --- | --- | --- |
+| Range overlapping any tag, or the text a mark already covers | `RANGE_OVERLAPS_MARK` for `ins`/`del`, else `RANGE_IN_MARK` | Crossing or nesting marks. Endpoint checks alone missed ranges whose ends landed exactly on tag boundaries: `2..23` over `A <del data-id="1">word</del> Z` produced `A <ins data-id="2"><del data-id="1">word</ins></del> Z` |
+| Inserted text containing `<` or `>` | `INVALID_TEXT` | A supplied `</ins>` closed the mark early and the second tag was dropped on reload |
+| Inserted text containing a blank line | `INVALID_TEXT` | The blank line ends the block, so the mark split across two paragraphs and part of the text silently stopped being suggested |
+| `kind` outside `"insert"`/`"remove"` | `UNSUPPORTED_SUGGESTION_KIND` | The legacy block-level kinds were coerced to `insert`, so `kind: "delete"` wrote an insertion proposing the opposite change |
+
+Tag detection is a real scan, not a pattern match: it tracks quoted attribute values and treats comments and declarations as single spans. A regex could not place `<a title="a>b">` or `<!-- -->` correctly, and offsets inside those previously corrupted the block.
+
+**Marks are mutually exclusive**, so a range inside text an existing suggestion already covers is refused rather than nested. Proposing a change to text that is already a pending suggestion means settling that suggestion first. Adding a new suggestion to *unmarked* text in the same block remains fine, including on both sides of an existing mark.
+
+**Settlement for a `modification` mark needed four fixes in the vendored library**, which upstream 0.1.8 could not do at all: `revertSuggestion` returned before the modification pass, so Reject never dispatched; both commands dropped the suggestion id before the modification pass, so approving one card applied every modification in the computed range; `removeNodeMark` was used on text, where ProseMirror throws; and `type: "text"` threw `Unknown modification type` even though it is the type this app writes. Each is marked `LOCAL EDIT (wiki-viewer)` inline and recorded in the vendored package's `VENDORED.md`.
+
 **Why it matters:** One durable representation prevents the document and a separate suggestion store from drifting, and lets the human review exactly the text that will be written to disk.
 
 **Verification pointer:** `src/components/editor/extensions/suggest-changes.ts`, `src/lib/proof/ops-applier.ts`, `src/lib/markdown/to-markdown.ts`, `src/lib/markdown/sanitize-schema.ts`

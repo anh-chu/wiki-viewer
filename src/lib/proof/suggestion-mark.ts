@@ -80,43 +80,143 @@ export function nextMarkId(markdown: string | readonly string[]): number {
 }
 
 /**
- * Every mark tag in the block, as `[start, end)` spans over the markdown.
+ * Every tag-like span in the block, found by scanning rather than by pattern.
  *
- * Only ACTUAL mark tags count for the NESTING rules. Matching every `<span>`/`<div>`
- * mistook ordinary raw HTML for suggestion state, so a legitimate proposal inside
- * `<span style="color:red">` was refused as `RANGE_IN_MARK`. A tag qualifies only by
- * being one of the two elements the editor writes with a `data-id`: `ins` and `del`,
- * open or close.
+ * A regex cannot decide where a tag ends. `<a title="a>b">` contains a `>` inside a
+ * quoted attribute, and an HTML comment contains `<` and `>` that are not tags at all —
+ * measured, a range placed inside `<!-- -->` or `<!DOCTYPE html>` passed a regex-based
+ * guard and corrupted the block. So this walks the string, tracks whether it is inside
+ * a quoted attribute value, and treats comments and doctypes as single spans.
+ *
+ * Returns each span with the element name and whether it is a closing tag, which is what
+ * the nesting rules need; `tag` is null for comments and declarations.
  */
-function markTagSpans(markdown: string): { start: number; end: number }[] {
-	const re = /<\/?(?:ins|del)\b[^>]*>/g;
-	return [...markdown.matchAll(re)].map((match) => ({
-		start: match.index,
-		end: match.index + match[0].length,
-	}));
+interface TagSpan {
+	start: number;
+	end: number;
+	name: string | null;
+	closing: boolean;
+}
+
+function scanTagSpans(markdown: string): TagSpan[] {
+	const spans: TagSpan[] = [];
+	let i = 0;
+	while (i < markdown.length) {
+		if (markdown[i] !== "<") {
+			i += 1;
+			continue;
+		}
+		// Comments and declarations run to their own terminator and are one span.
+		if (markdown.startsWith("<!--", i)) {
+			const close = markdown.indexOf("-->", i + 4);
+			const end = close === -1 ? markdown.length : close + 3;
+			spans.push({ start: i, end, name: null, closing: false });
+			i = end;
+			continue;
+		}
+		if (markdown[i + 1] === "!" || markdown[i + 1] === "?") {
+			const close = markdown.indexOf(">", i + 2);
+			const end = close === -1 ? markdown.length : close + 1;
+			spans.push({ start: i, end, name: null, closing: false });
+			i = end;
+			continue;
+		}
+
+		const closing = markdown[i + 1] === "/";
+		const nameStart = i + (closing ? 2 : 1);
+		const nameMatch = /^[a-zA-Z][a-zA-Z0-9-]*/.exec(markdown.slice(nameStart));
+		if (!nameMatch) {
+			// A literal `<` in text, e.g. "a < b". Not a tag; leave it as content.
+			i += 1;
+			continue;
+		}
+
+		// Walk to the tag's real end, skipping `>` inside quoted attribute values.
+		let j = nameStart + nameMatch[0].length;
+		let quote: string | null = null;
+		while (j < markdown.length) {
+			const ch = markdown[j];
+			if (quote) {
+				if (ch === quote) quote = null;
+			} else if (ch === '"' || ch === "'") {
+				quote = ch;
+			} else if (ch === ">") {
+				j += 1;
+				break;
+			}
+			j += 1;
+		}
+		spans.push({
+			start: i,
+			end: j,
+			name: markdown.slice(nameStart, nameStart + nameMatch[0].length).toLowerCase(),
+			closing,
+		});
+		i = j;
+	}
+	return spans;
+}
+
+/** Sentinel returned when a range falls inside a mark's text rather than on a tag. */
+const MARK_TEXT_MARKER: TagSpan = { start: -1, end: -1, name: "ins", closing: false };
+
+/** Whether `pos` falls strictly inside a tag span. */
+function insideAnyTag(spans: readonly TagSpan[], pos: number): boolean {
+	return spans.some((span) => pos > span.start && pos < span.end);
 }
 
 /**
- * Every HTML tag in the block, mark or not.
+ * Whether `[start, end)` is clear of every tag.
  *
- * Splicing anywhere inside a tag splits it, whatever the tag is. This is not specific
- * to suggestions: placing text at offset 7 of `<span style="color:red">word</span>`
- * produces `<span s<ins data-id="1">X</ins>tyle="color:red">`, which breaks the span's
- * attribute just as badly as the original bug broke a `<del data-id>`. So the
- * "not inside a tag" rule applies to all tags, while the nesting rules apply only to
- * marks.
+ * Containment, not "are the endpoints inside a tag". A range whose ends land exactly on
+ * tag boundaries is the case the endpoint check missed: measured, `2..23` over
+ * `A <del data-id="1">word</del> Z` starts at `<del` and ends at `</del>`, produced
+ * `A <ins data-id="2"><del data-id="1">word</ins></del> Z`, and crossed the two tags.
+ * A range is only safe if NO tag overlaps it at all.
+ *
+ * A range inside a mark's own text cannot be exempted either: giving `word` a second
+ * mark nests `<ins>` inside `<del>`, and the editor's mark specs declare those mutually
+ * exclusive, so the nesting does not survive a round-trip. Proposing inside existing
+ * marked text is not a supported edit — the caller proposes against unmarked text, or
+ * settles the existing mark first.
  */
-function anyTagSpans(markdown: string): { start: number; end: number }[] {
-	const re = /<\/?[a-zA-Z][^>]*>/g;
-	return [...markdown.matchAll(re)].map((match) => ({
-		start: match.index,
-		end: match.index + match[0].length,
-	}));
+/**
+ * Whether a range sits inside the TEXT a mark already covers.
+ *
+ * A range here touches no tag, so containment alone does not catch it — but wrapping
+ * text that already belongs to a suggestion nests one mark in another:
+ * `A <del data-id="1"><ins data-id="2">word</ins></del> Z`. The schema declares the
+ * marks mutually exclusive, so the nesting does not survive a reload.
+ *
+ * A mark's text is what lies between its opening and closing tag, so this pairs the
+ * spans up by element name and tests the gaps.
+ */
+function rangeInsideMarkText(spans: readonly TagSpan[], start: number, end: number): boolean {
+	const open: Record<string, number[]> = {};
+	for (const span of spans) {
+		if (span.name !== "ins" && span.name !== "del") continue;
+		const stack = (open[span.name] ??= []);
+		if (!span.closing) {
+			stack.push(span.end);
+			continue;
+		}
+		const textStart = stack.pop();
+		if (textStart === undefined) continue;
+		// Strictly inside the mark's text, so a range butting against the tag itself is
+		// refused by the containment rule rather than this one.
+		if (start >= textStart && end <= span.start && start < end) return true;
+	}
+	return false;
 }
 
-/** Whether `pos` falls strictly inside a mark tag. */
-function insideMarkTag(spans: readonly { start: number; end: number }[], pos: number): boolean {
-	return spans.some((span) => pos > span.start && pos < span.end);
+function rangeTouchesTag(spans: readonly TagSpan[], start: number, end: number): TagSpan | null {
+	return (
+		spans.find((span) => {
+			// Overlap, with an empty range at `start` treated as a zero-width interval.
+			if (start === end) return start > span.start && start < span.end;
+			return span.start < end && span.end > start;
+		}) ?? null
+	);
 }
 
 /**
@@ -164,39 +264,38 @@ export function spliceMark(
 			message: "an empty range needs text to insert",
 		};
 	}
-	const spans = markTagSpans(markdown);
+	const spans = scanTagSpans(markdown);
 
-	// A stale offset would split an existing tag in half. Refuse rather than corrupt:
-	// nothing a caller means to propose lands inside a tag. Both ENDS are checked
-	// because the range is a slice, and both OPEN and CLOSE tags count - `</del>` is as
-	// much a tag as `<del ...>`, and splitting it corrupts the block. This covers
-	// ordinary HTML too, since any split tag is broken regardless of what it is.
-	const tags = anyTagSpans(markdown);
-	if (insideMarkTag(tags, start) || insideMarkTag(tags, end)) {
+	// Any tag overlap is refused, not just a position strictly inside one.
+	//
+	// Checking only the two endpoints let a range whose ends landed exactly on tag
+	// boundaries through: measured, `2..23` over `A <del data-id="1">word</del> Z`
+	// touched no interior point yet still wrapped one tag in another, producing
+	// `A <ins data-id="2"><del data-id="1">word</ins></del> Z` with crossed tags.
+	//
+	// This also covers nesting, which a separate rule used to handle. Marks are
+	// mutually exclusive in the schema, so any range that includes a mark's tags - or
+	// sits inside its text - builds markup that cannot round-trip. One containment
+	// test replaces both, and it is the honest statement of the rule: a proposal
+	// covers plain, unmarked text only.
+	const collision = rangeTouchesTag(spans, start, end) ?? (rangeInsideMarkText(spans, start, end) ? MARK_TEXT_MARKER : null);
+	if (collision) {
+		const what =
+			collision === MARK_TEXT_MARKER
+				? "text an existing suggestion already covers"
+				: collision.name === null
+					? "an HTML comment or declaration"
+					: `a <${collision.name}> tag`;
+		const isMark = collision.name === "ins" || collision.name === "del";
 		return {
 			ok: false,
-			code: "RANGE_IN_MARK",
+			code: isMark ? "RANGE_OVERLAPS_MARK" : "RANGE_IN_MARK",
 			message:
-				`range ${start}..${end} falls inside an HTML tag. The range is ` +
-				`an offset into the block's markdown, so it must be recomputed after any ` +
-				`mark is added: re-read the block and retry.`,
-		};
-	}
-
-	// A range that CONTAINS a tag would wrap an existing mark in a new one, producing
-	// nested marks of the same kind. ProseMirror's mark specs declare `ins`/`del`
-	// mutually exclusive, so that nesting cannot round-trip: it either drops the inner
-	// mark or fails to parse, and the outer mark's text silently changes. Refuse and
-	// make the caller propose against plain text.
-	const enclosing = spans.find((span) => span.start > start && span.end <= end);
-	if (enclosing) {
-		return {
-			ok: false,
-			code: "RANGE_OVERLAPS_MARK",
-			message:
-				`range ${start}..${end} contains an existing mark (at ${enclosing.start}). ` +
-				`Marks cannot nest, so a range must cover plain text only: re-read the ` +
-				`block and propose against the text the mark does not already cover.`,
+				`range ${start}..${end} overlaps ${what} at ${collision.start}..${collision.end}. ` +
+				`A range is an offset into the block's markdown and must cover plain text ` +
+				`only, because a mark cannot wrap or sit inside an existing tag and the ` +
+				`resulting markup would not survive a reload. Re-read the block and ` +
+				`recompute the offset.`,
 		};
 	}
 
