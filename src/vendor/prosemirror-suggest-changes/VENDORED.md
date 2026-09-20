@@ -58,5 +58,18 @@ and both reported by adversarial review. Upstream 0.1.8:
    modification records a wording change, so there is no node state to restore and
    dropping the mark is the revert; only genuinely unknown types throw now.
 
-All four are narrow and carry inline comments; the rest of the vendored code is
+5. `trackAttrStep` attached a modification mark to a BLOCK node. The mark schema
+   declares `modification` for inline content, so the document became invalid and
+   `setNodeMarkup` threw `RangeError: Invalid content for node doc`. Reachable from the
+   UI: `paragraph` has a settable `textAlign`, so clicking Align while Suggesting mode
+   is on crashed the editor. Node-level attribute changes now apply WITHOUT a tracking
+   mark, which is all the schema permits.
+
+   **Known gap this leaves.** A node attribute change is therefore not reviewable as a
+   suggestion - it applies directly. Making it reviewable needs the `modification` mark
+   to be legal on block nodes, i.e. a schema change in `schema.js` plus a way for the
+   type upsert to accept it. That is a real feature gap, not a regression: before this
+   edit the same action threw instead.
+
+All five are narrow and carry inline comments; the rest of the vendored code is
 unmodified.

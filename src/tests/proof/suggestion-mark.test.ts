@@ -325,3 +325,56 @@ describe("HTML the regex could not parse is protected", () => {
 		assert.equal(out.ok, true, "a bare less-than is content");
 	});
 });
+
+describe("declarations and raw-text elements are not tag-spliceable", () => {
+	// The scanner originally found a declaration's end with `indexOf(">")`, which is
+	// wrong for anything with a quoted interior, and treated a raw-text body as markup.
+
+	test("a CDATA section is one span, `>` inside it included", () => {
+		const out = spliceMark("<![CDATA[a>b]]>", "insert", { start: 12, end: 12 }, "X");
+		assert.equal(out.ok, false);
+	});
+
+	test("a processing instruction ends at `?>`, not at a quoted `>`", () => {
+		const out = spliceMark('<?x a=">">', "insert", { start: 8, end: 8 }, "X");
+		assert.equal(out.ok, false);
+	});
+
+	test("a raw-text element body is one span, because its content is not markup", () => {
+		// `<script>a>b</script>` at offset 9 looked safe and landed a mark inside code.
+		for (const html of ["<script>a>b</script>", "<style>a>b</style>"]) {
+			const out = spliceMark(html, "insert", { start: 9, end: 9 }, "X");
+			assert.equal(out.ok, false, `${html} must not be spliceable inside its body`);
+		}
+	});
+
+	test("CONTROL: ordinary prose is never refused by these rules", () => {
+		const out = spliceMark("hello world", "insert", { start: 5, end: 5 }, "X");
+		assert.equal(out.ok, true);
+	});
+});
+
+describe("an insertion point on a mark's own edge is refused", () => {
+	// An empty range is an insertion point, and the gap test needed `start < end`, so it
+	// never fired for one: inserting exactly after `<del data-id="1">` nested a second,
+	// mutually-exclusive mark inside the first.
+	const marked = 'A <del data-id="1">word</del> Z';
+
+	test("inserting just inside a mark's opening tag is refused", () => {
+		const out = spliceMark(marked, "insert", { start: 19, end: 19 }, "X");
+		assert.equal(out.ok, false);
+	});
+
+	test("inserting just inside a mark's closing tag is refused", () => {
+		const out = spliceMark(marked, "insert", { start: 23, end: 23 }, "X");
+		assert.equal(out.ok, false);
+	});
+
+	test("CONTROL: inserting beside a mark, outside its text, is allowed", () => {
+		// The ordinary workflow: a second suggestion next to the first.
+		for (const pos of [0, 2, 29, 31]) {
+			const out = spliceMark(marked, "insert", { start: pos, end: pos }, "X");
+			assert.equal(out.ok, true, `offset ${pos} is outside the mark's text`);
+		}
+	});
+});

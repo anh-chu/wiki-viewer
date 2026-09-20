@@ -114,11 +114,55 @@ function scanTagSpans(markdown: string): TagSpan[] {
 			i = end;
 			continue;
 		}
-		if (markdown[i + 1] === "!" || markdown[i + 1] === "?") {
-			const close = markdown.indexOf(">", i + 2);
-			const end = close === -1 ? markdown.length : close + 1;
+		// CDATA and processing instructions have quoted/`>`-bearing interiors of their
+		// own, so they cannot be found with `indexOf(">")`: in `<![CDATA[a>b]]>` that
+		// finds the `>` inside the data and a splice at offset 12 landed inside the
+		// section. Both end at their own delimiter.
+		if (markdown.startsWith("<![CDATA[", i)) {
+			const close = markdown.indexOf("]]>", i + 9);
+			const end = close === -1 ? markdown.length : close + 3;
 			spans.push({ start: i, end, name: null, closing: false });
 			i = end;
+			continue;
+		}
+		if (markdown[i + 1] === "?") {
+			// `?>`; a `>` inside a quoted value does not end it.
+			let j = i + 2;
+			let q: string | null = null;
+			while (j < markdown.length) {
+				const ch = markdown[j];
+				if (q) {
+					if (ch === q) q = null;
+				} else if (ch === '"' || ch === "'") {
+					q = ch;
+				} else if (ch === "?" && markdown[j + 1] === ">") {
+					j += 2;
+					break;
+				}
+				j += 1;
+			}
+			spans.push({ start: i, end: j, name: null, closing: false });
+			i = j;
+			continue;
+		}
+		if (markdown[i + 1] === "!") {
+			// `<!DOCTYPE html>` and friends: quoted `>` still does not close them.
+			let j = i + 2;
+			let q: string | null = null;
+			while (j < markdown.length) {
+				const ch = markdown[j];
+				if (q) {
+					if (ch === q) q = null;
+				} else if (ch === '"' || ch === "'") {
+					q = ch;
+				} else if (ch === ">") {
+					j += 1;
+					break;
+				}
+				j += 1;
+			}
+			spans.push({ start: i, end: j, name: null, closing: false });
+			i = j;
 			continue;
 		}
 
@@ -146,16 +190,39 @@ function scanTagSpans(markdown: string): TagSpan[] {
 			}
 			j += 1;
 		}
-		spans.push({
-			start: i,
-			end: j,
-			name: markdown.slice(nameStart, nameStart + nameMatch[0].length).toLowerCase(),
-			closing,
-		});
+		const name = markdown.slice(nameStart, nameStart + nameMatch[0].length).toLowerCase();
+
+		// A raw-text element's content is not markup - a `<script>` body can contain
+		// `>` and even `</` - so the whole element is one span. Otherwise a splice
+		// inside the body looks safe (`<script>a>b</script>` at offset 9) and lands in
+		// code, where the tag is never parsed as a mark.
+		if (!closing && RAW_TEXT_ELEMENTS.has(name)) {
+			const closeRe = new RegExp(`</${name}\\s*>`, "i");
+			const close = closeRe.exec(markdown.slice(j));
+			const end = close ? j + close.index + close[0].length : markdown.length;
+			spans.push({ start: i, end, name, closing: false });
+			i = end;
+			continue;
+		}
+
+		spans.push({ start: i, end: j, name, closing });
 		i = j;
 	}
 	return spans;
 }
+
+/**
+ * Elements whose content is raw text rather than markup.
+ *
+ * A `<script>` or `<style>` body can legally contain `>` and `</`, so tag scanning must
+ * treat the whole element as one span or it will happily place a mark inside code.
+ *
+ * ponytail: the close tag is found by regex on the name, so a `</script>` inside a
+ * JavaScript string literal inside the script would end the span early. Reaching that
+ * needs a script element in a markdown file with a literal `</script>` in a string;
+ * the ceiling is accepted rather than writing an HTML tokenizer.
+ */
+const RAW_TEXT_ELEMENTS = new Set(["script", "style", "textarea", "title"]);
 
 /** Sentinel returned when a range falls inside a mark's text rather than on a tag. */
 const MARK_TEXT_MARKER: TagSpan = { start: -1, end: -1, name: "ins", closing: false };
@@ -192,6 +259,26 @@ function insideAnyTag(spans: readonly TagSpan[], pos: number): boolean {
  * spans up by element name and tests the gaps.
  */
 function rangeInsideMarkText(spans: readonly TagSpan[], start: number, end: number): boolean {
+	// An EMPTY range is an insertion point, and `start < end` is false for it, so the
+	// gap test below never fired: inserting exactly after `<ins data-id="1">` or just
+	// before `</ins>` produced `<ins data-id="1"><ins data-id="2">X</ins>word</ins>`,
+	// nesting two mutually-exclusive marks. An insertion point on a mark's own boundary
+	// is inside that mark's text as far as the schema is concerned.
+	if (start === end) {
+		const open: Record<string, number[]> = {};
+		for (const span of spans) {
+			if (span.name !== "ins" && span.name !== "del") continue;
+			const stack = (open[span.name] ??= []);
+			if (!span.closing) {
+				stack.push(span.end);
+				continue;
+			}
+			const textStart = stack.pop();
+			if (textStart === undefined) continue;
+			if (start >= textStart && start <= span.start) return true;
+		}
+		return false;
+	}
 	const open: Record<string, number[]> = {};
 	for (const span of spans) {
 		if (span.name !== "ins" && span.name !== "del") continue;
