@@ -17,7 +17,7 @@ import { writeSidecar, emptySidecar } from "../../lib/proof/sidecar.js";
 import { setLease, clearLease, leaseGeneration, hasActiveLease, _resetLeaseStore, LEASE_TTL_MS } from "../../lib/proof/lease.js";
 import { computeCollabState } from "../../lib/proof/collab-state.js";
 import { _resetAuditDb } from "../../lib/proof/audit.js";
-import type { Sidecar, Suggestion, Comment } from "../../lib/proof/types.js";
+import type { Sidecar, Comment } from "../../lib/proof/types.js";
 
 // ── Route handlers ────────────────────────────────────────────────────────────
 let fileGET: (req: Request, ctx: { params: Promise<{ path: string[] }> }) => Promise<Response>;
@@ -197,34 +197,12 @@ describe("computeCollabState", () => {
 		const sc: Sidecar = {
 			...emptySidecar(mdPath),
 			revision: 3,
-			suggestions: [],
 			comments: [],
 		};
 		await writeSidecar(tmpRoot, mdPath, sc);
 		const result = await computeCollabState(tmpRoot, mdPath);
 		assert.equal(result.state, "tracked");
 		assert.equal(result.revision, 3); // sidecar.revision + leaseGen(0)
-	});
-
-	test("active: .md with pending suggestion", async () => {
-		_resetLeaseStore();
-		const mdPath = "active-suggestion.md";
-		await writeFile(path.join(tmpRoot, mdPath), "# active");
-		const sc: Sidecar = {
-			...emptySidecar(mdPath),
-			revision: 5,
-			suggestions: [
-				{
-					id: "s0001", ref: "b000001", kind: "replace", status: "pending",
-					by: "ai:test", createdAt: new Date().toISOString(),
-				} as Suggestion,
-			],
-			comments: [],
-		};
-		await writeSidecar(tmpRoot, mdPath, sc);
-		const result = await computeCollabState(tmpRoot, mdPath);
-		assert.equal(result.state, "active");
-		assert.equal(result.revision, 5);
 	});
 
 	test("active: .md with unresolved comment", async () => {
@@ -234,7 +212,6 @@ describe("computeCollabState", () => {
 		const sc: Sidecar = {
 			...emptySidecar(mdPath),
 			revision: 2,
-			suggestions: [],
 			comments: [
 				{
 					id: "c0001", ref: "b000002", resolved: false,
@@ -273,27 +250,6 @@ describe("computeCollabState", () => {
 		const r2 = await computeCollabState(tmpRoot, mdPath);
 		assert.equal(r2.revision, 8);
 		clearLease(tmpRoot, mdPath, "u1");
-	});
-
-	test("stale pending suggestion does NOT count as active artifact", async () => {
-		_resetLeaseStore();
-		const mdPath = "stale-sug.md";
-		await writeFile(path.join(tmpRoot, mdPath), "# stale");
-		const sc: Sidecar = {
-			...emptySidecar(mdPath),
-			revision: 1,
-			suggestions: [
-				{
-					id: "s0002", ref: "b000003", kind: "replace", status: "pending",
-					by: "ai:test", createdAt: new Date().toISOString(),
-					stale: true,
-				} as Suggestion,
-			],
-			comments: [],
-		};
-		await writeSidecar(tmpRoot, mdPath, sc);
-		const result = await computeCollabState(tmpRoot, mdPath);
-		assert.equal(result.state, "tracked"); // stale suggestion = no artifact
 	});
 });
 

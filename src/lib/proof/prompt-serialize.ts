@@ -126,10 +126,28 @@ export type SnippetResolver = (annotation: {
 const normalizeAnchor = (value: PromptAnchor | string | undefined): PromptAnchor | undefined =>
 	typeof value === "string" ? { text: value } : value;
 
+/**
+ * A suggestion record, as this serializer needs to see it.
+ *
+ * Declared structurally rather than imported: suggestions are document marks now, so
+ * there is no `Suggestion` type to import. Callers that still hold record-shaped
+ * suggestion data (a legacy prompt path, a test fixture) can pass it without this
+ * module depending on a representation the app no longer writes.
+ */
+export interface PromptSuggestion {
+	ref: string;
+	kind?: SuggestionKind;
+	markdown?: string;
+	range?: { start: number; end: number };
+	/** Legacy record fields, read only to describe a suggestion in a prompt. */
+	status?: string;
+	baseMarkdown?: string;
+}
+
 /** Map unresolved comments and pending suggestions into prompt items. */
 export function mapAnnotationsToPromptItems(
 	comments: readonly PromptComment[] = [],
-	suggestions: readonly Suggestion[] = [],
+	suggestions: readonly PromptSuggestion[] = [],
 	resolveSnippet?: SnippetResolver,
 ): PromptItem[] {
 	const anchorFor = (annotation: { ref?: string; lineAnchor?: LineAnchor }) => {

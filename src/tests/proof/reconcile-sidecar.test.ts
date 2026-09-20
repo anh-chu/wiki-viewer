@@ -99,7 +99,7 @@ test("reconcileSidecar: emits file.rawWritten with oldSha + newSha when eventTyp
 	assert.equal(ev.newSha, newSha);
 });
 
-test("reconcileSidecar: marks pending suggestions stale when ref no longer in new refMap", async () => {
+test("reconcileSidecar: marks orphaned comments lost when ref no longer in new refMap", async () => {
 	const mdPath = "stale-anchors.md";
 	const absPath = path.join(tmpRoot, mdPath);
 
@@ -108,16 +108,6 @@ test("reconcileSidecar: marks pending suggestions stale when ref no longer in ne
 	await writeFile(absPath, original, "utf-8");
 
 	const sidecar = emptySidecar(mdPath);
-	// Add a pending suggestion referencing a fictional ref that won't exist after reparse
-	sidecar.suggestions.push({
-		id: "s0001",
-		ref: "b_orphan_ref",
-		kind: "replace",
-		status: "pending",
-		by: "ai:test",
-		markdown: "replacement",
-		createdAt: new Date().toISOString(),
-	});
 	// Add a comment referencing a valid ref — will be assigned after reconcile
 	// For simplicity, leave it pointing at another ghost ref too
 	sidecar.comments.push({
@@ -142,15 +132,9 @@ test("reconcileSidecar: marks pending suggestions stale when ref no longer in ne
 		fingerprint,
 	});
 
-	// Orphaned anchors are handled per type, and neither is destroyed.
-	//
-	// A suggestion latches stale (its review flow gives it a path back). A comment
-	// is marked lost and KEPT, following Google Docs: a comment is something the
-	// user wrote, so it must not disappear as a side effect of someone else's save.
-	// It paints no highlight and leaves the pending set, but its card stays.
-	const staleSuggestion = sidecar.suggestions.find((s) => s.id === "s0001");
-	assert.equal(staleSuggestion?.stale, true, "suggestion with orphaned ref should be stale");
-
+	// An orphaned comment is marked lost and KEPT, following Google Docs: a comment
+	// is something the user wrote, so it must not disappear as a side effect of
+	// someone else's save. It paints no highlight, but its card stays.
 	const lostComment = sidecar.comments.find((c) => c.id === "c0001");
 	assert.equal(lostComment?.anchorStatus, "lost", "orphaned comment is marked lost");
 	assert.notEqual(lostComment?.resolved, true, "a lost comment is not resolved");
@@ -172,15 +156,6 @@ test("reconcileSidecar: does NOT mark resolved comments or non-pending suggestio
 		createdAt: new Date().toISOString(),
 		turns: [],
 	});
-	// Accepted suggestion with orphaned ref — should NOT be marked stale
-	sidecar.archivedSuggestions.push({
-		id: "s_accepted",
-		ref: "b_orphan",
-		kind: "replace",
-		status: "accepted",
-		by: "ai:test",
-		createdAt: new Date().toISOString(),
-	});
 
 	const fingerprint = sha256(content);
 	await reconcileSidecar({
@@ -196,7 +171,4 @@ test("reconcileSidecar: does NOT mark resolved comments or non-pending suggestio
 	const comment = sidecar.comments.find((c) => c.id === "c_resolved");
 	assert.equal(comment?.stale, undefined, "resolved comment should not be marked stale");
 
-	// archivedSuggestions are not checked by markOrphanedRefsStale
-	const suggestion = sidecar.archivedSuggestions.find((s) => s.id === "s_accepted");
-	assert.equal(suggestion?.stale, undefined, "accepted suggestion should not be marked stale");
 });

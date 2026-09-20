@@ -151,29 +151,4 @@ describe("an anchor survives the edit that used to destroy it", () => {
 		assert.equal(view.ref, null, "with no invented placement");
 	});
 
-	test("a suggestion is anchored and survives its block changing", async () => {
-		await writeDoc("e2e5.md", "# T\n\nDelta paragraph here.\n");
-		const snap = await readSnapshot(tmpRoot, "e2e5.md");
-		assert.ok(snap);
-		const block = snap.blocks.find((b) => b.markdown.includes("Delta"))!;
-		const added = await applyOps({
-			rootDir: tmpRoot,
-			mdPath: "e2e5.md",
-			ops: [
-				{
-					type: "suggestion.add",
-					ref: block.ref,
-					kind: "insert",
-					markdown: "XYZ",
-					range: { start: 5, end: 5 },
-				} as never,
-			],
-			by: "human",
-			baseRevision: snap.revision,
-		});
-		assert.equal(added.ok, true, JSON.stringify(added));
-		const suggestion = added.snapshot!.suggestions[0];
-		assert.ok(suggestion, "the suggestion was stored");
-		assert.ok(suggestion.anchorId, "and it carries an anchor");
-	});
 });

@@ -35,22 +35,6 @@ async function addComment(name: string, kind?: "instruction"): Promise<string> {
 	return id;
 }
 
-async function addSuggestion(name: string, markdown = "Proposed replacement."): Promise<string> {
-	const snapshot = await readSnapshot(tmpRoot, name);
-	assert.ok(snapshot);
-	const result = await applyOps({
-		rootDir: tmpRoot,
-		mdPath: name,
-		baseRevision: 0,
-		by: "ai:claude",
-		ops: [{ type: "suggestion.add", ref: snapshot.blocks[1].ref, kind: "replace", markdown }],
-	});
-	assert.ok(result.ok, `suggestion.add failed: ${JSON.stringify(result)}`);
-	const id = result.snapshot.suggestions[0]?.id;
-	assert.ok(id);
-	return id;
-}
-
 function assertEvent(event: unknown, type: string, by: string, idKey: string, id: string): void {
 	assert.ok(event, `${type} event should be emitted`);
 	const value = event as Record<string, unknown>;
@@ -138,69 +122,3 @@ test("comment.delete unknown id returns 409 COMMENT_NOT_FOUND", async () => {
 	assert.equal(result.status, 409);
 });
 
-test("suggestion.edit updates pending markdown and kind, and emits standard event", async () => {
-	const name = "suggestion-edit.md";
-	await writeDoc(name);
-	const suggestionId = await addSuggestion(name);
-	const result = await applyOps({ rootDir: tmpRoot, mdPath: name, baseRevision: 0, by: "human", ops: [{ type: "suggestion.edit", suggestionId, markdown: "Edited insertion.", kind: "insertAfter" }] });
-	assert.ok(result.ok, `suggestion.edit failed: ${JSON.stringify(result)}`);
-	const suggestion = result.snapshot.suggestions.find((item) => item.id === suggestionId);
-	assert.ok(suggestion);
-	assert.equal(suggestion.markdown, "Edited insertion.");
-	assert.equal(suggestion.kind, "insertAfter");
-	assertEvent(result.emittedEvents.find((event) => event.type === "suggestion.edited"), "suggestion.edited", "human", "suggestionId", suggestionId);
-});
-
-test("suggestion.edit unknown id returns 409 SUGGESTION_NOT_FOUND", async () => {
-	const name = "suggestion-edit-missing.md";
-	await writeDoc(name);
-	const result = await applyOps({ rootDir: tmpRoot, mdPath: name, baseRevision: 0, by: "human", ops: [{ type: "suggestion.edit", suggestionId: "sdeadbeef", markdown: "Ghost." }] });
-	assert.ok(!result.ok);
-	assert.equal(result.code, "SUGGESTION_NOT_FOUND");
-	assert.equal(result.status, 409);
-});
-
-for (const settledStatus of ["rejected", "accepted"] as const) {
-	test(`suggestion.edit ${settledStatus} suggestion returns 409 SUGGESTION_NOT_FOUND`, async () => {
-		const name = `suggestion-edit-${settledStatus}.md`;
-		await writeDoc(name);
-		const suggestionId = await addSuggestion(name);
-		const settled = await applyOps({ rootDir: tmpRoot, mdPath: name, baseRevision: 0, by: "human", ops: [{ type: settledStatus === "accepted" ? "suggestion.accept" : "suggestion.reject", suggestionId }] });
-		assert.ok(settled.ok);
-		const result = await applyOps({ rootDir: tmpRoot, mdPath: name, baseRevision: settled.ok ? settled.snapshot.revision : 0, by: "human", ops: [{ type: "suggestion.edit", suggestionId, markdown: "Too late." }] });
-		assert.ok(!result.ok);
-		assert.equal(result.code, "SUGGESTION_NOT_FOUND");
-		assert.equal(result.status, 409);
-	});
-}
-
-test("suggestion.delete removes a pending suggestion and emits standard event", async () => {
-	const name = "suggestion-delete.md";
-	await writeDoc(name);
-	const suggestionId = await addSuggestion(name);
-	const result = await applyOps({ rootDir: tmpRoot, mdPath: name, baseRevision: 0, by: "human", ops: [{ type: "suggestion.delete", suggestionId }] });
-	assert.ok(result.ok, `suggestion.delete failed: ${JSON.stringify(result)}`);
-	assert.equal(result.snapshot.suggestions.length, 0);
-	assertEvent(result.emittedEvents.find((event) => event.type === "suggestion.deleted"), "suggestion.deleted", "human", "suggestionId", suggestionId);
-});
-
-test("suggestion.delete unknown id returns 409 SUGGESTION_NOT_FOUND", async () => {
-	const name = "suggestion-delete-missing.md";
-	await writeDoc(name);
-	const result = await applyOps({ rootDir: tmpRoot, mdPath: name, baseRevision: 0, by: "human", ops: [{ type: "suggestion.delete", suggestionId: "sdeadbeef" }] });
-	assert.ok(!result.ok);
-	assert.equal(result.code, "SUGGESTION_NOT_FOUND");
-	assert.equal(result.status, 409);
-});
-
-test("suggestion.delete rejects settled suggestions with 409 SUGGESTION_NOT_FOUND", async () => {
-	const name = "suggestion-delete-settled.md";
-	await writeDoc(name);
-	const suggestionId = await addSuggestion(name);
-	const settled = await applyOps({ rootDir: tmpRoot, mdPath: name, baseRevision: 0, by: "human", ops: [{ type: "suggestion.reject", suggestionId }] });
-	assert.ok(settled.ok);
-	const result = await applyOps({ rootDir: tmpRoot, mdPath: name, baseRevision: 0, by: "human", ops: [{ type: "suggestion.delete", suggestionId }] });
-	assert.ok(!result.ok);
-	assert.equal(result.code, "SUGGESTION_NOT_FOUND");
-	assert.equal(result.status, 409);
-});

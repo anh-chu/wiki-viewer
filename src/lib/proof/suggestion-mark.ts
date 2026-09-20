@@ -30,7 +30,7 @@ export interface SpliceResult {
 
 export interface SpliceFailure {
 	ok: false;
-	code: "RANGE_OUT_OF_BOUNDS" | "EMPTY_RANGE";
+	code: "RANGE_OUT_OF_BOUNDS" | "EMPTY_RANGE" | "RANGE_IN_MARK";
 	message: string;
 }
 
@@ -58,6 +58,30 @@ export function nextMarkId(markdown: string): number {
 		if (Number.isFinite(n) && n > max) max = n;
 	}
 	return max + 1;
+}
+
+/**
+ * Whether a position falls inside an existing mark tag rather than in visible text.
+ *
+ * `range` is an offset into the block markdown the caller read, and inserting a mark
+ * changes those offsets. A caller that computed its offset BEFORE an earlier mark was
+ * written therefore points into that mark's own `<del data-id="1">` tag, and splicing
+ * there splits the tag: measured, it produced
+ * `\<del da<del data-id="2">ta-i</del>d="1">app</del>`, which corrupts the tag AND
+ * loses the first suggestion.
+ *
+ * A range that lands inside a tag is never intended, so it is refused. The caller's
+ * own offsets are the thing that is stale, and it re-reads and retries.
+ */
+function insideMarkTag(markdown: string, pos: number): boolean {
+	const re = /<(?:ins|del|span|div)[^>]*>/g;
+	for (const match of markdown.matchAll(re)) {
+		const start = match.index;
+		const end = start + match[0].length;
+		// Inside the tag's own text, but not before it and not after it.
+		if (pos > start && pos < end) return true;
+	}
+	return false;
 }
 
 /**
@@ -94,6 +118,18 @@ export function spliceMark(
 			ok: false,
 			code: "EMPTY_RANGE",
 			message: "an empty range needs text to insert",
+		};
+	}
+	// A stale offset would split an existing mark's tag in half. Refuse rather than
+	// corrupt: nothing a caller means to propose lands inside a tag.
+	if (insideMarkTag(markdown, start) || insideMarkTag(markdown, end)) {
+		return {
+			ok: false,
+			code: "RANGE_IN_MARK",
+			message:
+				`range ${start}..${end} falls inside an existing mark tag. The range is ` +
+				`an offset into the block's markdown, so it must be recomputed after any ` +
+				`mark is added: re-read the block and retry.`,
 		};
 	}
 

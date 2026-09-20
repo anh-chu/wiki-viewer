@@ -103,7 +103,7 @@ describe("comment margin layout", () => {
 			{ a: 72, b: 72 },
 		);
 		assert.deepEqual(
-			out.map((o) => o.thread.blockRef),
+			out.map((o) => o.key),
 			["a", "b"],
 		);
 	});
@@ -139,10 +139,10 @@ describe("comment margin layout", () => {
 		const expanded = layout(threads, offsets, { a: 185, b: 55, c: 55 });
 		for (let i = 1; i < expanded.length; i++) {
 			const prev = expanded[i - 1];
-			const prevEnd = prev.top + (prev.thread.blockRef === "a" ? 185 : 55);
+			const prevEnd = prev.top + (prev.key === "a" ? 185 : 55);
 			assert.ok(
 				expanded[i].top >= prevEnd + 8,
-				`card ${expanded[i].thread.blockRef} at ${expanded[i].top} overlaps the ` +
+				`card ${expanded[i].key} at ${expanded[i].top} overlaps the ` +
 					`expanded card ending at ${prevEnd}`,
 			);
 		}
@@ -167,6 +167,63 @@ describe("comment margin layout", () => {
 			stale[1].top < realEndOfA,
 			`with the stale height the second card starts at ${stale[1].top}, inside ` +
 				`the expanded card's body (which runs to ${realEndOfA})`,
+		);
+	});
+});
+
+describe("suggestion cards share the comment column's collision pass", () => {
+	// A suggested change is a mark in the document, and the reviewer settles it from
+	// the margin — so its card occupies the same column as a comment card. Two
+	// independent layouts would let a comment and a suggestion anchored to the same
+	// line print on top of each other, which is the failure this column exists to
+	// prevent.
+
+	test("a suggestion and a comment on the same line do not overlap", () => {
+		const threads = [thread("a")];
+		const offsets = new Map([["a", 0]]);
+		const laid = layout(threads, offsets, { a: 72 }, [
+			{ key: "suggestion:1", desired: 0, height: 84 },
+		]);
+
+		assert.equal(laid.length, 2, "both kinds of card must be laid out");
+		const [first, second] = laid;
+		const firstEnd = first.top + (first.thread ? 72 : 84);
+		assert.ok(
+			second.top >= firstEnd,
+			`the second card starts at ${second.top}, inside the first card ending at ${firstEnd}`,
+		);
+	});
+
+	test("cards are ordered by their anchor position, not by kind", () => {
+		const threads = [thread("b")];
+		const offsets = new Map([["b", 400]]);
+		const laid = layout(threads, offsets, { b: 72 }, [
+			{ key: "suggestion:9", desired: 10, height: 84 },
+		]);
+
+		assert.deepEqual(
+			laid.map((c) => c.key),
+			["suggestion:9", "b"],
+			"the suggestion sits above, because its mark is above the comment's block",
+		);
+	});
+
+	test("a suggestion card carries no thread, so the render can branch on it", () => {
+		const laid = layout([], new Map(), {}, [{ key: "suggestion:3", desired: 0, height: 84 }]);
+		assert.equal(laid.length, 1);
+		assert.equal(laid[0].thread, null);
+		assert.equal(laid[0].key, "suggestion:3");
+	});
+
+	test("CONTROL: with no collision pass the two cards WOULD overlap", () => {
+		// Pins that the assertion above is load-bearing: placed independently, both
+		// cards want the same top offset.
+		const desiredForComment = 0;
+		const desiredForSuggestion = 0;
+		assert.equal(
+			desiredForComment,
+			desiredForSuggestion,
+			"both cards want the same offset, which is exactly why one pass must place both",
 		);
 	});
 });

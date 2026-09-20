@@ -7,17 +7,23 @@ import {
 	buildPromptFromAnnotations,
 	mapAnnotationsToPromptItems,
 	type PromptComment,
+	type PromptSuggestion,
 	type SnippetResolver,
 } from "@/lib/proof/prompt-serialize";
-import type { Suggestion } from "@/lib/proof/types";
 
 export interface CopyAsPromptProps {
 	path: string;
 	comments: readonly PromptComment[];
-	suggestions: readonly Suggestion[];
+	/**
+	 * Record-shaped suggestions, if the caller still has any.
+	 *
+	 * Suggested changes are document marks now, so the editor passes none: a mark is
+	 * visible in the document itself, which is a better review surface than a list in
+	 * a prompt dialog. Kept optional so a caller holding legacy records can still
+	 * include them.
+	 */
+	suggestions?: readonly PromptSuggestion[];
 	resolveSnippet?: SnippetResolver;
-	suggestionCount?: number;
-	onReviewSuggestions?: () => void;
 }
 
 type CopiedTarget = number | "all" | null;
@@ -31,7 +37,7 @@ function chipFor(kind: unknown) {
 	return { label: "Comment", className: "bg-muted text-muted-foreground" };
 }
 
-export function CopyAsPrompt({ path, comments, suggestions, resolveSnippet, suggestionCount = 0, onReviewSuggestions }: CopyAsPromptProps) {
+export function CopyAsPrompt({ path, comments, suggestions = [], resolveSnippet }: CopyAsPromptProps) {
 	const items = mapAnnotationsToPromptItems(comments, suggestions, resolveSnippet);
 	const prompt = buildPromptFromAnnotations(path, items);
 	const [open, setOpen] = useState(false);
@@ -70,7 +76,7 @@ export function CopyAsPrompt({ path, comments, suggestions, resolveSnippet, sugg
 		const timer = window.setTimeout(() => window.addEventListener("mousedown", onDown), 10);
 		return () => { window.clearTimeout(timer); window.removeEventListener("resize", anchorDialog); window.removeEventListener("keydown", onKey); window.removeEventListener("mousedown", onDown); };
 	}, [open]);
-	if (items.length === 0 && suggestionCount <= 0) return null;
+	if (items.length === 0) return null;
 	function showCopied(target: CopiedTarget) {
 		setCopiedTarget(target);
 		if (copiedTimer.current) window.clearTimeout(copiedTimer.current);
@@ -83,7 +89,6 @@ export function CopyAsPrompt({ path, comments, suggestions, resolveSnippet, sugg
 	return <div className="fixed bottom-4 left-1/2 z-40 -translate-x-1/2" ref={rootRef}>
 		<div className="flex h-11 items-center gap-2 rounded-full border border-border bg-popover px-4 py-2.5 shadow-lg">
 			<button ref={triggerRef} type="button" onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open} title="Copy comments and suggestions as a prompt" className="inline-flex min-h-8 items-center gap-2 rounded-full text-[13px] font-medium text-foreground"><ClipboardCopy className="h-4 w-4 text-muted-foreground" />Copy as prompt<span className="rounded-full bg-primary px-1.5 text-[10px] leading-5 text-primary-foreground">{items.length}</span></button>
-			{suggestionCount > 0 && <><span aria-hidden="true" className="h-5 w-px bg-border" /><button type="button" onClick={onReviewSuggestions} className="rounded-full px-2.5 py-1 text-primary hover:bg-primary/10">✎ {suggestionCount} suggestions</button></>}
 		</div>
 		{open && dialogPosition && createPortal(<div ref={dialogRef} role="dialog" aria-label="Copy as prompt" style={{ position: "fixed", top: dialogPosition.top, right: dialogPosition.right, width: "min(416px, calc(100vw - 2rem))", transform: "translateY(-100%)" }} className="z-[60] overflow-hidden rounded-xl border border-border bg-background p-0 shadow-lg">
 			<div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2.5"><div className="flex min-w-0 items-center gap-2"><h2 className="text-[13px] font-medium text-foreground">Copy as prompt</h2><span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{items.length}</span></div><button type="button" onClick={() => void copy(prompt, "all")} className="shrink-0 rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{copiedTarget === "all" ? "Copied" : "Copy all"}</button></div>

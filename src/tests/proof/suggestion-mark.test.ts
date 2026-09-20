@@ -30,7 +30,7 @@ describe("mark id allocation", () => {
 		// The failure this whole helper exists to prevent. The vendored generator is
 		// `Math.max(id) + 1`; given a string it yields NaN, and every later keystroke
 		// inherits it.
-		assert.ok(Number.isNaN(Math.max(0, "sa294") + 1));
+		assert.ok(Number.isNaN(Math.max(0, Number("sa294")) + 1));
 	});
 });
 
@@ -102,5 +102,34 @@ describe("markdown offset semantics", () => {
 		assert.ok(second.ok);
 		assert.match(second.markdown, /<del data-id="1">a<\/del>/);
 		assert.match(second.markdown, /<ins data-id="2">Z<\/ins>/);
+	});
+});
+describe("a range inside an existing mark tag is refused", () => {
+	// Found live: a caller computed its offset before an earlier mark was written, so
+	// it pointed into that mark's own `<del data-id="1">` tag. Splicing there split the
+	// tag and produced `<del da<del data-id="2">ta-i</del>d="1">app</del>` - which both
+	// corrupts the tag and loses the first suggestion. The guard refuses the range so
+	// the caller re-reads instead.
+	const marked = 'Reactions in <del data-id="1">app</del> are slow.';
+
+	test("an offset that lands inside a tag is refused", () => {
+		const out = spliceMark(marked, "remove", { start: 20, end: 24 });
+		assert.equal(out.ok, false);
+		if (!out.ok) {
+			assert.equal(out.code, "RANGE_IN_MARK");
+			assert.match(out.message, /re-read/, "the message must say how to recover");
+		}
+	});
+
+	test("the start edge of a tag is usable, only its interior is not", () => {
+		// Offset 13 is where `<del` begins; a range may legitimately start there when
+		// wrapping a following run. Only strictly-inside positions are refused.
+		const out = spliceMark(marked, "remove", { start: 30, end: 33 });
+		assert.equal(out.ok, true, "position 30 is just past the tag and must be allowed");
+	});
+
+	test("CONTROL: an unmarked block is never refused by this guard", () => {
+		const out = spliceMark("Reactions in app are slow.", "remove", { start: 13, end: 16 });
+		assert.equal(out.ok, true);
 	});
 });

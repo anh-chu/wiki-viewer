@@ -25,8 +25,6 @@ function makeSidecar(filePath: string, eventCount: number, byPrefix = "agent"): 
 		refMap: {},
 		refAliases: {},
 		comments: [],
-		suggestions: [],
-		archivedSuggestions: [],
 		events: Array.from({ length: eventCount }, (_, i) => ({
 			id: i + 1,
 			type: "block.replace",

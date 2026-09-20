@@ -1,7 +1,14 @@
-import { test, describe } from "node:test";
+import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import type { Anchor, Block, Comment, Sidecar, Suggestion } from "@/lib/proof/types";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import type { Anchor, Block, Comment, Sidecar } from "@/lib/proof/types";
+import { applyOps, readSnapshot } from "@/lib/proof/ops-applier";
+import { emptySidecar } from "@/lib/proof/sidecar";
+import { assignRefs } from "@/lib/proof/block-refs";
+import { parseBlocks } from "@/lib/proof/blocks";
 import {
 	anchorForBlock,
 	anchorForRange,
@@ -55,13 +62,11 @@ function sidecarWith(blocksList: Block[], anchors: Record<string, Anchor> = {}):
 		refAliases: {},
 		anchors,
 		comments: [],
-		suggestions: [],
-		archivedSuggestions: [],
 		events: [],
 		nextEventId: 1,
 		lastAck: {},
 		fingerprint: "",
-	};
+	} as unknown as Sidecar;
 }
 
 /** An anchor on `quote` inside the single block, plus the sidecar holding it. */
@@ -206,6 +211,60 @@ describe("anchor resolution", () => {
 	});
 });
 
+let anchorResolutionTmp: string;
+before(async () => {
+	anchorResolutionTmp = await mkdtemp(path.join(tmpdir(), "wiki-anchor-resolution-test-"));
+});
+after(async () => {
+	await rm(anchorResolutionTmp, { recursive: true, force: true });
+});
+
+test("comment survives a block replacement without being marked stale", async () => {
+		const mdPath = "comment-replace.md";
+		await writeFile(path.join(anchorResolutionTmp, mdPath), "# Release Notes\n\nThe rollout is planned for next week.\n", "utf-8");
+		const snap = await readSnapshot(anchorResolutionTmp, mdPath);
+		assert.ok(snap);
+		const ref = snap.blocks[1].ref;
+		const addComment = await applyOps({
+			rootDir: anchorResolutionTmp,
+			mdPath,
+			baseRevision: 0,
+			by: "human",
+			ops: [{ type: "comment.add", ref, text: "Can we hold this until legal signs off?" }],
+		});
+		assert.ok(addComment.ok);
+		const commentId = addComment.ok ? addComment.snapshot.comments[0]?.id : undefined;
+		assert.ok(commentId);
+		const replaced = await applyOps({
+			rootDir: anchorResolutionTmp,
+			mdPath,
+			baseRevision: 0,
+			by: "human",
+			ops: [{ type: "block.replace", ref, markdown: "The rollout is scheduled for next week." }],
+		});
+		assert.ok(replaced.ok);
+		const comment = replaced.ok ? replaced.snapshot.comments.find((c) => c.id === commentId) : undefined;
+		assert.ok(comment, "comment survives the block replacement");
+		assert.equal(comment!.resolved, false);
+		assert.equal(comment!.stale, undefined);
+	});
+
+test("CONTROL: assignRefs mints a new ref for changed text; computeRefDelta's hash-match rule alone would not alias it", () => {
+	const before = parseBlocks("# Release Notes\n\nThe rollout is planned for next week.\n");
+	const { blocks: beforeBlocks, newRefMap } = assignRefs(before, null);
+	const oldRef = beforeBlocks[1].ref;
+
+	const after = parseBlocks(`# Release Notes\n\nThe rollout is scheduled for next week.\n`);
+	const { blocks: afterBlocks, newRefMap: afterMap } = assignRefs(after, {
+		...emptySidecar("unit.md"),
+		refMap: newRefMap,
+	});
+
+	assert.notEqual(afterBlocks[1].ref, oldRef, "changed text → new ref");
+	assert.equal(afterBlocks[0].ref, beforeBlocks[0].ref, "untouched heading keeps its ref");
+	assert.ok(!(oldRef in afterMap), "old ref absent from the new refMap");
+});
+
 describe("parseTextQuote", () => {
 	test("rejects values that are not a usable quote", () => {
 		for (const bad of [undefined, null, {}, { exact: "" }, { exact: 123 }, "text", 42]) {
@@ -234,11 +293,6 @@ describe("v1 sidecar migration", () => {
 				textAnchor: { start: 6, end: 15, selectedText: "paragraph" },
 			} satisfies Comment,
 		];
-		sc.suggestions = [
-			{ id: "s1", ref: bs[0].ref, kind: "replace", status: "pending", by: "human", createdAt: NOW, markdown: "X", range: { start: 0, end: 5 } } satisfies Suggestion,
-			// A ref that is already gone, with no quote ever recorded for it.
-			{ id: "s2", ref: "bdeadbeef", kind: "replace", status: "pending", by: "human", createdAt: NOW, markdown: "Y" } satisfies Suggestion,
-		];
 		return sc;
 	}
 
@@ -254,15 +308,6 @@ describe("v1 sidecar migration", () => {
 			"paragraph",
 			"the recorded quote is lifted verbatim, not re-derived",
 		);
-
-		const s1 = sidecar.suggestions[0];
-		assert.ok(s1.anchorId, "the live suggestion gained an anchor");
-		assert.equal(sidecar.anchors[s1.anchorId!].quote, "Alpha", "sliced from its range");
-
-		const s2 = sidecar.suggestions[1];
-		assert.equal(s2.anchorId, undefined, "no position may be invented for a dead ref");
-		assert.equal(s2.stale, true, "and it is marked, not dropped");
-		assert.equal(s2.anchorStatus, "lost");
 	});
 
 	test("case 7: migrating twice changes nothing the second time", () => {

@@ -4,24 +4,21 @@ import {
 	buildPromptFromAnnotations,
 	mapAnnotationsToPromptItems,
 	type PromptItem,
+	type PromptSuggestion,
 } from "../../lib/proof/prompt-serialize";
-import type { Suggestion } from "../../lib/proof/types";
 
 function suggestion(
-	kind: Suggestion["kind"],
-	status: Suggestion["status"] = "pending",
+	kind: PromptSuggestion["kind"],
+	status: string = "pending",
 	markdown?: string,
 	baseMarkdown?: string,
-): Suggestion {
+): PromptSuggestion {
 	return {
-		id: `s-${kind}`,
 		ref: "b456",
 		kind,
 		status,
-		by: "human",
 		markdown,
 		baseMarkdown,
-		createdAt: "2026-01-01T00:00:00.000Z",
 	};
 }
 

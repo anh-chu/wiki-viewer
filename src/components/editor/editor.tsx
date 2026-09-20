@@ -27,7 +27,6 @@ import { resolveWikiLink } from "./link-navigation";
 import { useDocumentPresence } from "./hooks/use-document-presence";
 import { useDocumentWatch } from "./hooks/use-document-watch";
 import { CommentPip } from "./comment-pip";
-import { SuggestionPip } from "./suggestion-pip";
 import { CommentThread } from "./comment-thread";
 import { CommentMargin } from "./comment-margin";
 import { postOp } from "@/lib/proof/post-op";
@@ -37,7 +36,6 @@ import {
 	shouldRestoreDraft,
 	type SourceDraft,
 } from "./editor-module-state";
-import { SuggestionReviewPopover } from "./suggestion-review-popover";
 import { SlashCommands } from "./slash-commands";
 import { DocumentOutline } from "./document-outline";
 import { ReadingExperiments } from "./experiments";
@@ -58,10 +56,12 @@ import {
 import { shouldRerenderDocument } from "@/lib/proof/render-guard";
 import { commentHighlightExtension, refreshCommentHighlights } from "./extensions/comment-highlight";
 import {
+	applySuggestion,
 	applySuggestions,
 	disableSuggestChanges,
 	enableSuggestChanges,
 	isSuggestChangesEnabled,
+	revertSuggestion,
 	revertSuggestions,
 } from "@/vendor/prosemirror-suggest-changes/index.js";
 
@@ -242,6 +242,20 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	 * so that coupling is gone and settling one from the other is just a way to
 	 * write a change the user did not ask for.
 	 */
+	/**
+	 * Settle ONE suggested change, identified by its mark id and range.
+	 *
+	 * `applySuggestion` is id-scoped, which is the property that makes per-card
+	 * Approve/Reject possible: the whole-document `applySuggestions`/`revertSuggestions`
+	 * below would settle every other pending mark at the same time.
+	 */
+	const resolveOneTracked = useCallback((id: string, from: number, to: number, decision: "accept" | "reject") => {
+		const editor = editorRef.current;
+		if (!editor) return;
+		const command = decision === "accept" ? applySuggestion : revertSuggestion;
+		command(id, from, to)(editor.state, editor.view.dispatch);
+	}, []);
+
 	const resolveAllTracked = useCallback((decision: "accept" | "reject") => {
 		const editor = editorRef.current;
 		if (!editor) return;
@@ -369,9 +383,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	const snapshotBlocksRaw = useProofStore((s) =>
 		currentPath ? s.byPath[currentPath]?.snapshotBlocks : undefined
 	);
-	const suggestionsRaw = useProofStore((s) =>
-		currentPath ? s.byPath[currentPath]?.sidecar?.suggestions : undefined
-	);
 	const snapshotRevision = useProofStore((s) =>
 		currentPath ? (s.byPath[currentPath]?.snapshotRevision ?? 0) : 0
 	);
@@ -409,44 +420,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		return firstBodyIndex >= 0 ? firstBodyIndex : frontmatterOffset;
 	}, [content, isViewing, parsedViewingContent.body, parsedViewingContent.data, snapshotBlocks]);
 	const comments = useMemo(() => commentsRaw ?? [], [commentsRaw]);
-	const pendingSuggestions = useMemo(
-		() => suggestionsRaw?.filter((sg) => sg.status === "pending" && !sg.stale) ?? [],
-		[suggestionsRaw],
-	);
-	const pendingSuggestionsByRef = useMemo(() => {
-		const grouped = new Map<string, typeof pendingSuggestions>();
-		for (const suggestion of pendingSuggestions) {
-			const byRef = grouped.get(suggestion.ref) ?? [];
-			byRef.push(suggestion);
-			grouped.set(suggestion.ref, byRef);
-		}
-		return grouped;
-	}, [pendingSuggestions]);
-	const [reviewTarget, setReviewTarget] = useState<{
-		suggestionId: string;
-		anchor: { top: number; left: number };
-	} | null>(null);
-	const openSuggestionReview = useCallback(
-		(suggestionId: string, element?: HTMLElement, shouldScroll = false) => {
-			const marker =
-				element ??
-				Array.from(
-					scrollContainerRef.current?.querySelectorAll<HTMLElement>(
-						"[data-suggestion-gutter]",
-					) ?? [],
-				).find((candidate) => candidate.dataset.suggestionId === suggestionId);
-			if (!marker) return;
-			if (shouldScroll) {
-				marker.scrollIntoView({ block: "center" });
-			}
-			const rect = marker.getBoundingClientRect();
-			setReviewTarget({
-				suggestionId,
-				anchor: { top: rect.bottom, left: rect.left },
-			});
-		},
-		[],
-	);
 	const suggestionBlocks = useMemo(
 		() => snapshotBlocks.slice(snapshotBlockOffset),
 		[snapshotBlockOffset, snapshotBlocks],
@@ -586,6 +559,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		for (const [ref, pos] of blockRefPositions) map.set(ref, pos.top);
 		return map;
 	}, [blockRefPositions]);
+
 	const [hoveredMarginRef, setHoveredMarginRef] = useState<string | null>(null);
 	// The column is hidden when nothing is commented, and can be collapsed by
 	// hand so it never steals width from the document uninvited.
@@ -599,7 +573,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	// text with that same ref would render pre-expanded for no reason the reader could
 	// see.
 	//
-	const showCommentMargin = marginThreads.length > 0 && !marginCollapsed;
 
 	/**
 	 * Resolve the current editor selection to a top-level block.
@@ -1118,6 +1091,104 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		if (!editor || editor.isDestroyed) return;
 		refreshCommentHighlights(editor.view);
 	}, [editor, snapshotBlocks, comments, currentPath, hoveredMarginRef]);
+	/**
+	 * Every tracked mark in the document, with the range it covers.
+	 *
+	 * This is the whole suggestion list now: a suggestion IS a mark, so enumerating
+	 * marks enumerates suggestions. Read from the live document rather than a store so
+	 * it cannot go stale against what the reader sees.
+	 *
+	 * Grouped by `id`, because the schema splits a run of text across text nodes as
+	 * you type - one suggestion is one id covering possibly several ranges - and the
+	 * union of those ranges is what the margin card aligns to. Counting ranges instead
+	 * of ids reported a single edit as several, which is the bug the count effect
+	 * below already guards against.
+	 */
+	const [trackedMarks, setTrackedMarks] = useState<
+		{ id: string; kind: "insert" | "remove" | "modify"; from: number; to: number }[]
+	>([]);
+	useEffect(() => {
+		if (!editor || editor.isDestroyed) return;
+		const collect = () => {
+			const byId = new Map<string, { id: string; kind: "insert" | "remove" | "modify"; from: number; to: number }>();
+			editor.state.doc.descendants((node, pos) => {
+				for (const mark of node.marks) {
+					const name = mark.type.name;
+					const kind =
+						name === "deletion" ? "remove" : name === "modification" ? "modify" : name.startsWith("insertion") ? "insert" : null;
+					if (!kind) continue;
+					const id = String(mark.attrs.id);
+					const from = pos;
+					const to = pos + node.nodeSize;
+					const existing = byId.get(id);
+					if (existing) {
+						existing.from = Math.min(existing.from, from);
+						existing.to = Math.max(existing.to, to);
+					} else {
+						byId.set(id, { id, kind, from, to });
+					}
+				}
+				return true;
+			});
+			setTrackedMarks([...byId.values()].sort((a, b) => a.from - b.from));
+		};
+		collect();
+		editor.on("transaction", collect);
+		return () => {
+			editor.off("transaction", collect);
+		};
+	}, [editor]);
+	/**
+	 * Vertical offset of each tracked mark, relative to the scroll container.
+	 *
+	 * Measured from the DOM rather than computed from the ProseMirror position:
+	 * `coordsAtPos` gives viewport coordinates that still need the container's own
+	 * offset subtracted, and the container scrolls. Reading the rendered element
+	 * avoids both steps and matches how block offsets are already measured.
+	 */
+	const [markOffsets, setMarkOffsets] = useState<Map<string, number>>(new Map());
+	useEffect(() => {
+		if (trackedMarks.length === 0) {
+			setMarkOffsets(new Map());
+			return;
+		}
+		const container = scrollContainerRef.current;
+		if (!container) return;
+		const next = new Map<string, number>();
+		for (const mark of trackedMarks) {
+			const el = container.querySelector<HTMLElement>(`[data-id="${mark.id}"]`);
+			if (!el) continue;
+			next.set(mark.id, el.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop);
+		}
+		setMarkOffsets(next);
+	}, [trackedMarks]);
+
+	/**
+	 * The pending suggestions the column draws, aligned to their marks.
+	 *
+	 * `text` is read from the document for the card's summary line. A modification
+	 * carries its own before/after in its attributes rather than covering text, so it
+	 * falls back to the mark's type name.
+	 */
+	const marginSuggestions = useMemo(
+		() =>
+			trackedMarks.map((mark) => ({
+				id: mark.id,
+				kind: mark.kind,
+				from: mark.from,
+				to: mark.to,
+				top: markOffsets.get(mark.id) ?? 0,
+				text:
+					mark.kind === "modify"
+						? "modification"
+						: editor?.state.doc.textBetween(mark.from, mark.to, " ") ?? "",
+			})),
+		[trackedMarks, markOffsets, editor],
+	);
+
+	const showCommentMargin =
+		(marginThreads.length > 0 || marginSuggestions.length > 0) && !marginCollapsed;
+
 
 	// Keep the Accept/Reject controls in step with the document. Counted from the
 	// live document, so it cannot go stale the way a manually maintained flag can.
@@ -1185,10 +1256,12 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	// `annotationChanged` input could only ever be a constant, leaving the
 	// protection inert.
 	const annotationFingerprint = useMemo(() => {
+		// Comments only. Suggestions are document marks now, so a change to one is a
+		// change to the markdown, which the guard already compares directly - folding
+		// them in here would make the input a constant for them.
 		const commentIds = comments.map((c) => `${c.id}:${c.resolved ? 1 : 0}:${c.turns.length}`).join(",");
-		const suggestionIds = pendingSuggestions.map((s) => `${s.id}:${s.status}`).join(",");
-		return `${commentIds}|${suggestionIds}`;
-	}, [comments, pendingSuggestions]);
+		return commentIds;
+	}, [comments]);
 	const lastAnnotationFingerprintRef = useRef<string | null>(null);
 	const [renderedPath, setRenderedPath] = useState<string | null>(null);
 	useEffect(() => {
@@ -1296,23 +1369,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 			});
 	}, [isViewing, renderedPath, parsedViewingContent.body]);
 
-	const reviewSuggestion = reviewTarget
-		? pendingSuggestions.find((suggestion) => suggestion.id === reviewTarget.suggestionId)
-		: undefined;
-	const reviewBlock = reviewSuggestion
-		? snapshotBlocks.find((block) => block.ref === reviewSuggestion.ref)
-		: undefined;
-	const overlapSuggestions = reviewSuggestion
-		? pendingSuggestions.filter(({ ref }) => ref === reviewSuggestion.ref)
-		: [];
-	const openNextSuggestion = useCallback(() => {
-		if (pendingSuggestions.length === 0) return;
-		const currentIndex = reviewTarget
-			? pendingSuggestions.findIndex(({ id }) => id === reviewTarget.suggestionId)
-			: -1;
-		const next = pendingSuggestions[(currentIndex + 1) % pendingSuggestions.length];
-		openSuggestionReview(next.id, undefined, true);
-	}, [openSuggestionReview, pendingSuggestions, reviewTarget]);
 	const isLoadingState =
 		currentPath !== null && (isLoading || renderedPath !== currentPath);
 	// Don't flash a spinner for fast/cached opens: only reveal the overlay if the
@@ -1507,34 +1563,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 										className="relative pointer-events-none"
 										style={{ height: 0 }}
 									>
-										{/* Suggestion pips — one per block with pending suggestions,
-										    placed just left of the comment pip (same line) when a block has
-										    both, so gutter icons never overlap across adjacent blocks. */}
-										{Array.from(pendingSuggestionsByRef.entries()).map(([blockRef, blockSuggestions]) => {
-											const pos = blockRefPositions.get(blockRef);
-											if (!pos) return null;
-											const hasCommentPip = (threadCommentsByRef[blockRef]?.length ?? 0) > 0;
-											const firstSuggestion = blockSuggestions[0];
-											return (
-												<SuggestionPip
-													key={`suggestion-pip-${blockRef}`}
-													active={reviewTarget?.suggestionId !== undefined && blockSuggestions.some((sg) => sg.id === reviewTarget.suggestionId)}
-													top={pos.top + 4}
-													left={Math.max(0, pos.left - (hasCommentPip ? 40 : 20))}
-													count={blockSuggestions.length}
-													anchorKey={blockRef}
-													aria-label={`Review ${blockSuggestions.length} suggestion${blockSuggestions.length === 1 ? "" : "s"} on this block`}
-													onClick={(event) =>
-														openSuggestionReview(
-															firstSuggestion.id,
-															(scrollContainerRef.current?.querySelector(
-																`[data-annotation-span="${blockRef}"]`,
-															) as HTMLElement | null) ?? event.currentTarget,
-														)
-													}
-												/>
-											);
-										})}
 
 										{/* Draft instruction pips — routed instructions stay invisible. */}
 										{Object.entries(draftInstructionsByRef).map(([blockRef, blockComments]) => {
@@ -1617,23 +1645,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 						/>
 									)}
 
-									{reviewTarget && reviewSuggestion && reviewBlock && currentPath && (
-										<SuggestionReviewPopover
-											path={currentPath}
-											suggestion={reviewSuggestion}
-											overlapSuggestions={overlapSuggestions}
-											currentMarkdown={reviewBlock.markdown}
-											baseRevision={snapshotRevision}
-											anchor={reviewTarget.anchor}
-											onClose={() => setReviewTarget(null)}
-											onNavigate={(suggestionId) => openSuggestionReview(suggestionId)}
-											onSettled={() => {
-												setReviewTarget(null);
-												void useProofStore.getState().loadSidecar(currentPath);
-												void useProofStore.getState().loadSnapshot(currentPath);
-											}}
-										/>
-									)}
 									{isViewing && Object.keys(parsedViewingContent.data).length > 0 && (
 										<div className="max-w-[var(--editor-max-w,48rem)] ml-[var(--editor-ml,auto)] mr-auto px-4 sm:px-8 pt-3">
 											<FrontmatterHeader
@@ -1695,6 +1706,13 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 										path={currentPath ?? ""}
 										threads={marginThreads}
 										blockOffsets={marginOffsets}
+										suggestions={marginSuggestions}
+										onAcceptSuggestion={(id, from, to) =>
+											resolveOneTracked(id, from, to, "accept")
+										}
+										onRejectSuggestion={(id, from, to) =>
+											resolveOneTracked(id, from, to, "reject")
+										}
 										activeRef={activeMarginRef}
 										onActivate={(blockRef) =>
 											// Expand the card IN PLACE — the thread lives in the
@@ -1732,10 +1750,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 						<CopyAsPrompt
 							path={currentPath ?? ""}
 							comments={promptComments}
-							suggestions={pendingSuggestions}
 							resolveSnippet={resolvePromptSnippet}
-							suggestionCount={pendingSuggestions.length}
-							onReviewSuggestions={() => openSuggestionReview(pendingSuggestions[0]?.id ?? "", undefined, true)}
 						/>
 
 						{/* Annotation bar — save hint and save status are edit-mode-only. */}
