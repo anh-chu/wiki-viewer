@@ -181,6 +181,23 @@ export function CommentMargin({
 		});
 	}, [visibleThreads, visibleSuggestions, activeRef]);
 
+	// Bring the active card into view when it is activated from the TEXT.
+	//
+	// Clicking a comment in the document sets the active ref from outside this
+	// component, and the panel does not scroll with the document — so the card that
+	// just opened can easily be off-screen, making the click look like it did
+	// nothing. Keyed on `activeRef` so it fires on activation, not on every render,
+	// which would fight the reader scrolling the panel by hand.
+	useEffect(() => {
+		if (!activeRef) return;
+		const el = document.querySelector<HTMLElement>(
+			`[data-margin-card="${CSS.escape(activeRef)}"]`,
+		);
+		// `block: "nearest"` so an already-visible card is left alone rather than
+		// jumping to the middle of the panel.
+		el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+	}, [activeRef]);
+
 	// One collision pass over BOTH kinds of card, so a comment and a suggestion on
 	// the same line cannot print on top of each other.
 	const laid = layout(
@@ -222,6 +239,13 @@ export function CommentMargin({
 				<div
 					key={card.key}
 					data-margin-card={card.key}
+					data-active={
+						card.thread
+							? activeRef === card.thread.blockRef
+								? "true"
+								: "false"
+							: "false"
+					}
 					className="absolute left-0 right-0 px-2"
 					style={{ top: card.top }}
 				>
@@ -241,6 +265,7 @@ export function CommentMargin({
 						) : (
 							<CollapsedCard
 								thread={card.thread}
+								active={activeRef === card.thread.blockRef}
 								onActivate={() => onActivate(card.thread!.blockRef)}
 								onHoverChange={(h) => onHoverChange(card.thread!.blockRef, h)}
 							/>
@@ -340,10 +365,12 @@ function CollapsedCard({
 	thread,
 	onActivate,
 	onHoverChange,
+	active,
 }: {
 	thread: MarginThread;
 	onActivate: () => void;
 	onHoverChange: (hovered: boolean) => void;
+	active: boolean;
 }) {
 	const first = thread.comments[0];
 	if (!first) return null;
@@ -355,7 +382,16 @@ function CollapsedCard({
 			onMouseEnter={() => onHoverChange(true)}
 			onMouseLeave={() => onHoverChange(false)}
 			onClick={onActivate}
-			className="w-full text-left rounded-lg border border-border bg-popover p-2.5 shadow-sm transition-colors hover:border-ring/40 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+			aria-current={active ? "true" : undefined}
+			className={cn(
+				"w-full rounded-lg border bg-popover p-2.5 text-left transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+				active
+					? // The active card is the one the reader clicked: a ring and a tint,
+						// so it stays distinguishable without relying on hover, which is
+						// gone as soon as the pointer moves to the text it points at.
+						"border-primary/50 bg-primary/5 ring-1 ring-primary/30"
+					: "border-border shadow-sm hover:border-ring/40",
+			)}
 		>
 			<div className="flex items-start gap-2">
 				<span

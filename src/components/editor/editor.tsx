@@ -847,12 +847,16 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		blocks: { ref: string; markdown: string }[];
 		comments: ProofComment[];
 		hoveredRef?: string | null;
+		activeRef?: string | null;
+		onSelectRef?: (ref: string) => void;
 		views?: Record<string, { ref: string | null; offset: number; length: number; status: string }>;
 	}>({ blocks: [], comments: [] });
 	commentHighlightStateRef.current = {
 		blocks: snapshotBlocks.map((b) => ({ ref: b.ref, markdown: b.markdown })),
 		comments,
 		hoveredRef: hoveredMarginRef,
+		activeRef: activeMarginRef,
+		onSelectRef: (ref) => selectCommentByRefRef.current?.(ref),
 		// Resolved against the very blocks above, so the range and the block list always
 		// describe the same revision.
 		views: commentViews,
@@ -1240,6 +1244,36 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	const tab = useAnnotationPanelStore((state) => state.tab);
 	const setPanelCounts = useAnnotationPanelStore((state) => state.setCounts);
 	const revealComments = useAnnotationPanelStore((state) => state.revealComments);
+	// The click handler is installed before this component body has declared
+	// `selectCommentByRef` (the extension state is built earlier in the render), so it
+	// is reached through a ref. A click cannot arrive before the render completes, which
+	// is when this is assigned.
+	const selectCommentByRefRef = useRef<((ref: string) => void) | null>(null);
+
+	/**
+	 * Clicking a highlighted comment in the TEXT opens its card in the panel.
+	 *
+	 * The comment highlight's decoration carries a comment id, not a block ref, so the
+	 * id is mapped through the same per-comment resolution the decorator used. Doing it
+	 * that way keeps the text and the panel describing the same revision: the ref comes
+	 * from the resolved view, which is this document's answer, rather than from
+	 * `comment.ref`, which may name a block that no longer exists.
+	 */
+	const selectCommentByRef = useCallback(
+		(commentId: string) => {
+			const view = commentViews?.[commentId];
+			const comment = comments.find((c) => c.id === commentId);
+			const blockRef = view?.ref ?? comment?.ref ?? null;
+			if (!blockRef) return;
+			// Show the panel and land on the Comments tab: the reader asked for a
+			// comment, so a Changes tab would hide the very card they clicked for.
+			revealComments();
+			setActiveMarginRefNow(blockRef);
+		},
+		[commentViews, comments, revealComments, setActiveMarginRefNow],
+	);
+	selectCommentByRefRef.current = selectCommentByRef;
+
 
 	// What the panel renders, from the same pure function the overlay button badges
 	// with — so a badge can never advertise a count the panel does not draw.

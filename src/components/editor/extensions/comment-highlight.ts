@@ -108,6 +108,15 @@ export function buildCommentDecorations(
 	 * occurrence to highlight is exact; adding it to a document position is not.
 	 */
 	views?: Record<string, { ref: string | null; offset: number; length: number; status: string }>,
+	/**
+	 * Block ref of the comment the reader is working on.
+	 *
+	 * Separate from `hoveredRef` because hover is transient and this is not: the
+	 * active comment's words stay lit while the reader scrolls, replies, or moves
+	 * the pointer to the panel to type. Folding the two together made the highlight
+	 * vanish exactly when it was being used.
+	 */
+	activeRef?: string | null,
 ): DecorationSet {
 	const runs = docTextRuns(doc);
 	if (runs.length === 0 || comments.length === 0) return DecorationSet.empty;
@@ -158,6 +167,7 @@ export function buildCommentDecorations(
 					"data-comment-id": comment.id,
 					"data-block-scoped": "true",
 					"data-hovered": hoveredRef === ref ? "true" : "false",
+					"data-active": activeRef === ref ? "true" : "false",
 				}),
 			);
 			continue;
@@ -179,9 +189,12 @@ export function buildCommentDecorations(
 			Decoration.inline(hit.from, hit.to, {
 				class: COMMENT_HIGHLIGHT_CLASS,
 				"data-comment-id": comment.id,
-				// Hovering a margin card lights its words, the link Google Docs uses
-				// to tie a comment in the column to the text it is about.
+				// Hovering a card lights its words, and the ACTIVE card's words stay
+				// lit: hover is transient, active is the comment the reader is working
+				// on, and conflating them made the highlight flicker away the moment
+				// the pointer left the column.
 				"data-hovered": hoveredRef === ref ? "true" : "false",
+				"data-active": activeRef === ref ? "true" : "false",
 			}),
 		);
 	}
@@ -336,8 +349,12 @@ export function commentHighlightExtension(getState: () => {
 	blocks: readonly { ref: string; markdown: string }[];
 	comments: readonly Comment[];
 	hoveredRef?: string | null;
+	/** The comment the reader is working on; its words stay highlighted. */
+	activeRef?: string | null;
 	/** Server-resolved positions, from the same snapshot read as `blocks`. */
 	views?: Record<string, { ref: string | null; offset: number; length: number; status: string }>;
+	/** Called when the reader clicks a highlight in the text. */
+	onSelectRef?: (ref: string) => void;
 }) {
 	return Extension.create({
 		name: "commentHighlight",
@@ -348,20 +365,47 @@ export function commentHighlightExtension(getState: () => {
 					key: commentHighlightKey,
 					state: {
 						init: (_config, state) => {
-							const { blocks, comments, hoveredRef, views } = getState();
-							return buildCommentDecorations(state.doc, blocks, comments, hoveredRef, views);
+							const { blocks, comments, hoveredRef, views, activeRef } = getState();
+							return buildCommentDecorations(
+								state.doc,
+								blocks,
+								comments,
+								hoveredRef,
+								views,
+								activeRef,
+							);
 						},
 						apply: (tr, _old, _oldState, newState) => {
 							// Rebuild rather than map: the comment set is external to the
 							// document, so a transaction is not the only thing that can
 							// invalidate the set.
-							const { blocks, comments, hoveredRef, views } = getState();
-							return buildCommentDecorations(newState.doc, blocks, comments, hoveredRef, views);
+							const { blocks, comments, hoveredRef, views, activeRef } = getState();
+							return buildCommentDecorations(
+								newState.doc,
+								blocks,
+								comments,
+								hoveredRef,
+								views,
+								activeRef,
+							);
 						},
 					},
 					props: {
 						decorations(state) {
 							return commentHighlightKey.getState(state) as DecorationSet;
+						},
+						handleClick(_view, _pos, event) {
+							// Selecting a comment in the TEXT opens its card in the panel.
+							// Read from the decoration's own `data-comment-id` rather than
+							// from the clicked position: the id is what the decoration was
+							// built with, so the two cannot disagree.
+							const target = (event.target as HTMLElement | null)?.closest?.(
+								`[data-comment-id]`,
+							);
+							const id = target?.getAttribute("data-comment-id");
+							if (!id) return false;
+							getState().onSelectRef?.(id);
+							return false;
 						},
 					},
 				}),

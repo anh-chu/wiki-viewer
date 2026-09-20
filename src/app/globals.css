@@ -312,8 +312,32 @@
   border-bottom-style: dotted;
 }
 
+/*
+ * Two states, deliberately different in KIND, not just intensity.
+ *
+ * `hovered` is transient: the pointer is over the card or the words right now.
+ * `active` is the comment being worked on, and it persists while the reader
+ * scrolls, replies, or moves to the panel to type. An earlier version had only
+ * hover, so the highlight vanished the moment the pointer left the column —
+ * exactly when the reader needed it to know which text they were commenting on.
+ *
+ * Active is therefore the stronger treatment and is drawn without depending on
+ * hover, so an active-but-not-hovered comment still reads as selected.
+ */
 .comment-highlight[data-hovered="true"] {
   background-color: color-mix(in srgb, var(--primary) 30%, transparent);
+}
+
+.comment-highlight[data-active="true"] {
+  background-color: color-mix(in srgb, var(--primary) 42%, transparent);
+  border-bottom-width: 2px;
+  border-bottom-color: color-mix(in srgb, var(--primary) 80%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 22%, transparent);
+}
+
+/* Hovering the active comment must not look like a third, weaker state. */
+.comment-highlight[data-active="true"][data-hovered="true"] {
+  background-color: color-mix(in srgb, var(--primary) 46%, transparent);
 }
 
 /*

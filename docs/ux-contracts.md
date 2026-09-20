@@ -1001,6 +1001,33 @@ own small-screen toggle is at `right-2 top-10`, so at the same position one of t
 be unreachable — not a stacking preference but a dead control. It is a plain show/hide
 toggle; it holds no tabs, so it cannot disagree with the panel about which is active.
 
+**The panel and the text light each other up, in both directions.** Clicking a commented
+phrase in the document opens its card in the panel; clicking a card highlights its words.
+They share ONE piece of state (`activeMarginRef`), read by both the decoration and the
+panel, so the two ends cannot show different comments as active.
+
+`active` is deliberately NOT `hover`. Hover is transient — the pointer is over the card or
+the words right now — while active is the comment being worked on, and it persists while the
+reader scrolls, replies, or moves the pointer into the panel to type. With hover alone the
+highlight vanished at exactly the moment it was being used, because reaching the reply box
+means leaving the card.
+
+The two are therefore styled as different KINDS, not two intensities of one:
+`data-active="true"` gets a stronger tint, a heavier underline and a ring, and is drawn
+without reference to hover so an active-but-not-hovered comment still reads as selected.
+`[data-active][data-hovered]` has its own rule, or hovering the active comment would match
+the weaker specific hover rule and appear to DE-highlight.
+
+Clicking the text also calls `revealComments()`, which shows the panel AND selects the
+Comments tab: the reader asked for a comment, so a Changes tab would hide the card they
+clicked for and the click would appear to do nothing. The panel then scrolls that card into
+view, because the panel does not scroll with the document and the card can easily be
+off-screen.
+
+The click resolves its block ref through the same per-comment `views` map the decorator used
+(`view?.ref ?? comment?.ref`), not through `comment.ref` directly, so the text and the panel
+always describe the same revision.
+
 **The card offsets are measured from the SCROLL CONTAINER, but the cards render below the
 tab header.** The two therefore disagree by exactly the header's height, and without
 compensation every card is high by that much and the topmost one overlaps the tabs. The
