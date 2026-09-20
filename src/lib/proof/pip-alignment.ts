@@ -8,11 +8,24 @@
  * (`data-block-ref`), so the ref is read off the element rather than inferred.
  */
 
-interface BlockPosition {
+export interface BlockPosition {
 	top: number;
 	left: number;
 	width: number;
 	bottom: number;
+	/**
+	 * `top` WITHOUT the scroll offset — the position in the scroll container's own
+	 * viewport frame.
+	 *
+	 * `top` includes `scrollTop` because that is what an overlay INSIDE the scrolling
+	 * element needs to stay stuck to its block as the text moves. The annotations panel
+	 * is a SIBLING of that element, so it does not move with the text and needs this
+	 * frame instead; feeding it `top` made every card drift down by the scrolled amount.
+	 *
+	 * Both come from one `measure()` call, so they cannot describe different layouts.
+	 * Optional so existing callers that only need `top` are unaffected.
+	 */
+	viewportTop?: number;
 }
 
 /** Minimal structural view of a DOM element — keeps this unit testable headlessly. */

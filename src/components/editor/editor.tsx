@@ -58,6 +58,7 @@ import { CopyAsPrompt } from "./copy-as-prompt";
 import {
 	alignByStampedRef,
 	type BlockElementLike,
+	type BlockPosition,
 } from "@/lib/proof/pip-alignment";
 import { shouldRerenderDocument } from "@/lib/proof/render-guard";
 import { commentHighlightExtension, refreshCommentHighlights } from "./extensions/comment-highlight";
@@ -378,8 +379,10 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 
 	/** Map of block ref → position relative to scroll container */
 	const [blockRefPositions, setBlockRefPositions] = useState<
-		Map<string, { top: number; left: number; width: number; bottom: number }>
+		Map<string, BlockPosition>
 	>(new Map());
+
+
 
 	// Subscribe to snapshot data for suggestion cards.
 	// NOTE: select the RAW stored references here — returning a freshly built
@@ -560,9 +563,25 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 				.filter((t) => t.comments.length > 0),
 		[threadCommentsByRef],
 	);
+	/**
+	 * Block offsets for the annotations panel, in the SCROLL CONTAINER'S viewport frame.
+	 *
+	 * `blockRefPositions.top` includes `scrollTop`, which is what an overlay INSIDE the
+	 * scrolling element needs: those children move with the text, so adding the scroll
+	 * offset is what keeps them stuck to their block. The comment pips use that map and
+	 * are correct.
+	 *
+	 * The panel is a SIBLING of the scroll container, so it does not move with the text.
+	 * Feeding it content coordinates made every card drift DOWN by exactly the scrolled
+	 * amount — the further the reader scrolled, the further below its own text each card
+	 * sat, which is what the screenshot showed. `viewportTop` is the same measurement
+	 * without the scroll term.
+	 */
 	const marginOffsets = useMemo(() => {
 		const map = new Map<string, number>();
-		for (const [ref, pos] of blockRefPositions) map.set(ref, pos.top);
+		for (const [ref, pos] of blockRefPositions) {
+			map.set(ref, pos.viewportTop ?? pos.top);
+		}
 		return map;
 	}, [blockRefPositions]);
 
@@ -719,6 +738,18 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	}, [currentPath]);
 
 	/**
+	 * Bumped whenever something reflows the text WITHOUT changing the document.
+	 *
+	 * The offsets below are pixel positions, so they are invalidated by anything that
+	 * moves a block: the annotations panel opening or closing (it narrows the reading
+	 * column, so paragraphs wrap taller), the width setting changing, a window resize,
+	 * fonts landing. The effect cannot depend on the panel store directly — those hooks
+	 * are declared below it — so the value is mirrored into this state from an effect
+	 * further down, which is what re-runs the measurement.
+	 */
+	const [reflowKey, setReflowKey] = useState(0);
+
+	/**
 	 * After content renders, walk `.ProseMirror > *` to build ref→position map.
 	 * Skip snapshot blocks belonging to frontmatter, which is rendered outside
 	 * ProseMirror in viewing mode.
@@ -756,6 +787,10 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 				const rect = el.getBoundingClientRect();
 				return {
 					top: rect.top - containerRect.top + container.scrollTop,
+					// The same measurement WITHOUT the scroll term, for consumers that do
+					// not scroll with the document (the annotations panel). Both come from
+					// one rect so they cannot describe different revisions.
+					viewportTop: rect.top - containerRect.top,
 					left: rect.left - containerRect.left,
 					width: rect.width,
 					bottom: rect.bottom - containerRect.top + container.scrollTop,
@@ -794,7 +829,52 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 				stamped.unmatchedRefs,
 			);
 		}
-	}, [currentPath, snapshotBlockOffset, snapshotBlocks]);
+		// Re-measure when the LAYOUT changes, not only when the content does.
+		//
+		// These offsets are pixel positions, so anything that reflows the text
+		// invalidates them. Opening the annotations panel narrows the reading column,
+		// which makes paragraphs wrap taller and pushes every block below the first
+		// further down — measured live at 37px on a six-block document, which put the
+		// cards about two lines above the text they annotate. The panel's own width
+		// setting does the same thing.
+		//
+		// A ResizeObserver on the editor content is what makes this correct rather
+		// than a list of remembered triggers: it fires for the panel opening, the
+		// width setting changing, the window resizing, and fonts landing, which is
+		// every case that moved a block without changing the document.
+		const observer = new ResizeObserver(() => {
+			// Re-run the same measurement in place. Deliberately NOT a state bump on a
+			// counter: routing it through the effect would re-stamp refs and re-walk
+			// the tree, doing work proportional to the document on every resize tick.
+			const rect = container.getBoundingClientRect();
+			const next = new Map<string, BlockPosition>();
+			for (const el of children) {
+				const ref = el.getAttribute("data-block-ref");
+				if (!ref) continue;
+				const r = el.getBoundingClientRect();
+				next.set(ref, {
+					top: r.top - rect.top + container.scrollTop,
+					viewportTop: r.top - rect.top,
+					left: r.left - rect.left,
+					width: r.width,
+					bottom: r.bottom - rect.top + container.scrollTop,
+				});
+			}
+			if (next.size > 0) setBlockRefPositions(next);
+		});
+		// Observe the CONTAINER, not just the ProseMirror box.
+		//
+		// A ResizeObserver on `proseMirror` alone missed the case that matters: opening
+		// the panel narrows the column, so the text REWRAPS and every block below the
+		// first moves — but the editor box itself keeps the same width and height, so no
+		// resize was reported and the stale offsets stood. Measured live, the cards sat
+		// 37px above their text for exactly this reason.
+		//
+		// `box: "border-box"` so a padding change counts, and the container is what the
+		// offsets are relative to, so watching it is watching the right thing.
+		observer.observe(container);
+		return () => observer.disconnect();
+	}, [currentPath, snapshotBlockOffset, snapshotBlocks, reflowKey]);
 
 
 	/**
@@ -1250,6 +1330,15 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	const tab = useAnnotationPanelStore((state) => state.tab);
 	const setPanelCounts = useAnnotationPanelStore((state) => state.setCounts);
 	const revealComments = useAnnotationPanelStore((state) => state.revealComments);
+
+	// Anything that reflows the text without changing the document bumps the key that
+	// re-runs the block measurement. The panel opening narrows the reading column, so
+	// paragraphs wrap taller and blocks below the first move down; the editor box keeps
+	// its own size, so no resize event fires and stale offsets would stand. That stale
+	// set put the cards 37px above their text.
+	useEffect(() => {
+		setReflowKey((k) => k + 1);
+	}, [panelOpen, tab, editorMaxW]);
 	// The click handler is installed before this component body has declared
 	// `selectCommentByRef` (the extension state is built earlier in the render), so it
 	// is reached through a ref. A click cannot arrive before the render completes, which

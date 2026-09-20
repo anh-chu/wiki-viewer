@@ -96,20 +96,21 @@ interface Props {
 const CARD_GAP = 8;
 
 /**
- * Inset from the top of the card area.
+ * Inset from the top of the card area: exactly the header's height, nothing more.
  *
  * `blockOffsets` is measured against the SCROLL CONTAINER, but the cards are
- * positioned inside the body BELOW the tab header. The two therefore disagree by
- * the header's height, and the first card lands up against the header row instead
- * of beside its own text. The body is padded by the measured header height plus
- * the usual gap, so a card's offset means the same thing it did before the header
- * existed.
+ * positioned inside the body BELOW the tab header. The two disagree by precisely
+ * the header's height, so that is what the layout is shifted by.
+ *
+ * NOT header + CARD_GAP. Adding a gap as well pushed every card a further 8px below
+ * the text it annotates, which is visible against a short anchor — the card reads
+ * as belonging to the line beneath. The header's own bottom border already
+ * separates it from the card area, so no extra breathing room is needed here.
  *
  * The header is measured rather than assumed: its height depends on font metrics
  * and on whether the counts render, which is exactly the kind of difference that
  * would leave a few pixels of overlap or a gap on a different machine.
  */
-const BODY_GAP = CARD_GAP;
 
 /**
  * The panel's width, in one place.
@@ -205,10 +206,16 @@ export function CommentMargin({
 		visibleSuggestions,
 		blockOffsets,
 		heights,
-		// Every card moves down by the header's height plus the usual gap. Applied to
-		// the LAYOUT rather than as padding on the body: padding would shrink the box
-		// the cards scroll in, putting the last card's end out of reach.
-		headerHeight + BODY_GAP,
+		// MINUS the header's height, because that is the amount by which the two frames
+		// already disagree. `blockOffsets` is measured from the SCROLL CONTAINER's top
+		// (the panel's top edge), but the cards render in a box that begins BELOW the
+		// header, so the card area is already 28px further down than the measurement
+		// assumes: the required offset is `blockOffset - headerHeight`.
+		//
+		// Adding it instead was the bug — and it produced a perfectly CONSISTENT 56px
+		// error on every card, which is exactly the shape of error that reads as "the
+		// whole column is shifted" rather than as an arithmetic mistake.
+		-headerHeight,
 	);
 
 	if (laid.length === 0 && !showComments && !showSuggestions) return null;
@@ -537,10 +544,19 @@ function layout(
 		}),
 	].sort((a, b) => a.desired - b.desired);
 
+	// `inset` shifts the whole column (it is negative for the panel header), and the
+	// collision pass runs in the SAME space as the values it produces:
+	// `floor` accumulates from each card's final `top`, so a card pushed down by a
+	// collision cannot also inherit the inset a second time. Building the floor from
+	// un-inset values while adding the inset to `top` was a real bug: each pushed-down
+	// card landed a further `inset` below the one it was clearing.
+	//
+	// The clip at 0 keeps a card from being positioned above the card area, which the
+	// negative inset would otherwise allow for the topmost block.
 	let floor = 0;
 	return sorted.map(({ key, thread, suggestion, desired, height }) => {
-		const top = Math.max(desired, floor) + inset;
-		floor = Math.max(desired, floor) + height + CARD_GAP;
+		const top = Math.max(desired + inset, floor);
+		floor = top + height + CARD_GAP;
 		return { key, thread, suggestion, top };
 	});
 }

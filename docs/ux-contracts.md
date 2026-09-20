@@ -1036,13 +1036,35 @@ The click resolves its block ref through the same per-comment `views` map the de
 (`view?.ref ?? comment?.ref`), not through `comment.ref` directly, so the text and the panel
 always describe the same revision.
 
-**The card offsets are measured from the SCROLL CONTAINER, but the cards render below the
-tab header.** The two therefore disagree by exactly the header's height, and without
-compensation every card is high by that much and the topmost one overlaps the tabs. The
-header is MEASURED (`ResizeObserver`, since its height depends on font metrics and on
-whether the counts render) and the layout is shifted by that measurement plus the standard
-gap. It is applied to the layout values, not as CSS padding: padding would shrink the box
-the cards scroll in and put the last card's end out of reach.
+**The card offsets are pixel positions, so they are invalidated by any reflow.** This was
+the hardest bug in the panel, and it was measured in a real browser rather than reasoned
+about, after three confident and wrong deductions from screenshots.
+
+The offsets are measured relative to the SCROLL CONTAINER, but the cards render in a box
+that begins BELOW the panel's tab header. Those two frames therefore already disagree by
+exactly the header's height, and the correct offset is `blockOffset − headerHeight`. It was
+`+headerHeight`, which put every card a consistent 51px below the commented phrase — the
+kind of error that reads as "the whole column is shifted" rather than as an arithmetic
+mistake. Two other faults were found and fixed alongside it:
+
+- The offsets include `scrollTop`, which is right for the comment PIPS (they live inside the
+  scrolling element and must move with the text) and wrong for the panel (a sibling of that
+  element, which does not move with the document). The panel now reads a second measurement,
+  `viewportTop`, taken from the same rect without the scroll term.
+- The collision `floor` accumulated from un-inset values while `top` added the inset, so a
+  card pushed down by a collision landed a further `inset` below the card it was clearing.
+
+**Staleness, not arithmetic, was the last one.** Opening the panel narrows the reading
+column, so paragraphs rewrap taller and every block below the first moves down. The
+editor box keeps its OWN size, so no resize event fires and the offsets captured at load
+stayed in place — measured at 37px of error. The measurement now re-runs when the panel or
+the width setting changes, and a `ResizeObserver` on the scroll container covers window
+resizes and fonts landing, which bump no React state at all.
+
+**Verification pointer:** `src/components/editor/comment-margin.tsx` (the `-headerHeight`
+inset, the collision pass), `src/components/editor/editor.tsx` (the `viewportTop`
+measurement, `reflowKey`, the observer), `src/components/editor/annotations-button.tsx`,
+`src/stores/annotation-panel-store.ts`.
 
 **Verification pointer:** `src/components/editor/comment-margin.tsx` (`PanelHeader`, the
 `aside` root, `layout`'s inset), `src/components/editor/annotations-button.tsx`,

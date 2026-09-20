@@ -14,6 +14,15 @@ import { __test } from "@/components/editor/comment-margin";
 
 const { layout } = __test;
 
+const EDITOR = readFileSync(
+	new URL("../../components/editor/editor.tsx", import.meta.url),
+	"utf8",
+);
+const MARGIN = readFileSync(
+	new URL("../../components/editor/comment-margin.tsx", import.meta.url),
+	"utf8",
+);
+
 function thread(blockRef: string) {
 	return { blockRef, comments: [] as never[] };
 }
@@ -271,6 +280,50 @@ describe("the first card clears the tab header", () => {
 		);
 	});
 
+	test("the panel reads offsets in the VIEWPORT frame, not the scroll-content one", () => {
+		// The real bug behind the reported drift, and it was much larger than a gap.
+		// `blockRefPositions.top` includes `scrollTop` — correct for the pips, which live
+		// INSIDE the scrolling element and must move with the text. The panel is a sibling
+		// of that element and does not move with the text, so content coordinates made
+		// every card drift down by the scrolled amount.
+		assert.match(
+			EDITOR,
+			/map\.set\(ref, pos\.viewportTop \?\? pos\.top\);/,
+			"the panel must use the viewport-frame offset",
+		);
+		// And the pips must keep the content frame: changing them would break what works.
+		assert.match(
+			EDITOR,
+			/top: rect\.top - containerRect\.top \+ container\.scrollTop,/,
+			"the pip offsets must still include the scroll term",
+		);
+	});
+
+	test("both frames come from one measurement", () => {
+		// Two independent rects could disagree about which revision of the layout they
+		// describe; deriving both from the same rect makes that impossible.
+		assert.match(
+			EDITOR,
+			/viewportTop: rect\.top - containerRect\.top,/,
+			"viewportTop must be the same rect minus the scroll term",
+		);
+	});
+
+	test("the inset is the header height alone, never header + gap", () => {
+		// Regression: the first version added CARD_GAP on top of the header height, so
+		// every card sat 8px lower than its text. Visible in a screenshot against a
+		// short anchor, where the card reads as belonging to the line below.
+		const MARGIN = readFileSync(
+			new URL("../../components/editor/comment-margin.tsx", import.meta.url),
+			"utf8",
+		);
+		assert.ok(
+			!/headerHeight \+/.test(MARGIN),
+			"nothing may be added to the header height",
+		);
+		assert.match(MARGIN, /-headerHeight/, "it must be subtracted, not added");
+	});
+
 	test("the inset does not change the spacing BETWEEN cards", () => {
 		// It shifts the column, it does not stretch it: a second magic number here is
 		// how two cards drift apart only when a header is present.
@@ -304,15 +357,60 @@ describe("the first card clears the tab header", () => {
 			"utf8",
 		);
 		assert.match(MARGIN, /ResizeObserver/, "the header must be measured, not assumed");
+		// Verified against the live DOM: with `+headerHeight` every card measured exactly
+		// 51px below its commented phrase, and with `-headerHeight` it lands on the line
+		// box (5px above the phrase, which is the paragraph's first-line leading).
 		assert.match(
 			MARGIN,
-			/headerHeight \+ BODY_GAP/,
-			"and the layout must be shifted by that measurement",
+			/\t\t-headerHeight,/,
+			"the header must be SUBTRACTED: the card area already starts below it",
+		);
+		assert.ok(
+			!/headerHeight \+ CARD_GAP|headerHeight \+ BODY_GAP/.test(MARGIN),
+			"NOT header + a gap: the extra gap pushed every card an additional 8px " +
+				"below the text it annotates, which is visible against a short anchor",
 		);
 		assert.ok(
 			!/paddingTop: headerHeight/.test(MARGIN),
 			"it must NOT be CSS padding: that shrinks the scrollable box and puts the " +
 				"last card out of reach",
+		);
+	});
+});
+
+describe("the offsets are re-measured when the layout reflows", () => {
+	// Found by measuring the live DOM: with the panel open every card sat exactly 37px
+	// above its text. The cause was not arithmetic but STALENESS — the block offsets are
+	// pixel positions captured once, and opening the panel narrows the reading column,
+	// so paragraphs wrap taller and every block below the first moves down. The editor
+	// box keeps its own size, so no resize event fired and the stale offsets stood.
+
+	test("the measurement depends on the panel, not only on the document", () => {
+		const effect = EDITOR.slice(
+			EDITOR.indexOf("Bumped whenever something reflows the text"),
+			EDITOR.indexOf("After content renders, walk"),
+		);
+		assert.ok(effect.length > 0, "expected the reflow key");
+		assert.match(
+			EDITOR,
+			/\[panelOpen, tab, editorMaxW\]/,
+			"opening the panel and changing the width must both re-measure",
+		);
+		assert.match(
+			EDITOR,
+			/\}, \[currentPath, snapshotBlockOffset, snapshotBlocks, reflowKey\]\);/,
+			"and the measurement effect must consume that key",
+		);
+	});
+
+	test("a resize observer covers the reflows the key cannot see", () => {
+		// Window resizes and fonts landing also move blocks, and neither bumps the key.
+		assert.match(EDITOR, /new ResizeObserver/, "a resize observer must exist");
+		assert.match(
+			EDITOR,
+			/observer\.observe\(container\)/,
+			"it must watch the CONTAINER: the editor box itself keeps its size when the " +
+				"reading column narrows, so observing only that would never fire",
 		);
 	});
 });
