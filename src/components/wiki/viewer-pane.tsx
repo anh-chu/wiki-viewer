@@ -12,6 +12,7 @@ import {
 	Image as ImageIcon,
 	Loader2,
 	Maximize2,
+	MessageSquare,
 	PencilRuler,
 	Pencil,
 	RefreshCw,
@@ -42,6 +43,7 @@ import {
 
 import { CsvViewer } from "@/components/editor/csv-viewer";
 import { KBEditor } from "@/components/editor/editor";
+import { useCommentColumnStore } from "@/stores/comment-column-store";
 import { FileFallbackViewer } from "@/components/editor/file-fallback-viewer";
 import { LargeFileGate } from "@/components/editor/large-file-gate";
 import { ImageViewer } from "@/components/editor/image-viewer";
@@ -228,6 +230,12 @@ export function ViewerPane({
 	// Sticky: once the editor has rendered for this file, the spinner must not replace
 	// it. Written from an effect, not during render, so concurrent rendering cannot
 	// observe a half-updated value.
+	// The comment column's count and visibility, published by the editor and shown here
+	// in the top bar. The count is what decides whether the control is offered at all.
+	const commentCount = useCommentColumnStore((state) => state.count);
+	const commentColumnCollapsed = useCommentColumnStore((state) => state.collapsed);
+	const toggleCommentColumn = useCommentColumnStore((state) => state.toggle);
+
 	const [hasRenderedEditor, setHasRenderedEditor] = useState(false);
 	useEffect(() => {
 		if (!fileLoading) setHasRenderedEditor(true);
@@ -557,6 +565,27 @@ export function ViewerPane({
 								</>
 							)}
 						</>,
+					)}
+					{/* Show/hide the anchored comment cards. Sits in the TOP BAR, not the
+					    editor's toolbar row, because that row is `!isViewing` — the control
+					    did not exist in view mode, which is where comments are most often
+					    read. Labelled rather than icon-only: "show/hide the comment
+					    cards" is not something a bare bubble icon conveys, and this is the
+					    only control for it. Rendered only when the open document has
+					    comments, so it never advertises an empty column. */}
+					{isMarkdown(openFile.name) && commentCount > 0 && (
+						<Button
+							size="sm"
+							variant="ghost"
+							className="h-7 gap-1 px-2 text-[11px]"
+							title={commentColumnCollapsed ? "Show comment cards" : "Hide comment cards"}
+							aria-pressed={!commentColumnCollapsed}
+							onClick={toggleCommentColumn}
+						>
+							<MessageSquare className="h-3.5 w-3.5" />
+							{commentColumnCollapsed ? "Show comments" : "Hide comments"}
+							<span className="tabular-nums opacity-60">{commentCount}</span>
+						</Button>
 					)}
 					{isText(openFile.name) && !editing &&
 						(fileContent !== null || isMarkdown(openFile.name)) && (

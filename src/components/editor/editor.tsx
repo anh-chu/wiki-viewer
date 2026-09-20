@@ -39,6 +39,7 @@ import {
 } from "./editor-module-state";
 import { SlashCommands } from "./slash-commands";
 import { AnnotationsPanel } from "./annotations-panel";
+import { useCommentColumnStore } from "@/stores/comment-column-store";
 import { DocumentOutline } from "./document-outline";
 import { ReadingExperiments } from "./experiments";
 import { BacklinksPanel } from "./backlinks-panel";
@@ -563,9 +564,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	}, [blockRefPositions]);
 
 	const [hoveredMarginRef, setHoveredMarginRef] = useState<string | null>(null);
-	// The column is hidden when nothing is commented, and can be collapsed by
-	// hand so it never steals width from the document uninvited.
-	const [marginCollapsed, setMarginCollapsed] = useState(false);
 	// Drop the expanded card when its comment leaves the column.
 	//
 	// Refs are content-derived (`sha256(blockMarkdown).slice(0,6)`), so the same text
@@ -1203,13 +1201,24 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		[trackedMarks, editor],
 	);
 
-	const annotationCount = marginThreads.length + panelSuggestions.length;
-
-	// The anchored column is COMMENTS ONLY, and is now toggled from the header
-	// rather than appearing on its own. `marginCollapsed` is the reader's choice and
-	// survives across documents in the session; the default is open, because a
-	// document with comments and no visible cards looks like it has none.
+	// The anchored column is COMMENTS ONLY, and is toggled from the TOP BAR — shared
+	// chrome that renders in both editing and viewing. It used to be a button inside the
+	// editor's own toolbar row, which is `!isViewing`, so it did not exist in view mode at
+	// all — the mode comments are most often read in.
+	//
+	// The store holds the reader's choice; the editor publishes the count, because it is
+	// the only thing that can see the document's comments.
+	const marginCollapsed = useCommentColumnStore((state) => state.collapsed);
+	const setCommentCount = useCommentColumnStore((state) => state.setCount);
+	const expandCommentColumn = useCommentColumnStore((state) => state.expand);
 	const showCommentMargin = marginThreads.length > 0 && !marginCollapsed;
+
+	useEffect(() => {
+		setCommentCount(marginThreads.length);
+		// Reset to 0 when this editor unmounts, or the next document inherits a stale
+		// count and the top bar offers a toggle for comments that are not there.
+		return () => setCommentCount(0);
+	}, [marginThreads.length, setCommentCount]);
 
 
 	// Keep the Accept/Reject controls in step with the document. Counted from the
@@ -1519,29 +1528,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 										</button>
 									</span>
 								)}
-								{/* Show/hide the anchored comment cards. Disabled with no
-								    comments rather than hidden, so the control does not
-								    move under the cursor as comments come and go. */}
-								{!sourceMode && (
-									<button
-										onClick={() => setMarginCollapsed((c) => !c)}
-										disabled={marginThreads.length === 0}
-										title={
-											marginThreads.length === 0
-												? "No comments to show"
-												: showCommentMargin
-													? "Hide comment cards"
-													: "Show comment cards"
-										}
-										aria-pressed={showCommentMargin}
-										className="mr-1 flex items-center gap-1 px-2 py-1 text-[11px] rounded-md border border-border text-muted-foreground hover:bg-accent transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
-									>
-										<MessageSquare className="h-3 w-3" />
-										{marginThreads.length > 0 && (
-											<span className="tabular-nums">{marginThreads.length}</span>
-										)}
-									</button>
-								)}
 								{!sourceMode && (
 									<button
 										onClick={toggleSuggestingMode}
@@ -1612,7 +1598,14 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 										);
 										el?.scrollIntoView({ behavior: "smooth", block: "center" });
 									}}
-									onFocusThread={(blockRef) => setActiveMarginRefNow(blockRef)}
+									onFocusThread={(blockRef) => {
+										// Re-show the column first. Jumping to a comment
+										// while the column is hidden would scroll to the text
+										// and expand a card that is not on screen — the jump
+										// would appear to do nothing.
+										expandCommentColumn();
+										setActiveMarginRefNow(blockRef);
+									}}
 								/>
 								<ReadingExperiments editor={editor} scrollContainerRef={scrollContainerRef} />
 								<div className="flex-1 relative min-w-0">

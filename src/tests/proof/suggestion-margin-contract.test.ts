@@ -242,3 +242,88 @@ describe("the panel stacks with the outline instead of covering it", () => {
 		);
 	});
 });
+
+describe("the comment column's toggle lives in the shared top bar", () => {
+	// Three things went wrong here in sequence, each found by the user rather than by a
+	// test, so all three are pinned now.
+	//
+	//   1. The control was an icon and a bare count with no label, and it was DISABLED
+	//      (40% opacity) when the document had no comments — the state a reader is most
+	//      likely to be hunting for it in. The user could not find it.
+	//   2. It sat in the EDITOR's toolbar row, which is `!isViewing`, so it did not exist
+	//      in view mode at all — the mode comments are most often read in.
+	//   3. It was then floating over the editor; the user asked for it in the top bar.
+	const PANE = readFileSync(
+		new URL("../../components/wiki/viewer-pane.tsx", import.meta.url),
+		"utf8",
+	);
+
+	test("it is in the top bar, which renders in BOTH editing and viewing", () => {
+		const control = PANE.indexOf("isMarkdown(openFile.name) && commentCount");
+		assert.ok(control > 0, "expected to find the comment toggle in viewer-pane");
+		// The two mode-specific guards must both come AFTER it: if the control sat inside
+		// either one, one of the two modes would have no control at all.
+		const editGuard = PANE.indexOf("{isText(openFile.name) && !editing", control - 2000);
+		const viewingGuard = PANE.indexOf("{isText(openFile.name) && editing", control - 2000);
+		assert.ok(
+			editGuard === -1 || editGuard > control,
+			"the toggle must not sit inside the viewing-only guard",
+		);
+		assert.ok(
+			viewingGuard === -1 || viewingGuard > control,
+			"the toggle must not sit inside the editing-only guard",
+		);
+	});
+
+	test("it is NOT in the editor's edit-only toolbar row", () => {
+		// The editor's toolbar row is `!isViewing`. A toggle there is invisible in view
+		// mode, which is the defect this asserts against.
+		const row = EDITOR.indexOf("{!isViewing && (");
+		const rowEnd = EDITOR.indexOf("{sourceMode ? (", row);
+		assert.ok(row > 0 && rowEnd > row, "expected to find the editor's toolbar row");
+		const toolbarRow = EDITOR.slice(row, rowEnd);
+		assert.ok(
+			!/Hide comments|Show comments/.test(toolbarRow),
+			"the toggle must not be back inside the edit-only toolbar row",
+		);
+	});
+
+	test("it is hidden, not disabled, when there are no comments", () => {
+		// `disabled` still renders, at reduced opacity, and reads as a broken control.
+		assert.match(
+			PANE,
+			/isMarkdown\(openFile\.name\) && commentCount > 0 && \(/,
+			"the control appears only when there is something to hide",
+		);
+		assert.ok(
+			!/disabled=\{commentCount === 0\}/.test(PANE),
+			"and must not render disabled",
+		);
+	});
+
+	test("it carries a label and reports the column's real state", () => {
+		const control = PANE.slice(
+			PANE.indexOf("{/* Show/hide the anchored comment cards."),
+			PANE.indexOf("{isText(openFile.name) && !editing"),
+		);
+		assert.ok(control.length > 0, "expected to find the control block");
+		assert.match(control, /Show comments/, "the label must say what it does");
+		assert.match(control, /Hide comments/);
+		assert.match(control, /aria-pressed=\{!commentColumnCollapsed\}/);
+	});
+
+	test("the count is published by the editor, which is the only thing that sees comments", () => {
+		assert.match(
+			EDITOR,
+			/useCommentColumnStore\(\(state\) => state\.count\)|setCommentCount\(marginThreads\.length\)/,
+			"the editor must publish the count",
+		);
+		// Reset on unmount, or the next document inherits a stale count and the top bar
+		// offers a toggle for comments that are not there.
+		assert.match(
+			EDITOR,
+			/return \(\) => setCommentCount\(0\)/,
+			"the count must be cleared when the editor unmounts",
+		);
+	});
+});

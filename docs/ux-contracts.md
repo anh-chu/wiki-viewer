@@ -989,9 +989,32 @@ covers, which is the information the anchored position was trying and failing to
 The column therefore takes no suggestion props at all, so the two kinds cannot drift back
 together.
 
-**The column is toggled, not automatic.** The header button shows or hides it and carries
-the comment count. It is disabled rather than hidden when there are no comments, so the
-control does not move under the cursor as comments come and go.
+**The column is toggled from the TOP BAR, not the editor.** The control lives in
+`viewer-pane`'s top bar, which is shared chrome rendering in BOTH editing and viewing. It
+carries a label (`Hide comments` / `Show comments`) and the comment count, and it renders
+only when the open document has comments.
+
+Three failed attempts are worth recording, because each was found by the user rather than
+by a test:
+
+1. An icon and a bare count, **disabled** when there were no comments. Disabled renders at
+   40% opacity, so the control looked inert in exactly the state a reader hunts for it in.
+   It is now hidden instead — off until a comment exists, so it cannot shift the toolbar
+   under the cursor.
+2. It sat in the **editor's own toolbar row**, which is `!isViewing`. The control therefore
+   did not exist in view mode at all — the mode comments are most often read in.
+3. It was then floated over the editor. It belongs in the top bar.
+
+**Visibility state is shared, in `comment-column-store`.** The top bar owns the control and
+the editor owns the document, so the store carries two fields with different writers:
+`count` is published by the editor (only it can see the comments) and `collapsed` is the
+reader's choice, written only by the top bar. They are separate so that a collapse survives
+a document with no comments, while a document that gains one still shows its column. The
+count is cleared when the editor unmounts, or the next document inherits a stale count and
+the top bar offers a toggle for comments that are not there.
+
+Jumping to a comment from the panel calls `expand` first. Without it the jump scrolls to
+the text and expands a card that is not on screen, so it appears to do nothing.
 
 **The panel stacks UNDER the outline in the same corner.** The outline's toggle is at
 `right-2 top-10`, so the panel's trigger sits at `top-20` below `xl` and rises to `top-10`
