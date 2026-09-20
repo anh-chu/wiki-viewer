@@ -63,7 +63,12 @@ export function nextMarkId(markdown: string | readonly string[]): number {
 	for (const source of sources) {
 		for (const match of source.matchAll(re)) {
 			const n = Number.parseInt(match[1], 10);
-			if (Number.isFinite(n) && n > max) max = n;
+			// `Number.isSafeInteger` matters, not just finiteness: an id past 2^53
+			// (a malformed or hand-edited file could carry one) makes `max + 1`
+			// unrepresentable and silently equal to `max`, so the next mark would reuse
+			// an existing id and the editor would merge the two suggestions. Ignoring
+			// such a value keeps allocation correct for every realistic document.
+			if (Number.isSafeInteger(n) && n > max) max = n;
 		}
 	}
 	return max + 1;

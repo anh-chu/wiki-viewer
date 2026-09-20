@@ -164,4 +164,20 @@ describe("ids are document-scoped, not block-scoped", () => {
 		assert.ok(out.ok);
 		assert.match(out.markdown, /data-id="1"/, "a block-local scan cannot see other blocks");
 	});
+
+	test("an id past the safe-integer range is ignored, not used as a base", () => {
+		// `max + 1` is unrepresentable past 2^53, so it would equal `max` and the next
+		// mark would silently reuse an existing id - which the editor reads as the same
+		// suggestion. A malformed file must not be able to cause that.
+		assert.equal(nextMarkId('a <del data-id="99999999999999999999">x</del>'), 1);
+	});
+
+	test("CONTROL: the largest safe id is still honoured", () => {
+		assert.equal(nextMarkId('a <del data-id="9007199254740991">x</del>'), 9007199254740992);
+	});
+
+	test("ids with leading zeros are read as numbers", () => {
+		assert.equal(nextMarkId('a <del data-id="007">x</del>'), 8);
+	});
 });
+
