@@ -86,6 +86,12 @@ export const previewSanitizeSchema: SanitizeOptions = {
 			"dataId",
 			"dataType",
 			"dataModType",
+			// Which node attribute an attribute modification changes. `commands.js`
+			// requires this to be a string before it will restore the old value, so
+			// dropping it makes a rejected attribute edit throw `Unknown modification
+			// type` after a reload. Verified against the parser: `data-mod-attr-name`
+			// becomes `dataModAttrName` in hast.
+			"dataModAttrName",
 			"dataModPrevVal",
 			"dataModNewVal",
 		],
@@ -128,6 +134,11 @@ export const previewSanitizeSchema: SanitizeOptions = {
 			"dataId",
 			"dataType",
 			"dataModType",
+			// Which node attribute an attribute modification changes. `commands.js`
+			// requires this to be a string before it will restore the old value, so
+			// dropping it makes a rejected attribute edit throw `Unknown modification
+			// type` after a reload. The hast name was verified against the parser.
+			"dataModAttrName",
 			"dataModPrevVal",
 			"dataModNewVal",
 		],

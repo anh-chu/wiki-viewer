@@ -17,6 +17,7 @@
  */
 
 import { useEffect, useState } from "react";
+import type { MarkId } from "@/lib/proof/suggestion-mark";
 import type { Comment } from "@/lib/proof/types";
 import { CommentThread } from "./comment-thread";
 
@@ -33,7 +34,8 @@ export interface MarginThread {
  * calls the vendored `applySuggestion(id, from, to)`, so the card needs the range too.
  */
 export interface MarginSuggestion {
-	id: string;
+	/** The mark's `data-id`, keeping its original type — see `MarkId`. */
+	id: MarkId;
 	kind: "insert" | "remove" | "modify";
 	from: number;
 	to: number;
@@ -51,9 +53,9 @@ interface Props {
 	/** Pending suggested changes, aligned to their marks in the document. */
 	suggestions?: readonly MarginSuggestion[];
 	/** Accept a suggested change, identified by its mark id and range. */
-	onAcceptSuggestion?: (id: string, from: number, to: number) => void;
+	onAcceptSuggestion?: (id: MarkId, from: number, to: number) => void;
 	/** Reject a suggested change, identified by its mark id and range. */
-	onRejectSuggestion?: (id: string, from: number, to: number) => void;
+	onRejectSuggestion?: (id: MarkId, from: number, to: number) => void;
 	/** The thread being edited right now; null means all are read-only cards. */
 	activeRef: string | null;
 	/** Open a thread for composing; used when the column shows a new comment. */

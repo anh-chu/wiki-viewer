@@ -98,3 +98,40 @@ test("a tracked change round-trips byte-identically through markdown", async () 
 
 	assert.equal(md2, md, "a second round-trip must not change the file further");
 });
+test("an attribute modification keeps the attribute it targets", async () => {
+	// A third way the mark can lose meaning, distinct from losing the tag itself.
+	//
+	// `commands.js` reads `mod.attrs.attrName` before it will restore an attribute,
+	// and falls through to `Unknown modification type` when it is not a string. The
+	// mark's own renderHTML omitted it, parseHTML never read it, and the sanitizer
+	// had no entry - so the attribute name was dropped on every save and a rejected
+	// attribute edit could not be undone after a reload.
+	//
+	// `sanitize: true` is the read-only viewer path, and it is the one that strips
+	// unlisted attributes. Testing the unsanitized path here passed even with the
+	// schema entry removed, which is how a test can look load-bearing and not be.
+	const md =
+		'<p><span data-type="modification" data-id="4" data-mod-type="attr" ' +
+		'data-mod-attr-name="href" data-mod-prev-val="old" ' +
+		'data-mod-new-val="new">x</span></p>';
+
+	const back = htmlToMarkdown(await markdownToHtml(md, { sanitize: true }));
+
+	assert.match(
+		back,
+		/data-mod-attr-name="href"/,
+		"the targeted attribute must survive, or a rejected edit cannot be restored",
+	);
+	assert.match(back, /data-mod-prev-val="old"/, "and the value to restore");
+	assert.match(back, /data-mod-type="attr"/, "and the fact that it is an attribute edit");
+});
+
+test("CONTROL: the modification mark keeps its id and type too", async () => {
+	// Guards against a fix that preserved attrName by dropping something else.
+	const md =
+		'<p><span data-type="modification" data-id="4" data-mod-type="attr" ' +
+		'data-mod-attr-name="href" data-mod-prev-val="old">x</span></p>';
+	const back = htmlToMarkdown(await markdownToHtml(md, { sanitize: true }));
+	assert.match(back, /data-id="4"/, "without the id nothing can settle it");
+	assert.match(back, /data-type="modification"/, "which is also the parse selector");
+});

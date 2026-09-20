@@ -142,6 +142,11 @@ turndown.addRule("modification", {
 			`data-id="${el.getAttribute("data-id") ?? ""}"`,
 			`data-mod-type="${el.getAttribute("data-mod-type") ?? "text"}"`,
 		];
+		// Which node attribute an attribute modification targets. `commands.js` checks
+		// this is a string before restoring the old value, so omitting it turned a
+		// rejected attribute edit into `Unknown modification type` after a reload.
+		const attrName = el.getAttribute("data-mod-attr-name");
+		if (attrName !== null) attrs.push(`data-mod-attr-name="${attrName}"`);
 		// `data-mod-new-val` is absent on the block form, by the vendored spec.
 		const prev = el.getAttribute("data-mod-prev-val");
 		const next = el.getAttribute("data-mod-new-val");

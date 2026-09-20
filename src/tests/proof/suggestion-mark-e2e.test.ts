@@ -349,5 +349,88 @@ test("a mark's id clears marks in every block, not only its own", async () => {
 	});
 
 	const onDisk = await readFile(path.join(tmpRoot, name), "utf-8");
-	assert.match(onDisk, /data-id="1"[^]*data-id="2"/, "the second mark must not reuse id 1");
+	const ids = [...onDisk.matchAll(/data-id="(\d+)"/g)].map((m) => m[1]);
+	assert.deepEqual(ids, ["1", "2"], "the second mark must not reuse id 1");
+});
+
+test("a legacy block-level kind is refused, not turned into an insertion", async () => {
+	// `kind: "delete"` used to be mapped to `insert`, so an old client asking to delete
+	// a block got an INSERTION mark proposing the opposite change. A mark covers a run
+	// of text, so a whole-block edit has to be a block op.
+	const name = await doc("legacy-kind.md", "abc\n");
+	const snap = await readSnapshot(tmpRoot, name);
+	const ref = snap!.blocks[0].ref;
+
+	for (const kind of ["delete", "replace", "insertAfter", "insertBefore"]) {
+		const res = await applyOps({
+			rootDir: tmpRoot,
+			mdPath: name,
+			baseRevision: snap!.revision,
+			by: "ai:claude",
+			ops: [{ type: "suggestion.add", ref, kind, range: { start: 0, end: 1 }, markdown: "ZZ" } as never],
+		});
+		assert.equal(res.ok, false, `kind=${kind} must be refused`);
+		if (!res.ok) assert.equal(res.code, "UNSUPPORTED_SUGGESTION_KIND");
+	}
+
+	const onDisk = await readFile(path.join(tmpRoot, name), "utf-8");
+	assert.equal(onDisk, "abc\n", "a refused op must not touch the file");
+});
+
+test("garbage inside the marked text is refused rather than written", async () => {
+	const name = await doc("badtext.md", "before after.\n");
+	const snap = await readSnapshot(tmpRoot, name);
+	const ref = snap!.blocks[0].ref;
+
+	for (const bad of ["x</ins>y", "a\n\nsecond"]) {
+		const res = await applyOps({
+			rootDir: tmpRoot,
+			mdPath: name,
+			baseRevision: snap!.revision,
+			by: "ai:claude",
+			ops: [{ type: "suggestion.add", ref, kind: "insert", range: { start: 7, end: 7 }, markdown: bad }],
+		});
+		assert.equal(res.ok, false, `${JSON.stringify(bad)} must be refused`);
+		if (!res.ok) assert.equal(res.code, "INVALID_TEXT");
+	}
+
+	const onDisk = await readFile(path.join(tmpRoot, name), "utf-8");
+	assert.equal(onDisk, "before after.\n", "a refused op must not touch the file");
+});
+
+test("a failed batch reports the file on disk, not the ops it did not write", async () => {
+	// `workingBlocks` is mutated op by op while the file is written only after the whole
+	// loop succeeds. A mid-batch failure therefore used to return a snapshot containing
+	// the earlier ops' marks while the file was byte-identical to before - a caller that
+	// trusted it would believe a suggestion existed that no reader could see.
+	//
+	// Here the second op cannot resolve, because the first splice changed the block's
+	// content-derived ref.
+	const name = await doc("failed-batch.md", "First alpha beta.\n");
+	const snap = await readSnapshot(tmpRoot, name);
+	const ref = snap!.blocks[0].ref;
+
+	const res = await applyOps({
+		rootDir: tmpRoot,
+		mdPath: name,
+		baseRevision: snap!.revision,
+		by: "ai:claude",
+		ops: [
+			{ type: "suggestion.add", ref, kind: "remove", range: { start: 6, end: 11 } },
+			{ type: "suggestion.add", ref, kind: "remove", range: { start: 12, end: 16 } },
+		],
+	});
+
+	assert.equal(res.ok, false, "the second op cannot resolve the pre-splice ref");
+	if (!res.ok) assert.equal(res.code, "BLOCK_NOT_FOUND");
+
+	const onDisk = await readFile(path.join(tmpRoot, name), "utf-8");
+	assert.equal(onDisk, "First alpha beta.\n", "a failed batch must not write");
+
+	const reported = res.snapshot!.blocks.map((b) => b.markdown).join("\n");
+	assert.ok(
+		!reported.includes("<del"),
+		`the snapshot must not describe a mark that was never written; got ${JSON.stringify(reported)}`,
+	);
+	assert.match(reported, /First alpha beta\./, "it reports what is actually persisted");
 });

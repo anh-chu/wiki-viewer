@@ -17,6 +17,7 @@ import {
 } from "@/stores/view-width-store";
 import { useWikiSlugsStore } from "@/stores/wiki-slugs-store";
 import { useProofStore } from "@/stores/proof-store";
+import type { MarkId } from "@/lib/proof/suggestion-mark";
 import type { Comment as ProofComment, TextRangeAnchor } from "@/lib/proof/types";
 import { wsFetch, withWs } from "@/lib/workspace-client";
 import { showError } from "@/lib/toast";
@@ -249,7 +250,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	 * Approve/Reject possible: the whole-document `applySuggestions`/`revertSuggestions`
 	 * below would settle every other pending mark at the same time.
 	 */
-	const resolveOneTracked = useCallback((id: string, from: number, to: number, decision: "accept" | "reject") => {
+	const resolveOneTracked = useCallback((id: MarkId, from: number, to: number, decision: "accept" | "reject") => {
 		const editor = editorRef.current;
 		if (!editor) return;
 		const command = decision === "accept" ? applySuggestion : revertSuggestion;
@@ -1105,12 +1106,12 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	 * below already guards against.
 	 */
 	const [trackedMarks, setTrackedMarks] = useState<
-		{ id: string; kind: "insert" | "remove" | "modify"; from: number; to: number }[]
+		{ id: MarkId; kind: "insert" | "remove" | "modify"; from: number; to: number }[]
 	>([]);
 	useEffect(() => {
 		if (!editor || editor.isDestroyed) return;
 		const collect = () => {
-			const byId = new Map<string, { id: string; kind: "insert" | "remove" | "modify"; from: number; to: number }>();
+			const byId = new Map<MarkId, { id: MarkId; kind: "insert" | "remove" | "modify"; from: number; to: number }>();
 			editor.state.doc.descendants((node, pos) => {
 				for (const mark of node.marks) {
 					const name = mark.type.name;
@@ -1121,7 +1122,12 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 					// the library assigns one. String(null) would be the id "null" and
 					// would group every such mark into one bogus card.
 					if (mark.attrs.id === null || mark.attrs.id === undefined) continue;
-					const id = String(mark.attrs.id);
+					// Keep the id's ORIGINAL TYPE. The library generates numbers and its
+					// settle commands compare with `===`, so stringifying made every
+					// approval a silent no-op for a suggestion typed in this session. A
+					// mark reloaded from disk parses back to the same number via
+					// JSON.parse, so both paths agree.
+					const id = mark.attrs.id as MarkId;
 					const from = pos;
 					const to = pos + node.nodeSize;
 					const existing = byId.get(id);
@@ -1150,7 +1156,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	 * offset subtracted, and the container scrolls. Reading the rendered element
 	 * avoids both steps and matches how block offsets are already measured.
 	 */
-	const [markOffsets, setMarkOffsets] = useState<Map<string, number>>(new Map());
+	const [markOffsets, setMarkOffsets] = useState<Map<MarkId, number>>(new Map());
 	useEffect(() => {
 		if (trackedMarks.length === 0) {
 			setMarkOffsets(new Map());
@@ -1158,9 +1164,12 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		}
 		const container = scrollContainerRef.current;
 		if (!container) return;
-		const next = new Map<string, number>();
+		const next = new Map<MarkId, number>();
 		for (const mark of trackedMarks) {
-			const el = container.querySelector<HTMLElement>(`[data-id="${mark.id}"]`);
+			// `String` is correct here and only here: a CSS selector needs a string, and
+			// the DOM attribute is always text. The id's type is preserved everywhere it
+			// is used for identity or settlement.
+			const el = container.querySelector<HTMLElement>(`[data-id="${String(mark.id)}"]`);
 			if (!el) continue;
 			next.set(mark.id, el.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop);
 		}

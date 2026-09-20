@@ -160,6 +160,18 @@ export type SuggestionKind =
 	| "insertAfter"
 	| "insertBefore"
 	| "delete";
+
+/**
+ * The kinds `suggestion.add` can actually write.
+ *
+ * Narrower than `SuggestionKind` on purpose. The legacy block-level kinds describe a
+ * whole-block edit, which a tracked mark cannot express - a mark covers a run of text.
+ * The op used to map every non-`remove` kind to `insert`, so an old client sending
+ * `kind: "delete"` silently got an INSERTION mark proposing the opposite of what it
+ * asked for. Rejecting is the safe answer: the caller meant a whole-block change and
+ * should post `block.replace` / `block.delete` instead.
+ */
+export type WritableSuggestionKind = "insert" | "remove";
 export interface SuggestionRange {
 	start: number;
 	end: number;
@@ -306,7 +318,16 @@ export type Op =
 	| {
 			type: "suggestion.add";
 			ref: string;
-			kind: SuggestionKind;
+			/**
+			 * Narrower than `SuggestionKind`: only the two kinds a mark can express.
+			 *
+			 * The legacy block-level kinds stay in the union above because
+			 * `prompt-serialize` still READS them, but they cannot be written as a mark.
+			 * The op rejects them rather than coercing, which it used to do by mapping
+			 * everything except `remove` to `insert` - so `kind: "delete"` produced an
+			 * insertion proposing the opposite change.
+			 */
+			kind: WritableSuggestionKind;
 			markdown?: string;
 			range?: SuggestionRange;
 			baseMarkdown?: string;

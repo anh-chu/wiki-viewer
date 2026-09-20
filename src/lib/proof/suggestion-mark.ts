@@ -30,7 +30,12 @@ export interface SpliceResult {
 
 export interface SpliceFailure {
 	ok: false;
-	code: "RANGE_OUT_OF_BOUNDS" | "EMPTY_RANGE" | "RANGE_IN_MARK";
+	code:
+		| "RANGE_OUT_OF_BOUNDS"
+		| "EMPTY_RANGE"
+		| "RANGE_IN_MARK"
+		| "RANGE_OVERLAPS_MARK"
+		| "INVALID_TEXT";
 	message: string;
 }
 
@@ -75,27 +80,43 @@ export function nextMarkId(markdown: string | readonly string[]): number {
 }
 
 /**
- * Whether a position falls inside an existing mark tag rather than in visible text.
+ * Every mark tag in the block, as `[start, end)` spans over the markdown.
  *
- * `range` is an offset into the block markdown the caller read, and inserting a mark
- * changes those offsets. A caller that computed its offset BEFORE an earlier mark was
- * written therefore points into that mark's own `<del data-id="1">` tag, and splicing
- * there splits the tag: measured, it produced
- * `\<del da<del data-id="2">ta-i</del>d="1">app</del>`, which corrupts the tag AND
- * loses the first suggestion.
- *
- * A range that lands inside a tag is never intended, so it is refused. The caller's
- * own offsets are the thing that is stale, and it re-reads and retries.
+ * Only ACTUAL mark tags count for the NESTING rules. Matching every `<span>`/`<div>`
+ * mistook ordinary raw HTML for suggestion state, so a legitimate proposal inside
+ * `<span style="color:red">` was refused as `RANGE_IN_MARK`. A tag qualifies only by
+ * being one of the two elements the editor writes with a `data-id`: `ins` and `del`,
+ * open or close.
  */
-function insideMarkTag(markdown: string, pos: number): boolean {
-	const re = /<(?:ins|del|span|div)[^>]*>/g;
-	for (const match of markdown.matchAll(re)) {
-		const start = match.index;
-		const end = start + match[0].length;
-		// Inside the tag's own text, but not before it and not after it.
-		if (pos > start && pos < end) return true;
-	}
-	return false;
+function markTagSpans(markdown: string): { start: number; end: number }[] {
+	const re = /<\/?(?:ins|del)\b[^>]*>/g;
+	return [...markdown.matchAll(re)].map((match) => ({
+		start: match.index,
+		end: match.index + match[0].length,
+	}));
+}
+
+/**
+ * Every HTML tag in the block, mark or not.
+ *
+ * Splicing anywhere inside a tag splits it, whatever the tag is. This is not specific
+ * to suggestions: placing text at offset 7 of `<span style="color:red">word</span>`
+ * produces `<span s<ins data-id="1">X</ins>tyle="color:red">`, which breaks the span's
+ * attribute just as badly as the original bug broke a `<del data-id>`. So the
+ * "not inside a tag" rule applies to all tags, while the nesting rules apply only to
+ * marks.
+ */
+function anyTagSpans(markdown: string): { start: number; end: number }[] {
+	const re = /<\/?[a-zA-Z][^>]*>/g;
+	return [...markdown.matchAll(re)].map((match) => ({
+		start: match.index,
+		end: match.index + match[0].length,
+	}));
+}
+
+/** Whether `pos` falls strictly inside a mark tag. */
+function insideMarkTag(spans: readonly { start: number; end: number }[], pos: number): boolean {
+	return spans.some((span) => pos > span.start && pos < span.end);
 }
 
 /**
@@ -143,16 +164,53 @@ export function spliceMark(
 			message: "an empty range needs text to insert",
 		};
 	}
-	// A stale offset would split an existing mark's tag in half. Refuse rather than
-	// corrupt: nothing a caller means to propose lands inside a tag.
-	if (insideMarkTag(markdown, start) || insideMarkTag(markdown, end)) {
+	const spans = markTagSpans(markdown);
+
+	// A stale offset would split an existing tag in half. Refuse rather than corrupt:
+	// nothing a caller means to propose lands inside a tag. Both ENDS are checked
+	// because the range is a slice, and both OPEN and CLOSE tags count - `</del>` is as
+	// much a tag as `<del ...>`, and splitting it corrupts the block. This covers
+	// ordinary HTML too, since any split tag is broken regardless of what it is.
+	const tags = anyTagSpans(markdown);
+	if (insideMarkTag(tags, start) || insideMarkTag(tags, end)) {
 		return {
 			ok: false,
 			code: "RANGE_IN_MARK",
 			message:
-				`range ${start}..${end} falls inside an existing mark tag. The range is ` +
+				`range ${start}..${end} falls inside an HTML tag. The range is ` +
 				`an offset into the block's markdown, so it must be recomputed after any ` +
 				`mark is added: re-read the block and retry.`,
+		};
+	}
+
+	// A range that CONTAINS a tag would wrap an existing mark in a new one, producing
+	// nested marks of the same kind. ProseMirror's mark specs declare `ins`/`del`
+	// mutually exclusive, so that nesting cannot round-trip: it either drops the inner
+	// mark or fails to parse, and the outer mark's text silently changes. Refuse and
+	// make the caller propose against plain text.
+	const enclosing = spans.find((span) => span.start > start && span.end <= end);
+	if (enclosing) {
+		return {
+			ok: false,
+			code: "RANGE_OVERLAPS_MARK",
+			message:
+				`range ${start}..${end} contains an existing mark (at ${enclosing.start}). ` +
+				`Marks cannot nest, so a range must cover plain text only: re-read the ` +
+				`block and propose against the text the mark does not already cover.`,
+		};
+	}
+
+	// Text the caller supplies is spliced as RAW HTML into the block, so it must not be
+	// able to close the tag it is placed in or open another one. Measured without this:
+	// inserting `x</ins>y` wrote `before <ins data-id="1">x</ins>y</ins>after`, and
+	// round-tripping dropped the second `</ins>` and merged `y` into the text.
+	if (text !== undefined && /[<>]/.test(text)) {
+		return {
+			ok: false,
+			code: "INVALID_TEXT",
+			message:
+				`suggested text must not contain < or >: it is spliced as raw HTML, so a ` +
+				`tag character would break the mark it is placed in.`,
 		};
 	}
 
@@ -164,5 +222,36 @@ export function spliceMark(
 	const after = markdown.slice(end);
 	const tag = kind === "remove" ? "del" : "ins";
 
+	// A blank line inside a mark ends the BLOCK in markdown, so the mark would close at
+	// the paragraph boundary and the rest of its text would fall outside it. Measured:
+	// inserting `a\n\nsecond` produced a mark the snapshot split into
+	// `Before <ins data-id="1">a` and `second</ins>after.`, and after a round-trip
+	// `second` was not part of the suggestion at all. A mark covers inline text, so it
+	// cannot span a paragraph break.
+	if (/\n[ \t]*\n/.test(middle)) {
+		return {
+			ok: false,
+			code: "INVALID_TEXT",
+			message:
+				`the marked text would contain a blank line, which ends the block in ` +
+				`markdown and would split the mark across two paragraphs. A mark covers ` +
+				`inline text only.`,
+		};
+	}
+
 	return { ok: true, markdown: `${before}<${tag} data-id="${id}">${middle}</${tag}>${after}` };
 }
+/**
+ * A suggestion mark's id, keeping the type the vendored library uses.
+ *
+ * The library GENERATES numbers (`generateNextNumberId` returns `suggestionId + 1`)
+ * and its settle commands compare with strict equality:
+ * `mark.attrs["id"] === suggestionId`. A mark round-trips its id through
+ * `JSON.stringify` in `toDOM` and `JSON.parse` in `parseDOM`, so a numeric id stays a
+ * number across a save and reload.
+ *
+ * Stringifying for convenience therefore breaks settlement silently: the command
+ * matches nothing, dispatches no transaction, and the card stays on screen while the
+ * button appears to do nothing. Keep the original type.
+ */
+export type MarkId = number | string;

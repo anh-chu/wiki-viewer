@@ -181,3 +181,65 @@ describe("ids are document-scoped, not block-scoped", () => {
 	});
 });
 
+
+describe("the splice refuses everything that would corrupt the block", () => {
+	const marked = 'A <del data-id="1">word</del> Z';
+
+	test("a closing tag is as protected as an opening one", () => {
+		// The guard scanned only opening tags, so a range inside `</del>` succeeded and
+		// produced `A <del data-id="1">word</<del data-id="2">de</del>l> Z`.
+		const out = spliceMark(marked, "remove", { start: 25, end: 27 });
+		assert.equal(out.ok, false);
+		if (!out.ok) assert.equal(out.code, "RANGE_IN_MARK");
+	});
+
+	test("a range that CONTAINS a mark is refused, because marks cannot nest", () => {
+		// Wrapping the whole block produced `<del data-id="2">A <del data-id="1">word</del> Z</del>`,
+		// which the editor's mutually-exclusive mark specs cannot round-trip.
+		const out = spliceMark(marked, "remove", { start: 0, end: marked.length });
+		assert.equal(out.ok, false);
+		if (!out.ok) assert.equal(out.code, "RANGE_OVERLAPS_MARK");
+	});
+
+	test("inserted text carrying a tag character is refused", () => {
+		// Measured without this: `x</ins>y` wrote `before <ins data-id="1">x</ins>y</ins>after`
+		// and the round-trip dropped the extra tag.
+		const out = spliceMark("before after", "insert", { start: 7, end: 7 }, "x</ins>y");
+		assert.equal(out.ok, false);
+		if (!out.ok) assert.equal(out.code, "INVALID_TEXT");
+	});
+
+	test("inserted text with a blank line is refused, because it would split the block", () => {
+		// A blank line ends the block, so the mark closed early: measured, the suggestion
+		// covered `a` in one paragraph and `second` fell outside it entirely.
+		const out = spliceMark("Before after.", "insert", { start: 7, end: 7 }, "a\n\nsecond");
+		assert.equal(out.ok, false);
+		if (!out.ok) assert.equal(out.code, "INVALID_TEXT");
+	});
+});
+
+describe("ordinary HTML is protected without being mistaken for a mark", () => {
+	const span = '<span style="color:red">word</span>';
+
+	test("a range inside ANY tag is refused, mark or not", () => {
+		// Splitting `<span style=` produced `<span s<ins data-id="1">X</ins>tyle="color:red">`,
+		// which breaks the attribute exactly as badly as splitting a mark tag.
+		const out = spliceMark(span, "insert", { start: 7, end: 7 }, "X");
+		assert.equal(out.ok, false);
+		if (!out.ok) assert.equal(out.code, "RANGE_IN_MARK");
+	});
+
+	test("inserting into the TEXT inside a span is allowed", () => {
+		// The regression the first fix caused: treating every span/div as suggestion
+		// state refused legitimate proposals. Only tag INTERIORS are off limits.
+		const out = spliceMark(span, "insert", { start: 25, end: 25 }, "X");
+		assert.equal(out.ok, true);
+		if (out.ok) assert.match(out.markdown, /w<ins data-id="1">X<\/ins>ord/);
+	});
+
+	test("a block with no HTML at all is unaffected", () => {
+		const out = spliceMark("hello world", "insert", { start: 5, end: 5 }, "X");
+		assert.equal(out.ok, true);
+		if (out.ok) assert.equal(out.markdown, 'hello<ins data-id="1">X</ins> world');
+	});
+});

@@ -112,6 +112,10 @@ export const SuggestionModification = Mark.create({
 				getAttrs: (el: HTMLElement) => ({
 					id: el.getAttribute("data-id"),
 					type: el.getAttribute("data-mod-type") ?? "text",
+					// Without this a rejected attribute modification cannot restore its
+					// attribute: `commands.js` requires `attrName` to be a string and
+					// otherwise falls through to `Unknown modification type`.
+					attrName: el.getAttribute("data-mod-attr-name"),
 					previousValue: el.getAttribute("data-mod-prev-val"),
 					newValue: el.getAttribute("data-mod-new-val"),
 				}),
@@ -121,7 +125,9 @@ export const SuggestionModification = Mark.create({
 				getAttrs: (el: HTMLElement) => ({
 					id: el.getAttribute("data-id"),
 					type: el.getAttribute("data-mod-type") ?? "text",
+					attrName: el.getAttribute("data-mod-attr-name"),
 					previousValue: el.getAttribute("data-mod-prev-val"),
+					newValue: el.getAttribute("data-mod-new-val"),
 				}),
 			},
 		];
@@ -137,6 +143,9 @@ export const SuggestionModification = Mark.create({
 				"data-type": "modification",
 				"data-id": HTMLAttributes.id,
 				"data-mod-type": mark.attrs.type,
+				...(typeof mark.attrs.attrName === "string" && {
+					"data-mod-attr-name": mark.attrs.attrName,
+				}),
 				"data-mod-prev-val": mark.attrs.previousValue,
 				"data-mod-new-val": mark.attrs.newValue,
 				class: "track-modification",

@@ -753,6 +753,18 @@ export async function applyOps(args: {
 		let workingNodes = [...nodes];
 		let workingBlocks = [...assignedBlocks];
 		const workingSidecar = cloneSidecar(sidecar);
+		/**
+		 * The snapshot to return when a batch FAILS part-way.
+		 *
+		 * `workingBlocks` is mutated op by op, but the file is written only after the
+		 * whole loop succeeds. Reporting it on failure therefore described a document
+		 * that was never persisted: measured, a two-op batch whose second op failed
+		 * returned a snapshot containing the first op's mark while the file on disk was
+		 * byte-identical to before. A caller that trusted it would believe a suggestion
+		 * existed. A failure means nothing was written, so it reports the state that IS
+		 * on disk.
+		 */
+		const failureSnapshot = () => buildSnapshot(mdPath, assignedBlocks, sidecar);
 		const workingEvents: Array<Omit<ProofEvent, "id">> = [];
 		const collectedAliases: Record<string, string> = {};
 
@@ -793,7 +805,7 @@ export async function applyOps(args: {
 							status: 409,
 							code: "BLOCK_NOT_FOUND",
 							message: `Block ref "${op.ref}" not found.`,
-							snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar),
+							snapshot: failureSnapshot(),
 						};
 					}
 					const oldRef = workingBlocks[idx].ref;
@@ -834,7 +846,7 @@ export async function applyOps(args: {
 							status: 409,
 							code: "BLOCK_NOT_FOUND",
 							message: `Block ref "${op.ref}" not found.`,
-							snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar),
+							snapshot: failureSnapshot(),
 						};
 					}
 					const { nodes: newNodes, refs: newRefs } = opMarkdownToBlocks(
@@ -858,7 +870,7 @@ export async function applyOps(args: {
 							status: 409,
 							code: "BLOCK_NOT_FOUND",
 							message: `Block ref "${op.ref}" not found.`,
-							snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar),
+							snapshot: failureSnapshot(),
 						};
 					}
 					const { nodes: newNodes, refs: newRefs } = opMarkdownToBlocks(
@@ -882,7 +894,7 @@ export async function applyOps(args: {
 							status: 409,
 							code: "BLOCK_NOT_FOUND",
 							message: `Block ref "${op.ref}" not found.`,
-							snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar),
+							snapshot: failureSnapshot(),
 						};
 					}
 					workingNodes.splice(idx, 1);
@@ -926,7 +938,7 @@ export async function applyOps(args: {
 							status: 400,
 							code: "INVALID_PAYLOAD",
 							message: "Markdown comments require ref",
-							snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar),
+							snapshot: failureSnapshot(),
 						};
 					}
 					const refs = currentRefs();
@@ -937,7 +949,7 @@ export async function applyOps(args: {
 							status: 409,
 							code: "BLOCK_NOT_FOUND",
 							message: `Block ref "${op.ref}" not found.`,
-							snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar),
+							snapshot: failureSnapshot(),
 						};
 					}
 					const comment: Comment = {
@@ -971,7 +983,7 @@ export async function applyOps(args: {
 								code: "INVALID_PAYLOAD",
 								message:
 									"textAnchor range must match selectedText within the block's current markdown",
-								snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar),
+								snapshot: failureSnapshot(),
 							};
 						}
 						// Mint a durable anchor rather than storing offsets as identity.
@@ -1036,7 +1048,7 @@ export async function applyOps(args: {
 							status: 409,
 							code: "COMMENT_NOT_FOUND",
 							message: `Comment "${op.commentId}" not found.`,
-							snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar),
+							snapshot: failureSnapshot(),
 						};
 					}
 					comment.instructionState = op.instructionState;
@@ -1060,7 +1072,7 @@ export async function applyOps(args: {
 							status: 409,
 							code: "COMMENT_NOT_FOUND",
 							message: `Comment "${op.commentId}" not found.`,
-							snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar),
+							snapshot: failureSnapshot(),
 						};
 					}
 					comment.turns.push({ by, text: op.text, at });
@@ -1094,7 +1106,7 @@ export async function applyOps(args: {
 							status: 409,
 							code: "COMMENT_NOT_FOUND",
 							message: `Comment "${op.commentId}" not found.`,
-							snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar),
+							snapshot: failureSnapshot(),
 						};
 					}
 					comment.resolved = true;
@@ -1110,7 +1122,7 @@ export async function applyOps(args: {
 							status: 409,
 							code: "COMMENT_NOT_FOUND",
 							message: `Comment "${op.commentId}" not found.`,
-							snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar),
+							snapshot: failureSnapshot(),
 						};
 					}
 					comment.resolved = false;
@@ -1134,7 +1146,7 @@ export async function applyOps(args: {
 							status: 409,
 							code: "COMMENT_NOT_FOUND",
 							message: `Comment "${op.commentId}" not found.`,
-							snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar),
+							snapshot: failureSnapshot(),
 						};
 					}
 					const reanchorRefs = currentRefs();
@@ -1145,7 +1157,7 @@ export async function applyOps(args: {
 							status: 409,
 							code: "BLOCK_NOT_FOUND",
 							message: `Block ref "${op.ref}" not found.`,
-							snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar),
+							snapshot: failureSnapshot(),
 						};
 					}
 					// Same boundary validation as comment.add: the re-minted offsets
@@ -1169,7 +1181,7 @@ export async function applyOps(args: {
 							code: "INVALID_PAYLOAD",
 							message:
 								"textAnchor range must match selectedText within the block's current markdown",
-							snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar),
+							snapshot: failureSnapshot(),
 						};
 					}
 					comment.ref = targetRef;
@@ -1201,7 +1213,7 @@ export async function applyOps(args: {
 							status: 409,
 							code: "BLOCK_NOT_FOUND",
 							message: `Block ref "${op.ref}" not found.`,
-							snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar),
+							snapshot: failureSnapshot(),
 						};
 					}
 
@@ -1223,7 +1235,7 @@ export async function applyOps(args: {
 								`suggestion.add writes a tracked mark and cannot apply one. Post ` +
 								`the block-level edits as block.replace / block.insertAfter / ` +
 								`block.insertBefore / block.delete instead.`,
-							snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar),
+							snapshot: failureSnapshot(),
 						};
 					}
 
@@ -1234,7 +1246,7 @@ export async function applyOps(args: {
 							status: 409,
 							code: "BLOCK_NOT_FOUND",
 							message: `Block ref "${op.ref}" not found.`,
-							snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar),
+							snapshot: failureSnapshot(),
 						};
 					}
 
@@ -1256,6 +1268,26 @@ export async function applyOps(args: {
 					// editor reads as one suggestion - measured, one write to two paragraphs
 					// emitted `data-id="1"` twice, collapsing both into a single card whose
 					// Accept settled both ranges.
+					// The legacy block-level kinds cannot be expressed as a mark, and the op
+					// used to coerce them all to `insert` - so `kind: "delete"` wrote an
+					// INSERTION proposing the opposite of the request. Refuse and name the
+					// ops that do apply a whole-block change.
+					const kind = (op as { kind?: string }).kind;
+					if (kind !== "insert" && kind !== "remove") {
+						return {
+							ok: false,
+							status: 400,
+							code: "UNSUPPORTED_SUGGESTION_KIND",
+							message:
+								`suggestion.add writes an inline mark, so kind must be ` +
+								`"insert" or "remove"; got ${JSON.stringify(kind)}. A tracked ` +
+								`mark covers a run of text, so a whole-block change is posted ` +
+								`as block.replace / block.insertAfter / block.insertBefore / ` +
+								`block.delete instead.`,
+							snapshot: failureSnapshot(),
+						};
+					}
+
 					const spliced = spliceMark(
 						workingBlocks[idx].markdown,
 						op.kind === "remove" ? "remove" : "insert",
@@ -1269,7 +1301,7 @@ export async function applyOps(args: {
 							status: 400,
 							code: spliced.code,
 							message: spliced.message,
-							snapshot: buildSnapshot(mdPath, workingBlocks, workingSidecar),
+							snapshot: failureSnapshot(),
 						};
 					}
 
