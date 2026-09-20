@@ -28,3 +28,7 @@ TODO.md
 
 # Live auth DB backup from test-user cleanup (blocker: never commit)
 .backup-authdb/
+
+# agent scratch + linked worktrees (never commit)
+.consult/
+.worktrees/
