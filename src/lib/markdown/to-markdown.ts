@@ -117,6 +117,41 @@ for (const tag of ["ins", "del"] as const) {
 	});
 }
 
+// A MODIFICATION keeps all four of its attributes. The `ins`/`del` rule above
+// preserves only `data-id`, which is right for those two marks - they carry
+// nothing else - but a modification also records what the change was from and to,
+// and `data-mod-type` distinguishes a text edit from a node-attribute edit. Reject
+// reads `data-mod-prev-val` to restore the old value, so a wrapper that keeps only
+// the id is a modification that can no longer be rejected after a reload.
+//
+// Both node forms are matched because a modification wrapping a whole block is
+// serialised as a `<div>`, not a `<span>`.
+turndown.addRule("modification", {
+	// Duck-typed rather than `instanceof HTMLElement`: this module runs in Node
+	// during tests and server-side serialization, where that global does not exist.
+	filter: (node) => {
+		const el = node as unknown as { tagName?: string; getAttribute?: unknown };
+		if (typeof el.getAttribute !== "function") return false;
+		if (el.tagName !== "SPAN" && el.tagName !== "DIV") return false;
+		return (el as unknown as HTMLElement).getAttribute("data-type") === "modification";
+	},
+	replacement: (content, node) => {
+		const el = node as unknown as HTMLElement;
+		const attrs = [
+			'data-type="modification"',
+			`data-id="${el.getAttribute("data-id") ?? ""}"`,
+			`data-mod-type="${el.getAttribute("data-mod-type") ?? "text"}"`,
+		];
+		// `data-mod-new-val` is absent on the block form, by the vendored spec.
+		const prev = el.getAttribute("data-mod-prev-val");
+		const next = el.getAttribute("data-mod-new-val");
+		if (prev !== null) attrs.push(`data-mod-prev-val="${prev}"`);
+		if (next !== null) attrs.push(`data-mod-new-val="${next}"`);
+		const tag = el.tagName === "DIV" ? "div" : "span";
+		return `<${tag} ${attrs.join(" ")}>${content}</${tag}>`;
+	},
+});
+
 // Preserve <video> tags with all attrs (file-uploaded videos).
 // If the src points at a known embed provider (YouTube, Vimeo, Loom, …),
 // upgrade it to a proper embed block instead of preserving a tag that

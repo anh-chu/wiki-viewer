@@ -89,7 +89,85 @@ function markExtension(
 
 export const SuggestionInsertion = markExtension("insertion", "ins", "track-insertion");
 export const SuggestionDeletion = markExtension("deletion", "del", "track-deletion");
-export const SuggestionModification = markExtension("modification", "span", "track-modification");
+
+/**
+ * The modification mark, which needs its own wrapper because it carries state the
+ * other two do not.
+ *
+ * The vendored spec declares FIVE attributes (`id`, `type`, `attrName`,
+ * `previousValue`, `newValue`) and serialises four of them — `data-type`,
+ * `data-mod-type`, `data-mod-prev-val`, `data-mod-new-val` — with `<span>` inline
+ * and `<div>` at block level. The generic wrapper above keeps only `id`, so:
+ *
+ *   - `attrName` was lost, and it is load-bearing rather than decorative:
+ *     `commands.js` reads `mod.attrs["attrName"]` to know which node attribute to
+ *     restore when a modification is rejected. Without it a rejected attribute
+ *     change cannot be undone.
+ *   - `previousValue` / `newValue` were lost, so a reload could not tell what the
+ *     change was from or to.
+ *   - parse and render disagreed on the element: parse accepts both
+ *     `span[data-type='modification']` and `div[data-type='modification']`, render
+ *     always emitted `<span>`.
+ *
+ * Shipping the mark without these made accept/reject work in the session that
+ * created the change and silently lose information across a reload.
+ */
+export const SuggestionModification = Mark.create({
+	name: "modification",
+	excludes: specs.modification.excludes as string,
+	inclusive: false,
+	priority: 1000,
+	addAttributes() {
+		return {
+			id: { default: null },
+			type: { default: "text" },
+			attrName: { default: null },
+			previousValue: { default: null },
+			newValue: { default: null },
+		};
+	},
+	parseHTML() {
+		// Both node forms, matching the vendored spec. A modification can wrap an
+		// inline range or a whole block, and Turndown serialises each differently.
+		return [
+			{
+				tag: "span[data-type='modification'][data-id]",
+				getAttrs: (el: HTMLElement) => ({
+					id: el.getAttribute("data-id"),
+					type: el.getAttribute("data-mod-type") ?? "text",
+					previousValue: el.getAttribute("data-mod-prev-val"),
+					newValue: el.getAttribute("data-mod-new-val"),
+				}),
+			},
+			{
+				tag: "div[data-type='modification'][data-id]",
+				getAttrs: (el: HTMLElement) => ({
+					id: el.getAttribute("data-id"),
+					type: el.getAttribute("data-mod-type") ?? "text",
+					previousValue: el.getAttribute("data-mod-prev-val"),
+				}),
+			},
+		];
+	},
+	renderHTML({ HTMLAttributes, mark }) {
+		// Inline spans, block divs — the vendored rule, kept rather than flattened
+		// to one form, because a block-level modification must not be wrapped in an
+		// inline element.
+		const inline = typeof mark.attrs.inline === "boolean" ? mark.attrs.inline : true;
+		return [
+			inline ? "span" : "div",
+			mergeAttributes(HTMLAttributes, {
+				"data-type": "modification",
+				"data-id": HTMLAttributes.id,
+				"data-mod-type": mark.attrs.type,
+				"data-mod-prev-val": mark.attrs.previousValue,
+				"data-mod-new-val": mark.attrs.newValue,
+				class: "track-modification",
+			}),
+			0,
+		];
+	},
+});
 
 /**
  * The plugin that tracks whether suggestions are on, plus the transaction
