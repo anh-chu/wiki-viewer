@@ -96,6 +96,15 @@ interface TagSpan {
 	end: number;
 	name: string | null;
 	closing: boolean;
+	/**
+	 * The span runs past the end of the block because its terminator was never found -
+	 * an unterminated tag, comment, declaration or raw-text element.
+	 *
+	 * Position alone cannot express this: a properly closed `<script>a</script>` also ends
+	 * at the last character, so "ends at the block end" is true for both. Only the scan
+	 * knows whether a terminator was actually matched, so it records it here.
+	 */
+	unterminated?: boolean;
 }
 
 function scanTagSpans(markdown: string): TagSpan[] {
@@ -110,7 +119,7 @@ function scanTagSpans(markdown: string): TagSpan[] {
 		if (markdown.startsWith("<!--", i)) {
 			const close = markdown.indexOf("-->", i + 4);
 			const end = close === -1 ? markdown.length : close + 3;
-			spans.push({ start: i, end, name: null, closing: false });
+			spans.push({ start: i, end, name: null, closing: false, unterminated: close === -1 });
 			i = end;
 			continue;
 		}
@@ -121,7 +130,7 @@ function scanTagSpans(markdown: string): TagSpan[] {
 		if (markdown.startsWith("<![CDATA[", i)) {
 			const close = markdown.indexOf("]]>", i + 9);
 			const end = close === -1 ? markdown.length : close + 3;
-			spans.push({ start: i, end, name: null, closing: false });
+			spans.push({ start: i, end, name: null, closing: false, unterminated: close === -1 });
 			i = end;
 			continue;
 		}
@@ -129,6 +138,7 @@ function scanTagSpans(markdown: string): TagSpan[] {
 			// `?>`; a `>` inside a quoted value does not end it.
 			let j = i + 2;
 			let q: string | null = null;
+			let closed = false;
 			while (j < markdown.length) {
 				const ch = markdown[j];
 				if (q) {
@@ -137,11 +147,12 @@ function scanTagSpans(markdown: string): TagSpan[] {
 					q = ch;
 				} else if (ch === "?" && markdown[j + 1] === ">") {
 					j += 2;
+					closed = true;
 					break;
 				}
 				j += 1;
 			}
-			spans.push({ start: i, end: j, name: null, closing: false });
+			spans.push({ start: i, end: j, name: null, closing: false, unterminated: !closed });
 			i = j;
 			continue;
 		}
@@ -178,6 +189,7 @@ function scanTagSpans(markdown: string): TagSpan[] {
 		// Walk to the tag's real end, skipping `>` inside quoted attribute values.
 		let j = nameStart + nameMatch[0].length;
 		let quote: string | null = null;
+		let tagClosed = false;
 		while (j < markdown.length) {
 			const ch = markdown[j];
 			if (quote) {
@@ -186,6 +198,7 @@ function scanTagSpans(markdown: string): TagSpan[] {
 				quote = ch;
 			} else if (ch === ">") {
 				j += 1;
+				tagClosed = true;
 				break;
 			}
 			j += 1;
@@ -212,18 +225,55 @@ function scanTagSpans(markdown: string): TagSpan[] {
 			// contains `</script` with no later real close. The ceiling is accepted
 			// rather than writing an HTML tokenizer; the failure is a refusal, not
 			// corruption, because the last-match rule widens the span.
+			// Where does this element's body actually end? The body is opaque, so a
+			// pattern cannot tell a real close tag from a decoy inside the content - and
+			// a decoy is exactly what went wrong: on
+			// `<script>const x = "</script>"; alert(1);</script>` the FIRST close tag is
+			// inside a JS string, so offset 31 looked like ordinary text and took a mark;
+			// round-tripping that produced `"; <ins...>X</ins>alert(1);` and moved code.
+			//
+			// The decoy is distinguishable from a sibling element: after the decoy the
+			// remainder still contains a close tag for this element with NO new opening
+			// tag in between. After a real close tag, any further close tag belongs to a
+			// LATER element, so an opening tag comes first.
+			//
+			// So the span ends at the first candidate that is not followed by a stray
+			// close tag before the next opening tag. When the whole remainder is one
+			// opaque blob with no further opening tag, the LAST candidate is the safe
+			// choice: over-widening refuses a splice, which is recoverable, while
+			// under-widening corrupts the block.
 			const closeRe = new RegExp(`</${name}\\s*>`, "gi");
+			const openRe = new RegExp(`<${name}(?=[\\s/>])`, "i");
+			const candidates = [...markdown.slice(j).matchAll(closeRe)].map(
+				(match) => j + (match.index ?? 0) + match[0].length,
+			);
 			let end = markdown.length;
-			// Bounded: only values of `j` at or after the opening tag can match.
-			for (const match of markdown.slice(j).matchAll(closeRe)) {
-				end = j + (match.index ?? 0) + match[0].length;
+			let foundClose = false;
+			if (candidates.length > 0) {
+				end = candidates[candidates.length - 1];
+				// Walk candidates in order and take the first whose tail opens a new
+				// element before any further close tag.
+				for (const candidate of candidates) {
+					const tail = markdown.slice(candidate);
+					const nextClose = tail.search(closeRe);
+					const nextOpen = tail.search(openRe);
+					const opensFirst = nextOpen !== -1 && (nextClose === -1 || nextOpen < nextClose);
+					if (opensFirst || nextClose === -1) {
+						end = candidate;
+						break;
+					}
+				}
+				foundClose = true;
 			}
-			spans.push({ start: i, end, name, closing: false });
+			spans.push({ start: i, end, name, closing: false, unterminated: !foundClose });
 			i = end;
 			continue;
 		}
 
-		spans.push({ start: i, end: j, name, closing });
+		// Only a tag whose own `>` was never found is unterminated. A well-formed tag that
+		// happens to sit at the end of the block is NOT - its end edge is where the next
+		// character would begin, so a point there is legitimately outside it.
+		spans.push({ start: i, end: j, name, closing, unterminated: !tagClosed });
 		i = j;
 	}
 	return spans;
@@ -314,15 +364,31 @@ function rangeInsideMarkText(spans: readonly TagSpan[], start: number, end: numb
 	return false;
 }
 
-function rangeTouchesTag(spans: readonly TagSpan[], start: number, end: number): TagSpan | null {
+function rangeTouchesTag(
+	spans: readonly TagSpan[],
+	start: number,
+	end: number,
+): TagSpan | null {
 	return (
 		spans.find((span) => {
-			// An empty range is an insertion point, and it must be refused at BOTH edges
-			// of a span, not only strictly inside it. The closed-at-the-end case is not
-			// theoretical: an UNTERMINATED span runs to the end of the block, so
-			// inserting at the very end of `<?x a=">" no close` spliced into the
-			// instruction and the round-trip corrupted it.
-			if (start === end) return start >= span.start && start <= span.end;
+			if (start === end) {
+				// NOTE: for a zero-width range only one edge is tested per span below, so
+				// adjacency of two spans (one ending where the next begins) is not an
+				// overlap - that point is legitimately between them.
+				// An empty range is an insertion point. Its END edge is the subtle one:
+				// for a span that runs to the end of the block - an unterminated tag,
+				// comment or processing instruction - the last offset in the block is
+				// INSIDE it, and inserting there spliced into the instruction and lost
+				// the opening on the way back.
+				//
+				// A span that ends before the block ends is different: its end edge is
+				// where the NEXT character begins, so a point there is genuinely outside
+				// it. Refusing that too would block the ordinary "type after this tag"
+				// position, so the edge is only treated as inside when the span is
+				// truncated by the end of the block.
+				if (span.unterminated) return start >= span.start && start <= span.end;
+				return start > span.start && start < span.end;
+			}
 			return span.start < end && span.end > start;
 		}) ?? null
 	);
@@ -387,7 +453,9 @@ export function spliceMark(
 	// sits inside its text - builds markup that cannot round-trip. One containment
 	// test replaces both, and it is the honest statement of the rule: a proposal
 	// covers plain, unmarked text only.
-	const collision = rangeTouchesTag(spans, start, end) ?? (rangeInsideMarkText(spans, start, end) ? MARK_TEXT_MARKER : null);
+	const collision =
+		rangeTouchesTag(spans, start, end) ??
+		(rangeInsideMarkText(spans, start, end) ? MARK_TEXT_MARKER : null);
 	if (collision) {
 		const what =
 			collision === MARK_TEXT_MARKER

@@ -379,13 +379,22 @@ describe("an insertion point on a mark's own edge is refused", () => {
 		}
 	});
 
-	test("an insertion point exactly ON a tag boundary is refused", () => {
-		// Ambiguous by construction: it is neither clearly inside nor clearly outside, and
-		// both readings produce nested marks for `<del data-id="1">`. Refusing costs the
-		// caller a recomputed offset; guessing wrong nests the marks.
-		for (const pos of [2, 19, 23, 29]) {
+	test("an insertion point INSIDE a mark's tags is refused", () => {
+		// Offsets 3..28 are within the paired `<del>`/`</del>` tags: an insertion there
+		// nests a second, mutually-exclusive mark inside the first.
+		for (const pos of [3, 19, 23, 28]) {
 			const out = spliceMark(marked, "insert", { start: pos, end: pos }, "X");
-			assert.equal(out.ok, false, `offset ${pos} sits on a tag boundary`);
+			assert.equal(out.ok, false, `offset ${pos} is inside the mark's tags`);
+		}
+	});
+
+	test("an insertion point on a TERMINATED tag's end edge is allowed", () => {
+		// The end edge of a tag that closed properly is where the next character begins,
+		// so it is outside. Offset 2 (before `<del`) and 29 (right after `</del>`) both
+		// belong to the surrounding text.
+		for (const pos of [2, 29]) {
+			const out = spliceMark(marked, "insert", { start: pos, end: pos }, "X");
+			assert.equal(out.ok, true, `offset ${pos} is clear of the mark's text`);
 		}
 	});
 });
@@ -416,5 +425,39 @@ describe("a raw-text body and an unterminated span are untouchable to the end", 
 		// The widened spans must not make a block with HTML uneditable.
 		const out = spliceMark("<script>a</script> tail", "insert", { start: 22, end: 22 }, "X");
 		assert.equal(out.ok, true, "text after the element must stay proposable");
+	});
+});
+
+describe("raw-text elements: the body is refused, the boundaries are not", () => {
+	test("a decoy close tag inside the body does not end the element early", () => {
+		// The FIRST close tag here is inside a JS string, so treating it as the end of the
+		// element let offset 31 (the start of `alert`) take a mark. Round-tripping that
+		// produced `"; <ins...>X</ins>alert(1);` - the `const x = "` prefix was gone and
+		// `alert(1)` had moved behind the mark.
+		const script = '<script>const x = "</script>"; alert(1);</script>';
+		const out = spliceMark(script, "insert", { start: 31, end: 31 }, "X");
+		assert.equal(out.ok, false);
+	});
+
+	test("a decoy does not make one element swallow the rest of the block", () => {
+		// Taking the LAST close tag outright was also wrong: on this input it made a
+		// single span cover the whole block, so the text BETWEEN the two elements was
+		// refused. The two cases together are why the rule has to tell a decoy from a
+		// sibling element rather than just picking first or last.
+		const two = "<script>a</script> <script>b</script>";
+		assert.equal(spliceMark(two, "insert", { start: 18, end: 18 }, "X").ok, true);
+		assert.equal(spliceMark(two, "insert", { start: 29, end: 29 }, "X").ok, false);
+	});
+
+	test("the boundaries of a raw-text element are usable", () => {
+		for (const pos of [0, 18]) {
+			const out = spliceMark("<script>a</script>", "insert", { start: pos, end: pos }, "X");
+			assert.equal(out.ok, true, `offset ${pos} is outside the element`);
+		}
+	});
+
+	test("an EMPTY raw-text body is untouchable inside", () => {
+		const out = spliceMark("<script></script>", "insert", { start: 8, end: 8 }, "X");
+		assert.equal(out.ok, false);
 	});
 });
