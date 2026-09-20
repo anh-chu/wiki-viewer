@@ -335,4 +335,48 @@ describe("a resolved view decides WHICH occurrence is highlighted", () => {
 		const set = buildCommentDecorations(doc as never, blocksFor(doc), [comment()] as never);
 		assert.equal(set.find().length, 1, "the pre-existing path is unchanged");
 	});
+
+	describe("block fallback (a comment with no selection)", () => {
+		/**
+		 * A block comment: no `textAnchor`, so the decorator falls back to marking the
+		 * block it is anchored to.
+		 */
+		function blockComment(ref: string) {
+			return { id: "cb1", ref, resolved: false, createdAt: "", turns: [] };
+		}
+
+		test("a multi-paragraph block is not painted end to end", () => {
+			// The live failure. `test.md` is nine lines — nested list and all — but
+			// remark gives the whole file to ONE `orderedList` node, so the block ref
+			// covers every line. Decorating every run in the block highlighted the
+			// entire document for a comment about one line.
+			const doc = orderedList("Non-product surveys", "Reactions in app", "like/dislike");
+			const set = buildCommentDecorations(doc as never, blocksFor(doc), [blockComment("blk0")] as never);
+			const ranges = set.find();
+			assert.equal(ranges.length, 1, "one run, not one decoration per run");
+			const painted = doc.textBetween(ranges[0].from, ranges[0].to);
+			assert.equal(painted, "Non-product surveys");
+			assert.notEqual(
+				doc.textBetween(0, doc.content.size).includes(painted) && ranges[0].to - ranges[0].from,
+				doc.textBetween(0, doc.content.size).length,
+				"must not cover the whole block",
+			);
+		});
+
+		test("the single-paragraph case still marks exactly that paragraph", () => {
+			const doc = paragraphs("only paragraph here");
+			const set = buildCommentDecorations(doc as never, blocksFor(doc), [blockComment("blk0")] as never);
+			const ranges = set.find();
+			assert.equal(ranges.length, 1);
+			assert.equal(doc.textBetween(ranges[0].from, ranges[0].to), "only paragraph here");
+		});
+
+		test("an empty block paints nothing", () => {
+			// Built directly: `paragraphs("")` cannot express this because ProseMirror
+			// rejects empty text nodes.
+			const doc = schema.node("doc", null, [schema.node("paragraph", null, [])]);
+			const set = buildCommentDecorations(doc as never, blocksFor(doc), [blockComment("blk0")] as never);
+			assert.equal(set.find().length, 0);
+		});
+	});
 });

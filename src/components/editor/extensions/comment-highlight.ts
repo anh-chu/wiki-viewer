@@ -133,29 +133,33 @@ export function buildCommentDecorations(
 		// UI sends none for a plain block comment (`...(textAnchor ? {...} : {})` in
 		// comment-thread), so requiring one here meant a comment with a visible card
 		// in the margin and an icon beside the paragraph highlighted NOTHING — the
-		// reader could not tell which words it was about. Google Docs marks the whole
-		// block in that case, which is what the fallback below does.
+		// reader could not tell which words it was about.
+		//
+		// The fallback marks the block's FIRST RUN, not every run in the block. A
+		// top-level block is not one paragraph: markdown gives the whole of test.md
+		// (nine lines, nested list and all) to a single `orderedList` node, so
+		// decorating every run in a block painted the entire document for a comment
+		// about one line — reported live as "everything in this file is highlighted".
+		// The first run always exists inside any non-empty block, so the comment keeps
+		// a visible anchor and the blast radius is one run instead of one document.
 		const selectedText = comment.textAnchor?.selectedText;
 		const blockIndex = indexOfRef.get(ref) ?? -1;
 
 		if (!selectedText) {
-			// No selection: mark the commented block itself, rather than nothing.
 			const span = spans[blockIndex];
 			if (!span) continue;
-			const inBlock = runs.filter((r) => r.from >= span.from && r.to <= span.to);
+			const first = runs.find((r) => r.from >= span.from && r.to <= span.to);
 			// An empty block has no text to decorate; inline decorations over a
 			// zero-length range paint nothing anyway, so there is nothing to add.
-			if (inBlock.length === 0) continue;
-			for (const run of inBlock) {
-				decorations.push(
-					Decoration.inline(run.from, run.to, {
-						class: COMMENT_HIGHLIGHT_CLASS,
-						"data-comment-id": comment.id,
-						"data-block-scoped": "true",
-						"data-hovered": hoveredRef === ref ? "true" : "false",
-					}),
-				);
-			}
+			if (!first) continue;
+			decorations.push(
+				Decoration.inline(first.from, first.to, {
+					class: COMMENT_HIGHLIGHT_CLASS,
+					"data-comment-id": comment.id,
+					"data-block-scoped": "true",
+					"data-hovered": hoveredRef === ref ? "true" : "false",
+				}),
+			);
 			continue;
 		}
 

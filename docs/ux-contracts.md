@@ -891,15 +891,22 @@ insertion that merely pushes blocks down, or a reorder that moves content, alias
 because a live old ref means a different block took the slot and aliasing there would drag
 an annotation onto unrelated text.
 
-**A comment with no `textAnchor` highlights its whole block.** Only a comment made from a
-text selection carries an anchor; the thread UI sends none for a plain block comment
-(`...(textAnchor ? { textAnchor } : {})`). The decorator used to require an anchor and skip
-on its absence, so a block comment showed a card in the margin and an icon beside the
-paragraph while marking **nothing** in the text — the reader had a comment they could not
-locate. Two comments in one document therefore rendered differently for no visible reason.
-Such a comment now marks every text run in the block it names (Google Docs marks the block
-in the same situation), and still cannot bleed into a neighbouring block. An anchored
-comment is unaffected: it highlights only its words, never the whole block.
+**A comment with no `textAnchor` highlights the first run of its block.** Only a comment
+made from a text selection carries an anchor; the thread UI sends none for a plain block
+comment (`...(textAnchor ? { textAnchor } : {})`). The decorator used to require an anchor
+and skip on its absence, so a block comment showed a card in the margin and an icon beside
+the paragraph while marking **nothing** in the text — the reader had a comment they could
+not locate. Two comments in one document therefore rendered differently for no visible
+reason. Such a comment now marks the block it names, and cannot bleed into a neighbouring
+block.
+
+The cap is **one run, not the whole block**, because a top-level block is routinely far
+bigger than a paragraph: markdown gives all nine lines of a nested list to a single
+`orderedList` node, so marking every run in the block painted the **entire document** for a
+comment attached to one line. A whole-block comment on a long list is the normal case, not
+an edge case, so the fallback marks the block's first run instead — enough to locate the
+comment, with a blast radius of one run. An anchored comment is unaffected: it highlights
+only its words.
 
 The earlier `comment-highlight-recovered` label is **gone**. It compared the match
 position against `textAnchor.start`, but `start` is a block-local markdown offset while a
