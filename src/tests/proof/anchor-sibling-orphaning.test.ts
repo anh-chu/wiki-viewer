@@ -147,7 +147,7 @@ test("CURRENT BEHAVIOUR (documents today, not desired): accepting S1 resolves S2
 
 	// 3. They were deliberately rejected with reason=superseded, by system.
 	for (const id of [ids[1], ids[2]]) {
-		const archived = sidecar!.archivedSuggestions.find((s) => s.id === id);
+		const archived: Suggestion | undefined = sidecar!.archivedSuggestions.find((s) => s.id === id);
 		assert.ok(archived, `${id} should be archived, not dropped`);
 		assert.equal(archived!.status, "rejected", `${id} status`);
 		assert.equal(archived!.resolvedBy, "system", `${id} resolvedBy`);

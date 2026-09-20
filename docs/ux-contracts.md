@@ -60,7 +60,7 @@ down turns "did we regress the loop?" into a diff against this file.
   - [5.2 View-mode and source-line comments](#52-view-mode-and-source-line-comments)
   - [5.3 Orphaned annotations (marked lost, never destroyed)](#53-orphaned-annotations-marked-lost-never-destroyed)
 - [6. Suggestions](#6-suggestions)
-  - [6.1 Suggest-edit popover](#61-suggest-edit-popover)
+  - [6.1 Suggest-edit popover (REMOVED)](#61-suggest-edit-popover-removed)
   - [6.2 Suggestion inline redline + review popover](#62-suggestion-inline-redline--review-popover)
   - [6.2a Tracked changes and the markdown byte-identity invariant](#62a-tracked-changes-and-the-markdown-byte-identity-invariant)
   - [6.3 Creating a suggestion](#63-creating-a-suggestion)
