@@ -1,6 +1,6 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, writeFile, rm, stat, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { applyOps, readSnapshot } from "../../lib/proof/ops-applier.js";
@@ -292,4 +292,55 @@ test("comment.mark — stamps instructionState + runId on send", async () => {
 	const c = mark.ok ? mark.snapshot.comments.find((x) => x.id === id) : null;
 	assert.equal(c?.instructionState, "sent");
 	assert.equal(c?.runId, "run_abc123");
+});
+
+test("REGRESSION: a comment op must not rewrite the .md file", async () => {
+	// The glitch: every comment/suggestion op rewrote the .md even though the markdown
+	// was byte-identical. That bump to the file's mtime is what the client saw as an
+	// external edit, so it reloaded the snapshot and sidecar — and in Suggesting mode
+	// that meant a full document refresh on EVERY keystroke, under the user's cursor.
+	//
+	// The mtime is the observable: a write that cannot change the bytes must not move it.
+	const name = "cadd-nowrite.md";
+	await writeDoc(name, "# Title\n\nA paragraph.\n");
+	const snap = await readSnapshot(tmpRoot, name);
+	assert.ok(snap !== null);
+	const ref = snap!.blocks[1].ref;
+	const filePath = path.join(tmpRoot, name);
+
+	const before = (await stat(filePath)).mtimeMs;
+	const contentBefore = await readFile(filePath, "utf-8");
+	await new Promise((r) => setTimeout(r, 20)); // let a write be visible as a different mtime
+
+	const result = await applyOps({
+		rootDir: tmpRoot,
+		mdPath: name,
+		baseRevision: 0,
+		by: "human",
+		ops: [{ type: "comment.add", ref, text: "No rewrite please." }],
+	});
+	assert.ok(result.ok, `expected ok: ${JSON.stringify(result)}`);
+
+	const after = (await stat(filePath)).mtimeMs;
+	assert.equal(await readFile(filePath, "utf-8"), contentBefore, "content is untouched");
+	assert.equal(after, before, "and so is the mtime, so no watcher event is emitted");
+});
+
+test("CONTROL: a block edit still writes the .md", async () => {
+	// The fix must not stop real edits from reaching disk.
+	const name = "cadd-realwrite.md";
+	await writeDoc(name, "# Title\n\nA paragraph.\n");
+	const snap = await readSnapshot(tmpRoot, name);
+	const ref = snap!.blocks[1].ref;
+	const filePath = path.join(tmpRoot, name);
+
+	const result = await applyOps({
+		rootDir: tmpRoot,
+		mdPath: name,
+		baseRevision: 0,
+		by: "human",
+		ops: [{ type: "block.replace", ref, markdown: "A changed paragraph." }],
+	});
+	assert.ok(result.ok, `expected ok: ${JSON.stringify(result)}`);
+	assert.match(await readFile(filePath, "utf-8"), /A changed paragraph\./, "the edit landed");
 });

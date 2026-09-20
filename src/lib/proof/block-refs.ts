@@ -91,6 +91,14 @@ export function resolveRef(
  * oldRefMap: refMap before ops. newBlocks: blocks after ops.
  * Returns { newRefMap, refAliases } — aliases map old ref -> new ref for any block
  * that changed identity this mutation. Aliases are ONE-generation only.
+ *
+ * This handles content that MOVED to a different ref. It deliberately does not try to
+ * match a block that was EDITED in place: that pass existed (added in 6f9fd72) and was
+ * removed once annotations stopped keying off refs. It was a positional guess at an
+ * identity that had been thrown away, and it could only ever be right by luck — a block
+ * being edited is identified by its anchor now, which searches for the recorded text.
+ * The alias map survives for one release so a v1 sidecar can still resolve a ref that
+ * was renamed before the upgrade.
  */
 export function computeRefDelta(
 	oldRefMap: Record<string, { textHash: string; lastSeenAt: string }>,

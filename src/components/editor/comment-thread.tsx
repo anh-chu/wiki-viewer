@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { authHeaders } from "@/lib/proof/client-auth";
 import { useProofStore } from "@/stores/proof-store";
 import { wsFetch } from "@/lib/workspace-client";
-import type { Comment, LineAnchor, ProofEvent, Snapshot } from "@/lib/proof/types";
+import type { Comment, LineAnchor, ProofEvent, Snapshot, TextRangeAnchor } from "@/lib/proof/types";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -72,15 +72,32 @@ interface Props {
 	anchorLabel?: string;
 	anchorRef?: string;
 	lineAnchor?: LineAnchor;
+	/**
+	 * Exact-text range for a NEW comment created from a selection. Block-scoped
+	 * (`ref`), it lets the highlight land on the commented words instead of the
+	 * whole block, and it is what makes the anchor findable later if the block
+	 * is edited out from under it.
+	 */
+	textAnchor?: TextRangeAnchor;
 	/** Existing comments on this anchor (may be empty = new-comment mode). */
 	comments: Comment[];
 	anchorEl: HTMLElement | null;
 	onClose: () => void;
+	/**
+	 * `popover` (legacy) floats a Radix popover next to the anchor.
+	 * `margin` renders the same thread as a card inside the right-hand margin
+	 * column, which is how Google Docs presents comments. Only the positioning
+	 * differs — every affordance and operation is shared, so the two can never
+	 * drift.
+	 */
+	variant?: "popover" | "margin";
+	/** Margin variant: highlight while the pointer is over the card. */
+	onHoverChange?: (hovered: boolean) => void;
 }
 
 // Annotation ops are sidecar-only (they never touch the file), so the thread
 // keeps full Edit/Delete/Escalate/Resolve affordances in view mode too.
-export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnchor, comments, anchorEl, onClose }: Props) {
+export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnchor, textAnchor, comments, anchorEl, onClose, variant = "popover", onHoverChange }: Props) {
 	const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
 	const [text, setText] = useState("");
 	const [busy, setBusy] = useState(false);
@@ -112,12 +129,12 @@ export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnc
 	}, [anchorEl, onClose]);
 
 	useEffect(() => {
-		if (anchor) {
+		// Popover only: the margin card is opened by an explicit click, so stealing
+		// focus on mount would fight the user's own click target.
+		if (anchor && variant !== "margin") {
 			setTimeout(() => textareaRef.current?.focus(), 50);
 		}
-	}, [anchor]);
-
-	if (!anchorEl || !anchor) return null;
+	}, [anchor, variant]);
 
 	function getRevision(): number {
 		const entry = useProofStore.getState().byPath[path];
@@ -132,7 +149,14 @@ export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnc
 				? { type: "comment.reply", commentId: activeComment.id, text: text.trim() }
 				: lineAnchor
 					? { type: "comment.add", lineAnchor, text: text.trim() }
-					: { type: "comment.add", ref: anchorRef ?? anchorKey, text: text.trim() };
+					: {
+							type: "comment.add",
+							ref: anchorRef ?? anchorKey,
+							text: text.trim(),
+							// Only a brand-new block comment carries the range; a reply or
+							// a line-anchored comment must not re-anchor the thread.
+							...(textAnchor ? { textAnchor } : {}),
+						};
 
 			let rev = getRevision();
 			let result = await postOp(path, rev, "human", [sendOp]);
@@ -232,30 +256,11 @@ export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnc
 		c.turns.map((t) => ({ ...t, resolved: c.resolved, commentId: c.id })),
 	);
 
-	return (
-		<Popover.Root open>
-			<Popover.Anchor asChild>
-				<span
-					aria-hidden="true"
-					style={{
-						position: "fixed",
-						top: anchor.top,
-						left: anchor.left,
-						width: 0,
-						height: 0,
-						pointerEvents: "none",
-					}}
-				/>
-			</Popover.Anchor>
-			<Popover.Portal>
-				<Popover.Content
-					side="bottom"
-					align="start"
-					sideOffset={4}
-					collisionPadding={8}
-					onInteractOutside={onClose}
-					className="z-50 w-[min(18rem,calc(100vw-1rem))] bg-popover border border-border rounded-lg shadow-xl p-3 space-y-2 text-[12px] focus:outline-none"
-				>
+	// One body, two positionings. Nothing inside depends on which is used, which
+	// is deliberate: the popover and the margin card must never diverge in what
+	// they let you do.
+	const body = (
+		<>
 					{/* Header */}
 					<div className="flex items-center justify-between">
 						<span className="flex items-center gap-1.5 min-w-0">
@@ -342,7 +347,80 @@ export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnc
 								</button>
 							</div>
 						</div>
+		</>
+	);
 
+	// The margin variant renders in normal document flow inside its card, so it has
+	// no floating anchor to measure. This branch must come BEFORE the popover's
+	// positioning guard: previously the guard ran first and returned null, so every
+	// expanded margin card rendered as an empty zero-height box and clicking a
+	// comment looked like it did nothing at all.
+	if (variant === "margin") {
+		// The card needs its own way out. The popover closes on Escape and on an
+		// outside click, but neither applies here: the margin thread has no popover
+		// root, and the Escape handler above is keyed on `anchorEl`, which is null for
+		// this variant. Without a control here, expanding a comment was a one-way trip
+		// — the collapsed card that would toggle it back unmounts on expand, and
+		// measured live, every button left in the expanded card was an edit action.
+		return (
+			<div
+				onMouseEnter={() => onHoverChange?.(true)}
+				onMouseLeave={() => onHoverChange?.(false)}
+				className="relative rounded-lg border border-border bg-popover p-3 space-y-2 text-[12px] shadow-sm focus-within:ring-1 focus-within:ring-ring"
+			>
+				<button
+					type="button"
+					onClick={onClose}
+					title="Collapse comment"
+					aria-label="Collapse comment"
+					className="absolute right-1.5 top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded text-muted-foreground/40 transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+				>
+					<svg
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						strokeWidth="2"
+						strokeLinecap="round"
+						className="h-3 w-3"
+						aria-hidden="true"
+					>
+						<path d="M18 6 6 18M6 6l12 12" />
+					</svg>
+				</button>
+				{body}
+			</div>
+		);
+	}
+
+	// Popover path: it positions itself against a measured anchor, so without one
+	// there is nothing to render.
+	if (!anchorEl || !anchor) return null;
+
+	return (
+		<Popover.Root open>
+			<Popover.Anchor asChild>
+				<span
+					aria-hidden="true"
+					style={{
+						position: "fixed",
+						top: anchor.top,
+						left: anchor.left,
+						width: 0,
+						height: 0,
+						pointerEvents: "none",
+					}}
+				/>
+			</Popover.Anchor>
+			<Popover.Portal>
+				<Popover.Content
+					side="bottom"
+					align="start"
+					sideOffset={4}
+					collisionPadding={8}
+					onInteractOutside={onClose}
+					className="z-50 w-[min(18rem,calc(100vw-1rem))] bg-popover border border-border rounded-lg shadow-xl p-3 space-y-2 text-[12px] focus:outline-none"
+				>
+					{body}
 					<Popover.Arrow className="fill-border" />
 				</Popover.Content>
 			</Popover.Portal>

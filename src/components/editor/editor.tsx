@@ -3,7 +3,7 @@
 import { cellAround, isInTable } from "@tiptap/pm/tables";
 import { EditorContent, useEditor } from "@tiptap/react";
 import type { Editor } from "@tiptap/core";
-import { AlertCircle, Check, Code2, FilePlus, Loader2, Sparkles } from "lucide-react";
+import { AlertCircle, Check, Code2, FilePlus, Loader2, PenLine, PencilLine, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { markdownToHtml } from "@/lib/markdown/to-html";
 import { htmlToMarkdown } from "@/lib/markdown/to-markdown";
@@ -17,6 +17,7 @@ import {
 } from "@/stores/view-width-store";
 import { useWikiSlugsStore } from "@/stores/wiki-slugs-store";
 import { useProofStore } from "@/stores/proof-store";
+import type { Comment as ProofComment, TextRangeAnchor } from "@/lib/proof/types";
 import { wsFetch, withWs } from "@/lib/workspace-client";
 import { showError } from "@/lib/toast";
 import { EditorBubbleMenu } from "./bubble-menu";
@@ -28,12 +29,15 @@ import { useDocumentWatch } from "./hooks/use-document-watch";
 import { CommentPip } from "./comment-pip";
 import { SuggestionPip } from "./suggestion-pip";
 import { CommentThread } from "./comment-thread";
-import { SuggestEditPopover } from "./suggest-edit-popover";
-import { SuggestionReviewPopover } from "./suggestion-review-popover";
+import { CommentMargin } from "./comment-margin";
+import { postOp } from "@/lib/proof/post-op";
 import {
-	createSuggestionDecoratorPlugin,
-	type SuggestionDecoratorController,
-} from "@/lib/proof/suggestion-decorator";
+	MODULE_MAP_LIMIT,
+	remember,
+	shouldRestoreDraft,
+	type SourceDraft,
+} from "./editor-module-state";
+import { SuggestionReviewPopover } from "./suggestion-review-popover";
 import { SlashCommands } from "./slash-commands";
 import { DocumentOutline } from "./document-outline";
 import { ReadingExperiments } from "./experiments";
@@ -47,6 +51,19 @@ import { WikiLinkPicker } from "./wiki-link-picker";
 import { FrontmatterHeader } from "@/components/wiki/frontmatter-header";
 import { ViewModeCommentButton } from "./view-mode-comment-button";
 import { CopyAsPrompt } from "./copy-as-prompt";
+import {
+	alignByStampedRef,
+	type BlockElementLike,
+} from "@/lib/proof/pip-alignment";
+import { shouldRerenderDocument } from "@/lib/proof/render-guard";
+import { commentHighlightExtension, refreshCommentHighlights } from "./extensions/comment-highlight";
+import {
+	applySuggestions,
+	disableSuggestChanges,
+	enableSuggestChanges,
+	isSuggestChangesEnabled,
+	revertSuggestions,
+} from "@/vendor/prosemirror-suggest-changes/index.js";
 
 async function uploadFile(
 	pagePath: string,
@@ -109,6 +126,44 @@ interface KBEditorProps {
 	mode?: KBEditorMode;
 }
 
+/**
+ * Module-scope editor state, keyed by document path.
+ *
+ * These maps exist because the editor is REMOUNTED on external file changes, which
+ * resets component state and refs alike. Keying by path keeps each value with the
+ * document it belongs to; a single global value would carry it across documents.
+ * The specific damage each one prevents is noted at its declaration.
+ */
+
+/**
+ * Source mode and its unsaved draft.
+ *
+ * Source mode is a plain <textarea> holding the file's markdown, so a remount would
+ * reset both `sourceText` (to "") and `sourceMode` (to false) — silently discarding
+ * whatever was typed and dropping the reader back into the rendered view, with no
+ * warning and no undo. Switching back to Source would reload the store's older content
+ * rather than the draft.
+ */
+const sourceDraftByPath = new Map<string, SourceDraft>();
+const sourceModeByPath = new Map<string, boolean>();
+
+/**
+ * Whether Suggesting mode is on.
+ *
+ * Losing the margin expansion to a remount is cosmetic; losing this one means edits
+ * stop being tracked without the reader being told.
+ */
+const suggestingModeByPath = new Map<string, boolean>();
+
+/**
+ * Expanded margin card per document path.
+ *
+ * Module scope so it outlives the editor remount described at `activeMarginRef`.
+ * The map is small (one entry per visited document) and entries are cleared when a
+ * card collapses, so it cannot grow without bound.
+ */
+const expandedMarginByPath = new Map<string, string>();
+
 export function KBEditor({ mode }: KBEditorProps = {}) {
 	const {
 		currentPath,
@@ -143,8 +198,127 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	const isViewingRef = useRef(isViewing);
 	isViewingRef.current = isViewing;
 	const editorRef = useRef<Editor | null>(null);
-	const [sourceMode, setSourceMode] = useState(false);
-	const [sourceText, setSourceText] = useState("");
+	const [sourceMode, setSourceMode] = useState(
+		() => sourceModeByPath.get(currentPath ?? "") ?? false,
+	);
+	/**
+	 * Editing vs Suggesting, the Docs mode pair.
+	 *
+	 * Held in React state for rendering AND mirrored into editor storage, because the
+	 * transaction filter reads it synchronously — React state would report the previous
+	 * value inside a transaction firing in the same tick as the click.
+	 *
+	 * The module-scope copy matters more than the margin expansion's: on remount
+	 * `suggesting` reset to false while the stale ProseMirror storage went with it, so a
+	 * reader who had switched to Suggesting was silently back in Editing and their next
+	 * keystroke edited the document directly instead of being tracked.
+	 */
+	const [suggesting, setSuggesting] = useState(
+		() => suggestingModeByPath.get(currentPath ?? "") ?? false,
+	);
+	/**
+	 * Whether any tracked change exists, so the Accept/Reject controls only appear
+	 * when there is a decision to make. Recomputed from the document on every
+	 * transaction rather than tracked in state, because a stale flag would hide the
+	 * controls while suggestions were still pending.
+	 */
+	const [trackedCount, setTrackedCount] = useState(0);
+	const hasTrackedChanges = trackedCount > 0;
+
+	/**
+	 * Accept or reject every TRACKED CHANGE — the marks — in the document, as one
+	 * undo step.
+	 *
+	 * This settles marks and nothing else. It deliberately does NOT touch the
+	 * sidecar's `suggestions`: those are a separate source (agent-authored
+	 * proposals reviewed one at a time through the review popover), and the button
+	 * that calls this only appears when `hasTrackedChanges` is true. Settling
+	 * sidecar records here meant a user who saw two redlines and clicked "Accept
+	 * all" also accepted every pending agent proposal they had never opened.
+	 *
+	 * The earlier coupling was real once — typed suggestions used to be sidecar
+	 * records, so the marks and the records moved together and had to be settled
+	 * together. Typed suggestions are now document marks with no sidecar record,
+	 * so that coupling is gone and settling one from the other is just a way to
+	 * write a change the user did not ask for.
+	 */
+	const resolveAllTracked = useCallback((decision: "accept" | "reject") => {
+		const editor = editorRef.current;
+		if (!editor) return;
+		// The document transform comes from the vendored library: accept removes the
+		// text inside deletion marks and drops insertion marks, reject does the
+		// mirror. Same command the per-suggestion control uses.
+		const command =
+			decision === "accept" ? applySuggestions : revertSuggestions;
+		command(editor.state, editor.view.dispatch);
+		setTrackedCount(0);
+	}, []);
+
+	// Adopt the new document's mode when the path changes without a remount, and keep
+	// the plugin in step. Without this the state would still hold the previous
+	// document's mode while the map held the new one's, so the toolbar and the stored
+	// value could disagree — and the re-arm effect below would write the stale one back.
+	const suggestingPathRef = useRef<string | null>(currentPath ?? null);
+	useEffect(() => {
+		const key = currentPath ?? "";
+		if (suggestingPathRef.current === key) return;
+		suggestingPathRef.current = key;
+		setSuggesting(suggestingModeByPath.get(key) ?? false);
+	}, [currentPath]);
+
+	const toggleSuggestingMode = useCallback(() => {
+		setSuggesting((prev) => {
+			const next = !prev;
+			const key = useEditorStore.getState().currentPath ?? "";
+			if (next) remember(suggestingModeByPath, key, true);
+			else suggestingModeByPath.delete(key);
+			if (editorRef.current) {
+				const { state, view } = editorRef.current;
+				(next ? enableSuggestChanges : disableSuggestChanges)(state, view.dispatch);
+			}
+			return next;
+		});
+	}, []);
+
+	const [sourceText, setSourceText] = useState(
+		// Seed only from a draft whose revision still matches; the effect below re-checks
+		// once the sidecar for this path has loaded.
+		() => {
+			const key = currentPath ?? "";
+			const draft = sourceDraftByPath.get(key);
+			const revision = useProofStore.getState().byPath[key]?.snapshotRevision ?? 0;
+			return shouldRestoreDraft(draft, revision) ? (draft as SourceDraft).text : "";
+		},
+	);
+
+	// Record Source mode and its draft on every change, not only when toggling. The
+	// remount can happen mid-edit, so a write-back that runs on toggle alone would
+	// still lose everything typed since. Both are keyed by path; an empty draft is
+	// dropped rather than stored so the map does not accumulate empty entries.
+	const sourcePathRef = useRef<string | null>(currentPath ?? null);
+	useEffect(() => {
+		const key = currentPath ?? "";
+		if (sourcePathRef.current !== key) {
+			// Path changed without a remount: adopt the new document's own state rather
+			// than persisting this document's draft against the new path.
+			sourcePathRef.current = key;
+			setSourceMode(sourceModeByPath.get(key) ?? false);
+			// Restore the draft only against the revision it was typed at. A draft from
+			// an older revision would silently revert whatever changed the file since.
+			const draft = sourceDraftByPath.get(key);
+			const revision = useProofStore.getState().byPath[key]?.snapshotRevision ?? 0;
+			setSourceText(shouldRestoreDraft(draft, revision) ? (draft as SourceDraft).text : "");
+			return;
+		}
+		if (sourceMode) remember(sourceModeByPath, key, true);
+		else sourceModeByPath.delete(key);
+		if (sourceText) {
+			remember(sourceDraftByPath, key, {
+				text: sourceText,
+				revision: useProofStore.getState().byPath[key]?.snapshotRevision ?? 0,
+			});
+		} else sourceDraftByPath.delete(key);
+	}, [sourceMode, sourceText, currentPath]);
 
 	// Prime the slug index once on mount so wiki-link broken-state and
 	// the autocomplete picker both have data immediately.
@@ -203,6 +377,10 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	);
 	const commentsRaw = useProofStore((s) =>
 		currentPath ? s.byPath[currentPath]?.sidecar?.comments : undefined
+	);
+	// Server-resolved anchor positions, returned by the same snapshot read as the blocks.
+	const commentViews = useProofStore((s) =>
+		currentPath ? s.byPath[currentPath]?.commentViews : undefined
 	);
 
 	const snapshotBlocks = useMemo(() => snapshotBlocksRaw ?? [], [snapshotBlocksRaw]);
@@ -269,13 +447,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		},
 		[],
 	);
-	const suggestionDecoratorRef = useRef<SuggestionDecoratorController | null>(null);
-	if (!suggestionDecoratorRef.current) {
-		suggestionDecoratorRef.current = createSuggestionDecoratorPlugin({
-			suggestions: [],
-			blocks: [],
-		});
-	}
 	const suggestionBlocks = useMemo(
 		() => snapshotBlocks.slice(snapshotBlockOffset),
 		[snapshotBlockOffset, snapshotBlocks],
@@ -326,14 +497,109 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	}, [comments]);
 
 	/** Tracks which block's comment thread is open and its anchor element. */
+	/**
+	 * Which margin card is expanded, if any. SEPARATE from `threadTarget`: sharing
+	 * that state made clicking a card render the old portal popover instead of
+	 * expanding the card, so the column was a launcher for the floating thread rather
+	 * than the thread's home.
+	 *
+	 * Held at module scope (keyed by path) rather than in a ref, because the editor does
+	 * get remounted — a reply writes the sidecar, the watcher reports an external change,
+	 * and the loader swaps the editor out and back. A ref would be recreated by that same
+	 * remount, and a tag set on `.ProseMirror` before the send was verifiably gone after
+	 * it: the expanded card collapsed the instant you replied, contradicting "successful
+	 * ops keep the thread open", while the reply itself saved correctly.
+	 */
+	const [activeMarginRef, setActiveMarginRef] = useState<string | null>(
+		() => expandedMarginByPath.get(currentPath ?? "") ?? null,
+	);
+	// Record at the moment of the click as well as in the effect below.
+	//
+	// The effect runs after render, so a remount landing between the click and that run
+	// would find nothing stored and re-open collapsed. React runs effects before the
+	// browser paints, so that window is small — but this fix could not be confirmed in a
+	// browser, and a small window is not a reason to leave a silent failure open when the
+	// closure costs one line.
+	const setActiveMarginRefNow = useCallback(
+		(blockRef: string | null) => {
+			const key = currentPath ?? "";
+			if (blockRef) remember(expandedMarginByPath, key, blockRef);
+			else expandedMarginByPath.delete(key);
+			setActiveMarginRef(blockRef);
+		},
+		[currentPath],
+	);
+	// The path the current `activeMarginRef` belongs to. Writing the ref under the
+	// CURRENT path without this would copy one document's expansion onto another when
+	// the reader navigates without a remount: the state still holds document A's ref
+	// while `currentPath` already says B, so the write-back would store A's ref as B's.
+	const activeMarginPathRef = useRef<string | null>(currentPath ?? null);
+	useEffect(() => {
+		const key = currentPath ?? "";
+		if (activeMarginPathRef.current !== key) {
+			// Path changed under us: adopt the new document's own expansion instead of
+			// persisting the old document's ref against the new path.
+			activeMarginPathRef.current = key;
+			setActiveMarginRef(expandedMarginByPath.get(key) ?? null);
+			return;
+		}
+		if (activeMarginRef) remember(expandedMarginByPath, key, activeMarginRef);
+		else expandedMarginByPath.delete(key);
+	}, [activeMarginRef, currentPath]);
 	const [threadTarget, setThreadTarget] = useState<
-		{ blockRef: string; el: HTMLElement } | null
+		{ blockRef: string; el: HTMLElement; textAnchor?: TextRangeAnchor } | null
 	>(null);
 
-	/** Tracks the open human "suggest edit" popover (block + anchor + content). */
-	const [suggestTarget, setSuggestTarget] = useState<
-		{ blockRef: string; markdown: string; anchor: { top: number; left: number } } | null
-	>(null);
+	/**
+	 * Google-Docs-style margin data.
+	 *
+	 * Every block that has comments becomes a card in the right-hand column,
+	 * persistently visible. Cards WITHOUT a resolved anchor offset still appear
+	 * (the layout defaults them to the top) rather than silently disappearing —
+	 * a comment you cannot see is indistinguishable from a comment that was lost.
+	 */
+	const marginThreads = useMemo(
+		() =>
+			Object.entries(threadCommentsByRef)
+				// A cancelled comment has nothing left to point at, so it is not shown.
+				//
+				// Resolved threads STAY in the column. Dropping them was a divergence from
+				// the contract, and it had a visible consequence: resolving a comment
+				// unmounted its card, which unmounted the thread inside it, so a
+				// successful Resolve closed the thread and took the reply box with it —
+				// exactly what "successful ops keep the thread open" forbids. Keeping the
+				// card mounted is also what lets the reviewer reopen it without hunting
+				// for the anchor again.
+				.map(([blockRef, list]) => ({
+					blockRef,
+					// Cancelled only. A comment whose anchor is lost keeps its card
+					// deliberately (Google Docs keeps it; nothing the user wrote should
+					// vanish because a file was saved elsewhere). It is shown as detached
+					// and it paints no highlight.
+					comments: list.filter((c) => !c.cancelledAt),
+				}))
+				.filter((t) => t.comments.length > 0),
+		[threadCommentsByRef],
+	);
+	const marginOffsets = useMemo(() => {
+		const map = new Map<string, number>();
+		for (const [ref, pos] of blockRefPositions) map.set(ref, pos.top);
+		return map;
+	}, [blockRefPositions]);
+	const [hoveredMarginRef, setHoveredMarginRef] = useState<string | null>(null);
+	// The column is hidden when nothing is commented, and can be collapsed by
+	// hand so it never steals width from the document uninvited.
+	const [marginCollapsed, setMarginCollapsed] = useState(false);
+	// Drop the expanded card when its comment leaves the column.
+	//
+	// Refs are content-derived (`sha256(blockMarkdown).slice(0,6)`), so the same text
+	// always yields the same ref. Without this, cancelling a comment — which happens
+	// when its anchored text is deleted, possibly by an agent editing the file — left
+	// `activeMarginRef` pointing at a now-absent card, and a later comment on restored
+	// text with that same ref would render pre-expanded for no reason the reader could
+	// see.
+	//
+	const showCommentMargin = marginThreads.length > 0 && !marginCollapsed;
 
 	/**
 	 * Resolve the current editor selection to a top-level block.
@@ -440,24 +706,30 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		return { blockRef, blockEl, markdown, selectionText, selectionStart, selectionEnd };
 	}, [snapshotBlockOffset]);
 
-	const openSuggestForSelection = useCallback(() => {
-		const resolved = resolveSelectionBlock();
-		if (!resolved) return;
-		const rect = resolved.blockEl.getBoundingClientRect();
-		setSuggestTarget({
-			blockRef: resolved.blockRef,
-			markdown: resolved.markdown,
-			anchor: { top: rect.bottom + 4, left: rect.left },
-		});
-	}, [resolveSelectionBlock]);
-
 	const openCommentForSelection = useCallback(() => {
 		const resolved = resolveSelectionBlock();
 		if (!resolved) return;
 		const spanEl = scrollContainerRef.current?.querySelector(
 			`[data-annotation-span="${resolved.blockRef}"]`,
 		) as HTMLElement | null;
-		setThreadTarget({ blockRef: resolved.blockRef, el: spanEl ?? resolved.blockEl });
+		// Carry the selected RANGE, not just the block. Without this the comment
+		// degrades to block granularity: the highlight covers the whole block and
+		// the anchor has no text to be found by after an edit. `resolveSelectionBlock`
+		// already computes the offsets; this is where they used to be dropped.
+		const textAnchor =
+			resolved.selectionText && resolved.selectionStart !== null && resolved.selectionEnd !== null
+				? {
+						start: resolved.selectionStart,
+						end: resolved.selectionEnd,
+						selectedText: resolved.selectionText,
+						baseMarkdown: resolved.markdown,
+					}
+				: undefined;
+		setThreadTarget({
+			blockRef: resolved.blockRef,
+			el: spanEl ?? resolved.blockEl,
+			textAnchor,
+		});
 	}, [resolveSelectionBlock]);
 
 	// Load snapshot (ordered block list) when path changes so suggestion cards
@@ -489,23 +761,79 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		// gap so annotation pips and an open thread do not disappear and reappear.
 		if (children.length === 0) return;
 		const containerRect = container.getBoundingClientRect();
-		const next = new Map<string, { top: number; left: number; width: number; bottom: number }>();
-		for (let i = 0; i < Math.min(children.length, snapshotBlocks.length - snapshotBlockOffset); i++) {
-			const el = children[i];
-			const block = snapshotBlocks[i + snapshotBlockOffset];
-			// Annotate DOM element — Phase D comment-pip and other consumers read this
-			el.setAttribute("data-block-ref", block.ref);
-			const rect = el.getBoundingClientRect();
-			next.set(block.ref, {
-				top: rect.top - containerRect.top + container.scrollTop,
-				left: rect.left - containerRect.left,
-				width: rect.width,
-				bottom: rect.bottom - containerRect.top + container.scrollTop,
-			});
+
+		// Phase 4: key on IDENTITY, never on DOM-child index.
+		//
+		// The previous loop paired `children[i]` with `snapshotBlocks[i + offset]`
+		// and truncated with Math.min. mdast→Tiptap is not 1:1 — a loose list
+		// renders as <ul> + <li>s, a table as <table> + rows, a blockquote wraps a
+		// paragraph — so any expansion shifted every later pairing and made
+		// `Math.min` drop the tail silently. Three comments on three blocks could
+		// render one pip, or a pip in the wrong place.
+		//
+		// Each block element is stamped with the ref that rendered it. We now read
+		// that ref back, and walk the SHALLOWEST matching element for nested cases
+		// so an <li> is never mistaken for its list.
+		const elements: BlockElementLike[] = children.map((el) => ({
+			getAttribute: (name: string) => el.getAttribute(name),
+			measure: () => {
+				const rect = el.getBoundingClientRect();
+				return {
+					top: rect.top - containerRect.top + container.scrollTop,
+					left: rect.left - containerRect.left,
+					width: rect.width,
+					bottom: rect.bottom - containerRect.top + container.scrollTop,
+				};
+			},
+		}));
+
+		// Stamp refs by identity where the element carries none yet: match the
+		// element's own rendering to the snapshot by position ONLY as a last
+		// resort for the initial paint, and never beyond the shorter sequence.
+		// Once stamped, every subsequent pass resolves by identity.
+		const stamped = alignByStampedRef(elements, snapshotBlocks, snapshotBlockOffset);
+		if (stamped.positions.size === 0 && children.length <= snapshotBlocks.length) {
+			// First paint (no refs stamped yet) — fall back to position, which is
+			// correct only while the sequences agree, but is better than no pips.
+			for (
+				let i = 0;
+				i < Math.min(children.length, snapshotBlocks.length - snapshotBlockOffset);
+				i += 1
+			) {
+				children[i].setAttribute("data-block-ref", snapshotBlocks[i + snapshotBlockOffset].ref);
+			}
+			const restamped = alignByStampedRef(elements, snapshotBlocks, snapshotBlockOffset);
+			setBlockRefPositions(restamped.positions);
+			return;
 		}
-		setBlockRefPositions(next);
+
+		setBlockRefPositions(stamped.positions);
+
+		// Fail loudly in development rather than silently rendering fewer pips:
+		// an unresolved ref means the doc/snapshot disagree, which is exactly the
+		// condition that used to be invisible.
+		if (process.env.NODE_ENV !== "production" && stamped.unmatchedRefs.length > 0) {
+			console.warn(
+				`[editor] ${stamped.unmatchedRefs.length} annotated block(s) have no rendered element:`,
+				stamped.unmatchedRefs,
+			);
+		}
 	}, [currentPath, snapshotBlockOffset, snapshotBlocks]);
 
+
+	/**
+	 * The single serialization path.
+	 *
+	 * SUGGESTIONS ARE WRITTEN TO THE FILE, reversing the earlier invariant that the
+	 * `.md` stays byte-identical while suggestions are pending. The marks are the record
+	 * now: they serialize as `<ins data-id>` / `<del data-id>` (rules in
+	 * `to-markdown.ts`), so a suggestion survives a save, a reload, and any reader —
+	 * as a Google Docs suggestion lives in the document rather than beside it. The old
+	 * sidecar design meant anything that lost the sidecar lost the suggestions outright.
+	 *
+	 * The byte-identity guard below is a separate concern: it stops a no-op visit from
+	 * rewriting the file.
+	 */
 	const handleUpdate = useCallback(
 		({ editor }: { editor: ReturnType<typeof useEditor> }) => {
 			if (isLoadingRef.current || isViewingRef.current || !editor) return;
@@ -514,13 +842,56 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 				html,
 				useEditorStore.getState().currentPath ?? undefined,
 			);
+
+			// Do not persist a round-trip that changed nothing.
+			//
+			// Markdown -> HTML -> Markdown is not the identity: a list marker gains a
+			// second space (`1. ` -> `1.  `), blank lines acquire trailing whitespace,
+			// and the trailing newline is dropped. ProseMirror fires `onUpdate` when the
+			// editor becomes editable, so merely OPENING a document for editing
+			// rewrote it — measured live: 166 bytes -> 231 bytes with nothing typed.
+			// `.md` is the source of truth here, so a no-op visit must not rewrite it.
+			//
+			// The baseline must be the PREVIOUS SERIALIZATION, not the file's source
+			// markdown: `md` here is already round-tripped, so comparing it against the
+			// raw file text would never match and the guard would never fire. Storing
+			// what we last produced makes "nothing changed" an exact comparison.
+			if (lastSerializedRef.current === md) return;
+			lastSerializedRef.current = md;
+
 			useEditorStore.getState().updateContent(md);
 		},
 		[],
 	);
 
+	// Exact-word comment highlights. The extension reads live state through a ref
+	// so the plugin never captures a stale comment set — the annotations live in
+	// the sidecar store, not in the document, and change without a doc transaction.
+	const commentHighlightStateRef = useRef<{
+		blocks: { ref: string; markdown: string }[];
+		comments: ProofComment[];
+		hoveredRef?: string | null;
+		views?: Record<string, { ref: string | null; offset: number; length: number; status: string }>;
+	}>({ blocks: [], comments: [] });
+	commentHighlightStateRef.current = {
+		blocks: snapshotBlocks.map((b) => ({ ref: b.ref, markdown: b.markdown })),
+		comments,
+		hoveredRef: hoveredMarginRef,
+		// Resolved against the very blocks above, so the range and the block list always
+		// describe the same revision.
+		views: commentViews,
+	};
+	const extensions = useMemo(
+		() =>
+			[
+				...editorExtensions,
+				commentHighlightExtension(() => commentHighlightStateRef.current),
+			] as typeof editorExtensions,
+		[],
+	);
+
 	const editor = useEditor({
-		extensions: editorExtensions,
+		extensions,
 		content: "",
 		editable: !isViewing,
 		onUpdate: handleUpdate,
@@ -720,25 +1091,76 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		immediatelyRender: false,
 	});
 
-	// Stable ref to the editor so callbacks with empty deps reach the live instance.
-	editorRef.current = editor;
-
+	// Re-arm the mode plugin whenever a new editor instance appears.
+	//
+	// The `suggesting` flag lives in the vendored plugin's state, which is
+	// recreated with the editor. Restoring the flag alone would leave the toolbar
+	// reading "Suggesting" while the plugin behaved as "editing" — the UI would
+	// claim edits were tracked when they were not, which is worse than the reset
+	// it replaced.
 	useEffect(() => {
-		if (!editor || !suggestionDecoratorRef.current) return;
-		editor.registerPlugin(suggestionDecoratorRef.current.plugin);
+		if (!editor) return;
+		const { state, view } = editor;
+		const want = suggesting;
+		if (isSuggestChangesEnabled(state) === want) return;
+		(want ? enableSuggestChanges : disableSuggestChanges)(state, view.dispatch);
+	}, [editor, suggesting]);
+
+	/**
+	 * Repaint exact-word highlights when the annotation data changes.
+	 *
+	 * The plugin reads live state on every transaction, but loading the snapshot
+	 * and sidecar does not dispatch one — so without this the highlights would be
+	 * built once against empty inputs and never appear. This is the same class of
+	 * gap that made the old render guard inert.
+	 */
+	useEffect(() => {
+		if (!editor || editor.isDestroyed) return;
+		refreshCommentHighlights(editor.view);
+	}, [editor, snapshotBlocks, comments, currentPath, hoveredMarginRef]);
+
+	// Keep the Accept/Reject controls in step with the document. Counted from the
+	// live document, so it cannot go stale the way a manually maintained flag can.
+	useEffect(() => {
+		if (!editor || editor.isDestroyed) return;
+		const count = () => {
+			// One suggestion per distinct mark id. Counting ranges would report a
+			// single edit as several, because a run of text is split across text
+			// nodes by the schema as the user keeps typing.
+			const ids = new Set<string>();
+			editor.state.doc.descendants((node) => {
+				for (const mark of node.marks) {
+					if (mark.type.name.startsWith("insertion") ||
+						mark.type.name === "deletion" ||
+						mark.type.name === "modification") {
+						ids.add(String(mark.attrs.id));
+					}
+				}
+				return true;
+			});
+			setTrackedCount(ids.size);
+		};
+		count();
+		editor.on("transaction", count);
 		return () => {
-			if (!editor.isDestroyed) editor.unregisterPlugin("suggestionDecorator");
+			editor.off("transaction", count);
 		};
 	}, [editor]);
 
-	useEffect(() => {
-		if (!editor || !suggestionDecoratorRef.current) return;
-		suggestionDecoratorRef.current.update({
-			suggestions: pendingSuggestions,
-			blocks: suggestionBlocks,
-		});
-		suggestionDecoratorRef.current.refresh(editor.view);
-	}, [editor, pendingSuggestions, suggestionBlocks]);
+
+	// Stable ref to the editor so callbacks with empty deps reach the live instance.
+	editorRef.current = editor;
+
+	// The decoration-based redline is RETIRED.
+	//
+	// It drew committed agent proposals as word-diff decorations over text that had
+	// already been replaced — the same wrong model the old comment pips used: the
+	// suggestion is depicted from outside the document instead of living in it.
+	// Suggesting mode now expresses an edit as marks IN the document, and a
+	// suggestion is surfaced in the margin column beside it, exactly like a comment.
+	//
+	// The review entry points remain `SuggestionPip` and the review popover, both of
+	// which read `pendingSuggestions` directly, so nothing became unreachable.
 
 	useEffect(() => {
 		editor?.setEditable(!isViewing);
@@ -748,29 +1170,74 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	// When content updates from store (after loadPage), set it in editor
 	const prevPathRef = useRef<string | null>(null);
 	const renderedKeyRef = useRef<string | null>(null);
+	/**
+	 * The markdown this editor last produced, so a no-op update can be recognised.
+	 *
+	 * Kept separate from `renderedKeyRef`: that holds the file's SOURCE markdown,
+	 * while this holds the round-tripped form we would write back. Comparing the two
+	 * to each other never matches, which is how an earlier version of this guard
+	 * ended up inert.
+	 */
+	const lastSerializedRef = useRef<string | null>(null);
+	// Phase 5 (DoD #5): a fingerprint of the annotation state at the last render.
+	// When it changes but the MARKDOWN does not, the change is annotation-only
+	// and ProseMirror must not be rebuilt. Without this the guard's
+	// `annotationChanged` input could only ever be a constant, leaving the
+	// protection inert.
+	const annotationFingerprint = useMemo(() => {
+		const commentIds = comments.map((c) => `${c.id}:${c.resolved ? 1 : 0}:${c.turns.length}`).join(",");
+		const suggestionIds = pendingSuggestions.map((s) => `${s.id}:${s.status}`).join(",");
+		return `${commentIds}|${suggestionIds}`;
+	}, [comments, pendingSuggestions]);
+	const lastAnnotationFingerprintRef = useRef<string | null>(null);
 	const [renderedPath, setRenderedPath] = useState<string | null>(null);
 	useEffect(() => {
 		if (!editor || currentPath === null) return;
-		// Skip if content hasn't actually changed (same path, dirty edit)
-		if (
-			useEditorStore.getState().isDirty &&
-			currentPath === prevPathRef.current
-		)
-			return;
-		// During page navigation the store briefly holds content="" while the
-		// fetch is in flight. Rendering that empty string into ProseMirror is
-		// pure waste — every extension runs a full schema pass twice per
-		// navigation. Skip until the real content arrives.
-		if (isLoading && content === "") return;
-		// Dedupe identical (path, content) renders — e.g. cached paint followed
-		// by a fresh fetch that returned the same markdown.
 		const renderMarkdown = parsedViewingContent.body;
-		const key = `${currentPath} ${renderMarkdown}`;
-		if (renderedKeyRef.current === key) {
-			if (renderedPath !== currentPath) setRenderedPath(currentPath);
+
+		// Phase 5 (DoD #5): the single predicate that decides whether ProseMirror
+		// is torn down and rebuilt. Extracted so it is testable — see
+		// repro-annotation-reload.test.ts.
+		//
+		// The bug this removes: annotation ops (comment / reply / resolve /
+		// accept) route through the zustand store, `content` is a dependency of
+		// this effect, so EVERY annotation re-ran markdownToHtml + setContent and
+		// destroyed selection, scroll and decorator state. That is why the
+		// refresh(editor.view) patches below and in the viewing-mode effect exist.
+		const decision = shouldRerenderDocument({
+			editorReady: !!editor,
+			currentPath,
+			isDirty: useEditorStore.getState().isDirty && currentPath === prevPathRef.current,
+			isLoading,
+			content,
+			renderMarkdown,
+			lastRenderedKey: renderedKeyRef.current,
+			lastRenderedPath: renderedPath,
+			annotationChanged:
+				lastAnnotationFingerprintRef.current !== null &&
+				lastAnnotationFingerprintRef.current !== annotationFingerprint,
+		});
+		if (!decision.rerender) {
+			if (decision.reason === "already-rendered" && renderedPath !== currentPath) {
+				setRenderedPath(currentPath);
+			}
+			// An annotation-only pass still refreshes the decoration layer, which
+			// is exactly the cheap transaction path DoD #5 asks for — no
+			// markdownToHtml, no setContent, selection and scroll preserved.
+			if (decision.reason === "annotation-only") {
+				lastAnnotationFingerprintRef.current = annotationFingerprint;
+				// Repaint exact-word highlights too: the comment set changed and the
+				// document did not, which is exactly the case a document transaction
+				// cannot signal.
+				refreshCommentHighlights(editor.view);
+			}
 			return;
 		}
 		prevPathRef.current = currentPath;
+
+		// The key the guard compares against on the next pass. Same format the
+		// guard builds internally, so the two cannot drift.
+		const key = `${currentPath} ${renderMarkdown}`;
 
 		let cancelled = false;
 		const setContent = async () => {
@@ -786,8 +1253,17 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 				return;
 			}
 			editor.commands.setContent(html);
-			suggestionDecoratorRef.current?.refresh(editor.view);
+			// Seed the baseline with what THIS document serializes to.
+			//
+			// Resetting to null instead would guarantee the first update after a load
+			// writes the file — which is exactly the bug being fixed, since becoming
+			// editable fires that first update. Seeding here means the very first
+			// no-op round-trip already matches and is skipped.
+			// Must match `handleUpdate`'s serialization exactly, or the baseline
+			// never matches and every load rewrites the file.
+			lastSerializedRef.current = htmlToMarkdown(editor.getHTML(), currentPath ?? undefined);
 			renderedKeyRef.current = key;
+			lastAnnotationFingerprintRef.current = annotationFingerprint;
 			setRenderedPath(currentPath);
 			setTimeout(() => {
 				isLoadingRef.current = false;
@@ -798,7 +1274,16 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		return () => {
 			cancelled = true;
 		};
-	}, [editor, content, currentPath, isLoading, renderedPath, parsedViewingContent.body, isViewing]);
+	}, [
+		editor,
+		content,
+		currentPath,
+		isLoading,
+		renderedPath,
+		parsedViewingContent.body,
+		isViewing,
+		annotationFingerprint,
+	]);
 
 	useEffect(() => {
 		if (!isViewing || !renderedPath) return;
@@ -906,7 +1391,16 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 				isLoadingRef.current = true;
 				const html = await markdownToHtml(sourceText, currentPath ?? undefined);
 				editor.commands.setContent(html);
-				suggestionDecoratorRef.current?.refresh(editor.view);
+				// Re-seed the no-op baseline from what the editor now holds.
+				//
+				// Without this the guard compares against a baseline from BEFORE source
+				// mode. The baseline is the round-tripped form (`1.  one`) while source
+				// mode holds the file's own text (`1. one`), so the comparison misses and
+				// the next update — which `setContent` triggers — saves a reformatted
+				// document. Measured: opening source mode and closing it again with no
+				// edit rewrote the list markers. The content is unchanged either way, so
+				// seeding here keeps closing source mode a genuine no-op.
+				lastSerializedRef.current = htmlToMarkdown(editor.getHTML(), currentPath ?? undefined);
 				setTimeout(() => {
 					isLoadingRef.current = false;
 				}, 50);
@@ -923,6 +1417,48 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 								<div className="flex-1 min-w-0">
 									{!sourceMode && <EditorToolbar editor={editor} />}
 								</div>
+								{!sourceMode && suggesting && hasTrackedChanges && (
+									<span className="flex items-center gap-1 mr-2">
+										<button
+											onClick={() => resolveAllTracked("accept")}
+											className="flex items-center gap-1 px-2.5 py-1 text-[11px] rounded-md border border-emerald-500/40 text-emerald-700 hover:bg-emerald-500/10 transition-colors"
+											title="Accept every suggestion in this document"
+										>
+											<Check className="h-3 w-3" />
+											Accept all
+										</button>
+										<button
+											onClick={() => resolveAllTracked("reject")}
+											className="px-2.5 py-1 text-[11px] rounded-md border border-border text-muted-foreground hover:bg-accent transition-colors"
+											title="Reject every suggestion in this document"
+										>
+											Reject all
+										</button>
+									</span>
+								)}
+								{!sourceMode && (
+									<button
+										onClick={toggleSuggestingMode}
+										title={
+											suggesting
+												? "Suggesting: your edits are tracked until accepted"
+												: "Editing: your edits apply directly"
+										}
+										aria-pressed={suggesting}
+										className={`flex items-center gap-1.5 px-3 py-1 mr-2 text-[11px] rounded-md transition-colors border border-border ${
+											suggesting
+												? "bg-emerald-500/15 text-emerald-700 border-emerald-500/40"
+												: "text-muted-foreground hover:bg-accent"
+										}`}
+									>
+										{suggesting ? (
+											<PencilLine className="h-3 w-3" />
+										) : (
+											<PenLine className="h-3 w-3" />
+										)}
+										{suggesting ? "Suggesting" : "Editing"}
+									</button>
+								)}
 								<button
 									onClick={toggleSourceMode}
 									className={`flex items-center gap-1.5 px-3 py-1 mr-2 text-[11px] rounded-md transition-colors border border-border ${
@@ -950,9 +1486,10 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 								/>
 							</div>
 						) : (
-							<div className="flex-1 relative" dir={isRtl ? "rtl" : undefined}>
+							<div className="flex-1 relative flex min-h-0" dir={isRtl ? "rtl" : undefined}>
 								<DocumentOutline editor={editor} scrollContainerRef={scrollContainerRef} />
 								<ReadingExperiments editor={editor} scrollContainerRef={scrollContainerRef} />
+								<div className="flex-1 relative min-w-0">
 								<div
 									ref={scrollContainerRef}
 									className="absolute inset-0 overflow-y-auto"
@@ -1060,13 +1597,18 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 
 									</div>
 
-									{/* Comment thread — Portal-rendered, driven by threadTarget */}
+									{/* Comment thread — portal popover, driven by `threadTarget`.
+									    This is the PIP path only. Margin cards render their own
+									    thread in place, so the two never both open for one
+									    comment. Kept for the gutter pips, which still exist
+									    for blocks whose comment has no margin card. */}
 									{threadTarget && currentPath && (
 						<CommentThread
 							path={currentPath}
 							anchorKey={threadTarget.blockRef}
 							anchorRef={threadTarget.blockRef}
 							anchorLabel={threadTarget.blockRef}
+							textAnchor={threadTarget.textAnchor}
 							comments={
 								(threadCommentsByRef[threadTarget.blockRef]) ?? []
 							}
@@ -1075,16 +1617,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 						/>
 									)}
 
-									{/* Human suggest-edit popover — driven by suggestTarget */}
-									{suggestTarget && currentPath && (
-										<SuggestEditPopover
-											path={currentPath}
-											blockRef={suggestTarget.blockRef}
-											currentMarkdown={suggestTarget.markdown}
-											anchor={suggestTarget.anchor}
-											onClose={() => setSuggestTarget(null)}
-										/>
-									)}
 									{reviewTarget && reviewSuggestion && reviewBlock && currentPath && (
 										<SuggestionReviewPopover
 											path={currentPath}
@@ -1117,7 +1649,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 										<>
 											<EditorBubbleMenu
 												editor={editor}
-												onSuggestEdit={openSuggestForSelection}
 												onComment={openCommentForSelection}
 											/>
 											<TableMenu editor={editor} />
@@ -1132,7 +1663,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 										<ViewModeCommentButton
 											containerRef={scrollContainerRef}
 											onComment={openCommentForSelection}
-											onSuggest={openSuggestForSelection}
 										/>
 									)}
 									{/* AI Edit Prompt + slash hint */}
@@ -1154,6 +1684,39 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 										)}
 									</div>
 								</div>
+								</div>
+
+								{/* Google-Docs-style comment margin. Sits OUTSIDE the scroll
+								    container so cards stay put while the document scrolls
+								    under them; the collapse control lets it get out of the
+								    way on narrow screens. */}
+								{showCommentMargin && (
+									<CommentMargin
+										path={currentPath ?? ""}
+										threads={marginThreads}
+										blockOffsets={marginOffsets}
+										activeRef={activeMarginRef}
+										onActivate={(blockRef) =>
+											// Expand the card IN PLACE — the thread lives in the
+											// card rather than in a floating popover.
+											//
+											// The ternary keeps this idempotent, but it is NOT
+											// the collapse path: expanding unmounts the collapsed
+											// card whose button called this, so the reader cannot
+											// click it a second time. Collapsing is the close
+											// control inside the expanded card. (An earlier
+											// comment here claimed a second click would collapse;
+											// it would not, and there was then no way out at all.)
+											setActiveMarginRefNow(
+												activeMarginRef === blockRef ? null : blockRef,
+											)
+										}
+										onClose={() => setActiveMarginRefNow(null)}
+										onHoverChange={(blockRef, hovered) =>
+											setHoveredMarginRef(hovered ? blockRef : null)
+										}
+									/>
+								)}
 
 								{showLoadingOverlay && (
 									<div

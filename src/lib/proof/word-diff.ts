@@ -1,3 +1,14 @@
+/**
+ * Word-level diff for suggestion redlines.
+ *
+ * The tokenizer is ours even though jsdiff supplies the algorithm. The redline must
+ * preserve the EXACT source text across the parts, because offsets are applied to
+ * ProseMirror positions and a lost or duplicated space shifts the highlight;
+ * `diffWords`' own boundary rules do not guarantee that. So we tokenize, diff, then
+ * map back to token spans.
+ */
+import { diffArrays } from "diff";
+
 export type WordDiffPart = {
 	text: string;
 	type: "equal" | "insert" | "delete";
@@ -11,22 +22,14 @@ function tokenize(text: string): string[] {
 	return text.match(/[\p{L}\p{M}\p{N}_]+|\s+|[^\p{L}\p{M}\p{N}_\s]/gu) ?? [];
 }
 
-/** Return a deterministic word-level LCS diff from current text to proposed text. */
+/**
+ * Return a deterministic word-level diff from current text to proposed text.
+ *
+ * `diffArrays` yields the same equal/added/removed shape the LCS produced, and
+ * adjacent same-type parts are merged so consumers see one span per run.
+ */
 export function diffWords(current: string, proposed: string): WordDiffPart[] {
-	const left = tokenize(current);
-	const right = tokenize(proposed);
-	const lengths = Array.from({ length: left.length + 1 }, () =>
-		new Array<number>(right.length + 1).fill(0),
-	);
-
-	for (let i = left.length - 1; i >= 0; i -= 1) {
-		for (let j = right.length - 1; j >= 0; j -= 1) {
-			lengths[i][j] =
-				left[i] === right[j]
-					? lengths[i + 1][j + 1] + 1
-					: Math.max(lengths[i + 1][j], lengths[i][j + 1]);
-		}
-	}
+	const changes = diffArrays(tokenize(current), tokenize(proposed));
 
 	const parts: WordDiffPart[] = [];
 	const append = (text: string, type: WordDiffPart["type"]) => {
@@ -36,28 +39,11 @@ export function diffWords(current: string, proposed: string): WordDiffPart[] {
 		else parts.push({ text, type });
 	};
 
-	let i = 0;
-	let j = 0;
-	while (i < left.length && j < right.length) {
-		if (left[i] === right[j]) {
-			append(left[i], "equal");
-			i += 1;
-			j += 1;
-		} else if (lengths[i + 1][j] >= lengths[i][j + 1]) {
-			append(left[i], "delete");
-			i += 1;
-		} else {
-			append(right[j], "insert");
-			j += 1;
-		}
-	}
-	while (i < left.length) {
-		append(left[i], "delete");
-		i += 1;
-	}
-	while (j < right.length) {
-		append(right[j], "insert");
-		j += 1;
+	for (const change of changes) {
+		const text = change.value.join("");
+		if (change.added) append(text, "insert");
+		else if (change.removed) append(text, "delete");
+		else append(text, "equal");
 	}
 
 	return parts;

@@ -219,6 +219,25 @@ export function ViewerPane({
 	sidebarCollapsed,
 	readOnly = false,
 }: ViewerPaneProps) {
+	// Once an editor has rendered for this file, keep it mounted through reloads.
+	//
+	// `fileLoading` goes true on every external change, not just the first load. Swapping
+	// the editor for a spinner on those later passes unmounted it and destroyed its
+	// component state — see the note at the render site. Only the genuinely-first load
+	// has no editor to preserve.
+	// Sticky: once the editor has rendered for this file, the spinner must not replace
+	// it. Written from an effect, not during render, so concurrent rendering cannot
+	// observe a half-updated value.
+	const [hasRenderedEditor, setHasRenderedEditor] = useState(false);
+	useEffect(() => {
+		if (!fileLoading) setHasRenderedEditor(true);
+	}, [fileLoading]);
+	// Reset when the file genuinely changes: a different document may need its own
+	// first-load spinner.
+	useEffect(() => {
+		setHasRenderedEditor(false);
+	}, [openFile.path]);
+
 	// Portal target for merging viewer toolbar content into single header row
 	const [toolbarSlotEl, setToolbarSlotEl] = useState<HTMLElement | null>(null);
 	const [toolbarBadgeSlotEl, setToolbarBadgeSlotEl] = useState<HTMLElement | null>(null);
@@ -351,6 +370,8 @@ export function ViewerPane({
 							size="sm"
 							variant="ghost"
 							className="h-7 w-7 p-0"
+							title="Close"
+							aria-label="Close"
 							onClick={onClose}
 						>
 							<X className="h-3.5 w-3.5" />
@@ -543,6 +564,8 @@ export function ViewerPane({
 								size="sm"
 								variant="ghost"
 								className="h-7 w-7 p-0"
+								title="Edit"
+								aria-label="Edit"
 								onClick={() => {
 									setEditing(true);
 									setEditContent(fileContent ?? "");
@@ -566,6 +589,8 @@ export function ViewerPane({
 						size="sm"
 						variant="ghost"
 						className="h-7 w-7 p-0"
+						title="Close"
+						aria-label="Close"
 						onClick={onClose}
 					>
 						<X className="h-3.5 w-3.5" />
@@ -666,7 +691,17 @@ export function ViewerPane({
 				</div>
 			) : isMarkdown(openFile.name) ? (
 				<div className="flex-1 flex flex-col overflow-hidden min-h-0">
-					{fileLoading ? (
+					{/* The editor is NOT swapped out while loading.
+					    Doing so unmounted it on every external file change
+					    (`refreshViewer()` flips `fileLoading`), which destroyed all of its
+					    component state: the expanded comment card collapsed, Suggesting
+					    mode reverted to Editing, and Source mode discarded its markdown
+					    draft. Each was a real defect found separately; this is the one
+					    line they all came from.
+					    The editor already paints its own overlay spinner
+					    (`showLoadingOverlay`), so this branch only needs the first-load
+					    case, when there is no editor yet to keep. */}
+					{fileLoading && !hasRenderedEditor ? (
 						<div className="flex justify-center py-8">
 							<Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
 						</div>

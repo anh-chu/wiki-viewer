@@ -51,6 +51,13 @@ const lowlight = createLowlight({
 	yaml,
 });
 
+import {
+	SuggestionDeletion,
+	SuggestionInsertion,
+	SuggestionModification,
+	SuggestChanges,
+} from "./extensions/suggest-changes";
+
 export const editorExtensions = [
 	StarterKit.configure({
 		heading: { levels: [1, 2, 3, 4] },
@@ -134,6 +141,13 @@ export const editorExtensions = [
 		},
 	}),
 	CalloutExtension,
+	// Suggesting mode. The marks let a suggestion live IN the document, and the
+	// plugin rewrites each transaction so typing and deleting produce suggestions
+	// rather than applied edits. Vendored; see extensions/suggest-changes.ts.
+	SuggestionInsertion,
+	SuggestionDeletion,
+	SuggestionModification,
+	SuggestChanges,
 	TextAlign.configure({ types: ["heading", "paragraph"] }),
 	Subscript,
 	Superscript,

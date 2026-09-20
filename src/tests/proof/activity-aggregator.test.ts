@@ -16,7 +16,8 @@ let tmpRoot: string;
 function makeSidecar(filePath: string, eventCount: number, byPrefix = "agent"): Sidecar {
 	const now = Date.now();
 	return {
-		schemaVersion: 1,
+		schemaVersion: 3,
+		anchors: {},
 		path: filePath,
 		revision: 0,
 		createdAt: new Date(now).toISOString(),

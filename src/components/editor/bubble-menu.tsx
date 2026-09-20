@@ -12,7 +12,6 @@ import {
 	Italic,
 	Link as LinkIcon,
 	MessageCircle,
-	MessageSquarePlus,
 	Strikethrough,
 	Subscript as SubIcon,
 	Superscript as SuperIcon,
@@ -24,12 +23,8 @@ import { LinkPopover } from "./link-popover";
 
 interface Props {
 	editor: Editor | null;
-	/** Open the human "suggest edit" flow for the current selection's block. */
-	onSuggestEdit?: () => void;
 	/** Open a comment thread on the current selection's block. */
 	onComment?: () => void;
-	/** Hide all formatting controls; show only comment button. */
-	readOnly?: boolean;
 }
 
 type OpenPopover =
@@ -42,7 +37,7 @@ type OpenPopover =
 			anchor: { top: number; left: number };
 	  };
 
-export function EditorBubbleMenu({ editor, onSuggestEdit, onComment, readOnly }: Props) {
+export function EditorBubbleMenu({ editor, onComment }: Props) {
 	const [popover, setPopover] = useState<OpenPopover>(null);
 
 	useEffect(() => {
@@ -129,7 +124,6 @@ export function EditorBubbleMenu({ editor, onSuggestEdit, onComment, readOnly }:
 				options={{ placement: "top", offset: 8 }}
 				className="flex items-center gap-0.5 px-1 py-1 bg-popover border border-border rounded-sm shadow-lg"
 			>
-				{!readOnly && (
 				<>
 				<button
 					type="button"
@@ -215,7 +209,7 @@ export function EditorBubbleMenu({ editor, onSuggestEdit, onComment, readOnly }:
 				>
 					<LinkIcon className="w-3.5 h-3.5" />
 				</button>
-				{(onSuggestEdit || onComment) && (
+				{onComment && (
 					<div className="w-px h-5 bg-border mx-1" />
 				)}
 				{onComment && (
@@ -231,21 +225,6 @@ export function EditorBubbleMenu({ editor, onSuggestEdit, onComment, readOnly }:
 						title="Comment — discuss or annotate this selection"
 					>
 						<MessageCircle className="w-3.5 h-3.5" />
-					</button>
-				)}
-				{onSuggestEdit && (
-					<button
-						type="button"
-						className={btn(false)}
-						onMouseDown={(e) => e.preventDefault()}
-						onClick={(e) => {
-							e.preventDefault();
-							onSuggestEdit();
-						}}
-						aria-label="Suggest edit"
-						title="Suggest — propose a human edit for review"
-					>
-						<MessageSquarePlus className="w-3.5 h-3.5" />
 					</button>
 				)}
 				<div className="w-px h-5 bg-border mx-1" />
@@ -304,22 +283,6 @@ export function EditorBubbleMenu({ editor, onSuggestEdit, onComment, readOnly }:
 					)}
 				</div>
 				</>
-				)}
-				{readOnly && onComment && (
-					<button
-						type="button"
-						className={btn(false)}
-						onMouseDown={(e) => e.preventDefault()}
-						onClick={(e) => {
-							e.preventDefault();
-							onComment();
-						}}
-						aria-label="Comment"
-						title="Add comment"
-					>
-						<MessageCircle className="w-3.5 h-3.5" />
-					</button>
-				)}
 			</BubbleMenu>
 
 			{popover?.type === "link" && (

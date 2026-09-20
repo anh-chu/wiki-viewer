@@ -7,6 +7,13 @@ import type { Sidecar, ProofEvent, Block, Snapshot } from "@/lib/proof/types";
 interface PathEntry {
 	sidecar: Sidecar | null;
 	snapshotRevision: number;
+	/**
+	 * Server-resolved anchor positions for this document's comments.
+	 *
+	 * Held beside `snapshotBlocks` rather than inside the sidecar because the two must
+	 * describe the same revision: the editor paints the range onto those exact blocks.
+	 */
+	commentViews?: Record<string, { ref: string | null; offset: number; length: number; status: string }>;
 	lastEventId: number;
 	/** Ordered block list from latest GET snapshot. Used to resolve ref→position in editor. */
 	snapshotBlocks: Block[];
@@ -19,6 +26,15 @@ interface ProofState {
 	loadSnapshot(path: string): Promise<void>;
 	pollEvents(path: string): Promise<void>;
 	applyEvent(path: string, e: ProofEvent): void;
+	/**
+	 * Move the store's revision to one a write produced.
+	 *
+	 * `snapshotRevision` is the `baseRevision` the next request sends. A write that
+	 * succeeds without applying a local event — a `suggestion.edit`, say — still
+	 * advances the server's revision, so not adopting it makes the next request stale
+	 * by construction and it is refused `409` with no way to recover but a reload.
+	 */
+	adoptRevision(path: string, revision: unknown): void;
 	reset(path: string): void;
 }
 
@@ -73,7 +89,17 @@ export const useProofStore = create<ProofState>((set, get) => ({
 					[path]: {
 						...(s.byPath[path] ?? defaultEntry()),
 						snapshotBlocks: snap.blocks,
-						snapshotRevision: snap.revision,
+						commentViews: snap.commentViews,
+						// Never move the base backwards. A GET issued before a write can
+						// resolve after it, and this used to assign `snap.revision`
+						// unconditionally — so a late read rolled the revision back and the
+						// NEXT write was refused `409 STALE_REVISION` against a base the
+						// client had already moved past. A read can only ever advance the
+						// base, exactly as `applyEvent` and `adoptRevision` do.
+						snapshotRevision: Math.max(
+							s.byPath[path]?.snapshotRevision ?? 0,
+							snap.revision,
+						),
 					},
 				},
 			}));
@@ -103,6 +129,23 @@ export const useProofStore = create<ProofState>((set, get) => ({
 		} catch {
 			// network error — leave stale
 		}
+	},
+
+	adoptRevision: (path: string, revision: unknown) => {
+		if (typeof revision !== "number") return;
+		set((s) => {
+			const prev = s.byPath[path];
+			if (!prev) return s;
+			// Never move backwards: a late response for an older write must not undo a
+			// newer one that already advanced the revision.
+			if (prev.snapshotRevision >= revision) return s;
+			return {
+				byPath: {
+					...s.byPath,
+					[path]: { ...prev, snapshotRevision: revision },
+				},
+			};
+		});
 	},
 
 	applyEvent: (path: string, e: ProofEvent) => {
@@ -145,7 +188,9 @@ export const useProofStore = create<ProofState>((set, get) => ({
 				sidecar.revision = typeof e.revision === "number" ? e.revision : sidecar.revision;
 				sidecar.updatedAt = e.at;
 			}
-			return { byPath: { ...s.byPath, [path]: { ...prev, sidecar, snapshotRevision: typeof e.revision === "number" ? e.revision : prev.snapshotRevision, lastEventId: Math.max(prev.lastEventId, e.id) } } };
+			// The write's revision, never a step backwards.
+			const newSnapshotRevision = typeof e.revision === "number" ? e.revision : prev.snapshotRevision;
+			return { byPath: { ...s.byPath, [path]: { ...prev, sidecar, snapshotRevision: Math.max(prev.snapshotRevision, newSnapshotRevision), lastEventId: Math.max(prev.lastEventId, e.id) } } };
 		});
 	}, 
 

@@ -1,25 +1,37 @@
 import { readFile, writeFile, mkdir, rename, unlink } from "node:fs/promises";
 import path from "node:path";
-import type { Sidecar } from "./types";
+import type { Block, Sidecar } from "./types";
+import { migrateSidecar } from "./anchor";
 
 export function sidecarPath(rootDir: string, mdPath: string): string {
 	return path.join(rootDir, ".proof", mdPath + ".json");
 }
 
+/**
+ * Read a sidecar, upgrading an older schema in memory.
+ *
+ * The upgrade is NOT persisted here: this is a read, and writing during a read is what
+ * made the file watcher reload the document out from under the user on every keystroke.
+ * A sidecar is written back by the operation that next mutates it, at which point the
+ * migrated shape is what gets stored.
+ */
 export async function readSidecar(
 	rootDir: string,
 	mdPath: string,
+	blocks: Block[] = [],
 ): Promise<Sidecar | null> {
 	const filePath = sidecarPath(rootDir, mdPath);
 	try {
 		const raw = await readFile(filePath, "utf-8");
 		const parsed = JSON.parse(raw) as Sidecar;
-		if (parsed.schemaVersion !== 1) {
+		if (![1, 2, 3].includes(parsed.schemaVersion)) {
 			throw new Error(
-				`Sidecar schema version mismatch: expected 1, got ${parsed.schemaVersion}`,
+				`Sidecar schema version mismatch: expected 1, 2 or 3, got ${parsed.schemaVersion}`,
 			);
 		}
-		return parsed;
+		const migrated = parsed.anchors ? parsed : { ...parsed, anchors: {} };
+		const { sidecar } = migrateSidecar(migrated, blocks);
+		return sidecar;
 	} catch (err: unknown) {
 		if (
 			err instanceof Error &&
@@ -84,7 +96,8 @@ export async function deleteSidecar(
 export function emptySidecar(mdPath: string): Sidecar {
 	const now = new Date().toISOString();
 	return {
-		schemaVersion: 1,
+		schemaVersion: 3,
+		anchors: {},
 		path: mdPath,
 		revision: 0,
 		createdAt: now,

@@ -289,3 +289,69 @@
     background: #4e4e4e;
   }
 }
+
+/*
+ * Exact-word comment highlights (Google Docs style).
+ *
+ * The old model tinted the WHOLE block. These tint only the commented words, so
+ * a comment on "lazy dog" marks those two words and nothing else. The underline
+ * carries the affordance that a background tint alone cannot: it survives dark
+ * mode, low-contrast themes and print, where a 15%-alpha wash disappears.
+ */
+.comment-highlight {
+  background-color: color-mix(in srgb, var(--primary) 18%, transparent);
+  border-bottom: 1.5px solid color-mix(in srgb, var(--primary) 55%, transparent);
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+/* Recovered = the stored offsets no longer matched and the text was found by
+   searching instead. Same treatment, different (dotted) underline so you can
+   tell that the anchor moved with the text rather than pinning it. */
+.comment-highlight-recovered {
+  border-bottom-style: dotted;
+}
+
+.comment-highlight[data-hovered="true"] {
+  background-color: color-mix(in srgb, var(--primary) 30%, transparent);
+}
+
+/*
+ * Suggesting mode (Google Docs conventions).
+ *
+ * Insertions are green and underlined, deletions struck through in red. The
+ * deletion text remains in the DOM — that is the whole point of a mark over a
+ * removal: rejecting has to be able to bring the words back.
+ *
+ * These styles apply in the EDITOR only. Tracked marks are stripped before
+ * markdown serialization, so they never reach the file or a rendered preview.
+ */
+.track-insertion {
+  color: #15803d;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  background-color: color-mix(in srgb, #22c55e 12%, transparent);
+}
+
+.track-deletion {
+  color: #b91c1c;
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  background-color: color-mix(in srgb, #ef4444 10%, transparent);
+}
+
+.track-modification {
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  background-color: color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
+/* Dark theme: the light-mode greens and reds fail contrast on a dark surface. */
+.dark .track-insertion {
+  color: #4ade80;
+}
+
+.dark .track-deletion {
+  color: #f87171;
+}

@@ -10,3 +10,7 @@ allowBuilds:
 
 overrides:
   kysely: 0.28.5
+  # Pinned so the two candidate suggestion libraries (both declare an exact
+  # prosemirror-view range) measure the feature, not version drift. See
+  # docs/research/2026-09-suggest-changes-spike.md.
+  prosemirror-view: 1.41.8

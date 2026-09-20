@@ -11,6 +11,10 @@ import { DENIED_SEGMENTS } from "@/lib/fs/denied-segments";
 import { withFileMutex, workspaceLockKey } from "@/lib/proof/mutex";
 import { emptySidecar, readSidecar, writeSidecar } from "@/lib/proof/sidecar";
 import { SIDECAR_EVENT_TRIM_SIZE } from "@/lib/proof-config";
+import { reconcileRefsAndCancelOrphans } from "@/lib/proof/ops-applier";
+import { migrateSidecar } from "@/lib/proof/anchor";
+import { parseBlocks } from "@/lib/proof/blocks";
+import { assignRefs } from "@/lib/proof/block-refs";
 
 const TEXT_EXTS = new Set([
 	"txt", "md", "markdown", "json", "yaml", "yml", "toml", "csv", "tsv",
@@ -207,6 +211,25 @@ export async function PUT(request: Request) {
 			);
 		}
 
+		// Migrate against the content as it stands BEFORE this save overwrites it.
+		//
+		// Order matters here and it is not obvious: the stored offsets and quotes were
+		// taken against the old text, so migrating after the write would anchor each
+		// record against content it was never measured on — and the very save that
+		// moved the text is the one most likely to need recovery. Reading first is
+		// also why this cannot live inside the generic sidecar read.
+		try {
+			const prior = await readFile(filePath, "utf-8");
+			// `assignRefs` is what turns mdast nodes into the `Block[]` migration
+			// needs; it is the same call `reconcileRefsAndCancelOrphans` below makes.
+			const { blocks: priorBlocks } = assignRefs(parseBlocks(prior), sc);
+			const migrated = migrateSidecar(sc, priorBlocks);
+			if (migrated.changed) Object.assign(sc, migrated.sidecar);
+		} catch {
+			// A missing or unreadable file is not a save failure: fall through and let
+			// the write below produce its own error. Migration is best-effort here.
+		}
+
 		try {
 			await mkdir(path.dirname(filePath), { recursive: true });
 			await writeFile(filePath, content, "utf-8");
@@ -219,6 +242,12 @@ export async function PUT(request: Request) {
 		sc.revision = newRevision;
 		sc.fingerprint = sha256content(content);
 		sc.updatedAt = new Date().toISOString();
+
+		// Recompute block refs against the content just written, so comments whose
+		// anchor this save removed are cancelled rather than left pointing at a ref
+		// that no longer exists. Skipping this is what produced margin cards with no
+		// highlight anywhere in the document.
+		reconcileRefsAndCancelOrphans(sc, content);
 
 		// Emit a human-edit event so agents can see the change.
 		emitEvents(sc, [
