@@ -83,6 +83,27 @@ describe("the text and the panel highlight each other", () => {
 		);
 	});
 
+	test("changing the active comment repaints the decoration", () => {
+		// The plugin reads live state through a ref, so changing the active comment
+		// dispatches no transaction and nothing repaints on its own. The refresh effect
+		// listed `hoveredMarginRef` but not `activeMarginRef`, so HOVERING a comment lit
+		// it while CLICKING the same one did not — the two paths differed only by which
+		// of the two values had moved. This pins the dependency, which is otherwise
+		// invisible: a missing dep is a silent no-op, not an error.
+		const from = EDITOR.indexOf("Repaint exact-word highlights when the annotation data changes.");
+		const to = EDITOR.indexOf("}, [editor, snapshotBlocks, comments, currentPath", from);
+		const effect = EDITOR.slice(from, to + 200);
+		assert.ok(effect.length > 0, "expected the repaint effect");
+		assert.match(effect, /refreshCommentHighlights\(editor\.view\)/);
+		const deps = effect.slice(effect.lastIndexOf("}, ["));
+		assert.match(deps, /hoveredMarginRef/, "hover must repaint");
+		assert.match(
+			deps,
+			/activeMarginRef/,
+			"and so must the active comment, or clicking does nothing visible",
+		);
+	});
+
 	test("the card carries the active flag for styling", () => {
 		assert.match(
 			MARGIN,

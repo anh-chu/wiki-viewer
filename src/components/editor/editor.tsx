@@ -1097,7 +1097,13 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	useEffect(() => {
 		if (!editor || editor.isDestroyed) return;
 		refreshCommentHighlights(editor.view);
-	}, [editor, snapshotBlocks, comments, currentPath, hoveredMarginRef]);
+		// `activeMarginRef` belongs in this list for the same reason as `hoveredMarginRef`:
+		// the plugin reads live state through a ref, so changing the active comment does
+		// not dispatch a transaction and nothing would repaint. Without it, CLICKING a
+		// comment in the text set the active ref and left the highlight unchanged, while
+		// hovering the same comment worked — the two paths differed only by which of
+		// these two values had moved.
+	}, [editor, snapshotBlocks, comments, currentPath, hoveredMarginRef, activeMarginRef]);
 	/**
 	 * Every tracked mark in the document, with the range it covers.
 	 *

@@ -1024,6 +1024,14 @@ clicked for and the click would appear to do nothing. The panel then scrolls tha
 view, because the panel does not scroll with the document and the card can easily be
 off-screen.
 
+**The repaint depends on the active ref.** The highlight plugin reads live state through
+a ref, so changing the active comment dispatches no ProseMirror transaction and nothing
+repaints on its own. The effect that calls `refreshCommentHighlights` listed
+`hoveredMarginRef` but not `activeMarginRef`, so *hovering* a comment lit it while
+*clicking* the same one did not — the two paths differed only by which of the two values had
+moved. Any state the decorator reads through the ref belongs in that dependency list; a
+missing entry is a silent no-op rather than an error.
+
 The click resolves its block ref through the same per-comment `views` map the decorator used
 (`view?.ref ?? comment?.ref`), not through `comment.ref` directly, so the text and the panel
 always describe the same revision.
