@@ -1117,6 +1117,10 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 					const kind =
 						name === "deletion" ? "remove" : name === "modification" ? "modify" : name.startsWith("insertion") ? "insert" : null;
 					if (!kind) continue;
+					// `id` defaults to null on the mark spec, so a mark can exist before
+					// the library assigns one. String(null) would be the id "null" and
+					// would group every such mark into one bogus card.
+					if (mark.attrs.id === null || mark.attrs.id === undefined) continue;
 					const id = String(mark.attrs.id);
 					const from = pos;
 					const to = pos + node.nodeSize;
