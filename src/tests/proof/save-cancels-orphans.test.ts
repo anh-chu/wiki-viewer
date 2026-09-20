@@ -1,10 +1,12 @@
 /**
- * A direct save must reconcile block refs and cancel orphaned comments.
+ * A direct save must reconcile block refs and mark orphaned comments lost.
  *
  * FOUND LIVE, not from a test. The margin column was showing four comment cards while
  * only two comments had a highlight anywhere in the document: the other two pointed at
- * refs that no longer existed. Per the intended behaviour an annotation whose text is
- * gone disappears as cancelled — so these cards were pointing at nothing.
+ * refs that no longer existed. The fix is that such a comment is marked LOST: it keeps
+ * its card and paints no highlight, so the margin stops claiming a place in the text
+ * that the comment no longer has. (It was briefly cancelled outright instead, which
+ * also removed the mismatch but by deleting what the user wrote.)
  *
  * ROOT CAUSE. `PUT /api/wiki/content` (the editor's own save) writes the file and bumps
  * the sidecar revision and fingerprint, but never recomputed `refMap`. The cancellation
@@ -85,12 +87,12 @@ describe("a direct save cancels comments whose anchor it removed", () => {
 
 		const byId = Object.fromEntries(sc.comments.map((c) => [c.id, c]));
 		for (const id of ["c0", "c1", "c2"]) {
-			assert.equal(byId[id].resolved, true, `${id} must be cancelled`);
-			assert.ok(byId[id].cancelledAt, `${id} must record when`);
-			assert.equal(byId[id].cancelReason, "anchor-lost", `${id} must record why`);
+			assert.equal(byId[id].anchorStatus, "lost", `${id} must be marked lost`);
+			assert.notEqual(byId[id].resolved, true, `${id} is kept, not resolved`);
+			assert.equal(byId[id].cancelledAt, undefined, `${id} is never cancelled`);
 		}
-		assert.equal(byId.c3.resolved, false, "the anchored comment stays open");
-		assert.equal(byId.c3.cancelledAt, undefined, "and is not cancelled");
+		assert.equal(byId.c3.anchorStatus, undefined, "the anchored comment is not marked lost");
+		assert.equal(byId.c3.resolved, false, "and it stays open");
 	});
 
 	test("refMap is rewritten to match the content, not left describing the old one", () => {

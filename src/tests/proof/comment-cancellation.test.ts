@@ -1,13 +1,15 @@
 /**
- * Comments whose anchored text disappears are CANCELLED.
+ * Comments whose anchored text disappears are MARKED LOST, and kept.
  *
- * The earlier design latched `stale = true` and expected a re-anchoring UI. That
- * UI was never built, and the decision is that a comment whose text no longer
- * exists should simply go away rather than sit in a recovery queue nobody reads.
+ * Two earlier designs are rejected. Latching `stale = true` parked the comment
+ * forever waiting on a re-anchoring UI nobody built. Cancelling it deleted
+ * something the user wrote as a side effect of somebody else's save. Following
+ * Google Docs, the card stays and is shown as detached.
  *
- * Why this matters beyond tidiness: an orphaned comment that stays unresolved
- * still feeds Copy-as-prompt, so a deleted sentence could put a phantom
- * instruction in front of an agent. Cancelling removes it from that path.
+ * The safety property the cancellation was there for still holds, and is asserted
+ * here directly: Copy-as-prompt serializes a comment only when a snippet resolves
+ * for it, so a lost comment contributes nothing to an agent's prompt. A deleted
+ * sentence cannot put a phantom instruction in front of an agent.
  */
 
 import assert from "node:assert/strict";
@@ -17,6 +19,7 @@ import path from "node:path";
 import { after, before, describe, test } from "node:test";
 import { reconcileSidecar } from "@/lib/proof/ops-applier";
 import { emptySidecar } from "@/lib/proof/sidecar";
+import { mapAnnotationsToPromptItems } from "@/lib/proof/prompt-serialize";
 
 let root = "";
 
@@ -101,15 +104,15 @@ describe("cancelling comments whose text is gone", () => {
 		});
 
 		const c = sidecar.comments[0];
-		assert.equal(c.resolved, true, "cancelled comments are resolved, so they leave the margin");
-		assert.equal(c.cancelReason, "anchor-lost");
-		assert.ok(c.cancelledAt, "cancellation is timestamped");
-		assert.notEqual(c.stale, true, "no longer parked as stale");
+		assert.equal(c.anchorStatus, "lost", "the comment is marked lost");
+		assert.notEqual(c.resolved, true, "but it is not resolved");
+		assert.equal(c.cancelledAt, undefined, "and it is never cancelled");
+		assert.notEqual(c.stale, true, "nor parked as stale");
 	});
 
-	test("cancelled comments stop counting as pending agent work", async () => {
-		// This is the load-bearing consequence: Copy-as-prompt reads unresolved
-		// comments, so cancelling is what keeps a deleted sentence out of prompts.
+	test("lost comments contribute nothing to Copy-as-prompt", async () => {
+		// This is the load-bearing consequence, and it does not depend on cancelling:
+		// the serializer emits a comment only when a snippet resolves for it.
 		const initial = "# Title\n\nAlpha\n\nBeta\n";
 		const { mdPath, sidecar } = await docWithContent("pending.md", initial);
 		sidecar.comments.push({
@@ -132,8 +135,20 @@ describe("cancelling comments whose text is gone", () => {
 			fingerprint: "fp-4",
 		});
 
-		const pending = sidecar.comments.filter((c) => !c.resolved);
-		assert.equal(pending.length, 0, "nothing pending for an agent to act on");
+		const lost = sidecar.comments[0];
+		assert.equal(lost.anchorStatus, "lost", "the comment is marked lost");
+		assert.notEqual(lost.resolved, true, "it is not resolved, so it stays on the record");
+
+		// The safety property, asserted through the real serializer rather than
+		// through the `resolved` flag: a comment whose snippet cannot be resolved
+		// produces no prompt item at all. That is what keeps a deleted sentence out
+		// of an agent's instructions now that we no longer cancel the comment.
+		const items = mapAnnotationsToPromptItems(
+			sidecar.comments,
+			[],
+			() => undefined, // no readable anchor: this comment cannot be placed
+		);
+		assert.equal(items.length, 0, "an unplaceable comment yields no prompt item");
 	});
 
 	test("an already-resolved comment is left alone", async () => {

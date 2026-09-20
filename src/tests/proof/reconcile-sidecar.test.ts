@@ -142,15 +142,19 @@ test("reconcileSidecar: marks pending suggestions stale when ref no longer in ne
 		fingerprint,
 	});
 
-	// Orphaned anchors are handled per type: suggestions latch stale (their review
-	// flow gives them a path back), comments are cancelled outright.
+	// Orphaned anchors are handled per type, and neither is destroyed.
+	//
+	// A suggestion latches stale (its review flow gives it a path back). A comment
+	// is marked lost and KEPT, following Google Docs: a comment is something the
+	// user wrote, so it must not disappear as a side effect of someone else's save.
+	// It paints no highlight and leaves the pending set, but its card stays.
 	const staleSuggestion = sidecar.suggestions.find((s) => s.id === "s0001");
 	assert.equal(staleSuggestion?.stale, true, "suggestion with orphaned ref should be stale");
 
-	const cancelledComment = sidecar.comments.find((c) => c.id === "c0001");
-	assert.equal(cancelledComment?.resolved, true, "orphaned comment is cancelled");
-	assert.equal(cancelledComment?.cancelReason, "anchor-lost", "with a recorded reason");
-	assert.notEqual(cancelledComment?.stale, true, "not parked as stale");
+	const lostComment = sidecar.comments.find((c) => c.id === "c0001");
+	assert.equal(lostComment?.anchorStatus, "lost", "orphaned comment is marked lost");
+	assert.notEqual(lostComment?.resolved, true, "a lost comment is not resolved");
+	assert.equal(lostComment?.cancelledAt, undefined, "and it is not cancelled");
 });
 
 test("reconcileSidecar: does NOT mark resolved comments or non-pending suggestions stale", async () => {

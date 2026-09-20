@@ -34,6 +34,8 @@ export type PromptComment = {
 	lineAnchor?: Comment["lineAnchor"];
 	id?: Comment["id"];
 	resolved?: boolean;
+	/** `"lost"` excludes the comment: its text is gone, so no snippet is honest. */
+	anchorStatus?: Comment["anchorStatus"];
 	kind?: Comment["kind"];
 	instructionState?: Comment["instructionState"];
 	fromCommentId?: Comment["fromCommentId"];
@@ -167,6 +169,13 @@ export function mapAnnotationsToPromptItems(
 		.filter(
 			(comment) =>
 				comment.resolved !== true &&
+				// A comment whose anchor is lost is kept on the record and shown as
+				// detached, but it is NOT actionable: its text is gone, so any snippet
+				// we attached would be a guess, and an agent would be handed an
+				// instruction about a sentence that no longer exists. Cancellation used
+				// to be what excluded these; now that they are kept, the exclusion has
+				// to be explicit.
+				comment.anchorStatus !== "lost" &&
 				!(comment.kind !== "instruction" &&
 					comment.id !== undefined &&
 					escalatedToDraft.has(comment.id)) &&

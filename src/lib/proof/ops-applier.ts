@@ -156,7 +156,7 @@ export function reconcileRefsAndCancelOrphans(sidecar: Sidecar, content: string)
 	sidecar.refMap = newRefMap;
 	// Keep the previous generation of aliases alongside the new one, as applyOps does.
 	sidecar.refAliases = { ...sidecar.refAliases, ...refAliases };
-	markOrphanedRefsStale(sidecar, newRefMap);
+	markOrphanedRefsStale(sidecar, newRefMap, blocks);
 }
 
 /**
@@ -225,27 +225,93 @@ function refuseStaleSuggestion(
 	};
 }
 
-function markOrphanedRefsStale(sidecar: Sidecar, newRefMap: Record<string, unknown>): void {
+function markOrphanedRefsStale(
+	sidecar: Sidecar,
+	newRefMap: Record<string, unknown>,
+	blocks: Block[] = [],
+): void {
 	const validRefs = new Set(Object.keys(newRefMap));
+
+	/**
+	 * Whether this record's reference disappearing should actually orphan it.
+	 *
+	 * Two identity systems meet here and the order between them is the whole point.
+	 * A record that carries an `anchorId` has a durable identity: its anchor is
+	 * what decides, and a ref it no longer recognises means nothing on its own —
+	 * refs are content hashes, so they change on every edit inside the block. Only
+	 * a record with no anchor at all still falls back to the alias guess, which is
+	 * the mechanism the anchor record exists to retire.
+	 *
+	 * `blocks` empty means the caller had no document to resolve against (the read
+	 * path migrates before it gets here, so this is the leftover case). Then a
+	 * missing ref is all the evidence available and the old behaviour stands.
+	 */
+	// `ref` is optional on a comment (it is a legacy-v1 field), so an unanchored
+	// comment with no ref at all has nothing to lose and is never orphaned here.
+	const isOrphaned = (record: { ref?: string; anchorId?: string }): boolean => {
+		if (validRefs.has(record.ref ?? "")) return false;
+
+		// An anchored record is judged by its anchor, and only its anchor.
+		//
+		// A ref is a content hash, so it changes on ANY edit inside the block — which
+		// is why cancelling on ref loss alone was wrong: it destroyed annotations for
+		// edits that left their text untouched. The resolver already answers the real
+		// question for both anchor kinds: a range anchor searches for its quote, and a
+		// block anchor follows its slot (the whole block IS the annotation, so its
+		// slot surviving is its survival — anchor-resolution.test.ts pins that).
+		//
+		// Only "lost" orphans anything. "moved" and "ambiguous" both mean the text was
+		// found, so the annotation stays and the resolver's offsets are used instead.
+		if (record.anchorId && blocks.length > 0) {
+			const anchor = sidecar.anchors?.[record.anchorId];
+			if (anchor) return resolveAnchor(sidecar, anchor, blocks).status === "lost";
+		}
+
+		// No anchor, or nothing to resolve against: the legacy ref-and-alias guess is
+		// all the evidence there is. This is the path the anchor record replaces.
+		if (!record.ref) return false;
+		return !survivesViaAlias(sidecar, record.ref, validRefs);
+	};
+
 	for (const s of sidecar.suggestions) {
-		if (s.status === "pending" && !validRefs.has(s.ref) && !survivesViaAlias(sidecar, s.ref, validRefs)) {
+		if (s.status !== "pending") continue;
+
+		// A suggestion is also judged against the text it proposed to change, which
+		// `baseMarkdown` records. The anchor alone is not enough here: a suggestion
+		// added without a range gets a BLOCK anchor, and a block anchor follows its
+		// slot, so rewriting the paragraph reports "moved" and the suggestion would
+		// stay applicable to text it was never written against. Applying it would
+		// then overwrite the rewrite with a merge base that no longer exists.
+		if (s.baseMarkdown && blocks.length > 0) {
+			const base = blocks.find((b) => b.ref === s.ref);
+			// Ref gone, or the block no longer contains the text this was written
+			// against — either way the proposal cannot be applied as stated.
+			if (!base || !base.markdown.includes(s.baseMarkdown)) {
+				s.stale = true;
+				continue;
+			}
+		}
+		if (s.stale) continue;
+		if (isOrphaned(s)) {
 			s.stale = true;
 		}
 	}
-	// Comments whose text is gone are CANCELLED, not parked in a stale queue.
+	// A comment whose text is gone is MARKED LOST, not destroyed.
 	//
-	// The earlier design latched `stale = true` and expected a recovery UI to
-	// offer re-anchoring. That UI was never built and the user does not want it:
-	// an annotation whose text no longer exists has nothing to point at, so the
-	// honest outcome is for it to go away. Marking it resolved (with the reason
-	// recorded) also keeps it out of the margin column and out of the pending
-	// set that Copy-as-prompt reads, so a deleted sentence cannot leak a phantom
-	// instruction into an agent's prompt.
+	// This follows Google Docs, which is the standard this feature is built to: a
+	// comment is never silently dropped when its anchor goes away, it is kept and
+	// shown as detached. Two earlier designs were both wrong here. Latching
+	// `stale = true` and waiting for a re-anchor UI parked it forever, because that
+	// UI was never built. Cancelling it removed something the user wrote as a side
+	// effect of somebody else's save, which is unrecoverable and, in a review tool,
+	// the worst of the three.
+	//
+	// Marking it lost also keeps it out of the pending set Copy-as-prompt reads, so
+	// a deleted sentence cannot leak a phantom instruction into an agent's prompt,
+	// while the card stays in the margin for the human.
 	for (const c of sidecar.comments) {
-		if (!c.resolved && c.ref && !validRefs.has(c.ref) && !survivesViaAlias(sidecar, c.ref, validRefs)) {
-			c.resolved = true;
-			c.cancelledAt = new Date().toISOString();
-			c.cancelReason = "anchor-lost";
+		if (!c.resolved && isOrphaned(c)) {
+			c.anchorStatus = "lost";
 			c.stale = false;
 		}
 	}
@@ -335,7 +401,7 @@ export async function reconcileSidecar(args: {
 	sidecar.revision += 1;
 	sidecar.updatedAt = nowIso();
 	sidecar.fingerprint = fingerprint;
-	markOrphanedRefsStale(sidecar, newRefMap);
+	markOrphanedRefsStale(sidecar, newRefMap, blocks);
 	const eventPayload: Omit<ProofEvent, "id"> & Record<string, unknown> = {
 		type: eventType,
 		at: nowIso(),

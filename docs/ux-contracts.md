@@ -58,7 +58,7 @@ down turns "did we regress the loop?" into a diff against this file.
 - [5. Comments](#5-comments)
   - [5.1 Comment pips and thread](#51-comment-pips-and-thread)
   - [5.2 View-mode and source-line comments](#52-view-mode-and-source-line-comments)
-  - [5.3 Orphaned annotations (stale anchors)](#53-orphaned-annotations-stale-anchors)
+  - [5.3 Orphaned annotations (marked lost, never destroyed)](#53-orphaned-annotations-marked-lost-never-destroyed)
 - [6. Suggestions](#6-suggestions)
   - [6.1 Suggest-edit popover](#61-suggest-edit-popover)
   - [6.2 Suggestion inline redline + review popover](#62-suggestion-inline-redline--review-popover)
@@ -1034,23 +1034,35 @@ orphaned anchor *recoverable* rather than permanently lost.
 **Verification pointer:** `src/components/editor/view-mode-comment-button.tsx`,
 `src/components/editor/source-viewer.tsx`, `src/tests/proof/mode-affordance.test.ts`
 
-### 5.3 Orphaned annotations (cancelled, not recovered)
+### 5.3 Orphaned annotations (marked lost, never destroyed)
 
 **Contract:** When a file is edited outside the block-op path, an annotation's
-block ref may disappear. A comment whose anchor is gone is **cancelled**: it is
-marked resolved with `cancelReason: "anchor-lost"` and a `cancelledAt` timestamp,
-and it leaves the UI. It is not parked in a recovery queue, and no re-anchor
+block ref may disappear. A comment whose anchor is gone is **marked lost**: it
+gets `anchorStatus: "lost"` and stays on the record. Its card remains in the
+margin, labelled as detached; it paints no highlight and contributes nothing to
+`Copy-as-prompt`. It is not resolved and not cancelled, and no re-anchor
 affordance is offered.
 
-This reverses the earlier `stale`-plus-recovery design, deliberately. A recovery
-UI was specified but never built, and the decision is that an annotation whose
-text no longer exists has nothing to point at. Cancelling is also the safer
-default: an orphaned comment left unresolved still counts as pending and feeds
-`Copy-as-prompt`, so a deleted sentence could put a phantom instruction in front
-of an agent. Resolving it removes it from that path.
+This follows Google Docs, which is the standard this feature is built to: a
+comment is never silently dropped when its anchor goes away, it is kept and shown
+as detached. Two earlier designs are rejected. Latching `stale = true` parked the
+comment forever waiting on a re-anchor UI that was specified but never built.
+Cancelling it removed something the user wrote as a side effect of somebody else's
+save, which is unrecoverable and the worst option in a review tool.
 
-- The previous one-way `stale` latch is gone; it had no reset site for block-ref
-  comments and no surface anywhere in the UI.
+The safety property the cancellation was introduced for still holds, and is now
+enforced directly rather than as a side effect: `mapAnnotationsToPromptItems`
+excludes a comment whose `anchorStatus` is `"lost"`, so a deleted sentence cannot
+put a phantom instruction in front of an agent.
+
+A comment whose anchor resolves to `moved` or `ambiguous` is NOT lost — the text
+was found, so the annotation stays and the resolver's offsets are used. A
+block-granular comment (added with no selection) annotates its paragraph as a
+whole, so rewriting that paragraph's text keeps it attached; only losing its slot
+orphans it.
+
+- The previous one-way `stale` latch is gone for comments; it had no reset site
+  and no surface anywhere in the UI.
 - Suggestions keep `stale: true`, and no mutation may act on one. The review flow
   was previously described here as "a path back", which was wrong: nothing clears
   the flag, so there is no path back. What the flag actually does is latch, and
@@ -1061,13 +1073,15 @@ of an agent. Resolving it removes it from that path.
   suggestion with `409 SUGGESTION_STALE`, keyed on the recorded state rather than on
   whether the ref currently resolves. Reviving a stale suggestion needs an explicit,
   validated transition, which does not exist and is not implied by any current op.
-- The record survives in the sidecar with its reason, so an audit can still
-  explain why a comment disappeared even though the UI no longer shows it.
-- A cancelled comment renders no card, no pip and no highlight.
+- The record survives in the sidecar with its status, so nothing the user wrote
+  depends on somebody else's save to remain readable.
+- A lost comment renders a card but no pip and no highlight.
 
-**Why it matters:** Before this, an external edit made a comment vanish with no
-signal and no recovery path. Now it vanishes *by design*, with the reason
-recorded and no risk of a stale instruction reaching an agent.
+**Why it matters:** An external edit used to make a comment vanish with no signal,
+and the fix for that removed it *by design* — which is still losing the user's
+words. Keeping the card is honest about what happened and reversible by the human,
+and the prompt-exclusion rule is now written down and tested instead of being an
+emergent consequence of destruction.
 
 **Verification pointer:** `src/lib/proof/ops-applier.ts` (`markOrphanedRefsStale`),
 `src/tests/proof/comment-cancellation.test.ts`,

@@ -35,7 +35,7 @@ async function writeDoc(name: string, content: string): Promise<void> {
 	await writeFile(path.join(tmpRoot, name), content, "utf-8");
 }
 
-test("repro-stale-latch: an external edit orphans a block comment and cancels it", async () => {
+test("repro-stale-latch: an external edit does not destroy a block comment", async () => {
 	const mdPath = "latch.md";
 	await writeDoc(mdPath, "# Title\n\nThe quick brown fox jumps.\n\nSecond paragraph here.\n");
 
@@ -73,28 +73,73 @@ test("repro-stale-latch: an external edit orphans a block comment and cancels it
 	const latched = sidecarAfter.comments.find((c) => c.id === comment.id);
 	assert.ok(latched, "the comment record still exists in the sidecar");
 
+	// This comment was added with no selection, so it is BLOCK-granular: it annotates
+	// the second paragraph as a whole, not a span of words inside it. Rewriting that
+	// paragraph's text therefore does not orphan it — the paragraph is still there
+	// and the comment still belongs to it. `anchor-e2e.test.ts` pins the same
+	// contract from the other direction: a block comment follows its block across a
+	// rewrite.
+	//
+	// What the old code did here was worse than wrong, it was destructive: the ref
+	// died with the content hash, so the comment was CANCELLED — something the user
+	// wrote, deleted because somebody saved the file elsewhere. Two rejected designs
+	// are worth naming. Latching `stale = true` parked it forever waiting on a
+	// re-anchor UI nobody built. Cancelling dropped it unrecoverably. Following
+	// Google Docs, the card stays.
 	assert.notEqual(
 		latched.stale,
 		true,
-		"the one-way stale latch is gone; cancellation replaces it",
+		"the one-way stale latch is gone",
 	);
-	assert.equal(latched.resolved, true, "the orphaned comment is cancelled");
-	assert.equal(latched.cancelReason, "anchor-lost", "with a recorded reason");
-	assert.ok(latched.cancelledAt, "and a timestamp");
+	assert.notEqual(latched.resolved, true, "a surviving comment is not resolved");
+	assert.equal(latched.cancelledAt, undefined, "and it is never cancelled");
+	assert.equal(latched.cancelReason, undefined, "so it carries no cancel reason");
 
-	// Cancelled comments are resolved, so they leave the margin column and are not
-	// counted as pending work for an agent.
-	const stillPending = afterEdit.comments.filter((c) => !c.resolved);
-	assert.equal(
-		stillPending.length,
-		0,
-		"a cancelled comment is not pending agent work",
-	);
+	const visible = sidecarAfter.comments.filter((c) => !c.cancelledAt);
+	assert.equal(visible.length, 1, "the comment keeps its card rather than vanishing");
+});
 
-	// The record survives with its reason recorded, so an audit can still explain
-	// why a comment went away even though the UI no longer shows it.
-	const cancelled = sidecarAfter.comments.filter((c) => c.cancelReason === "anchor-lost");
-	assert.equal(cancelled.length, 1, "the cancellation is recorded, not just deleted");
+test("repro-stale-latch: a comment on a deleted SELECTION is marked lost, not destroyed", async () => {
+	// The genuine orphan case the block-granular test above does not cover: a comment
+	// on a span of words, when those words are deleted. Its anchor has a real quote,
+	// so the resolver searches for it and reports `lost` when it is truly gone.
+	const mdPath = "lost-selection.md";
+	await writeDoc(mdPath, "# Title\n\nThe quick brown fox jumps.\n");
+
+	const snap = await readSnapshot(tmpRoot, mdPath);
+	assert.ok(snap);
+	const block = snap.blocks[1];
+
+	await applyOps({
+		rootDir: tmpRoot,
+		mdPath,
+		baseRevision: snap.revision,
+		by: "human",
+		ops: [
+			{
+				type: "comment.add",
+				ref: block.ref,
+				text: "about the fox",
+				textAnchor: { start: 16, end: 19, selectedText: "fox" },
+			} as never,
+		],
+	});
+
+	const after = await readSidecar(tmpRoot, mdPath);
+	const comment = after!.comments[0];
+	assert.ok(comment, "comment created");
+	assert.ok(comment.anchorId, "a selection comment carries an anchor");
+
+	// Delete the commented words entirely.
+	await writeDoc(mdPath, "# Title\n\nThe quick brown cat jumps.\n");
+	await readSnapshot(tmpRoot, mdPath);
+
+	const later = await readSidecar(tmpRoot, mdPath);
+	const lost = later!.comments.find((c) => c.id === comment.id);
+	assert.ok(lost, "the comment is still on the record");
+	assert.equal(lost!.anchorStatus, "lost", "its quote is gone, so it is marked lost");
+	assert.notEqual(lost!.resolved, true, "but it is not resolved");
+	assert.equal(lost!.cancelledAt, undefined, "and not cancelled");
 });
 
 test("repro-stale-latch: CONTROL — appending unrelated content does not orphan a comment", async () => {

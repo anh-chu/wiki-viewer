@@ -1,6 +1,19 @@
 # Durable anchors: stop deriving annotation identity from content
 
-Status: proposed
+Status: implemented on `feat/comments-rebuild`; not merged to `main`.
+
+The resolver, the sidecar migration and the read/write integration are in place and
+covered by `anchor-resolution`, `anchor-e2e`, `migration-reachability` and
+`save-cancels-orphans`. Two policies here were revised while implementing, and the
+revisions are what the code does now:
+
+- A lost comment is **marked lost and kept**, not dropped. See `docs/ux-contracts.md`
+  §5.3 for the reasoning and the prompt-exclusion rule.
+- A suggestion is judged against the text it proposed to change (`baseMarkdown`), not
+  against its anchor alone. A suggestion added without a range gets a block anchor,
+  and a block anchor follows its slot, so a rewritten paragraph would otherwise leave
+  the suggestion applicable to text it was never written against.
+
 Branch: `feat/comments-rebuild`
 Supersedes: nothing. Fixes forward from `4b6aa2a`.
 

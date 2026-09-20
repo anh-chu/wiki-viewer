@@ -586,6 +586,10 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 				// for the anchor again.
 				.map(([blockRef, list]) => ({
 					blockRef,
+					// Cancelled only. A comment whose anchor is lost keeps its card
+					// deliberately (Google Docs keeps it; nothing the user wrote should
+					// vanish because a file was saved elsewhere). It is shown as detached
+					// and it paints no highlight.
 					comments: list.filter((c) => !c.cancelledAt),
 				}))
 				.filter((t) => t.comments.length > 0),

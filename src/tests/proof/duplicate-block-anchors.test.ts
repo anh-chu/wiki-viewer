@@ -41,6 +41,9 @@ const cancelReason = (sc: { comments: unknown[] }) =>
 	(sc.comments[0] as { cancelReason?: string }).cancelReason;
 const resolved = (sc: { comments: unknown[] }) =>
 	(sc.comments[0] as { resolved: boolean }).resolved;
+/** The live discriminator: a comment is orphaned when it is MARKED lost. */
+const lost = (sc: { comments: unknown[] }) =>
+	(sc.comments[0] as { anchorStatus?: string }).anchorStatus === "lost";
 
 describe("duplicate blocks do not orphan each other", () => {
 	test("two identical paragraphs get distinct refs", () => {
@@ -65,22 +68,22 @@ describe("duplicate blocks do not orphan each other", () => {
 	test("deleting the first of THREE duplicates keeps the comment on the third", () => {
 		const { sc } = anchored("Same.\n\nSame.\n\nSame.\n\nOther.\n", 2);
 		reconcileRefsAndCancelOrphans(sc, "Same.\n\nSame.\n\nOther.\n");
-		assert.equal(resolved(sc), false);
+		assert.equal(lost(sc), false);
 	});
 
 	test("adding a duplicate does not disturb an existing anchor", () => {
 		const { sc } = anchored("Same.\n\nSame.\n\nOther.\n", 1);
 		reconcileRefsAndCancelOrphans(sc, "Same.\n\nSame.\n\nSame.\n\nOther.\n");
-		assert.equal(resolved(sc), false);
+		assert.equal(lost(sc), false);
 	});
 
-	test("CONTROL: genuinely deleted text IS still cancelled", () => {
+	test("CONTROL: genuinely deleted text IS still marked lost", () => {
 		// The fix must not blunt orphan detection — that defect is the reason this
 		// function exists at all, and three margin cards once pointed at nothing.
 		const { sc } = anchored("Kept.\n\nGone.\n", 1);
 		reconcileRefsAndCancelOrphans(sc, "Kept.\n");
-		assert.equal(resolved(sc), true, "its text is gone, so it is cancelled");
-		assert.equal(cancelReason(sc), "anchor-lost");
+		assert.equal(lost(sc), true, "its text is gone, so it is marked lost");
+		assert.equal(resolved(sc), false, "and it is kept rather than resolved away");
 	});
 
 	test("CONTROL: the two outcomes differ only by whether the text survives", () => {
@@ -89,7 +92,7 @@ describe("duplicate blocks do not orphan each other", () => {
 		reconcileRefsAndCancelOrphans(deleted.sc, "Same.\n\nOther.\n");
 		const duplicated = anchored("Same.\n\nSame.\n\nOther.\n", 1);
 		reconcileRefsAndCancelOrphans(duplicated.sc, "Same.\n\nOther.\n\nSame.\n");
-		assert.equal(resolved(deleted.sc), false, "same text still present");
-		assert.equal(resolved(duplicated.sc), false, "same text still present");
+		assert.equal(lost(deleted.sc), false, "same text still present");
+		assert.equal(lost(duplicated.sc), false, "same text still present");
 	});
 });
