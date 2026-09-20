@@ -1511,6 +1511,10 @@ sign-in UX contract; the rate limits are the brute-force boundary.
 
 **Contract:** Middleware redirects unauthenticated `/` visits to
 `/signin?next=…` (passthrough: `/signin`, `/api/`, `/s/`, `/_next`, icons).
+The middleware only checks session-cookie *presence*, so a stale/expired cookie
+still boots the workbench; the bootstrap fetch (`useWorkspaces` →
+`/api/system/workspaces`) answers `401` and the client bounces to
+`/signin?next=<current url>`, returning there after a successful sign-in.
 `WIKI_LITE=1` returns 404 for `/api/system/`, `/api/agent(s)`, `/api/share`,
 `/api/owner`, `/api/auth`, `/api/pdf`, `/signin`, `/s/`. `WIKI_NO_AUTH=1`
 bypasses auth. All state-changing `/api/wiki/*` and `/api/system/*` routes check

@@ -77,6 +77,16 @@ export function useWorkspaces() {
 		}
 		try {
 			const res = await fetch(apiUrl("/api/system/workspaces"));
+			// Stale/expired session cookie: the middleware only checks cookie
+			// presence, so the page boots and this first gated fetch surfaces the
+			// 401. Bounce to sign-in; it honors ?next= to return here after auth.
+			if (res.status === 401) {
+				const next = encodeURIComponent(
+					window.location.pathname + window.location.search,
+				);
+				window.location.href = apiUrl(`/signin?next=${next}`);
+				return;
+			}
 			if (!res.ok) throw new Error("Failed");
 			const d: {
 				workspaces: WorkspaceSummary[];
