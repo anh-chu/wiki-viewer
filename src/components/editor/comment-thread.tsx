@@ -107,8 +107,18 @@ export function CommentThread({ path, anchorKey, anchorLabel, anchorRef, lineAnc
 
 	const openComments = comments.filter((c) => !c.resolved);
 	const hasOpen = openComments.length > 0;
+	// A thread opened FOR A NEW SELECTION is a composer, not a reader.
+	//
+	// `textAnchor` is passed only when the reader selected text and asked to comment on
+	// it, so it marks a deliberate "add a comment here" intent. Adopting the block's
+	// first existing comment in that case was wrong in a way that looked like a
+	// different bug: clicking Add comment on an already-commented block opened THAT
+	// comment's thread — Edit / Delete / Resolve — and `handleSend` then routed the new
+	// text to `comment.reply`, so the selection was silently thrown away and a second
+	// comment could never be added to a block that already had one.
+	const composing = textAnchor !== undefined && hasOpen;
 	// Use first open comment for reply/resolve; fall back to any comment
-	const activeComment = openComments[0] ?? comments[0] ?? null;
+	const activeComment = composing ? null : (openComments[0] ?? comments[0] ?? null);
 
 	useEffect(() => {
 		if (!anchorEl) {

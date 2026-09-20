@@ -965,6 +965,15 @@ file revision. Anchoring by identity is what makes three comments on three block
 render three correctly-placed pips even when a loose list or table expands one
 mdast block into several DOM nodes.
 
+**Commenting on text always adds a NEW comment, even when the block already has one.**
+The composer derives its target from the block's comments, so a thread opened *for a
+selection* must override that with a null target — otherwise it adopts the block's first
+existing comment, renders its Edit/Delete/Resolve row, and routes the typed text to
+`comment.reply`. The failure is quiet and convincing: the composer appears, accepts text,
+and reports success, while the comment the reader asked for is never created and the
+selection is discarded. `textAnchor` is the signal that the reader deliberately asked to
+comment on a selection, and it is what forces the new-comment path.
+
 **Verification pointer:** `src/components/editor/comment-margin.tsx`,
 `src/components/editor/extensions/comment-highlight.ts`,
 `src/components/editor/comment-thread.tsx`,
