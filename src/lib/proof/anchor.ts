@@ -276,6 +276,24 @@ export function resolveAnchor(
 				status: ambiguous ? "ambiguous" : "moved",
 			};
 		}
+
+		// 2b. The block is still here under its own ref, but the quoted span is not
+		//    verbatim inside it. Report the BLOCK and say the span is not certain.
+		//
+		//    Returning `lost` here was wrong and destructive. The callers that accept
+		//    a ranged suggestion resolve the anchor only to find the block, then
+		//    three-way merge `baseMarkdown` against the block's current text. An
+		//    edit ELSEWHERE in the same block changes the text without disturbing the
+		//    quoted span at all, so the quote stops matching while the anchor is
+		//    perfectly good — the whole point of the merge is to reconcile exactly
+		//    that case. Reporting `lost` made the lookup return -1, the merge was
+		//    skipped, and the concurrent edit was silently overwritten.
+		//
+		//    `offset`/`length` are deliberately 0 here: no position was found, and
+		//    the spec forbids inventing one. Callers that need a span for painting
+		//    treat `ambiguous` as "re-search within the block", which is what the
+		//    highlight already does.
+		return { ref: own.ref, offset: 0, length: 0, status: "ambiguous" };
 	}
 
 	// 3. The block is gone; look in whatever took its slot.
@@ -290,6 +308,32 @@ export function resolveAnchor(
 				length: anchor.length,
 				status: ambiguous ? "ambiguous" : "moved",
 			};
+		}
+
+		// 3b. The slot is occupied by a block whose text has CHANGED, so the quote no
+		//     longer matches — and that is exactly the case the merge exists for.
+		//
+		//     An edit anywhere in a block rewrites its text and therefore its content
+		//     hash, so the block comes back under a NEW ref while the span the anchor
+		//     quotes may be untouched. Reporting `lost` made `findBlockIndex` return -1,
+		//     the caller skipped `mergeBlock`, and the concurrent edit was silently
+		//     overwritten — a data-loss bug, not a missing feature.
+		//
+		//     Reporting the block is right for the same reason the block-granular branch
+		//     above follows its slot: the anchor's identity is the slot it occupies, and
+		//     `prevRefOrder` is how that slot survives a rehash. `ambiguous` (not `moved`)
+		//     because the exact span was NOT located — offset and length stay 0 rather
+		//     than becoming a guess, per the spec's rule that a wrong range is worse than
+		//     a visible loss.
+		//
+		//     Gated on `prevRefOrder` being present, and that gate is load-bearing.
+		//     Without it `successorFor` falls back to the CURRENT refMap key order, which
+		//     after a delete-and-replace names whatever now sits at that index — a
+		//     stranger. Attaching an annotation to unrelated text is worse than losing
+		//     it, so the slot is only followed when a reparse actually recorded a
+		//     previous ordering; otherwise this stays `lost`.
+		if (sidecar.prevRefOrder) {
+			return { ref: successor.ref, offset: 0, length: 0, status: "ambiguous" };
 		}
 	}
 

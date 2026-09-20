@@ -137,6 +137,11 @@ function opMarkdownToBlocks(
  * with no highlight anywhere in the document, because the save that removed their text
  * never reconciled.
  */
+/** True when two ref orderings differ in any position. */
+function refOrderChanged(before: string[], after: string[]): boolean {
+	return before.length !== after.length || before.some((ref, i) => ref !== after[i]);
+}
+
 export function reconcileRefsAndCancelOrphans(sidecar: Sidecar, content: string): void {
 	const nodes = parseBlocks(content);
 
@@ -153,6 +158,12 @@ export function reconcileRefsAndCancelOrphans(sidecar: Sidecar, content: string)
 	// ordering — what lets an edited block be matched to the ref it used to hold.
 	const { refAliases } = computeRefDelta(sidecar.refMap, oldHashToRef, blocks);
 
+	// Capture that ordering BEFORE overwriting `refMap`, exactly as `applyOps` does.
+	// Without this the previous ordering is destroyed here, `successorFor` cannot
+	// find the slot an anchor's ref came from, and every anchor on a rewritten block
+	// resolves to `lost` — which the accept path reads as "no block", skips its
+	// three-way merge, and silently overwrites the concurrent edit.
+	sidecar.prevRefOrder = Object.keys(sidecar.refMap);
 	sidecar.refMap = newRefMap;
 	// Keep the previous generation of aliases alongside the new one, as applyOps does.
 	sidecar.refAliases = { ...sidecar.refAliases, ...refAliases };
@@ -779,7 +790,18 @@ export async function applyOps(args: {
 		// Keep the ordering this reparse is about to destroy. An anchor still names a ref
 		// from that ordering, and resolution needs it to find the block that took the
 		// slot — otherwise a rewritten block's anchors have nothing to search.
-		sidecar.prevRefOrder = Object.keys(sidecar.refMap);
+		//
+		// Preserve any ordering already recorded. A no-op reparse (an annotation-only op
+		// such as `suggestion.accept`) reproduces the refs already in `refMap`, so
+		// recording them here would overwrite the genuinely previous ordering with the
+		// current one. The anchor's ref then matches neither, `successorFor` finds no
+		// slot, and the anchor resolves to `lost` — which the accept path reads as "no
+		// block", skips its three-way merge, and writes its own text over the
+		// concurrent edit. Only record when the refs genuinely move.
+		const beforeReparse = Object.keys(sidecar.refMap);
+		if (refOrderChanged(beforeReparse, Object.keys(newRefMap))) {
+			sidecar.prevRefOrder = beforeReparse;
+		}
 		sidecar.refMap = newRefMap;
 
 		// Revision check
@@ -1542,6 +1564,16 @@ export async function applyOps(args: {
 		if (contentChanged) workingSidecar.revision += 1;
 		workingSidecar.updatedAt = nowIso();
 		workingSidecar.fingerprint = newFingerprint;
+		// When this op rewrote block text, the refs move and an anchor still names the
+		// one its block held BEFORE the edit. Record that pre-edit ordering so
+		// `successorFor` can find the slot — but only when the refs actually changed,
+		// because an annotation-only op must leave the recorded ordering alone. It
+		// would otherwise overwrite the genuinely previous ordering with the current
+		// one, and the anchor's ref would match neither.
+		const before = Object.keys(workingSidecar.refMap);
+		if (refOrderChanged(before, Object.keys(finalRefMap))) {
+			workingSidecar.prevRefOrder = before;
+		}
 		workingSidecar.refMap = finalRefMap;
 		workingSidecar.refAliases = collectedAliases;
 
