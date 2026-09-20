@@ -141,7 +141,7 @@ test("reconcileSidecar: marks orphaned comments lost when ref no longer in new r
 	assert.equal(lostComment?.cancelledAt, undefined, "and it is not cancelled");
 });
 
-test("reconcileSidecar: does NOT mark resolved comments or non-pending suggestions stale", async () => {
+test("reconcileSidecar: does NOT mark resolved comments stale", async () => {
 	const mdPath = "not-stale.md";
 	const absPath = path.join(tmpRoot, mdPath);
 	const content = "# Head\n\nPara.\n";
