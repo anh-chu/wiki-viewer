@@ -569,22 +569,25 @@ export function ViewerPane({
 					{/* Show/hide the anchored comment cards. Sits in the TOP BAR, not the
 					    editor's toolbar row, because that row is `!isViewing` — the control
 					    did not exist in view mode, which is where comments are most often
-					    read. Labelled rather than icon-only: "show/hide the comment
-					    cards" is not something a bare bubble icon conveys, and this is the
-					    only control for it. Rendered only when the open document has
-					    comments, so it never advertises an empty column. */}
+					    read. Icon plus COUNT, matching the icon-only controls beside it; the
+					    tooltip and `aria-label` carry the verb, since a label here made one
+					    control shout while its neighbours stayed quiet. Rendered only when
+					    the open document has comments, so it never advertises an empty
+					    column. */}
 					{isMarkdown(openFile.name) && commentCount > 0 && (
 						<Button
 							size="sm"
 							variant="ghost"
-							className="h-7 gap-1 px-2 text-[11px]"
+							className="h-7 gap-1 px-2"
 							title={commentColumnCollapsed ? "Show comment cards" : "Hide comment cards"}
+							aria-label={commentColumnCollapsed ? "Show comment cards" : "Hide comment cards"}
 							aria-pressed={!commentColumnCollapsed}
 							onClick={toggleCommentColumn}
 						>
 							<MessageSquare className="h-3.5 w-3.5" />
-							{commentColumnCollapsed ? "Show comments" : "Hide comments"}
-							<span className="tabular-nums opacity-60">{commentCount}</span>
+							<span className="text-[11px] tabular-nums text-muted-foreground">
+								{commentCount}
+							</span>
 						</Button>
 					)}
 					{isText(openFile.name) && !editing &&

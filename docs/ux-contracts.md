@@ -1025,22 +1025,150 @@ simply unreachable.
 **Verification pointer:** `src/components/editor/annotations-panel.tsx`,
 `src/components/editor/comment-margin.tsx`, `src/components/editor/editor.tsx`
 
-**The margin must OVERLAY, never sit in the flex row.** The column is
-`absolute inset-y-0 right-0 w-[19rem]`, not a flex sibling with `shrink-0`.
+**The margin PUSHES the document; it must not overlay it.** The column is a `shrink-0`
+flex sibling with a `relative` root, not an `absolute inset-y-0` overlay.
 
-This is not cosmetic. A flex sibling subtracts its width from the document area,
-and the document area is then narrower than `--editor-max-w` (19rem + 60rem
-exceeds a typical viewport), so `margin-inline: auto` has no slack and the
-document silently pins to the left — the Center alignment setting appears broken
-while the code is untouched. Measured: a 1253px row minus a 304px column left
+**This reverses an earlier decision, and the reason matters.** The overlay existed for a
+measured failure: as a flex sibling the column subtracts from the document area, and with
+`--editor-max-w` at 60rem the remaining slack was too small for `margin-inline: auto` to
+centre with, so the document silently pinned left and the Center alignment setting looked
+broken while its code was untouched. Measured then: a 1253px row minus a 304px column left
 949px against a 960px max-width, giving `margin-left: 0px` instead of 146.6px.
-Overlaying keeps the row at full width, so both Center (equal margins) and Left
-(`margin-left: 0`) behave. The overlay root is
-`pointer-events-none` and only the cards are `pointer-events-auto`, so the
-document stays selectable in the gutter beside them.
+
+That measurement is correct, and it is also **not an argument for overlaying** — it is an
+argument for reserving the width honestly. Overlaying dodges the arithmetic by letting the
+document claim space the column is standing in, which is exactly how text ends up under a
+card.
+
+**The column therefore comes out of the ROW, never out of the width setting.** The column is
+a `shrink-0` sibling, and the document div is `flex-1`, so the document receives
+`row - column` and `margin-inline: auto` centres it within that. `--editor-max-w` keeps the
+user's narrow / normal / wide value untouched.
+
+**This distinction was got wrong once, and the width setting is what caught it.** A first
+attempt subtracted the column from the variable instead:
+
+```
+--editor-max-w: min(60rem, calc(100% - 19rem))   /* WRONG */
+```
+
+That caps the document at the leftover space, so any setting larger than the cap resolves to
+the same number. At a 1253px row, Normal (60rem) and Wide (90rem) BOTH produced 949px — Wide
+silently became Normal and the setting looked dead. Both models avoid overlap; only the
+correct one keeps the three settings meaningful.
+
+Where two settings do collide, the viewport genuinely cannot fit the larger document beside
+the column — at 1253px, a 90rem document plus a 19rem column does not fit, so Wide fills the
+space it has. That is honest degradation, not a dead control: the setting differs whenever
+there is room to honour it (all three are distinct from a 1920px row up).
+
+**The width has ONE definition.** `COMMENT_COLUMN_WIDTH_CSS` is exported from
+`comment-margin.tsx` and used for the column's own `width` style. The width was previously
+hardcoded as `w-[19rem]`; a second copy of that number is how a layout calculation drifts
+from the real width.
 
 **Verification pointer:** `src/components/editor/comment-margin.tsx`,
-`src/components/editor/editor.tsx` (`--editor-max-w` / `--editor-ml`)
+`src/components/editor/extensions/comment-highlight.ts`,
+`src/components/editor/comment-thread.tsx`,
+`src/components/editor/comment-pip.tsx`, `src/lib/proof/pip-alignment.ts`,
+`src/lib/proof/comment-decorator.ts`
+
+**Three surfaces, split by what each can actually show.**
+
+| Surface | Shows | Reached from |
+| --- | --- | --- |
+| Anchored comment column | Comments only, one card per commented block, aligned to its text | Header comment toggle |
+| Anchored redline in the text | Each pending suggestion, as `ins`/`del` marks | Always visible |
+| Annotations panel | **Everything**: every comment and every pending suggestion, with Approve/Reject | Header count button, top-right of the editor |
+
+**Suggestions belong to the panel, not the column.** The column's whole mechanism is
+ALIGNMENT — a card sits at its anchor's vertical offset so it reads beside the text it
+discusses. That is true of a comment, which annotates a block, and false of a
+suggestion, which is a mark over a few words *inside* one: a redline in paragraph 3 and
+one in paragraph 40 gave two cards whose position told the reader nothing, because both
+sat at their block's top edge. The panel instead lists each change with the words it
+covers, which is the information the anchored position was trying and failing to convey.
+The column therefore takes no suggestion props at all, so the two kinds cannot drift back
+together.
+
+**The column is toggled from the TOP BAR, not the editor.** The control lives in
+`viewer-pane`'s top bar, which is shared chrome rendering in BOTH editing and viewing. It
+carries a label (`Hide comments` / `Show comments`) and the comment count, and it renders
+only when the open document has comments.
+
+Three failed attempts are worth recording, because each was found by the user rather than
+by a test:
+
+1. An icon and a bare count, **disabled** when there were no comments. Disabled renders at
+   40% opacity, so the control looked inert in exactly the state a reader hunts for it in.
+   It is now hidden instead — off until a comment exists, so it cannot shift the toolbar
+   under the cursor.
+2. It sat in the **editor's own toolbar row**, which is `!isViewing`. The control therefore
+   did not exist in view mode at all — the mode comments are most often read in.
+3. It was then floated over the editor. It belongs in the top bar.
+
+**Visibility state is shared, in `comment-column-store`.** The top bar owns the control and
+the editor owns the document, so the store carries two fields with different writers:
+`count` is published by the editor (only it can see the comments) and `collapsed` is the
+reader's choice, written only by the top bar. They are separate so that a collapse survives
+a document with no comments, while a document that gains one still shows its column. The
+count is cleared when the editor unmounts, or the next document inherits a stale count and
+the top bar offers a toggle for comments that are not there.
+
+Jumping to a comment from the panel calls `expand` first. Without it the jump scrolls to
+the text and expands a card that is not on screen, so it appears to do nothing.
+
+**The panel stacks UNDER the outline in the same corner.** The outline's toggle is at
+`right-2 top-10`, so the panel's trigger sits at `top-20` below `xl` and rises to `top-10`
+only at `xl` and up, where the outline becomes a rail at `right-1 top-10` and leaves the
+corner free. Two controls at one position is not a stacking question — one of them is
+simply unreachable.
+
+**Verification pointer:** `src/components/editor/annotations-panel.tsx`,
+`src/components/editor/comment-margin.tsx`, `src/components/editor/editor.tsx`
+
+**The margin PUSHES the document; it must not overlay it.** The column is a `shrink-0`
+flex sibling with a `relative` root, not an `absolute inset-y-0` overlay.
+
+**This reverses an earlier decision, and the reason matters.** The overlay existed for a
+measured failure: as a flex sibling the column subtracts from the document area, and with
+`--editor-max-w` at 60rem the remaining slack was too small for `margin-inline: auto` to
+centre with, so the document silently pinned left and the Center alignment setting looked
+broken while its code was untouched. Measured then: a 1253px row minus a 304px column left
+949px against a 960px max-width, giving `margin-left: 0px` instead of 146.6px.
+
+That measurement is correct, and it is also **not an argument for overlaying** — it is an
+argument for reserving the width honestly. Overlaying dodges the arithmetic by letting the
+document claim space the column is standing in, which is exactly how text ends up under a
+card. The fix is to subtract the column's width from the document's max-width while the
+column is open:
+
+```
+--editor-max-w: min(60rem, calc(100% - 19rem))
+```
+
+The document is then sized against the space it actually has, and `auto` centres it within
+that. Both properties hold at once: nothing is covered, and Center still centres. The
+overlay could only ever have one of them.
+
+At the same 1253px row the document now gets 949px in a 949px area — it fills its space and
+centres with zero slack, which is correct behaviour rather than the old bug: a document
+narrower than its available space is what gets centred, and here it is not narrower.
+
+**The width has ONE definition.** `COMMENT_COLUMN_WIDTH_CSS` is exported from
+`comment-margin.tsx` and used for both the column's own `width` style and the editor's
+subtraction. The width was previously hardcoded as `w-[19rem]`; a second copy of that number
+in the editor is how the subtraction drifts from the real width and centring breaks again
+silently.
+
+**Closing the column restores the full width.** The reduction is gated on
+`showCommentMargin`, so hiding the column is not a permanent narrowing.
+
+**Verification pointer:** `src/components/editor/comment-margin.tsx`
+(`COMMENT_COLUMN_WIDTH_CSS`, the `aside` root), `src/components/editor/editor.tsx`
+(`editorMaxWWithMargin`, `--editor-max-w`), and
+`src/tests/proof/suggestion-margin-contract.test.ts` (the push-layout describe, which checks
+`column + document <= row` as arithmetic across row and width combinations).
 
 ### 5.2 View-mode and source-line comments
 

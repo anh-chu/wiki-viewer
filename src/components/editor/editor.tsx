@@ -29,7 +29,7 @@ import { useDocumentPresence } from "./hooks/use-document-presence";
 import { useDocumentWatch } from "./hooks/use-document-watch";
 import { CommentPip } from "./comment-pip";
 import { CommentThread } from "./comment-thread";
-import { CommentMargin } from "./comment-margin";
+import { COMMENT_COLUMN_WIDTH_CSS, CommentMargin } from "./comment-margin";
 import { postOp } from "@/lib/proof/post-op";
 import {
 	MODULE_MAP_LIMIT,
@@ -1213,6 +1213,28 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	const expandCommentColumn = useCommentColumnStore((state) => state.expand);
 	const showCommentMargin = marginThreads.length > 0 && !marginCollapsed;
 
+	/**
+	 * The reading column keeps its full width setting; the COMMENT COLUMN is additional
+	 * space beside it, not a deduction from it.
+	 *
+	 * The first version subtracted the column with `min(maxW, 100% - col)`, which BROKE
+	 * the width setting: the document was capped at the remaining space, so once the
+	 * setting exceeded that cap, Normal and Wide both resolved to the same number — at a
+	 * 1253px row, 60rem and 90rem both produced 949px. Wide silently became Normal and the
+	 * control looked dead.
+	 *
+	 * The width setting says how wide the TEXT should be. It must therefore survive the
+	 * column being open, which means the column has to come out of the row, not out of
+	 * `--editor-max-w`. The row is a flex container, so it already reserves the column:
+	 * the document div is `flex-1` and gets `row - column`. The one case that needs
+	 * handling is when that leftover is SMALLER than the setting — then the document is
+	 * capped by its space (`100%` of the flex item) and simply fills it, which is the
+	 * correct degradation: a 42rem "narrow" document cannot be 42rem inside a 30rem gap.
+	 *
+	 * So the variable is left alone, and centring is preserved by the same `auto` margins
+	 * as before — they now centre within the reduced flex area rather than the full row.
+	 */
+	const editorMaxWWithMargin = editorMaxW;
 	useEffect(() => {
 		setCommentCount(marginThreads.length);
 		// Reset to 0 when this editor unmounts, or the next document inherits a stale

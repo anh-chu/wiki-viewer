@@ -15,6 +15,18 @@
  * collision pass is what keeps two comments on adjacent lines from stacking on
  * top of each other — the failure mode a naive absolute layout always has.
  *
+ * LAYOUT: the column PUSHES the document, it does not overlay it. As a flex sibling
+ * with `shrink-0` it reserves its own width, so no card can cover text — the failure
+ * the overlay had, where a wide document ran under the cards.
+ *
+ * This was previously an absolute overlay, and the contract recorded why: a flex
+ * sibling subtracts from the document area, and with `--editor-max-w` at 60rem the
+ * remaining slack was too small for `margin-inline: auto` to centre, so the document
+ * silently pinned left. The fix is not to overlay but to RESERVE the width honestly:
+ * the editor subtracts the column's width from `--editor-max-w` when the column is
+ * open, so the document is sized against the space it actually has and `auto` centres
+ * it within that. See `editor.tsx` for the calculation.
+ *
  * COMMENTS ONLY. Suggestions used to share this column, which made the alignment
  * meaningless for them: a suggestion is a mark over a few words inside a block,
  * not an annotation on the block, so a redline in paragraph 3 and one in
@@ -48,6 +60,17 @@ interface Props {
 
 /** Minimum vertical gap between two cards, matching Docs' comfortable rhythm. */
 const CARD_GAP = 8;
+
+/**
+ * The column's width, in one place.
+ *
+ * The editor SUBTRACTS this from the document's max-width so the document is sized
+ * against the space it actually has and `margin-inline: auto` keeps centring it (see
+ * editor.tsx). Two hardcoded copies of "19rem" is how that centring silently breaks:
+ * change the class and the subtraction would keep the old number.
+ */
+export const COMMENT_COLUMN_WIDTH_REM = 19;
+export const COMMENT_COLUMN_WIDTH_CSS = `${COMMENT_COLUMN_WIDTH_REM}rem`;
 
 export function CommentMargin({
 	path,
@@ -90,8 +113,12 @@ export function CommentMargin({
 	if (laid.length === 0) return null;
 
 	return (
-		<div
-			className="pointer-events-none absolute inset-y-0 right-2 z-10 w-[19rem] overflow-hidden"
+		<aside
+			// `shrink-0` is what makes it push rather than be squeezed: the column keeps
+			// its width and the document takes what is left.
+			className="relative z-10 shrink-0 self-stretch overflow-hidden"
+			style={{ width: COMMENT_COLUMN_WIDTH_CSS }}
+			aria-label="Comments"
 			data-comment-margin
 		>
 			{laid.map(({ key, thread, top }) => {
@@ -100,10 +127,7 @@ export function CommentMargin({
 				<div
 					key={key}
 					data-margin-card={key}
-					// pointer-events-auto because the overlay root is transparent to
-					// clicks: only the cards should be interactive, so the document
-					// underneath stays selectable everywhere else.
-					className="pointer-events-auto absolute left-0 right-0"
+					className="absolute left-0 right-0 px-2"
 					style={{ top }}
 				>
 					{activeRef === thread.blockRef ? (
@@ -128,7 +152,7 @@ export function CommentMargin({
 				</div>
 				);
 			})}
-		</div>
+		</aside>
 	);
 }
 

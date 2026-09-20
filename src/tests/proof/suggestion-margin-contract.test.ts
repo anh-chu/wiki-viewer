@@ -301,14 +301,23 @@ describe("the comment column's toggle lives in the shared top bar", () => {
 		);
 	});
 
-	test("it carries a label and reports the column's real state", () => {
+	test("it is an icon plus count, with the verb in the tooltip", () => {
+		// The visible LABEL was removed on request: one button shouting "Hide comments"
+		// beside icon-only neighbours was visually wrong. The verb still has to exist for
+		// anyone not reading iconography, so it lives in `title` AND `aria-label` —
+		// `title` alone is not announced by screen readers.
 		const control = PANE.slice(
 			PANE.indexOf("{/* Show/hide the anchored comment cards."),
 			PANE.indexOf("{isText(openFile.name) && !editing"),
 		);
 		assert.ok(control.length > 0, "expected to find the control block");
-		assert.match(control, /Show comments/, "the label must say what it does");
-		assert.match(control, /Hide comments/);
+		assert.ok(
+			!/\{commentColumnCollapsed \? "Show comments"/.test(control),
+			"the visible label must be gone",
+		);
+		assert.match(control, /title=\{commentColumnCollapsed \? "Show comment cards"/);
+		assert.match(control, /aria-label=\{commentColumnCollapsed \? "Show comment cards"/);
+		assert.match(control, /\{commentCount\}/, "the count stays visible");
 		assert.match(control, /aria-pressed=\{!commentColumnCollapsed\}/);
 	});
 
@@ -325,5 +334,98 @@ describe("the comment column's toggle lives in the shared top bar", () => {
 			/return \(\) => setCommentCount\(0\)/,
 			"the count must be cleared when the editor unmounts",
 		);
+	});
+});
+
+describe("the column pushes the document instead of covering it", () => {
+	// Reverses an earlier decision. The column used to be an absolute overlay, for a
+	// measured reason: as a flex sibling it subtracts from the document area, and at
+	// 60rem the leftover slack was too small for `margin-inline: auto` to centre, so the
+	// document pinned left and Center looked broken.
+	//
+	// The user's requirement is no overlap, so the fix is to reserve the width HONESTLY:
+	// keep the sibling, and subtract the column's width from `--editor-max-w` so the
+	// document is sized against the space it actually has. Both properties now hold —
+	// nothing is covered, and `auto` still centres within the reduced area.
+	const MARGIN = readFileSync(
+		new URL("../../components/editor/comment-margin.tsx", import.meta.url),
+		"utf8",
+	);
+
+	test("the column is a shrink-0 sibling, not an absolute overlay", () => {
+		const root = MARGIN.slice(
+			MARGIN.indexOf("return ("),
+			MARGIN.indexOf("data-comment-margin"),
+		);
+		assert.match(root, /shrink-0/, "the column must reserve its width");
+		assert.match(root, /self-stretch/);
+		assert.ok(
+			!/absolute inset-y-0/.test(root),
+			"it must not be an inset overlay again — that is what covered the text",
+		);
+	});
+
+	test("the width setting is NOT reduced by the column", () => {
+		// A first attempt used `min(maxW, calc(100% - col))`, which BROKE the narrow /
+		// normal / wide setting: the document was capped at the leftover space, so once
+		// the setting exceeded that cap, Normal and Wide resolved to the same number (at a
+		// 1253px row both produced 949px). Wide silently became Normal.
+		//
+		// The setting says how wide the TEXT is, so it has to survive the column being
+		// open. The column comes out of the ROW (it is a flex sibling), not out of the
+		// variable.
+		assert.ok(
+			!/calc\(100% - \$\{COMMENT_COLUMN_WIDTH_CSS\}\)/.test(EDITOR),
+			"the width setting must not be reduced by the column's width",
+		);
+		assert.match(
+			EDITOR,
+			/\["--editor-max-w" as string\]: editorMaxW,/,
+			"the variable must carry the width setting unchanged",
+		);
+	});
+
+	test("all three width settings still select different widths", () => {
+		// The property the user asked about, as arithmetic. Text = min(setting, row - col).
+		// Where two settings collide the viewport genuinely cannot fit the larger one
+		// beside the column — honest degradation, not a dead control. What must never
+		// happen is a collision while there is room to honour the setting.
+		const COLUMN = 19 * 16;
+		const settings: Array<[string, number]> = [
+			["narrow", 42 * 16],
+			["normal", 60 * 16],
+			["wide", 90 * 16],
+		];
+		// Wide and normal must differ whenever the row can hold both plus the column.
+		const wideRow = 90 * 16 + COLUMN;
+		const atWideRow = settings.map(([, maxW]) => Math.min(maxW, wideRow - COLUMN));
+		assert.equal(
+			new Set(atWideRow).size,
+			3,
+			`at a ${wideRow}px row all three settings must be distinct, got ${atWideRow}`,
+		);
+		// Narrow must be distinct even on the tightest plausible desktop row.
+		const tightRow = 1280;
+		const atTight = settings.map(([, maxW]) => Math.min(maxW, tightRow - COLUMN));
+		assert.notEqual(atTight[0], atTight[1], "narrow must differ from normal");
+	});
+
+	test("the text is centred in the space the column leaves", () => {
+		// `ml/mr-auto` centres within the flex item, so the reading column is centred in
+		// `row - column` rather than in the full row (which would push it left, under the
+		// column). Asserted on the three text containers that carry the setting.
+		const containers = EDITOR.match(/max-w-\[var\(--editor-max-w/g) ?? [];
+		assert.ok(
+			containers.length >= 3,
+			`expected the text containers to use --editor-max-w, found ${containers.length}`,
+		);
+		for (const line of EDITOR.split("\n")) {
+			if (!line.includes("var(--editor-max-w")) continue;
+			assert.ok(
+				line.includes("ml-[var(--editor-ml"),
+				`a text container lost its alignment margin: ${line.trim()}`,
+			);
+			assert.ok(line.includes("mr-auto"), `a text container lost mr-auto: ${line.trim()}`);
+		}
 	});
 });
