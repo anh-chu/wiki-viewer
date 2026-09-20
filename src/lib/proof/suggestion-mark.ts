@@ -197,9 +197,27 @@ function scanTagSpans(markdown: string): TagSpan[] {
 		// inside the body looks safe (`<script>a>b</script>` at offset 9) and lands in
 		// code, where the tag is never parsed as a mark.
 		if (!closing && RAW_TEXT_ELEMENTS.has(name)) {
-			const closeRe = new RegExp(`</${name}\\s*>`, "i");
-			const close = closeRe.exec(markdown.slice(j));
-			const end = close ? j + close.index + close[0].length : markdown.length;
+			// The body is opaque: it can contain `>`, `</`, and a string literal holding
+			// a literal `</script>`. Taking the FIRST close tag is wrong for that last
+			// case - measured on `<script>const x = "</script>"; alert(1);</script>` the
+			// span ended at the string's `</script>`, so offset 31 spliced a mark into
+			// the body and the round-trip moved code around.
+			//
+			// The LAST close tag is the safe choice: it can only ever mark MORE of the
+			// block as untouchable, never less, so a splice inside the body is refused
+			// in every case. Over-refusing here costs a caller a retry; under-refusing
+			// corrupts the file.
+			//
+			// ponytail: a naively-found close tag still ends the span early if the body
+			// contains `</script` with no later real close. The ceiling is accepted
+			// rather than writing an HTML tokenizer; the failure is a refusal, not
+			// corruption, because the last-match rule widens the span.
+			const closeRe = new RegExp(`</${name}\\s*>`, "gi");
+			let end = markdown.length;
+			// Bounded: only values of `j` at or after the opening tag can match.
+			for (const match of markdown.slice(j).matchAll(closeRe)) {
+				end = j + (match.index ?? 0) + match[0].length;
+			}
 			spans.push({ start: i, end, name, closing: false });
 			i = end;
 			continue;
@@ -299,8 +317,12 @@ function rangeInsideMarkText(spans: readonly TagSpan[], start: number, end: numb
 function rangeTouchesTag(spans: readonly TagSpan[], start: number, end: number): TagSpan | null {
 	return (
 		spans.find((span) => {
-			// Overlap, with an empty range at `start` treated as a zero-width interval.
-			if (start === end) return start > span.start && start < span.end;
+			// An empty range is an insertion point, and it must be refused at BOTH edges
+			// of a span, not only strictly inside it. The closed-at-the-end case is not
+			// theoretical: an UNTERMINATED span runs to the end of the block, so
+			// inserting at the very end of `<?x a=">" no close` spliced into the
+			// instruction and the round-trip corrupted it.
+			if (start === end) return start >= span.start && start <= span.end;
 			return span.start < end && span.end > start;
 		}) ?? null
 	);

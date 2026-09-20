@@ -370,11 +370,51 @@ describe("an insertion point on a mark's own edge is refused", () => {
 		assert.equal(out.ok, false);
 	});
 
-	test("CONTROL: inserting beside a mark, outside its text, is allowed", () => {
-		// The ordinary workflow: a second suggestion next to the first.
-		for (const pos of [0, 2, 29, 31]) {
+	test("CONTROL: inserting beside a mark, clear of its tags, is allowed", () => {
+		// The ordinary workflow: a second suggestion next to the first. These offsets are
+		// outside the mark AND clear of its tag boundaries.
+		for (const pos of [0, 1, 30, 31]) {
 			const out = spliceMark(marked, "insert", { start: pos, end: pos }, "X");
-			assert.equal(out.ok, true, `offset ${pos} is outside the mark's text`);
+			assert.equal(out.ok, true, `offset ${pos} is clear of the mark and its tags`);
 		}
+	});
+
+	test("an insertion point exactly ON a tag boundary is refused", () => {
+		// Ambiguous by construction: it is neither clearly inside nor clearly outside, and
+		// both readings produce nested marks for `<del data-id="1">`. Refusing costs the
+		// caller a recomputed offset; guessing wrong nests the marks.
+		for (const pos of [2, 19, 23, 29]) {
+			const out = spliceMark(marked, "insert", { start: pos, end: pos }, "X");
+			assert.equal(out.ok, false, `offset ${pos} sits on a tag boundary`);
+		}
+	});
+});
+
+describe("a raw-text body and an unterminated span are untouchable to the end", () => {
+	test("a string literal holding `</script>` does not end the element early", () => {
+		// Found by adversarial review. The span ended at the FIRST close tag, which here
+		// is inside a JS string, so offset 31 spliced a mark into the script body - where
+		// it is not markup - and the round-trip moved code around:
+		// `const x = ""; <ins...>X</ins>alert(1);`.
+		const script = '<script>const x = "</script>"; alert(1);</script>';
+		const out = spliceMark(script, "insert", { start: 31, end: 31 }, "X");
+		assert.equal(out.ok, false);
+	});
+
+	test("an UNTERMINATED span covers to the end of the block, insertion at EOF included", () => {
+		// A zero-width insertion was tested with `start > span.start && start < span.end`,
+		// so a point exactly at `span.end` counted as outside. For an unterminated span
+		// that is the last offset in the block, and inserting there spliced into the
+		// instruction: `<?x a=">" no close` round-tripped corrupted.
+		for (const src of ['<?x a=">" no close', "before <!-- no close", '<a title="x tail']) {
+			const out = spliceMark(src, "insert", { start: src.length, end: src.length }, "X");
+			assert.equal(out.ok, false, `EOF of ${JSON.stringify(src)} is inside the span`);
+		}
+	});
+
+	test("CONTROL: text after a properly closed element is still usable", () => {
+		// The widened spans must not make a block with HTML uneditable.
+		const out = spliceMark("<script>a</script> tail", "insert", { start: 22, end: 22 }, "X");
+		assert.equal(out.ok, true, "text after the element must stay proposable");
 	});
 });
