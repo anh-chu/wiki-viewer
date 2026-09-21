@@ -196,21 +196,20 @@ describe("the annotations control is a plain toggle; the tabs live on the panel"
 	);
 
 	test("the button clears the outline's own toggle", () => {
-		// The outline's small-screen toggle is `right-2 top-10`. At the same position
-		// one of the two would be unreachable — not a stacking preference but a dead
-		// control.
+		// The outline is now a PUSHING LEFT column; its small-screen toggle sits at
+		// `left-2 top-10`. The annotations button keeps the right corner at `top-10`:
+		// the two corners are different surfaces, so neither can cover the other —
+		// and the old `top-20` stacking offset below the outline's toggle is dead.
 		assert.match(
 			OUTLINE,
-			/absolute right-2 top-10 z-30 xl:hidden/,
+			/absolute left-2 top-10 z-30 xl:hidden/,
 			"the outline's position is the constraint this test encodes",
 		);
-		const cls = BUTTON.slice(
-			BUTTON.indexOf("className={cn("),
-			BUTTON.indexOf("data-annotations-button"),
+		assert.match(BUTTON, /right-2 top-10/, "the button keeps the right corner");
+		assert.ok(
+			!/top-20/.test(BUTTON),
+			"the stacking offset under the right-corner outline is gone with it",
 		);
-		assert.ok(cls.length > 0 || BUTTON.includes("top-20"), "expected the button's classes");
-		assert.match(BUTTON, /top-20/, "it must sit below the outline's toggle");
-		assert.match(BUTTON, /xl:top-10/, "and rise at xl, where the outline frees the corner");
 	});
 
 	test("the button only shows and hides; it does not hold the tabs", () => {

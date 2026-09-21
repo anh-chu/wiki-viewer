@@ -275,14 +275,18 @@ export function DocumentOutline({ editor, scrollContainerRef }: DocumentOutlineP
 				/>
 			</div>
 
-			{/* TOC rail — xl+ screens (enough side gutter to avoid content overlap) */}
+			{/* TOC rail — xl+ screens (enough side gutter). It is a LEFT flex sibling
+			    with shrink-0, so it PUSHES the document instead of overlaying it,
+			    exactly like the comments margin: the column comes out of the ROW and
+			    `margin-inline: auto` centres the text in the space it leaves. Hover
+			    expansion reflows the text — that is what pushing means. */}
 			{showToc && (
 				<div
 					onMouseEnter={handleRailMouseEnter}
 					onMouseLeave={handleRailMouseLeave}
 					className={cn(
-						"absolute right-1 top-10 z-20 hidden xl:block",
-						(!collapsed || hovered) && "w-40 bg-popover border border-border rounded-lg shadow-lg p-2"
+						"relative z-10 hidden xl:flex shrink-0 self-stretch flex-col overflow-hidden pt-10",
+						(!collapsed || hovered) && "w-40 bg-popover border-r border-border p-2",
 					)}
 				>
 					<div className="flex items-center justify-between gap-1 mb-1.5">
@@ -323,9 +327,10 @@ export function DocumentOutline({ editor, scrollContainerRef }: DocumentOutlineP
 				</div>
 			)}
 
-			{/* Floating toggle + overlay — below xl, where there's no room for a rail */}
+			{/* Floating toggle + overlay — below xl, where there's no room for a rail.
+			    On the left, above the rail's screen position (its top-left corner). */}
 			{showToc && (
-				<div className="absolute right-2 top-10 z-30 xl:hidden">
+				<div className="absolute left-2 top-10 z-30 xl:hidden">
 					<button
 						onClick={() => setOverlayOpen((o) => !o)}
 						className="flex items-center gap-1 px-1.5 py-1 rounded bg-background/80 backdrop-blur border border-border/60 text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors text-[10px] shadow-sm"
@@ -344,7 +349,7 @@ export function DocumentOutline({ editor, scrollContainerRef }: DocumentOutlineP
 							/>
 							<nav
 								aria-label="Document outline"
-								className="absolute right-0 top-9 z-10 w-52 max-h-[60vh] overflow-y-auto flex flex-col gap-px rounded-lg border border-border bg-popover p-2 shadow-lg"
+								className="absolute left-0 top-9 z-10 w-52 max-h-[60vh] overflow-y-auto flex flex-col gap-px rounded-lg border border-border bg-popover p-2 shadow-lg"
 							>
 								{headingList}
 							</nav>

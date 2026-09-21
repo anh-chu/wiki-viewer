@@ -1004,10 +1004,16 @@ itself independently; two elements computing their own place is how they end up 
 A tab with nothing behind it is disabled rather than hidden, so the other two do not move
 under the cursor.
 
-**The corner button is the outline's overlay pattern**: a small backdrop-blurred control at
-`right-2 top-20`, rising to `top-10` at `xl` where the outline becomes a rail. The outline's
-own small-screen toggle is at `right-2 top-10`, so at the same position one of the two would
-be unreachable — not a stacking preference but a dead control. It is a plain show/hide
+**The outline is a pushing LEFT column at `xl` and up.** Like the comments panel, it is a
+`shrink-0 flex` sibling that reserves its width out of the ROW (expanded `w-40`; collapsed, a
+narrow strip holding only its toggle), so it cannot cover text and `margin-inline: auto`
+centres the document in the space it leaves. Hover expands it, which reflows the text — that
+is what pushing means. Below `xl`, where a column will not fit, it falls back to a floating
+toggle at `left-2 top-10` opening a `w-52` dropdown overlay.
+
+**The corner button for annotations sits alone at `right-2 top-10`** at every width. It used
+to stack at `top-20` below the outline's right-corner toggle; the outline has moved to the
+left column, so the right corner is free and the offset was removed. It is a plain show/hide
 toggle; it holds no tabs, so it cannot disagree with the panel about which is active.
 
 **The panel and the text light each other up, in both directions.** Clicking a commented
@@ -1172,11 +1178,11 @@ the top bar offers a toggle for comments that are not there.
 Jumping to a comment from the panel calls `expand` first. Without it the jump scrolls to
 the text and expands a card that is not on screen, so it appears to do nothing.
 
-**The panel stacks UNDER the outline in the same corner.** The outline's toggle is at
-`right-2 top-10`, so the panel's trigger sits at `top-20` below `xl` and rises to `top-10`
-only at `xl` and up, where the outline becomes a rail at `right-1 top-10` and leaves the
-corner free. Two controls at one position is not a stacking question — one of them is
-simply unreachable.
+**The annotation button no longer stacks under the outline.** The outline is a pushing left
+column at `xl` and a left-corner toggle below it, so the right corner at `top-10` is free at
+every width; the button rose from `top-20` to `top-10`. The earlier rule — two controls at
+one position is not a stacking question, one of them is simply unreachable — is what moved
+the controls apart for good.
 
 **Verification pointer:** `src/components/editor/annotations-panel.tsx`,
 `src/components/editor/comment-margin.tsx`, `src/components/editor/editor.tsx`

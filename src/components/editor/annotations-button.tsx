@@ -1,10 +1,10 @@
 /**
  * The toggle that shows or hides the annotations panel beside the text.
  *
- * This is the outline's overlay button pattern: a small backdrop-blurred control
- * in the editor's top-right corner, positioned BELOW the outline's own toggle
- * (`right-2 top-10`) because two controls at one position is not a stacking
- * preference — one of them would simply be unreachable.
+ * This is the outline's former overlay-button pattern: a small backdrop-blurred
+ * control in the editor's top-right corner at `top-10`. The outline has since
+ * moved to a pushing left column, so the right corner is again free at every
+ * width and the button needs no stacking offset below it.
  *
  * It is only a SHOW/HIDE control. The All / Comments / Changes tabs live on the
  * panel's own header, so there is one surface rather than a floating box of tabs
@@ -53,7 +53,7 @@ export function AnnotationsButton() {
 			title={`${total} outstanding ${total === 1 ? "item" : "items"}`}
 			data-annotations-button
 			className={cn(
-				"absolute right-2 top-20 z-30 flex items-center gap-1.5 rounded border px-2 py-1 text-[10px] shadow-sm backdrop-blur transition-colors xl:top-10",
+				"absolute right-2 top-10 z-30 flex items-center gap-1.5 rounded border px-2 py-1 text-[10px] shadow-sm backdrop-blur transition-colors",
 				"bg-background/80 border-border/60 text-muted-foreground/70",
 				"hover:bg-accent hover:text-foreground",
 				panelOpen && "bg-accent text-foreground",

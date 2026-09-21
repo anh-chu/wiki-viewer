@@ -143,7 +143,7 @@ export function BreadcrumbExperiment({ editor, scrollContainerRef }: ExperimentP
 	if (!scrolled || trail.length === 0) return null;
 
 	return (
-		<div className="absolute top-0 inset-x-0 z-20 bg-background/80 backdrop-blur border-b border-border/50 text-xs text-muted-foreground px-4 py-1.5 pr-4 xl:pr-44 pointer-events-none">
+		<div className="absolute top-0 inset-x-0 z-20 bg-background/80 backdrop-blur border-b border-border/50 text-xs text-muted-foreground px-4 py-1.5 pointer-events-none">
 			<div className="flex items-center gap-1 overflow-hidden whitespace-nowrap">
 				{trail.map((h, i) => {
 					const isLast = i === trail.length - 1;
