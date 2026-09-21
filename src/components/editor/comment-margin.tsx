@@ -37,6 +37,7 @@ import type { Comment } from "@/lib/proof/types";
 import type { MarkId } from "@/lib/proof/suggestion-mark";
 import { cn } from "@/lib/utils";
 import { type AnnotationTab, useAnnotationPanelStore } from "@/stores/annotation-panel-store";
+import { PanelRightClose } from "lucide-react";
 import { CommentThread } from "./comment-thread";
 
 export interface MarginThread {
@@ -318,6 +319,7 @@ function PanelHeader({
 }) {
 	const tab = useAnnotationPanelStore((s) => s.tab);
 	const setTab = useAnnotationPanelStore((s) => s.setTab);
+	const togglePanel = useAnnotationPanelStore((s) => s.togglePanel);
 	const total = commentCount + suggestionCount;
 	const tabs: { id: AnnotationTab; label: string; count: number }[] = [
 		{ id: "all", label: "All", count: total },
@@ -357,6 +359,17 @@ function PanelHeader({
 					);
 				})}
 			</div>
+			{/* The hide toggle lives ON the header row, symmetric with the outline
+			    column (whose header label closes that panel too): while the column is
+			    open there is no corner button, and hiding leaves only the corner. */}
+			<button
+				type="button"
+				onClick={togglePanel}
+				className="ml-auto rounded p-0.5 text-muted-foreground/40 transition-colors hover:bg-accent hover:text-foreground"
+				aria-label="Hide comments and suggested changes"
+			>
+				<PanelRightClose className="h-3.5 w-3.5" />
+			</button>
 		</div>
 	);
 }

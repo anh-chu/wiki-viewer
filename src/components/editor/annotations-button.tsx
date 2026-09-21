@@ -6,9 +6,10 @@
  * moved to a pushing left column, so the right corner is again free at every
  * width and the button needs no stacking offset below it.
  *
- * It is only a SHOW/HIDE control. The All / Comments / Changes tabs live on the
- * panel's own header, so there is one surface rather than a floating box of tabs
- * over a separate reading panel, and the two can never overlap.
+ * It is only a SHOW/HIDE control. The All / Comments / Changes tabs and the
+ * panel's hide toggle live on the panel's own header, so there is one surface
+ * rather than a floating box of tabs over a separate reading panel, and the two
+ * can never overlap.
  *
  * Rendered only when the document has something to annotate, so it never
  * advertises an empty panel.
@@ -41,8 +42,11 @@ export function AnnotationsButton() {
 	const badge = contents.comments + contents.suggestions;
 
 	// Nothing to annotate: no control at all. A button that opens an empty panel is
-	// worse than no button.
+	// worse than no button. While the panel is showing there is also no control
+	// here — the hide toggle lives on the panel's own header row, symmetric with
+	// the outline column — so the corner button only exists when the panel is closed.
 	if (total === 0) return null;
+	if (panelOpen && badge > 0) return null;
 
 	return (
 		<button

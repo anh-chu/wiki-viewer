@@ -215,6 +215,19 @@ describe("the annotations control is a plain toggle; the tabs live on the panel"
 			!/top-20/.test(BUTTON),
 			"the stacking offset under the right-corner outline is gone with it",
 		);
+		// Symmetric with the outline column: while the panel is showing its hide
+		// toggle lives ON the panel's header row (same row as the tabs), and the
+		// corner button does not exist at all.
+		assert.match(
+			MARGIN,
+			/onClick=\{togglePanel\}/,
+			"the panel header row hosts the hide toggle",
+		);
+		assert.match(
+			BUTTON,
+			/if \(panelOpen && badge > 0\) return null;/,
+			"the corner button yields to the open panel",
+		);
 	});
 
 	test("the outline pushes like the margin column", () => {

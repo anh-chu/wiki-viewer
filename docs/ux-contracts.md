@@ -1007,7 +1007,7 @@ under the cursor.
 **The outline is a pushing LEFT column at every width.** It uses the comments panel's model,
 not a rail: a `shrink-0 flex` sibling that reserves its fixed `w-40` width out of the ROW
 whenever it is open, so it cannot cover text and `margin-inline: auto` centres the document
-in the space it leaves. It shows or hides as ONE state — the column's own `Hide` control
+in the space it leaves. It shows or hides as ONE state — the column's own header label
 closes it, and a corner toggle at `left-2 top-10` (the annotations button's pattern, at the
 opposite corner) reopens it. There is no hover expansion and no `xl`-gated overlay fallback:
 expanding on hover would reflow the text on every pass over the rail, and a smaller viewport
@@ -1015,10 +1015,14 @@ gets the same honest reservation as the comment column. Opening or closing feeds
 reflow key, because the annotation card offsets are pixel positions measured while the
 reading column had a different width.
 
-**The corner button for annotations sits alone at `right-2 top-10`** at every width. It used
-to stack at `top-20` below the outline's right-corner toggle; the outline has moved to the
-left column, so the right corner is free and the offset was removed. It is a plain show/hide
-toggle; it holds no tabs, so it cannot disagree with the panel about which is active.
+**The corner button for annotations appears only when the panel is closed, at `right-2
+top-10` at every width.** While the panel shows, its hide toggle lives ON the panel header
+row — the same row as the All / Comments / Changes tabs, symmetric with the outline column
+whose header label closes that panel — so there is exactly one toggle per direction: panel
+header hides it, corner button shows it. The button used to sit at `top-20` under the
+outline's right-corner toggle; that stacking offset is gone with the outline's move to the
+left column. It is a plain show/hide toggle; it holds no tabs, so it cannot disagree with
+the panel about which is active.
 
 **The panel and the text light each other up, in both directions.** Clicking a commented
 phrase in the document opens its card in the panel; clicking a card highlights its words.
