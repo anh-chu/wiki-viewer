@@ -234,7 +234,12 @@ export function CommentMargin({
 			    toggle that shows this column. Keeping them on the column means there is
 			    one surface rather than a floating box over a reading panel, and the
 			    header is outside the card area so it cannot be covered by a card. */}
-			<div ref={headerRef}>
+			{/* The header sits BELOW the row's top, matching the outline column's
+			    pt-8. The space is inside the MEASURED wrapper: headerHeight comes
+			    from this div's offsetHeight, so the card layout's `-headerHeight`
+			    compensation grows by exactly the same amount and every card stays
+			    at the vertical position it had before. */}
+			<div ref={headerRef} className="pt-8">
 				<PanelHeader commentCount={threads.length} suggestionCount={suggestions.length} />
 			</div>
 
