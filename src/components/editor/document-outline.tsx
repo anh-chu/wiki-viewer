@@ -253,17 +253,15 @@ export function DocumentOutline({ editor, scrollContainerRef, open, onOpenChange
 					className="relative z-10 flex w-40 shrink-0 self-stretch flex-col overflow-hidden border-r border-border bg-background pt-8"
 					data-outline-margin
 				>
-					<div className="flex items-center justify-between gap-1 px-2 pb-1.5">
-						<span className="flex items-center gap-1 text-[10px] text-muted-foreground/60">
-							<List className="h-3 w-3" />
-							<span>Outline</span>
-						</span>
+					<div className="flex items-center px-2 pb-1.5">
+						{/* The header label itself is the hide control — one toggle, not two. */}
 						<button
 							onClick={() => onOpenChange(false)}
-							className="rounded px-1 py-0.5 text-[10px] text-muted-foreground/40 transition-colors hover:bg-accent hover:text-muted-foreground"
+							className="flex items-center gap-1 rounded px-1 py-0.5 text-[10px] text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground"
 							aria-label="Collapse outline"
 						>
-							Hide
+							<List className="h-3 w-3" />
+							<span>Outline</span>
 						</button>
 					</div>
 					<nav
