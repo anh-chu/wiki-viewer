@@ -1210,6 +1210,31 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	const [trackedMarks, setTrackedMarks] = useState<
 		{ id: MarkId; kind: "insert" | "remove" | "modify"; from: number; to: number; attrName?: string | null; previousValue?: unknown; newValue?: unknown }[]
 	>([]);
+	// Latest collected marks, so `collect` can skip the state write when nothing
+	// changed. The listener runs on EVERY ProseMirror transaction — including
+	// no-op ones like focus/blur and the annotation-refresh pass — and a fresh
+	// array each time re-rendered the whole editor on all of them. With the
+	// comment composer (a Radix Popover) open, that render churn re-ran the
+	// popover's ref callbacks every commit, and each one flips Radix's internal
+	// container state — a nested-update loop React kills with error #185
+	// ("Maximum update depth exceeded"), which white-screens the page.
+	const collectedMarksRef = useRef<
+		{ id: MarkId; kind: "insert" | "remove" | "modify"; from: number; to: number; attrName?: string | null; previousValue?: unknown; newValue?: unknown }[]
+	>([]);
+	const sameTrackedMarks = (
+		a: { id: MarkId; kind: string; from: number; to: number; attrName?: unknown; previousValue?: unknown; newValue?: unknown }[],
+		b: { id: MarkId; kind: string; from: number; to: number; attrName?: unknown; previousValue?: unknown; newValue?: unknown }[],
+	) =>
+		a.length === b.length &&
+		a.every((m, i) =>
+			m.id === b[i].id &&
+			m.kind === b[i].kind &&
+			m.from === b[i].from &&
+			m.to === b[i].to &&
+			m.attrName === b[i].attrName &&
+			m.previousValue === b[i].previousValue &&
+			m.newValue === b[i].newValue,
+		);
 	useEffect(() => {
 		if (!editor || editor.isDestroyed) return;
 		const collect = () => {
@@ -1255,7 +1280,10 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 				}
 				return true;
 			});
-			setTrackedMarks([...byId.values()].sort((a, b) => a.from - b.from));
+			const collected = [...byId.values()].sort((a, b) => a.from - b.from);
+			if (sameTrackedMarks(collected, collectedMarksRef.current)) return;
+			collectedMarksRef.current = collected;
+			setTrackedMarks(collected);
 		};
 		collect();
 		editor.on("transaction", collect);
