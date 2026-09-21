@@ -291,17 +291,6 @@ export function AIPanel({ currentPath }: { currentPath?: string | null }) {
 						</div>
 					</section>
 
-					{/* Docs link */}
-					<section>
-						<a
-							href={apiUrl("/docs/agent-collab-plan.md")}
-							target="_blank"
-							rel="noreferrer"
-							className="text-xs text-primary underline hover:no-underline"
-						>
-							Agent collaboration docs →
-						</a>
-					</section>
 				</div>
 			</aside>
 		</>
