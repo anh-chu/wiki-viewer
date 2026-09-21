@@ -246,8 +246,11 @@ export function DocumentOutline({ editor, scrollContainerRef, open, onOpenChange
 			    can never cover text) and shows or hides as ONE state, with a corner
 			    toggle when closed. No hover expansion, no overlay fallback. */}
 			{showToc && open && (
+				// pt-8 (32px) clears the breadcrumb bar at the row's top (6+16+6+1 border
+				// = 29px) plus a small gap — nothing else; the padding is as short as
+				// that overlay allows.
 				<div
-					className="relative z-10 flex w-40 shrink-0 self-stretch flex-col overflow-hidden border-r border-border bg-background pt-10"
+					className="relative z-10 flex w-40 shrink-0 self-stretch flex-col overflow-hidden border-r border-border bg-background pt-8"
 					data-outline-margin
 				>
 					<div className="flex items-center justify-between gap-1 px-2 pb-1.5">
