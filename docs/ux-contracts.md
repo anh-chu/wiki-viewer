@@ -1004,12 +1004,16 @@ itself independently; two elements computing their own place is how they end up 
 A tab with nothing behind it is disabled rather than hidden, so the other two do not move
 under the cursor.
 
-**The outline is a pushing LEFT column at `xl` and up.** Like the comments panel, it is a
-`shrink-0 flex` sibling that reserves its width out of the ROW (expanded `w-40`; collapsed, a
-narrow strip holding only its toggle), so it cannot cover text and `margin-inline: auto`
-centres the document in the space it leaves. Hover expands it, which reflows the text — that
-is what pushing means. Below `xl`, where a column will not fit, it falls back to a floating
-toggle at `left-2 top-10` opening a `w-52` dropdown overlay.
+**The outline is a pushing LEFT column at every width.** It uses the comments panel's model,
+not a rail: a `shrink-0 flex` sibling that reserves its fixed `w-40` width out of the ROW
+whenever it is open, so it cannot cover text and `margin-inline: auto` centres the document
+in the space it leaves. It shows or hides as ONE state — the column's own `Hide` control
+closes it, and a corner toggle at `left-2 top-10` (the annotations button's pattern, at the
+opposite corner) reopens it. There is no hover expansion and no `xl`-gated overlay fallback:
+expanding on hover would reflow the text on every pass over the rail, and a smaller viewport
+gets the same honest reservation as the comment column. Opening or closing feeds the editor's
+reflow key, because the annotation card offsets are pixel positions measured while the
+reading column had a different width.
 
 **The corner button for annotations sits alone at `right-2 top-10`** at every width. It used
 to stack at `top-20` below the outline's right-corner toggle; the outline has moved to the

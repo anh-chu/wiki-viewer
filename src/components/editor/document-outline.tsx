@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
-import { List, Pin, PinOff } from "lucide-react";
+import { List } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Heading {
@@ -40,25 +40,19 @@ function getHeadingElement(editor: Editor, h: Heading): HTMLElement | null {
 	}
 }
 
-const OUTLINE_PINNED_KEY = "kb-outline-pinned";
+const OUTLINE_OPEN_KEY = "kb-outline-pinned";
 
 interface DocumentOutlineProps {
 	editor: Editor | null;
 	scrollContainerRef: React.RefObject<HTMLDivElement | null>;
+	/** Controlled open state — the editor owns it so a change can re-measure. */
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
 }
 
-export function DocumentOutline({ editor, scrollContainerRef }: DocumentOutlineProps) {
+export function DocumentOutline({ editor, scrollContainerRef, open, onOpenChange }: DocumentOutlineProps) {
 	const [headings, setHeadings] = useState<Heading[]>([]);
 	const [activeUid, setActiveUid] = useState<string | null>(null);
-	const [collapsed, setCollapsed] = useState(false);
-	const [pinned, setPinned] = useState(() => {
-		try {
-			return typeof window !== "undefined" && localStorage.getItem(OUTLINE_PINNED_KEY) === "1";
-		} catch {
-			return false;
-		}
-	});
-	const [hovered, setHovered] = useState(false);
 	const [scrollProgress, setScrollProgress] = useState(0);
 	const [sectionFill, setSectionFill] = useState(0);
 	const headingsRef = useRef<Heading[]>([]);
@@ -73,14 +67,14 @@ export function DocumentOutline({ editor, scrollContainerRef }: DocumentOutlineP
 		activeUidRef.current = activeUid;
 	}, [activeUid]);
 
-	// Persist pinned state to localStorage
+	// Persist open state to localStorage
 	useEffect(() => {
 		try {
-			localStorage.setItem(OUTLINE_PINNED_KEY, pinned ? "1" : "0");
+			localStorage.setItem(OUTLINE_OPEN_KEY, open ? "1" : "0");
 		} catch {
 			// quota / private-mode errors are non-fatal
 		}
-	}, [pinned]);
+	}, [open]);
 
 	// Extract headings on doc update, debounced. Walking the whole doc + rebuilding
 	// the IntersectionObserver on every keystroke is wasteful; headings change
@@ -183,32 +177,6 @@ export function DocumentOutline({ editor, scrollContainerRef }: DocumentOutlineP
 		};
 	}, [headings, editor, scrollContainerRef]);
 
-	const togglePin = useCallback(() => {
-		setPinned((p) => {
-			const newPinned = !p;
-			if (newPinned) {
-				setCollapsed(false);
-			}
-			return newPinned;
-		});
-	}, []);
-
-	const handleRailMouseEnter = useCallback(() => {
-		setHovered(true);
-	}, []);
-
-	const handleRailMouseLeave = useCallback(() => {
-		setHovered(false);
-	}, []);
-
-	const handleToggleCollapsed = useCallback(() => {
-		setCollapsed((c) => !c);
-		// Unpins when user collapses
-		if (!collapsed) {
-			setPinned(false);
-		}
-	}, [collapsed]);
-
 	const scrollToHeading = useCallback(
 		(h: Heading) => {
 			if (!editor) return;
@@ -227,7 +195,6 @@ export function DocumentOutline({ editor, scrollContainerRef }: DocumentOutlineP
 	);
 
 	const showToc = headings.length >= 2;
-	const [overlayOpen, setOverlayOpen] = useState(false);
 
 	const headingList = (
 		<>
@@ -236,7 +203,6 @@ export function DocumentOutline({ editor, scrollContainerRef }: DocumentOutlineP
 					key={`${h.uid}-${i}`}
 					onClick={() => {
 						scrollToHeading(h);
-						setOverlayOpen(false);
 					}}
 					title={h.text}
 					className={cn(
@@ -275,87 +241,48 @@ export function DocumentOutline({ editor, scrollContainerRef }: DocumentOutlineP
 				/>
 			</div>
 
-			{/* TOC rail — xl+ screens (enough side gutter). It is a LEFT flex sibling
-			    with shrink-0, so it PUSHES the document instead of overlaying it,
-			    exactly like the comments margin: the column comes out of the ROW and
-			    `margin-inline: auto` centres the text in the space it leaves. Hover
-			    expansion reflows the text — that is what pushing means. */}
-			{showToc && (
+			{/* TOC column — a pushed LEFT panel, the comments margin's model exactly:
+			    a shrink-0 flex sibling that reserves its width out of the ROW (so it
+			    can never cover text) and shows or hides as ONE state, with a corner
+			    toggle when closed. No hover expansion, no overlay fallback. */}
+			{showToc && open && (
 				<div
-					onMouseEnter={handleRailMouseEnter}
-					onMouseLeave={handleRailMouseLeave}
-					className={cn(
-						"relative z-10 hidden xl:flex shrink-0 self-stretch flex-col overflow-hidden pt-10",
-						(!collapsed || hovered) && "w-40 bg-popover border-r border-border p-2",
-					)}
+					className="relative z-10 flex w-40 shrink-0 self-stretch flex-col overflow-hidden border-r border-border bg-background pt-10"
+					data-outline-margin
 				>
-					<div className="flex items-center justify-between gap-1 mb-1.5">
-						<button
-							onClick={handleToggleCollapsed}
-							className={cn(
-								"flex items-center gap-1 rounded text-muted-foreground/40 hover:text-muted-foreground hover:bg-accent transition-colors text-[10px] px-1 py-0.5"
-							)}
-							aria-label={collapsed ? "Expand outline" : "Collapse outline"}
-						>
+					<div className="flex items-center justify-between gap-1 px-2 pb-1.5">
+						<span className="flex items-center gap-1 text-[10px] text-muted-foreground/60">
 							<List className="h-3 w-3" />
-							{(!collapsed || hovered) && <span>Outline</span>}
-							{collapsed && !hovered && <span className="text-muted-foreground/60 text-xs">Outline</span>}
-						</button>
-						{(!collapsed || hovered) && (
-							<button
-								onClick={togglePin}
-								className="p-0.5 rounded text-muted-foreground/40 hover:text-muted-foreground hover:bg-accent transition-colors"
-								aria-label={pinned ? "Unpin outline" : "Pin outline"}
-								title={pinned ? "Unpin outline" : "Pin outline"}
-							>
-								{pinned ? (
-									<Pin className="h-3 w-3 fill-current" />
-								) : (
-									<PinOff className="h-3 w-3" />
-								)}
-							</button>
-						)}
-					</div>
-					{(!collapsed || hovered) && (
-						<nav
-							aria-label="Document outline"
-							className="flex flex-col gap-px max-h-[50vh] overflow-y-auto pr-1"
+							<span>Outline</span>
+						</span>
+						<button
+							onClick={() => onOpenChange(false)}
+							className="rounded px-1 py-0.5 text-[10px] text-muted-foreground/40 transition-colors hover:bg-accent hover:text-muted-foreground"
+							aria-label="Collapse outline"
 						>
-							{headingList}
-						</nav>
-					)}
+							Hide
+						</button>
+					</div>
+					<nav
+						aria-label="Document outline"
+						className="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto px-2 pb-2"
+					>
+						{headingList}
+					</nav>
 				</div>
 			)}
 
-			{/* Floating toggle + overlay — below xl, where there's no room for a rail.
-			    On the left, above the rail's screen position (its top-left corner). */}
-			{showToc && (
-				<div className="absolute left-2 top-10 z-30 xl:hidden">
-					<button
-						onClick={() => setOverlayOpen((o) => !o)}
-						className="flex items-center gap-1 px-1.5 py-1 rounded bg-background/80 backdrop-blur border border-border/60 text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors text-[10px] shadow-sm"
-						aria-label="Document outline"
-						aria-expanded={overlayOpen}
-					>
-						<List className="h-3.5 w-3.5" />
-					</button>
-					{overlayOpen && (
-						<>
-							<button
-								aria-hidden
-								tabIndex={-1}
-								className="fixed inset-0 z-0 cursor-default"
-								onClick={() => setOverlayOpen(false)}
-							/>
-							<nav
-								aria-label="Document outline"
-								className="absolute left-0 top-9 z-10 w-52 max-h-[60vh] overflow-y-auto flex flex-col gap-px rounded-lg border border-border bg-popover p-2 shadow-lg"
-							>
-								{headingList}
-							</nav>
-						</>
-					)}
-				</div>
+			{/* Corner toggle when the column is closed — the annotations button's
+			    pattern, at the opposite (left) corner. */}
+			{showToc && !open && (
+				<button
+					onClick={() => onOpenChange(true)}
+					className="absolute left-2 top-10 z-30 flex items-center gap-1 px-1.5 py-1 rounded bg-background/80 backdrop-blur border border-border/60 text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors text-[10px] shadow-sm"
+					aria-label="Document outline"
+					aria-expanded={false}
+				>
+					<List className="h-3.5 w-3.5" />
+				</button>
 			)}
 		</>
 	);

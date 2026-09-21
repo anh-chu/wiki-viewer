@@ -196,19 +196,38 @@ describe("the annotations control is a plain toggle; the tabs live on the panel"
 	);
 
 	test("the button clears the outline's own toggle", () => {
-		// The outline is now a PUSHING LEFT column; its small-screen toggle sits at
-		// `left-2 top-10`. The annotations button keeps the right corner at `top-10`:
-		// the two corners are different surfaces, so neither can cover the other —
-		// and the old `top-20` stacking offset below the outline's toggle is dead.
+		// The outline is now the margin's model: ONE pushing left column with a
+		// corner toggle when closed, at `left-2 top-10` — every width, no
+		// `xl`-gated overlay fallback, no hover expansion. The annotations button
+		// keeps the right corner at `top-10`; the two corners are different
+		// surfaces, so neither can cover the other.
 		assert.match(
 			OUTLINE,
-			/absolute left-2 top-10 z-30 xl:hidden/,
-			"the outline's position is the constraint this test encodes",
+			/absolute left-2 top-10 z-30/,
+			"the outline's toggle position is the constraint this test encodes",
+		);
+		assert.ok(
+			!/xl:hidden/.test(OUTLINE),
+			"the toggle must exist at every width — there is no overlay fallback",
 		);
 		assert.match(BUTTON, /right-2 top-10/, "the button keeps the right corner");
 		assert.ok(
 			!/top-20/.test(BUTTON),
 			"the stacking offset under the right-corner outline is gone with it",
+		);
+	});
+
+	test("the outline pushes like the margin column", () => {
+		// Same requirement as the comment column: reserve the width honestly.
+		assert.match(OUTLINE, /shrink-0 self-stretch/, "the column must reserve its width");
+		assert.ok(
+			!/hovered/.test(OUTLINE),
+			"no hover expansion: expanding on hover reflows on every pass over the rail",
+		);
+		assert.match(
+			EDITOR,
+			/, outlineOpen\]/,
+			"the editor must re-measure offsets when the outline opens or closes",
 		);
 	});
 

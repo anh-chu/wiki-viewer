@@ -393,8 +393,8 @@ describe("the offsets are re-measured when the layout reflows", () => {
 		assert.ok(effect.length > 0, "expected the reflow key");
 		assert.match(
 			EDITOR,
-			/\[panelOpen, tab, editorMaxW\]/,
-			"opening the panel and changing the width must both re-measure",
+			/\[panelOpen, tab, editorMaxW, outlineOpen\]/,
+			"opening the panel, changing the width, or toggling the outline column must all re-measure",
 		);
 		assert.match(
 			EDITOR,

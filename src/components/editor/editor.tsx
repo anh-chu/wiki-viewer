@@ -189,6 +189,16 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	);
 	const editorMaxW = useViewWidthStore((s) => VIEW_WIDTH_CSS[s.width]);
 	const editorMl = useViewWidthStore((s) => VIEW_ALIGN_ML[s.align]);
+	// The outline column is owned HERE, not inside DocumentOutline, so that opening
+	// or closing it can feed the reflow key: a reflow in either direction moves the
+	// annotation cards in exactly the way opening the comment panel does.
+	const [outlineOpen, setOutlineOpen] = useState(() => {
+		try {
+			return typeof window !== "undefined" && localStorage.getItem("kb-outline-pinned") !== "0";
+		} catch {
+			return true;
+		}
+	});
 	const isRtl = isViewing
 		? parsedViewingContent.data.dir === "rtl"
 		: frontmatter?.dir === "rtl";
@@ -1338,7 +1348,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	// set put the cards 37px above their text.
 	useEffect(() => {
 		setReflowKey((k) => k + 1);
-	}, [panelOpen, tab, editorMaxW]);
+	}, [panelOpen, tab, editorMaxW, outlineOpen]);
 	// The click handler is installed before this component body has declared
 	// `selectCommentByRef` (the extension state is built earlier in the render), so it
 	// is reached through a ref. A click cannot arrive before the render completes, which
@@ -1770,7 +1780,12 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 							</div>
 						) : (
 							<div className="flex-1 relative flex min-h-0" dir={isRtl ? "rtl" : undefined}>
-								<DocumentOutline editor={editor} scrollContainerRef={scrollContainerRef} />
+								<DocumentOutline
+									editor={editor}
+									scrollContainerRef={scrollContainerRef}
+									open={outlineOpen}
+									onOpenChange={setOutlineOpen}
+								/>
 								<AnnotationsButton />
 								<ReadingExperiments editor={editor} scrollContainerRef={scrollContainerRef} />
 								<div className="flex-1 relative min-w-0">
