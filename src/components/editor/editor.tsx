@@ -27,7 +27,6 @@ import { editorExtensions } from "./extensions";
 import { resolveWikiLink } from "./link-navigation";
 import { useDocumentPresence } from "./hooks/use-document-presence";
 import { useDocumentWatch } from "./hooks/use-document-watch";
-import { CommentPip } from "./comment-pip";
 import { CommentThread } from "./comment-thread";
 import { COMMENT_COLUMN_WIDTH_CSS, CommentMargin } from "./comment-margin";
 import { postOp } from "@/lib/proof/post-op";
@@ -380,9 +379,9 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 
 	/**
 	 * Ref to the editor scroll container. Used to compute block positions
-	 * relative to the scrollable area for suggestion cards and comment pips.
+	 * relative to the scrollable area for the margin card offsets.
 	 *
-	 * Phase D coordination: comment-pip positioning uses this same ref and the
+	 * Phase D coordination: the margin offsets use this same ref and the
 	 * same blockRefPositions map computed below.
 	 */
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -463,23 +462,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		};
 	}, [snapshotBlocks]);
 
-	/** Group human comments by block ref for pip rendering (instructions have their own variant). */
-	const commentsByRef = useMemo(() => {
-		const map: Record<string, typeof comments> = {};
-		for (const c of comments) {
-			if (!c.ref || c.kind === "instruction") continue;
-			(map[c.ref] ??= []).push(c);
-		}
-		return map;
-	}, [comments]);
-	const draftInstructionsByRef = useMemo(() => {
-		const map: Record<string, typeof comments> = {};
-		for (const c of comments) {
-			if (!c.ref || c.kind !== "instruction" || c.instructionState !== "draft") continue;
-			(map[c.ref] ??= []).push(c);
-		}
-		return map;
-	}, [comments]);
 	const threadCommentsByRef = useMemo(() => {
 		const map: Record<string, typeof comments> = {};
 		for (const c of comments) {
@@ -576,10 +558,9 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	/**
 	 * Block offsets for the annotations panel, in the SCROLL CONTAINER'S viewport frame.
 	 *
-	 * `blockRefPositions.top` includes `scrollTop`, which is what an overlay INSIDE the
-	 * scrolling element needs: those children move with the text, so adding the scroll
-	 * offset is what keeps them stuck to their block. The comment pips use that map and
-	 * are correct.
+	 * `blockRefPositions.top` includes `scrollTop`, the scroll-content frame. The margin
+	 * offsets read `viewportTop` (the same rect without the scroll term) because the
+	 * panel is a SIBLING of the scroll container and does not move with the text.
 	 *
 	 * The panel is a SIBLING of the scroll container, so it does not move with the text.
 	 * Feeding it content coordinates made every card drift DOWN by exactly the scrolled
@@ -714,9 +695,6 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	const openCommentForSelection = useCallback(() => {
 		const resolved = resolveSelectionBlock();
 		if (!resolved) return;
-		const spanEl = scrollContainerRef.current?.querySelector(
-			`[data-annotation-span="${resolved.blockRef}"]`,
-		) as HTMLElement | null;
 		// Carry the selected RANGE, not just the block. Without this the comment
 		// degrades to block granularity: the highlight covers the whole block and
 		// the anchor has no text to be found by after an edit. `resolveSelectionBlock`
@@ -732,7 +710,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 				: undefined;
 		setThreadTarget({
 			blockRef: resolved.blockRef,
-			el: spanEl ?? resolved.blockEl,
+			el: resolved.blockEl,
 			textAnchor,
 		});
 	}, [resolveSelectionBlock]);
@@ -1890,81 +1868,11 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 									}}
 									data-editor-scroll
 								>
-									{/* Absolutely-positioned overlay for comment pips and suggestion cards.
-									     height:0 so it doesn't push content; children overflow freely.
-									     Positions from blockRefPositions are relative to scroll container top. */}
-									<div
-										aria-hidden="true"
-										className="relative pointer-events-none"
-										style={{ height: 0 }}
-									>
-
-										{/* Draft instruction pips — routed instructions stay invisible. */}
-										{Object.entries(draftInstructionsByRef).map(([blockRef, blockComments]) => {
-											const pos = blockRefPositions.get(blockRef);
-											if (!pos) return null;
-											const hasCommentPip = (commentsByRef[blockRef]?.length ?? 0) > 0;
-											return (
-												<div key={`instruction-pip-${blockRef}`} style={{ pointerEvents: "auto" }}>
-													<CommentPip
-														active={threadTarget?.blockRef === blockRef}
-														anchorKey={blockRef}
-														anchorLabel={blockRef}
-														comments={blockComments}
-														top={pos.top + 4}
-														left={Math.max(0, pos.left - (hasCommentPip ? 40 : 20))}
-														variant="instruction"
-														onClick={() => {
-															const el = (scrollContainerRef.current?.querySelector(
-																`[data-annotation-span="${blockRef}"]`,
-																) as HTMLElement | null) ?? (scrollContainerRef.current?.querySelector(
-																`[data-block-ref="${blockRef}"]`,
-																) as HTMLElement | null);
-															if (el) setThreadTarget({ blockRef, el });
-														}}
-													/>
-												</div>
-											);
-										})}
-
-										{/* Comment pips — one per block with at least one comment */}
-										{Object.entries(commentsByRef).map(([blockRef, blockComments]) => {
-											const pos = blockRefPositions.get(blockRef);
-											if (!pos) return null;
-											return (
-												<div key={`pip-${blockRef}`} style={{ pointerEvents: "auto" }}>
-							<CommentPip
-								active={threadTarget?.blockRef === blockRef}
-								anchorKey={blockRef}
-								anchorLabel={blockRef}
-								comments={blockComments}
-								top={pos.top + 4}
-								left={Math.max(0, pos.left - 20)}
-								onClick={() => {
-									// Prefer the annotation span (the measured text
-									// element) so the thread anchors to the commented
-									// text, not the line-start pip.
-									const el =
-										(scrollContainerRef.current?.querySelector(
-											`[data-annotation-span="${blockRef}"]`,
-										) as HTMLElement | null) ??
-										(scrollContainerRef.current?.querySelector(
-											`[data-block-ref="${blockRef}"]`,
-										) as HTMLElement | null);
-									if (el) setThreadTarget({ blockRef, el });
-								}}
-							/>
-												</div>
-											);
-										})}
-
-									</div>
-
 									{/* Comment thread — portal popover, driven by `threadTarget`.
-									    This is the PIP path only. Margin cards render their own
-									    thread in place, so the two never both open for one
-									    comment. Kept for the gutter pips, which still exist
-									    for blocks whose comment has no margin card. */}
+									    This is the selection-comment path: selecting text and pressing
+									    Comment opens the thread as a popover over the text. Margin
+									    cards render their own thread in place, so the two never both
+									    open for one comment. */}
 									{threadTarget && currentPath && (
 						<CommentThread
 							path={currentPath}

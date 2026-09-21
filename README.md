@@ -871,7 +871,7 @@ wiki-viewer/
 │   │   ├── api/system/           System config API (session-gated)
 │   │   └── signin/               Sign-in page
 │   ├── components/
-│   │   ├── editor/               TipTap editor + proof-span + comment-pip + suggestion-card
+│   │   ├── editor/               TipTap editor + proof-span + suggestion-card
 │   │   └── ai-panel/             Right-side AI panel (agents, activity, install)
 │   ├── lib/
 │   │   ├── auth/                 Better Auth server + client + allowlist + CSRF

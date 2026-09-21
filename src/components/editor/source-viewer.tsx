@@ -4,7 +4,6 @@ import { toHtml } from "hast-util-to-html";
 import { common, createLowlight } from "lowlight";
 import { Check, Copy, Download, ExternalLink, WrapText } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CommentPip } from "@/components/editor/comment-pip";
 import { CommentThread } from "@/components/editor/comment-thread";
 import { ViewModeCommentButton } from "@/components/editor/view-mode-comment-button";
 import { ViewerToolbar } from "@/components/layout/viewer-toolbar";
@@ -141,9 +140,6 @@ export function SourceViewer({ path }: SourceViewerProps) {
 	const [wrap, setWrap] = useState(false);
 	const [copied, setCopied] = useState(false);
 	const [visibleCount, setVisibleCount] = useState(RENDER_CHUNK);
-	const [linePositions, setLinePositions] = useState<
-		Map<number, { top: number; left: number; width: number; bottom: number }>
-	>(new Map());
 	const [threadTarget, setThreadTarget] = useState<ThreadTarget | null>(null);
 	const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -214,28 +210,6 @@ export function SourceViewer({ path }: SourceViewerProps) {
 		return map;
 	}, [comments]);
 
-	useEffect(() => {
-		if (!content || binary || loading || !containerRef.current) {
-			setLinePositions(new Map());
-			return;
-		}
-		const container = containerRef.current;
-		const containerRect = container.getBoundingClientRect();
-		const rows = Array.from(container.querySelectorAll("[data-line]")) as HTMLElement[];
-		const next = new Map<number, { top: number; left: number; width: number; bottom: number }>();
-		for (const row of rows) {
-			const line = Number(row.dataset.line);
-			if (!Number.isFinite(line)) continue;
-			const rect = row.getBoundingClientRect();
-			next.set(line, {
-				top: rect.top - containerRect.top + container.scrollTop,
-				left: rect.left - containerRect.left,
-				width: rect.width,
-				bottom: rect.bottom - containerRect.top + container.scrollTop,
-			});
-		}
-		setLinePositions(next);
-	}, [content, binary, loading, visibleCount, wrap, highlightedLines]);
 	const openSelectionThread = useCallback(() => {
 		const container = containerRef.current;
 		const sel = window.getSelection();
@@ -273,15 +247,6 @@ export function SourceViewer({ path }: SourceViewerProps) {
 			});
 		})();
 	}, [lines]);
-
-	const openAnchorThread = useCallback((anchor: LineAnchor, anchorEl: HTMLElement) => {
-		setThreadTarget({
-			anchorKey: lineAnchorKey(anchor),
-			anchorLabel: lineAnchorLabel(anchor),
-			lineAnchor: anchor,
-			anchorEl,
-		});
-	}, []);
 
 	const copyToClipboard = () => {
 		if (!content) return;
@@ -344,31 +309,6 @@ export function SourceViewer({ path }: SourceViewerProps) {
 			</ViewerToolbar>
 			<div ref={containerRef} className="relative flex-1 overflow-auto source-viewer-code bg-background">
 				{!loading && content && !binary && <ViewModeCommentButton containerRef={containerRef} onComment={openSelectionThread} align="left" />}
-				<div className="relative pointer-events-none" style={{ height: 0 }}>
-					{Object.entries(commentsByAnchor).map(([anchorKey, anchorComments]) => {
-						const anchor = anchorComments[0]?.lineAnchor;
-						if (!anchor) return null;
-						const pos = linePositions.get(anchor.lineStart);
-						if (!pos) return null;
-						return (
-							<div key={`pip-${anchorKey}`} style={{ pointerEvents: "auto" }}>
-								<CommentPip
-									anchorKey={anchorKey}
-									anchorLabel={lineAnchorLabel(anchor)}
-									comments={anchorComments}
-									top={pos.top + 4}
-									left={Math.max(0, pos.left - 20)}
-									onClick={() => {
-										const row = containerRef.current?.querySelector(
-											`[data-line="${anchor.lineStart}"]`,
-										) as HTMLElement | null;
-										if (row) openAnchorThread(anchor, row);
-									}}
-								/>
-							</div>
-						);
-					})}
-				</div>
 				{loading ? (
 					<div className="flex items-center justify-center h-full text-muted-foreground text-sm">Loading...</div>
 				) : (

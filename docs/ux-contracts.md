@@ -56,7 +56,7 @@ down turns "did we regress the loop?" into a diff against this file.
   - [4.7 Extensions roster](#47-extensions-roster)
   - [4.8 Reading-time experiments](#48-reading-time-experiments)
 - [5. Comments](#5-comments)
-  - [5.1 Comment pips and thread](#51-comment-pips-and-thread)
+  - [5.1 Comment margin column and thread](#51-comment-margin-column-and-thread)
   - [5.2 View-mode and source-line comments](#52-view-mode-and-source-line-comments)
   - [5.3 Orphaned annotations (marked lost, never destroyed)](#53-orphaned-annotations-marked-lost-never-destroyed)
 - [6. Suggestions](#6-suggestions)
@@ -793,18 +793,15 @@ achieved neither — resolving unmounted the card, which unmounted the thread in
 it, so Resolve closed the thread and took the reply box with it. A **cancelled**
 comment is still excluded, because an anchor-lost comment has nothing to point at.
 
-For compatibility there is still a per-block pip variant: all-resolved → faded
-check; last turn by `ai:` → filled primary dot; else human ring. Draft
-instructions get an amber variant; routed (`queued` / `sent` / `answered`)
-instructions are excluded. Pips are positioned by **block identity**, never by
-DOM-child index. Thread surfaces carry turn timestamps (relative time), a
+The gutter pips are removed: a comment's only surfaces are its margin card and
+the selection-comment popover. Thread surfaces carry turn timestamps (relative time), a
 `⌘↵ send` reply box, and buttons "Turn into an instruction", Resolve/Reopen.
 Send uses `comment.reply` (open thread) or `comment.add`; Escalate creates an
 `instruction` comment with all turns joined and a `fromCommentId` backlink.
 The thread also exposes **Edit** and **Delete** for the comment body: Edit
 replaces the first turn's text (replies stay immutable; `comment.edit`, works on
 resolved comments too); Delete removes the comment and its thread entirely
-(`comment.delete`, confirm-gated; the pip disappears with no tombstone). On
+(`comment.delete`, confirm-gated; no tombstone is left). On
 `409 STALE_REVISION` the sidecar reloads and retries once. Every thread
 affordance (reply, Edit, Delete, Escalate, Resolve/Reopen) is available in
 **view mode** too — comment ops are sidecar-only and never touch the file, so
@@ -960,9 +957,9 @@ keystroke went from `3 POST + 6 GET` to `1 POST + 0 GET`, and a comment op now l
 `.md` mtime untouched while the sidecar still advances.
 
 **Why it matters:** Comment ops never change file content (revision stays
-fixed), so the pip/thread loop is the safe annotation path that must not bump the
-file revision. Anchoring by identity is what makes three comments on three blocks
-render three correctly-placed pips even when a loose list or table expands one
+fixed), so the comment/thread loop is the safe annotation path that must not bump
+the file revision. Anchoring by identity is what keeps each comment attached to its
+own block even when a loose list or table expands one
 mdast block into several DOM nodes.
 
 **Commenting on text always adds a NEW comment, even when the block already has one.**
@@ -977,7 +974,7 @@ comment on a selection, and it is what forces the new-comment path.
 **Verification pointer:** `src/components/editor/comment-margin.tsx`,
 `src/components/editor/extensions/comment-highlight.ts`,
 `src/components/editor/comment-thread.tsx`,
-`src/components/editor/comment-pip.tsx`, `src/lib/proof/pip-alignment.ts`,
+`src/lib/proof/pip-alignment.ts`,
 `src/lib/proof/comment-decorator.ts`
 
 **Two surfaces: the panel beside the text, and the redlines in it.**
@@ -1070,10 +1067,10 @@ exactly the header's height, and the correct offset is `blockOffset − headerHe
 kind of error that reads as "the whole column is shifted" rather than as an arithmetic
 mistake. Two other faults were found and fixed alongside it:
 
-- The offsets include `scrollTop`, which is right for the comment PIPS (they live inside the
-  scrolling element and must move with the text) and wrong for the panel (a sibling of that
-  element, which does not move with the document). The panel now reads a second measurement,
-  `viewportTop`, taken from the same rect without the scroll term.
+- The offsets include `scrollTop`, which suits an overlay INSIDE the scrolling element
+  but not the panel (a sibling of that element, which does not move with the document).
+  The panel reads a second measurement, `viewportTop`, taken from the same rect without
+  the scroll term; with the pips gone, `viewportTop` is the frame the panel actually uses.
 - The collision `floor` accumulated from un-inset values while `top` added the inset, so a
   card pushed down by a collision landed a further `inset` below the card it was clearing.
 
@@ -1138,7 +1135,7 @@ from the real width.
 **Verification pointer:** `src/components/editor/comment-margin.tsx`,
 `src/components/editor/extensions/comment-highlight.ts`,
 `src/components/editor/comment-thread.tsx`,
-`src/components/editor/comment-pip.tsx`, `src/lib/proof/pip-alignment.ts`,
+`src/lib/proof/pip-alignment.ts`,
 `src/lib/proof/comment-decorator.ts`
 
 **Three surfaces, split by what each can actually show.**
@@ -1241,8 +1238,9 @@ silently.
 ### 5.2 View-mode and source-line comments
 
 **Contract:** In read-only markdown mode, floating **Comment** appears over a non-collapsed selection. Suggestions are authored in the editor as marks; the source viewer remains comment-only. In the source viewer, comments anchor to
-`lineStart:lineEnd:12-hex-SHA-256-of-selected-text`, with pips keyed by that
-triple and the active thread's lines highlighted `bg-amber-400/25`.
+`lineStart:lineEnd:12-hex-SHA-256-of-selected-text`; a thread opened from a
+selection highlights the active lines `bg-amber-400/25`. There are no gutter
+pips: the selection's Comment button is how a thread opens.
 
 **One selection surface per mode.** The mode is chosen structurally by
 `isViewing`, not by a flag: editing mounts `EditorBubbleMenu` (formatting, plus
@@ -1317,7 +1315,7 @@ orphans it.
 - The previous one-way `stale` latch is gone for comments; it had no reset site
   and no surface anywhere in the UI.
 - Suggestion marks are document content, not sidecar records, so they do not use a ref-based `stale` latch or agent settlement path. A raw overwrite can change the document, but any marks present remain governed by the markdown source of truth.
-- A lost comment renders a card but no pip and no highlight.
+- A lost comment renders a card but no highlight.
 
 **Why it matters:** An external edit used to make a comment vanish with no signal,
 and the fix for that removed it *by design* — which is still losing the user's

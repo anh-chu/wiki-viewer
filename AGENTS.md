@@ -88,7 +88,7 @@ src/app/
   api/owner/ api/upload/ api/assets/ api/app-proxy/
   signin/  layout.tsx  page.tsx  manifest.ts
 src/components/
-  editor/              TipTap editor, activity provenance, comment-pip, suggestion-card
+  editor/              TipTap editor, activity provenance, suggestion-card
   ai-panel/            Agents, activity, install panel
   wiki/ layout/ search/ ui/ auth-settings-sheet.tsx dir-picker.tsx
 src/lib/
