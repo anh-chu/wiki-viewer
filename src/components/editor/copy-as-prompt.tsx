@@ -6,8 +6,9 @@ import { useEffect, useRef, useState } from "react";
 import {
 	buildPromptFromAnnotations,
 	mapAnnotationsToPromptItems,
+	mapMarkSuggestionsToPromptItems,
 	type PromptComment,
-	type PromptSuggestion,
+	type PromptMarkSuggestion,
 	type SnippetResolver,
 } from "@/lib/proof/prompt-serialize";
 
@@ -15,14 +16,13 @@ export interface CopyAsPromptProps {
 	path: string;
 	comments: readonly PromptComment[];
 	/**
-	 * Record-shaped suggestions, if the caller still has any.
+	 * Tracked-changes marks from the live document (insert / remove / modify).
 	 *
-	 * Suggested changes are document marks now, so the editor passes none: a mark is
-	 * visible in the document itself, which is a better review surface than a list in
-	 * a prompt dialog. Kept optional so a caller holding legacy records can still
-	 * include them.
+	 * Suggestions are document marks, so the editor enumerates them the same way
+	 * the margin panel does; the mapper turns each into a suggestion item quoting
+	 * the words it covers.
 	 */
-	suggestions?: readonly PromptSuggestion[];
+	markSuggestions?: readonly PromptMarkSuggestion[];
 	resolveSnippet?: SnippetResolver;
 }
 
@@ -37,8 +37,11 @@ function chipFor(kind: unknown) {
 	return { label: "Comment", className: "bg-muted text-muted-foreground" };
 }
 
-export function CopyAsPrompt({ path, comments, suggestions = [], resolveSnippet }: CopyAsPromptProps) {
-	const items = mapAnnotationsToPromptItems(comments, suggestions, resolveSnippet);
+export function CopyAsPrompt({ path, comments, markSuggestions = [], resolveSnippet }: CopyAsPromptProps) {
+	const items = [
+		...mapAnnotationsToPromptItems(comments, [], resolveSnippet),
+		...mapMarkSuggestionsToPromptItems(markSuggestions),
+	];
 	const prompt = buildPromptFromAnnotations(path, items);
 	const [open, setOpen] = useState(false);
 	const [clipboardAvailable, setClipboardAvailable] = useState(false);

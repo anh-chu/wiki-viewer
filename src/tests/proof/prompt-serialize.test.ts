@@ -3,6 +3,7 @@ import test from "node:test";
 import {
 	buildPromptFromAnnotations,
 	mapAnnotationsToPromptItems,
+	mapMarkSuggestionsToPromptItems,
 	type PromptItem,
 	type PromptSuggestion,
 } from "../../lib/proof/prompt-serialize";
@@ -165,4 +166,43 @@ test("serializes empty item sets with no numbered changes", () => {
 		"Edit the file `empty.md` (a Markdown document). Apply these changes:\n",
 	);
 	assert.deepEqual(mapAnnotationsToPromptItems([], []), []);
+});
+
+test("maps tracked marks into suggestions with an ending mark legend", () => {
+	const items = mapMarkSuggestionsToPromptItems([
+		// Saved: the tag lives in the anchor, so the item stays bare.
+		{ kind: "insert", text: "Added words", blockText: 'Kept <ins data-id="7">Added words</ins>', embedded: true },
+		{ kind: "remove", text: "Gone words", blockText: 'Kept <del data-id="3">Gone words</del>', embedded: true },
+		// Unsaved: the file has no tag yet, so the item quotes the words instead.
+		{ kind: "insert", text: "Fresh words", blockText: "The block on disk" },
+		{ kind: "modify", text: "", blockText: "A heading", attrName: "level", previousValue: 2, newValue: 3 },
+		{ kind: "modify", text: "", attrName: "language", previousValue: null, newValue: "ts" },
+	]);
+
+	const prompt = buildPromptFromAnnotations("doc.md", items);
+	assert.match(prompt, /1\. Suggestion on "Kept <ins data-id="7">Added words<\/ins>": apply this suggested insertion\n/);
+	assert.match(prompt, /2\. Suggestion on "Kept <del data-id="3">Gone words<\/del>": apply this suggested deletion\n/);
+	assert.match(prompt, /3\. Suggestion on "The block on disk": insert this text\n\s+"Fresh words"/);
+	assert.match(prompt, /4\. Suggestion on "A heading": change level from 2 to 3/);
+	// Attribute values render bare for numbers, quoted for strings, "(none)" for null.
+	assert.match(prompt, /5\. Suggestion on "document": change language from \(none\) to "ts"/);
+	assert.match(
+		prompt,
+		/Mark legend — the quoted anchors may contain tracked-change tags:\n\s+<ins data-id="N">text<\/ins> — a suggested insertion[^\n]*\n\s+<del data-id="N">text<\/del> — a suggested deletion[^\n]*\n\s+<span data-type="modification"/,
+	);
+	assert.deepEqual(items.map((item) => item.kind), ["suggestion", "suggestion", "suggestion", "suggestion", "suggestion"]);
+	assert.deepEqual(items[0], {
+		kind: "suggestion",
+		blockText: 'Kept <ins data-id="7">Added words</ins>',
+		embedded: true,
+		suggestionKind: "insert",
+		proposed: "Added words",
+	});
+});
+
+test("omits the mark legend when no mark-based suggestion is present", () => {
+	const comment = buildPromptFromAnnotations("doc.md", mapAnnotationsToPromptItems([{ ref: "b1", text: "note" }]));
+	assert.equal(comment.includes("Mark legend"), false);
+	const legacy = buildPromptFromAnnotations("doc.md", mapAnnotationsToPromptItems([], [suggestion("replace", "pending", "replacement")]));
+	assert.equal(legacy.includes("Mark legend"), false);
 });

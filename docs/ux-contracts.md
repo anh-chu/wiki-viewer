@@ -1552,7 +1552,19 @@ writing anything. Format, numbered from 1:
 `Edit the file \`<path>\` (a Markdown document). Apply these changes:` then a
 blank line, then per item:
 `N. Comment on "<FULL BLOCK TEXT>" (lines X-Y): "<original ask>"` followed by
-each reply as an indented `- <by>: <text>` line; suggestion marks are described as inline insertions or deletions using their marked text rather than a sidecar proposal. The quoted
+each reply as an indented `- <by>: <text>` line. Suggestion marks are described
+from the live document marks, anchored on the mark's block as the SNAPSHOT (file)
+has it. A saved mark's tag is already embedded in that anchor, so its item stays
+bare — `N. Suggestion on "<BLOCK TEXT with <ins data-id>…</ins>>": apply this
+suggested insertion` (deletions: `apply this suggested deletion`) — and the
+prompt ends with a **Mark legend** explaining the three tag syntaxes (`<ins
+data-id="N">text</ins>` = replace the tag with its text; `<del data-id="N">text</del>`
+= remove the tag and its text; `<span data-type="modification" …>` = apply the
+described block-attribute change). An unsaved mark (no tag in the snapshot yet)
+falls back to quoting its words: `… insert this text` / `… delete this text` +
+the quoted marked text. Modification marks (attribute changes) read
+`… change <attrName> from <old> to <new>`. The legend appears only when at least
+one mark-based suggestion is in the prompt. The quoted
 anchor is the block's full canonical markdown (resolved from the snapshot,
 capped at ~200 chars with `…`), never the ref id; ref-anchored comments omit
 the line range when no line metadata is available, while line-anchored

@@ -21,6 +21,14 @@ export interface PromptItem {
 	turns?: ReadonlyArray<{ text: string; by?: string }>;
 	proposed?: string;
 	suggestionKind?: SuggestionKind;
+	/** modify suggestions: the node attribute the change targets. */
+	attrName?: string;
+	/**
+	 * The payload is already embedded in the anchor as a tracked-change tag
+	 * (`<ins data-id>` / `<del data-id>` from the saved file), so the item
+	 * needs no quoted copy of the words.
+	 */
+	embedded?: boolean;
 	blockText?: string;
 	currentText?: string;
 	lineStart?: number;
@@ -101,6 +109,23 @@ export function formatPromptItem(item: PromptItem): string {
 	switch (item.suggestionKind) {
 		case "delete":
 			return `Suggestion on ${anchor}: delete this block`;
+		// Tracked-mark suggestions cover a run of text INSIDE a block, so the prompt
+		// names the words rather than the block: "delete this block" on a mark that
+		// covers three words would direct the agent to erase the paragraph. When the
+		// saved file's anchor already embeds the mark tag, the words need no second
+		// quote — the legend at the end of the prompt explains the tag syntax.
+		case "remove":
+			return item.embedded
+				? `Suggestion on ${anchor}: apply this suggested deletion`
+				: `Suggestion on ${anchor}: delete this text\n${quoteIndented(item.proposed ?? "")}`;
+		case "insert":
+			return item.embedded
+				? `Suggestion on ${anchor}: apply this suggested insertion`
+				: `Suggestion on ${anchor}: insert this text\n${quoteIndented(item.proposed ?? "")}`;
+		case "modify":
+			// The library only creates modifications over node attributes (heading
+			// level, code fence language, …) — never over plain text.
+			return `Suggestion on ${anchor}: change ${item.attrName ?? "this block"} from ${item.currentText ?? "(none)"} to ${item.proposed ?? "(none)"}`;
 		case "insertAfter":
 			return `Suggestion on ${anchor}: insert after ${anchor}\n${quoteIndented(item.proposed ?? "")}`;
 		case "insertBefore":
@@ -111,10 +136,31 @@ export function formatPromptItem(item: PromptItem): string {
 	}
 }
 
+/**
+ * Syntax legend for tracked-change tags the quoted anchors may contain, appended
+ * when the prompt includes mark-based suggestions. The saved file stores pending
+ * suggestions as raw HTML (`to-markdown.ts` preserves them), so the receiving
+ * agent needs to know what the tags mean and what applying them does.
+ */
+const MARK_LEGEND = [
+	"Mark legend — the quoted anchors may contain tracked-change tags:",
+	`  <ins data-id="N">text</ins> — a suggested insertion, not yet applied: replace the tag with its text.`,
+	`  <del data-id="N">text</del> — a suggested deletion, not yet applied: remove the tag and its text.`,
+	`  <span data-type="modification" ...>...</span> — a suggested block-attribute change (e.g. heading level, code fence language); apply the change the item describes.`,
+].join("\n");
+
+const isMarkSuggestion = (item: PromptItem) =>
+	item.kind === "suggestion" &&
+	(item.suggestionKind === "insert" ||
+		item.suggestionKind === "remove" ||
+		item.suggestionKind === "modify");
+
 /** Serialize existing annotations into a prompt. This function has no side effects. */
 export function buildPromptFromAnnotations(path: string, items: PromptItem[]): string {
 	const header = `Edit the file \`${path}\` (a Markdown document). Apply these changes:`;
-	return [header, "", ...items.map((item, index) => `${index + 1}. ${formatPromptItem(item)}`)].join("\n");
+	const body = items.map((item, index) => `${index + 1}. ${formatPromptItem(item)}`);
+	if (items.some(isMarkSuggestion)) body.push("", MARK_LEGEND);
+	return [header, "", ...body].join("\n");
 }
 
 /** Resolve an annotation to full readable text and, when available, its line range. */
@@ -229,3 +275,74 @@ export function mapAnnotationsToPromptItems(
 
 /** Short alias for callers that already have sidecar annotation arrays. */
 export const promptItemsFromAnnotations = mapAnnotationsToPromptItems;
+
+/**
+ * A tracked-changes mark, structurally — what the prompt needs and nothing more.
+ *
+ * Suggestions are document marks now (`<ins>`/`<del>`/modification), enumerated by the
+ * editor's `trackedMarks`; this is that shape decoupled from ProseMirror so the mapper
+ * stays testable without an editor.
+ */
+export interface PromptMarkSuggestion {
+	kind: "insert" | "remove" | "modify";
+	/** The text the mark covers, read from the live document. */
+	text: string;
+	/**
+	 * The block the mark sits in, as the FILE has it (snapshot markdown), so the
+	 * receiving agent can locate the anchor on disk. Undefined when the block
+	 * could not be resolved this frame.
+	 */
+	blockText?: string;
+	/**
+	 * True when `blockText` already contains this mark's tag (the suggestion was
+	 * saved, so the file carries `<ins data-id>` / `<del data-id>`): the item
+	 * then says "apply this suggested …" without quoting the words again.
+	 * False — e.g. an unsaved mark — falls back to quoting the payload.
+	 */
+	embedded?: boolean;
+	/** modify only: the node attribute that changed. */
+	attrName?: string | null;
+	previousValue?: unknown;
+	newValue?: unknown;
+}
+
+/** Render an attribute value for the prompt: quoted strings, `JSON` for objects. */
+function describeAttrValue(value: unknown): string {
+	if (value === null || value === undefined) return "(none)";
+	if (typeof value === "string") return `"${value}"`;
+	if (typeof value === "object") return JSON.stringify(value);
+	return String(value);
+}
+
+/** Map tracked-changes marks into suggestion prompt items. */
+export function mapMarkSuggestionsToPromptItems(
+	marks: readonly PromptMarkSuggestion[],
+): PromptItem[] {
+	return marks.map((mark) => {
+		// `document` when the block could not be resolved: a modify item's
+		// `currentText` is an attribute VALUE, not anchor material, and the
+		// anchor chain would otherwise quote it as the location.
+		const base = {
+			blockText: mark.blockText ?? "document",
+			kind: "suggestion" as const,
+			// Only meaningful for insert/remove: a modification is described by its
+			// attribute values, which never embed in the anchor.
+			embedded: mark.embedded ?? false,
+		};
+		if (mark.kind === "remove") {
+			// The mark keeps the deleted words visible, so `text` IS the payload:
+			// the agent removes exactly those words from the anchored block.
+			return { ...base, suggestionKind: "remove" as const, proposed: mark.text };
+		}
+		if (mark.kind === "insert") {
+			return { ...base, suggestionKind: "insert" as const, proposed: mark.text };
+		}
+		return {
+			...base,
+			suggestionKind: "modify" as const,
+			attrName: mark.attrName ?? undefined,
+			currentText: describeAttrValue(mark.previousValue),
+			proposed: describeAttrValue(mark.newValue),
+		};
+	});
+}

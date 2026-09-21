@@ -1208,7 +1208,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	 * below already guards against.
 	 */
 	const [trackedMarks, setTrackedMarks] = useState<
-		{ id: MarkId; kind: "insert" | "remove" | "modify"; from: number; to: number }[]
+		{ id: MarkId; kind: "insert" | "remove" | "modify"; from: number; to: number; attrName?: string | null; previousValue?: unknown; newValue?: unknown }[]
 	>([]);
 	useEffect(() => {
 		if (!editor || editor.isDestroyed) return;
@@ -1237,7 +1237,20 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 						existing.from = Math.min(existing.from, from);
 						existing.to = Math.max(existing.to, to);
 					} else {
-						byId.set(id, { id, kind, from, to });
+						byId.set(id, {
+						id,
+						kind,
+						from,
+						to,
+						// A modification mark records what changed (which attribute,
+						// from what, to what); the prompt serializer needs those to
+						// describe the change. Insertions/deletions carry only text.
+						...(kind === "modify" && {
+							attrName: typeof mark.attrs.attrName === "string" ? mark.attrs.attrName : null,
+							previousValue: mark.attrs.previousValue,
+							newValue: mark.attrs.newValue,
+						}),
+					});
 					}
 				}
 				return true;
@@ -1324,6 +1337,57 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 							? "modification"
 							: editor?.state.doc.textBetween(mark.from, mark.to, " ") ?? "",
 					blockRef,
+				};
+			}),
+		[trackedMarks, editor, suggestionBlocks],
+	);
+
+	/**
+	 * Copy-as-prompt items for every tracked mark, so suggested changes reach the
+	 * external-agent prompt and not only the margin panel.
+	 *
+	 * The anchor is quoted from the SNAPSHOT blocks, not the live document: the
+	 * prompt tells an agent to apply the change to the FILE, so the quoted anchor
+	 * must be text the file actually contains. When that anchor already embeds the
+	 * mark's tag (saved suggestion) the item stays bare and the prompt's ending
+	 * legend explains the tag syntax; an unsaved mark quotes its words from the
+	 * live document instead. The same transient `resolve` caveat as
+	 * `panelSuggestions` applies: an out-of-range mark anchors to "document" this
+	 * frame.
+	 */
+	const promptSuggestions = useMemo(
+		() =>
+			trackedMarks.map((mark) => {
+				let blockText: string | undefined;
+				let embedded = false;
+				if (editor) {
+					try {
+						const $pos = editor.state.doc.resolve(mark.from);
+						const index = $pos.depth > 0 ? $pos.index(0) : 0;
+						const markdown = suggestionBlocks[index]?.markdown;
+						if (markdown) {
+							blockText = markdown.replace(/\s+/g, " ").trim() || undefined;
+							// The snapshot is the FILE: when it already carries this
+							// mark's tag the suggestion was saved, and the prompt
+							// item can lean on the legend instead of re-quoting the
+							// words. An unsaved mark is not in the file yet.
+							embedded = markdown.includes(`data-id="${mark.id}"`);
+						}
+					} catch {
+						blockText = undefined;
+					}
+				}
+				return {
+					kind: mark.kind,
+					text:
+						mark.kind === "modify"
+							? ""
+							: editor?.state.doc.textBetween(mark.from, mark.to, " ") ?? "",
+					blockText,
+					embedded,
+					attrName: mark.attrName,
+					previousValue: mark.previousValue,
+					newValue: mark.newValue,
 				};
 			}),
 		[trackedMarks, editor, suggestionBlocks],
@@ -1995,6 +2059,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 						<CopyAsPrompt
 							path={currentPath ?? ""}
 							comments={promptComments}
+							markSuggestions={promptSuggestions}
 							resolveSnippet={resolvePromptSnippet}
 						/>
 

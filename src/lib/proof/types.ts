@@ -159,7 +159,13 @@ export type SuggestionKind =
 	| "replace"
 	| "insertAfter"
 	| "insertBefore"
-	| "delete";
+	| "delete"
+	/**
+	 * Read-only, kept for prompt serialization: a tracked-changes modification mark
+	 * changing a block attribute (heading level, code fence language, …). Never
+	 * written by the suggestion ops — the library creates it from attribute steps.
+	 */
+	| "modify";
 
 /**
  * The kinds `suggestion.add` can actually write.
