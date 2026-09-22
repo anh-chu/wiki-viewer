@@ -43,19 +43,36 @@ function lineOf(source: string, needle: string): number {
 }
 
 describe("resolved threads stay in the margin column", () => {
-	test("marginThreads does not filter out resolved comments", () => {
-		const block = EDITOR.slice(
-			EDITOR.indexOf("const marginThreads = useMemo("),
+	// The thread pipeline starts at `threadGroups` (grouping + cancelled filter);
+	// the open/settled split and the margin memo follow it.
+	function marginSourceBlock(): string {
+		return EDITOR.slice(
+			EDITOR.indexOf("const threadGroups = useMemo("),
 			EDITOR.indexOf("const showCommentMargin ="),
 		);
-		assert.ok(block.length > 0, "expected to find the marginThreads memo");
+	}
+
+	test("threadGroups keeps every thread; the settled split must not DROP resolved ones", () => {
+		const block = marginSourceBlock();
+		assert.ok(block.length > 0, "expected to find the threadGroups memo");
+		// Resolved threads no longer hold card slots, but they must stay reachable:
+		// dropping them closed the thread on a successful Resolve. They are re-homed
+		// into the compact settled element, so the split has to FILTER them into
+		// `settledMarginThreads` rather than remove them.
 		assert.ok(
-			!block.includes("!c.resolved"),
-			"dropping resolved comments unmounts their card and closes the thread",
+			block.includes("settledMarginThreads"),
+			"resolved threads move to the settled element, they are not dropped",
 		);
 		assert.ok(
-			block.includes("!c.cancelledAt"),
-			"cancelled comments still have no anchor, so they must stay excluded",
+			/const settledMarginThreads[\s\S]*?c\.resolved/.test(block),
+			"the settled split keys on the resolved flag",
+		);
+		// Text-anchored comments thread by their OWN anchor id: two comments on
+		// different phrases in one block must not merge into one card.
+		assert.match(
+			block,
+			/c\.textAnchor \? \(c\.anchorId/,
+			"a text-anchored comment's thread identity is its anchor, not the block",
 		);
 	});
 
@@ -63,11 +80,7 @@ describe("resolved threads stay in the margin column", () => {
 		// Cancellation is the one case that must NOT appear: the anchor is gone, so
 		// there is nothing to point at. If this ever stops holding, the fix above
 		// went too far.
-		const block = EDITOR.slice(
-			EDITOR.indexOf("const marginThreads = useMemo("),
-			EDITOR.indexOf("const showCommentMargin ="),
-		);
-		assert.match(block, /filter\(\(c\) => !c\.cancelledAt\)/);
+		assert.match(marginSourceBlock(), /if \(c\.cancelledAt\) continue;/);
 	});
 });
 

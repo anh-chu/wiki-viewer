@@ -24,7 +24,7 @@ const MARGIN = readFileSync(
 );
 
 function thread(blockRef: string) {
-	return { blockRef, comments: [] as never[] };
+	return { key: blockRef, blockRef, comments: [] as never[] };
 }
 
 describe("comment margin layout", () => {

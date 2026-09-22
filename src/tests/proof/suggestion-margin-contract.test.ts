@@ -131,9 +131,11 @@ describe("Approve and Reject settle exactly one mark", () => {
 
 	test("CONTROL: the document-wide path still exists for Accept-all", () => {
 		// Removing it would break the toolbar, and its presence is what makes the
-		// assertion above meaningful rather than a renamed call.
+		// assertion above meaningful rather than a renamed call. The window clears
+		// the reject-capture that records declined suggestions for the settled
+		// element before the command runs.
 		const block = EDITOR.slice(EDITOR.indexOf("const resolveAllTracked = useCallback("));
-		assert.match(block.slice(0, 700), /applySuggestions|revertSuggestions/);
+		assert.match(block.slice(0, 900), /applySuggestions|revertSuggestions/);
 	});
 });
 

@@ -143,10 +143,11 @@ describe("the feedback loop that hid the real cause", () => {
 	test("CONTROL: the genuine cancellation path is still intact", () => {
 		// Reverting the guess must not remove the real behaviour it was imitating:
 		// cancelled comments still leave the column (asserted in the margin-contract
-		// suite). This pins that the editor still filters them out.
+		// suite). The filter lives in the threadGroups grouping now, which is where
+		// the margin threads are built.
 		assert.match(
 			EDITOR,
-			/comments: list\.filter\(\(c\) => !c\.cancelledAt\)/,
+			/if \(c\.cancelledAt\) continue;/,
 			"cancelled comments must still be excluded from the margin",
 		);
 	});

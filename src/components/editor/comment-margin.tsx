@@ -32,7 +32,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ListChecks } from "lucide-react";
+import { Check, ListChecks } from "lucide-react";
 import type { Comment } from "@/lib/proof/types";
 import type { MarkId } from "@/lib/proof/suggestion-mark";
 import { cn } from "@/lib/utils";
@@ -41,7 +41,14 @@ import { PanelRightClose } from "lucide-react";
 import { CommentThread } from "./comment-thread";
 
 export interface MarginThread {
-	/** Block ref the thread is anchored to. */
+	/**
+	 * The thread's identity: for a text-anchored comment this is its own anchor
+	 * id (or a ref+id fallback), so two comments on different phrases in one
+	 * block are SEPARATE threads; for block-granular comments it is the block
+	 * ref. Used for card DOM identity, height measurement, and activation.
+	 */
+	key: string;
+	/** Block ref the thread is anchored to — for offsets, hover, and highlight. */
 	blockRef: string;
 	comments: Comment[];
 }
@@ -75,6 +82,20 @@ export interface PanelSuggestion {
 interface Props {
 	path: string;
 	threads: readonly MarginThread[];
+	/**
+	 * Fully resolved threads. They do NOT hold card slots: the panel collapses all
+	 * of them — with the rejected suggestions — into one compact element at the
+	 * bottom, so settled reviews stop crowding the live ones. Expanding it renders
+	 * the same CommentThread components as a card would, so reply, edit, delete,
+	 * and Reopen all still work.
+	 */
+	settledThreads?: readonly MarginThread[];
+	/**
+	 * Suggestions rejected this session, captured before their marks were removed
+	 * from the document. Session-local: a rejected mark is gone from the file, so
+	 * there is nothing durable to rebuild the row from after a reload.
+	 */
+	rejectedSuggestions?: readonly { id: string; text: string }[];
 	suggestions: readonly PanelSuggestion[];
 	/** Live per-ref vertical offsets (px) from the top of the scroll content. */
 	blockOffsets: ReadonlyMap<string, number>;
@@ -125,6 +146,8 @@ export const COMMENT_COLUMN_WIDTH_CSS = `${COMMENT_COLUMN_WIDTH_REM}rem`;
 export function CommentMargin({
 	path,
 	threads,
+	settledThreads,
+	rejectedSuggestions,
 	suggestions,
 	blockOffsets,
 	activeRef,
@@ -136,6 +159,12 @@ export function CommentMargin({
 	showComments,
 	showSuggestions,
 }: Props) {
+	const settled = settledThreads ?? [];
+	const rejected = rejectedSuggestions ?? [];
+	// A rejected id whose mark is pending AGAIN (undo restored it) is not settled
+	// anymore: the suggestion card is live, so the settled row would double it.
+	const liveRejected = rejected.filter((r) => !suggestions.some((s) => String(s.id) === r.id));
+	const settledCount = settled.reduce((n, t) => n + t.comments.length, 0);
 	// Measured heights, so the collision pass knows how tall each card really is
 	// (comment bodies are free text and can be any length).
 	const [heights, setHeights] = useState<Record<string, number>>({});
@@ -176,13 +205,13 @@ export function CommentMargin({
 			let changed = false;
 			for (const t of visibleThreads) {
 				const el = document.querySelector<HTMLElement>(
-					`[data-margin-card="${t.blockRef}"]`,
+					`[data-margin-card="${t.key}"]`,
 				);
 				// Assign only on a real change: returning the PREVIOUS object when
 				// nothing moved lets React bail out of the re-render, which is what
 				// breaks the measure → render → measure cycle this effect sits in.
-				if (el && next[t.blockRef] !== el.offsetHeight) {
-					next[t.blockRef] = el.offsetHeight;
+				if (el && next[t.key] !== el.offsetHeight) {
+					next[t.key] = el.offsetHeight;
 					changed = true;
 				}
 			}
@@ -236,7 +265,11 @@ export function CommentMargin({
 		-headerHeight,
 	);
 
-	if (laid.length === 0 && !showComments && !showSuggestions) return null;
+	// The settled element counts even when no card is live: a document whose
+	// annotations are all resolved still shows the compact settled row.
+	if (laid.length === 0 && !showComments && !showSuggestions && settledCount === 0 && liveRejected.length === 0) {
+		return null;
+	}
 
 	return (
 		<aside
@@ -280,10 +313,10 @@ export function CommentMargin({
 					style={{ top: card.top }}
 				>
 					{card.thread ? (
-						activeRef === card.thread.blockRef ? (
+						activeRef === card.thread.key ? (
 							<CommentThread
 								path={path}
-								anchorKey={card.thread.blockRef}
+								anchorKey={card.thread.key}
 								anchorRef={card.thread.blockRef}
 								// The words the comment is about, not the opaque ref: the
 								// block ref says WHERE the thread lives but not WHAT it
@@ -303,8 +336,8 @@ export function CommentMargin({
 						) : (
 							<CollapsedCard
 								thread={card.thread}
-								active={activeRef === card.thread.blockRef}
-								onActivate={() => onActivate(card.thread!.blockRef)}
+								active={activeRef === card.thread.key}
+								onActivate={() => onActivate(card.thread!.key)}
 								onHoverChange={(h) => onHoverChange(card.thread!.blockRef, h)}
 							/>
 						)
@@ -330,7 +363,108 @@ export function CommentMargin({
 				</div>
 			))}
 			</div>
+
+			{/* The compact settled element. Resolved comment threads and rejected
+			    suggestions collapse HERE instead of each holding a full card slot,
+			    so a pile of settled reviews cannot crowd the live cards above.
+			    Expanding renders the SAME CommentThread components a card renders,
+			    so reply/edit/delete/Reopen behave identically — nothing about the
+			    thread's affordances changes, only how much space it takes closed. */}
+			{(settledCount > 0 || liveRejected.length > 0) && (
+				<SettledSection
+					path={path}
+					settled={settled}
+					rejected={liveRejected}
+					activeRef={activeRef}
+					onClose={onClose}
+					onHoverChange={onHoverChange}
+				/>
+			)}
 		</aside>
+	);
+}
+
+/**
+ * One compact row for everything settled: resolved comment threads and rejected
+ * suggestions.
+ *
+ * Collapsed it is a single count line; expanded it stacks the same thread
+ * components the cards used (so every thread affordance is unchanged) plus one
+ * line per rejected suggestion. The element sits in normal flow at the panel's
+ * bottom — it anchors to nothing in the document, so it does not join the
+ * block-offset collision pass the live cards run.
+ */
+function SettledSection({
+	path,
+	settled,
+	rejected,
+	activeRef,
+	onClose,
+	onHoverChange,
+}: {
+	path: string;
+	settled: readonly MarginThread[];
+	rejected: readonly { id: string; text: string }[];
+	activeRef: string | null;
+	onClose: () => void;
+	onHoverChange: (blockRef: string, hovered: boolean) => void;
+}) {
+	const [open, setOpen] = useState(false);
+	const settledComments = settled.reduce((n, t) => n + t.comments.length, 0);
+	const counts = [
+		settledComments > 0 ? `${settledComments} resolved` : null,
+		rejected.length > 0 ? `${rejected.length} rejected` : null,
+	].filter(Boolean);
+
+	return (
+		<div className="border-t border-border">
+			<button
+				type="button"
+				onClick={() => setOpen((v) => !v)}
+				aria-expanded={open}
+				className="flex w-full items-center gap-1.5 px-3 py-2 text-[11px] text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
+			>
+				<Check className="h-3.5 w-3.5 text-muted-foreground/60" aria-hidden="true" />
+				<span>{counts.join(" · ")}</span>
+				<span className="ml-auto">{open ? "▾" : "▸"}</span>
+			</button>
+			{open && (
+				<div className="max-h-80 overflow-y-auto px-2 pb-2">
+					{settled.map((t) => (
+						<CommentThread
+							key={t.blockRef}
+							path={path}
+							anchorKey={t.blockRef}
+							anchorRef={t.blockRef}
+							// Same header rule as an active card: the commented words
+							// when the thread carries a text anchor, the ref otherwise.
+							anchorLabel={
+								t.comments.find((c) => c.textAnchor?.selectedText)?.textAnchor
+									?.selectedText ?? t.blockRef
+							}
+							comments={t.comments}
+							anchorEl={null}
+							variant="margin"
+							onHoverChange={(h) => onHoverChange(t.blockRef, h)}
+							onClose={onClose}
+						/>
+					))}
+					{rejected.map((r) => (
+						<div
+							key={r.id}
+							className="mt-1.5 flex items-start gap-2 rounded-lg border border-border bg-muted/30 p-2"
+						>
+							<span className="mt-0.5 shrink-0 rounded px-1 py-0.5 text-[10px] font-medium bg-destructive/10 text-destructive">
+								rejected
+							</span>
+							<span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
+								{r.text || "(empty)"}
+							</span>
+						</div>
+					))}
+				</div>
+			)}
+		</div>
 	);
 }
 
@@ -567,11 +701,11 @@ function layout(
 }[] {
 	const sorted = [
 		...threads.map((thread) => ({
-			key: thread.blockRef,
+			key: thread.key,
 			thread: thread as MarginThread | null,
 			suggestion: null as PanelSuggestion | null,
 			desired: blockOffsets.get(thread.blockRef) ?? 0,
-			height: heights[thread.blockRef] ?? 72,
+			height: heights[thread.key] ?? 72,
 		})),
 		...suggestions.map((suggestion) => {
 			const key = `suggestion:${String(suggestion.id)}`;

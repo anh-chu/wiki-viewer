@@ -51,7 +51,10 @@ describe("the text and the panel highlight each other", () => {
 		);
 		assert.ok(handler.length > 0, "expected the selection handler");
 		assert.match(handler, /revealComments\(\)/, "it must surface the panel");
-		assert.match(handler, /setActiveMarginRefNow\(blockRef\)/, "and open that card");
+		// The comment's OWN thread, not the block: a text-anchored comment has a
+		// per-anchor thread, so activating by block ref would open whatever card is
+		// keyed by that block instead of the card for the clicked words.
+		assert.match(handler, /setActiveMarginRefNow\(threadKey\)/, "and open that card");
 	});
 
 	test("the click resolves the comment id through the SAME view the decorator used", () => {
@@ -67,8 +70,15 @@ describe("the text and the panel highlight each other", () => {
 
 	test("the active ref reaches both the decorator and the panel", () => {
 		// One value, two readers: if the panel read its own state the two ends could
-		// show different comments as active.
-		assert.match(EDITOR, /activeRef: activeMarginRef/, "the decorator reads it");
+		// show different comments as active. The decorator compares against a BLOCK
+		// ref while the panel keys cards by thread (a text-anchored comment's own
+		// anchor id), so the decorator gets the active thread's block ref derived
+		// from the same activeMarginRef value.
+		assert.match(
+			EDITOR,
+			/threadGroupList\.find\(\(g\) => g\.key === activeMarginRef\)\?\.blockRef \?\? activeMarginRef/,
+			"the decorator reads the active thread's block ref",
+		);
 		assert.match(EDITOR, /activeRef=\{activeMarginRef\}/, "so does the panel");
 	});
 

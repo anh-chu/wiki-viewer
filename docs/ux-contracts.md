@@ -786,12 +786,33 @@ home, not a launcher for a floating popover, so the comment never moves away fro
 the text it discusses. Focus is not stolen on expand — the click already chose the
 target.
 
-**Resolved threads stay in the column**, labelled `resolved`, rather than being
-removed. Two contracts depend on this: a resolved thread always shows the reply
-box, and a successful operation keeps the thread open. Dropping resolved cards
-achieved neither — resolving unmounted the card, which unmounted the thread inside
-it, so Resolve closed the thread and took the reply box with it. A **cancelled**
-comment is still excluded, because an anchor-lost comment has nothing to point at.
+**Resolved threads collapse into one settled element.** A thread whose comments
+are ALL resolved no longer holds a card slot: it joins the compact settled
+element at the bottom of the panel — `✓ N resolved · M rejected` — together with
+suggestions rejected this session. Expanding it renders the SAME
+`CommentThread` components a card would, so the reply box, Edit, Delete, and
+Reopen all still work; nothing is dropped. Rejected suggestions are captured at
+reject time (a rejected mark is REMOVED from the document, so its card vanishes
+with it) and listed as one line each; a rejected id whose mark is pending again
+(undo) is shown live, not settled.
+
+**Rejections are session-local by design.** The rejected list is React state:
+rejection is a document edit — the mark is gone from the saved file, and
+suggestions in the mark system have no sidecar record to read back — so after a
+reload the shelf shows nothing for them. This is deliberate, not a gap, for the
+same reason the ACCEPT side records nothing: the document is the only truth
+(both settlement outcomes are durably visible as the file's text), the shelf is
+a review workspace rather than an audit log, and a durable rejected row could
+never be acted on — the only sensible action on one would be re-applying the
+suggestion, which is creating a new suggestion. Persisting a rejection record
+would also need a retirement answer the current model has none of. Resolved
+COMMENTS survive reloads because their record lives in the sidecar; that
+asymmetry is inherent, not accidental.
+
+Panel counts and the dock badge count OPEN annotations only — resolved
+comments no longer advertise card slots the panel does not draw. A
+**cancelled** comment is still excluded entirely, because an anchor-lost
+comment has nothing to point at.
 
 The gutter pips are removed: a comment's only surfaces are its margin card and
 the selection-comment popover. Thread surfaces carry turn timestamps (relative time), a
@@ -809,7 +830,22 @@ resolved comments too); Delete removes the comment and its thread entirely
 `409 STALE_REVISION` the sidecar reloads and retries once. Every thread
 affordance (reply, Edit, Delete, Escalate, Resolve/Reopen) is available in
 **view mode** too — comment ops are sidecar-only and never touch the file, so
-there is no read-only stripping on the thread.
+there is no read-only stripping on the thread. Settling a suggestion
+(accept/reject) is NOT a comment op — it edits the document — and it persists in
+view mode too: the editor's `onUpdate` save is gated off in view mode (a no-op
+visit must not rewrite the file), so the settle path stages and saves
+explicitly. Accepting or rejecting a suggestion in view mode therefore survives
+a reload.
+
+**One thread per commented phrase.** A TEXT-ANCHORED comment is its own thread,
+keyed by the comment's durable anchor id (fallback: block ref + comment id) —
+two comments on different phrases in the same block are two cards with two
+independent threads, each replyable, resolvable, and editable separately; they
+used to merge into one block-scoped thread. Block-granular comments (no
+selection) still group per block, which is their only identity. Card offsets,
+hover highlighting, and the text highlight remain block-scoped: hovering or
+activating one of two same-block threads lights the block's decorations, while
+activation (which card is expanded) is per thread.
 
 **Exact-text anchors (`textAnchor`) and the exact-word highlight.** A comment may
 carry `{start, end, selectedText, baseMarkdown}` naming the words it applies to.

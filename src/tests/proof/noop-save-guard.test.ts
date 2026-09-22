@@ -31,12 +31,16 @@ const EDITOR = readFileSync(
 	"utf8",
 );
 
-/** The body of `handleUpdate`, up to the callback's terminator. */
+/** The body of the serialize-and-stage path, up to the next hook.
+ *
+ * The guard and the save live in `serializeAndStage`, which handleUpdate delegates
+ * to; the settle path calls it too, so the guard covers both entry points.
+ */
 function handleUpdateBody(): string {
-	const start = EDITOR.indexOf("const handleUpdate = useCallback(");
-	assert.notEqual(start, -1, "expected to find handleUpdate");
+	const start = EDITOR.indexOf("const serializeAndStage = useCallback(");
+	assert.notEqual(start, -1, "expected to find serializeAndStage");
 	const end = EDITOR.indexOf("const commentHighlightStateRef", start);
-	assert.notEqual(end, -1, "expected handleUpdate to be followed by the next hook");
+	assert.notEqual(end, -1, "expected it to be followed by the next hook");
 	return EDITOR.slice(start, end);
 }
 

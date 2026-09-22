@@ -259,6 +259,18 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	 * so that coupling is gone and settling one from the other is just a way to
 	 * write a change the user did not ask for.
 	 */
+	// Suggestions rejected this session, for the panel's settled element. Session-
+	// local by design: a rejected mark is REMOVED from the document, so after a save
+	// and reload there is no mark — and no record — to rebuild the row from. The
+	// panel drops any captured id that is pending again (undo restores the mark).
+	const [rejectedSuggestions, setRejectedSuggestions] = useState<{ id: string; text: string }[]>([]);
+	// Latest pending suggestions, so the reject callbacks above (declared before
+	// `panelSuggestions`) can read them without re-declaring with new dependencies.
+	const panelSuggestionsRef = useRef<{ id: MarkId; text: string }[]>([]);
+	// Latest serializer, same ordering reason: the settle callbacks below dispatch
+	// and then stage the document, and the serializer is declared further down.
+	const serializeAndStageRef = useRef<(editor: { getHTML(): string } | null) => void>(() => {});
+
 	/**
 	 * Settle ONE suggested change, identified by its mark id and range.
 	 *
@@ -269,19 +281,52 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	const resolveOneTracked = useCallback((id: MarkId, from: number, to: number, decision: "accept" | "reject") => {
 		const editor = editorRef.current;
 		if (!editor) return;
+		// A rejected mark leaves the document (revert removes it), so its card
+		// vanishes with it. Capture the words here so the panel's settled element
+		// can still show what was declined; the capture is session-local — the
+		// mark is gone from the file, so there is nothing durable to re-read.
+		if (decision === "reject") {
+			const rejected = panelSuggestionsRef.current.find((s) => String(s.id) === String(id));
+			if (rejected) {
+				setRejectedSuggestions((prev) =>
+					prev.some((r) => r.id === String(id))
+						? prev
+						: [...prev, { id: String(id), text: rejected.text }],
+				);
+			}
+		}
 		const command = decision === "accept" ? applySuggestion : revertSuggestion;
 		command(id, from, to)(editor.state, editor.view.dispatch);
+		// Settling is a DOCUMENT operation, and it must persist in BOTH modes: in
+		// edit mode the transaction's own onUpdate saves, but view mode gates
+		// onUpdate off (a no-op visit must not rewrite the file), which used to
+		// make accept/reject here silently vanish on reload. Staging explicitly
+		// costs nothing in edit mode — the baseline check makes it a no-op.
+		serializeAndStageRef.current(editor);
 	}, []);
 
 	const resolveAllTracked = useCallback((decision: "accept" | "reject") => {
 		const editor = editorRef.current;
 		if (!editor) return;
+		// Reject-all captures the pending suggestions before the revert removes
+		// their marks, so the settled element can show what was declined.
+		if (decision === "reject") {
+			setRejectedSuggestions((prev) => [
+				...prev,
+				...panelSuggestionsRef.current
+					.filter((s) => !prev.some((r) => r.id === String(s.id)))
+					.map((s) => ({ id: String(s.id), text: s.text })),
+			]);
+		}
 		// The document transform comes from the vendored library: accept removes the
 		// text inside deletion marks and drops insertion marks, reject does the
 		// mirror. Same command the per-suggestion control uses.
 		const command =
 			decision === "accept" ? applySuggestions : revertSuggestions;
 		command(editor.state, editor.view.dispatch);
+		// Same view-mode persistence as the per-card path: settle-all must survive
+		// a reload when it was driven from view mode.
+		serializeAndStageRef.current(editor);
 		setTrackedCount(0);
 	}, []);
 
@@ -334,6 +379,9 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 			// than persisting this document's draft against the new path.
 			sourcePathRef.current = key;
 			setSourceMode(sourceModeByPath.get(key) ?? false);
+			// The rejected list is session-local to ONE document — a suggestion
+			// declined in test.md must not appear settled in another file.
+			setRejectedSuggestions([]);
 			// Restore the draft only against the revision it was typed at. A draft from
 			// an older revision would silently revert whatever changed the file since.
 			const draft = sourceDraftByPath.get(key);
@@ -535,29 +583,45 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	 * persistently visible. Cards WITHOUT a resolved anchor offset still appear
 	 * (the layout defaults them to the top) rather than silently disappearing —
 	 * a comment you cannot see is indistinguishable from a comment that was lost.
+	 *
+	 * Grouping: a TEXT-ANCHORED comment is its OWN thread. Two comments on
+	 * different phrases in the same block shared the block ref, so they merged
+	 * into one card — a single thread in which the reader could not reply to,
+	 * resolve, or edit each commented phrase separately. Each comment carries its
+	 * own durable anchor (`anchorId`), so that id is the thread identity.
+	 * Block-granular comments (no selection) still group per block, which is
+	 * their only identity. Resolved threads stay reachable through the compact
+	 * settled element — dropping them used to close the thread on a successful
+	 * Resolve.
 	 */
-	const marginThreads = useMemo(
-		() =>
-			Object.entries(threadCommentsByRef)
-				// A cancelled comment has nothing left to point at, so it is not shown.
-				//
-				// Resolved threads STAY in the column. Dropping them was a divergence from
-				// the contract, and it had a visible consequence: resolving a comment
-				// unmounted its card, which unmounted the thread inside it, so a
-				// successful Resolve closed the thread and took the reply box with it —
-				// exactly what "successful ops keep the thread open" forbids. Keeping the
-				// card mounted is also what lets the reviewer reopen it without hunting
-				// for the anchor again.
-				.map(([blockRef, list]) => ({
-					blockRef,
-					// Cancelled only. A comment whose anchor is lost keeps its card
-					// deliberately (Google Docs keeps it; nothing the user wrote should
-					// vanish because a file was saved elsewhere). It is shown as detached
-					// and it paints no highlight.
-					comments: list.filter((c) => !c.cancelledAt),
-				}))
-				.filter((t) => t.comments.length > 0),
-		[threadCommentsByRef],
+	const threadGroups = useMemo(() => {
+		const map = new Map<string, { key: string; blockRef: string; comments: ProofComment[] }>();
+		const keyByCommentId = new Map<string, string>();
+		for (const c of comments) {
+			if (c.cancelledAt) continue;
+			const blockRef = commentViews?.[c.id]?.ref ?? c.ref;
+			if (!blockRef) continue;
+			const key = c.textAnchor ? (c.anchorId ?? `${blockRef}::${c.id}`) : blockRef;
+			keyByCommentId.set(c.id, key);
+			const group = map.get(key);
+			if (group) group.comments.push(c);
+			else map.set(key, { key, blockRef, comments: [c] });
+		}
+		return { groups: [...map.values()], keyByCommentId };
+	}, [comments, commentViews]);
+	const { groups: threadGroupList, keyByCommentId: threadKeyByCommentId } = threadGroups;
+	const marginThreads = useMemo(() => threadGroupList, [threadGroupList]);
+	// Open threads still need a positioned card; settled ones (every comment
+	// resolved) collapse into the panel's compact settled element instead of each
+	// holding a full card slot, so a pile of resolved reviews does not crowd the
+	// live ones.
+	const openMarginThreads = useMemo(
+		() => marginThreads.filter((t) => t.comments.some((c) => !c.resolved)),
+		[marginThreads],
+	);
+	const settledMarginThreads = useMemo(
+		() => marginThreads.filter((t) => t.comments.every((c) => c.resolved)),
+		[marginThreads],
 	);
 	/**
 	 * Block offsets for the annotations panel, in the SCROLL CONTAINER'S viewport frame.
@@ -886,9 +950,9 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	 * The byte-identity guard below is a separate concern: it stops a no-op visit from
 	 * rewriting the file.
 	 */
-	const handleUpdate = useCallback(
-		({ editor }: { editor: ReturnType<typeof useEditor> }) => {
-			if (isLoadingRef.current || isViewingRef.current || !editor) return;
+	const serializeAndStage = useCallback(
+		(editor: { getHTML(): string } | null) => {
+			if (!editor) return;
 			const html = editor.getHTML();
 			const md = htmlToMarkdown(
 				html,
@@ -916,6 +980,21 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		[],
 	);
 
+	serializeAndStageRef.current = serializeAndStage;
+
+	const handleUpdate = useCallback(
+		({ editor }: { editor: ReturnType<typeof useEditor> }) => {
+			// View mode stays read-only: a no-op visit must not rewrite the file
+			// (merely opening fired onUpdate and rewrote the file, 166 -> 231 bytes).
+			// Deliberate document operations — settling a suggestion — persist
+			// explicitly through `serializeAndStage`; that is why this gate lives
+			// here rather than on the store's save itself.
+			if (isLoadingRef.current || isViewingRef.current || !editor) return;
+			serializeAndStage(editor);
+		},
+		[serializeAndStage],
+	);
+
 	// Exact-word comment highlights. The extension reads live state through a ref
 	// so the plugin never captures a stale comment set — the annotations live in
 	// the sidecar store, not in the document, and change without a doc transaction.
@@ -931,7 +1010,13 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		blocks: snapshotBlocks.map((b) => ({ ref: b.ref, markdown: b.markdown })),
 		comments,
 		hoveredRef: hoveredMarginRef,
-		activeRef: activeMarginRef,
+		// The decorator compares against a BLOCK ref, while `activeMarginRef` now
+		// holds a thread key (a text-anchored comment's own anchor id, which can
+		// differ from its block ref). Translating keeps the active card's words
+		// lit — and a block-granular thread's key IS its block ref, so nothing
+		// changes for those.
+		activeRef:
+			threadGroupList.find((g) => g.key === activeMarginRef)?.blockRef ?? activeMarginRef,
 		onSelectRef: (ref) => selectCommentByRefRef.current?.(ref),
 		// Resolved against the very blocks above, so the range and the block list always
 		// describe the same revision.
@@ -1355,6 +1440,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 			}),
 		[trackedMarks, editor, suggestionBlocks],
 	);
+	panelSuggestionsRef.current = panelSuggestions.map((s) => ({ id: s.id, text: s.text }));
 
 	/**
 	 * Copy-as-prompt items for every tracked mark, so suggested changes reach the
@@ -1461,27 +1547,37 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 			const comment = comments.find((c) => c.id === commentId);
 			const blockRef = view?.ref ?? comment?.ref ?? null;
 			if (!blockRef) return;
+			// Activate the comment's OWN thread, not the block: a text-anchored
+			// comment has a per-anchor thread, so activating by block ref would
+			// open whichever card happens to be keyed by that block instead of
+			// the card for the words that were clicked.
+			const threadKey = threadKeyByCommentId.get(commentId) ?? blockRef;
 			// Show the panel and land on the Comments tab: the reader asked for a
 			// comment, so a Changes tab would hide the very card they clicked for.
 			revealComments();
-			setActiveMarginRefNow(blockRef);
+			setActiveMarginRefNow(threadKey);
 		},
-		[commentViews, comments, revealComments, setActiveMarginRefNow],
+		[commentViews, comments, threadKeyByCommentId, revealComments, setActiveMarginRefNow],
 	);
 	selectCommentByRefRef.current = selectCommentByRef;
 
 
 	// What the panel renders, from the same pure function the overlay button badges
-	// with — so a badge can never advertise a count the panel does not draw.
+	// with — so a badge can never advertise a count the panel does not draw. Counts
+	// are OPEN annotations: resolved comments live in the compact settled element
+	// and no longer hold card slots, so counting them here would advertise cards
+	// (and badge numbers) the panel does not draw.
 	const contents = panelContents({
-		commentCount: marginThreads.length,
+		commentCount: openMarginThreads.length,
 		suggestionCount: panelSuggestions.length,
 		panelOpen,
 		tab,
 	});
 	const showCommentCards = contents.comments > 0;
 	const showSuggestionCards = contents.suggestions > 0;
-	const panelShowingAnything = panelOpen && (showCommentCards || showSuggestionCards);
+	const hasSettled = settledMarginThreads.length > 0 || rejectedSuggestions.length > 0;
+	const panelShowingAnything =
+		panelOpen && (showCommentCards || showSuggestionCards || hasSettled);
 
 	/**
 	 * The reading column keeps its full width setting; the COMMENT COLUMN is additional
@@ -1506,7 +1602,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	 */
 	const editorMaxWWithMargin = editorMaxW;
 	useEffect(() => {
-		setPanelCounts(marginThreads.length, panelSuggestions.length);
+		setPanelCounts(openMarginThreads.length, panelSuggestions.length);
 		// Reset when this editor unmounts, or the next document inherits stale counts
 		// and the overlay button offers toggles for annotations that are not there.
 		return () => setPanelCounts(0, 0);
@@ -1968,7 +2064,9 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 								{panelShowingAnything && (
 									<CommentMargin
 										path={currentPath ?? ""}
-										threads={marginThreads}
+										threads={openMarginThreads}
+										settledThreads={settledMarginThreads}
+										rejectedSuggestions={rejectedSuggestions}
 										blockOffsets={marginOffsets}
 										activeRef={activeMarginRef}
 										onActivate={(blockRef) =>
