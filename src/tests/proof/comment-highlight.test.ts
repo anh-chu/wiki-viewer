@@ -85,6 +85,17 @@ describe("exact-word comment highlights", () => {
 		assert.deepEqual(out, ["brown fox"]);
 	});
 
+	test("REGRESSION: a stored selection with a trailing newline still highlights", () => {
+		// Live failure: a selection that ran to the end of a line was stored as
+		// "Non-product surveys\n". Rendered runs have no "\n" (newlines are block
+		// structure, not text), so the exact-match search failed and the comment
+		// highlighted nothing. The needle is trimmed at search time, which also
+		// repairs already-saved anchors without a data migration.
+		const doc = orderedList("Non-product surveys", "Reactions in app");
+		const out = covered(doc, [commentFor("b14ed6f", "Non-product surveys\n", 3)]);
+		assert.deepEqual(out, ["Non-product surveys"]);
+	});
+
 	test("REGRESSION: a list item is not offset by its markdown prefix", () => {
 		// Live failure: anchor offsets came from "2. Reactions in app" (start 27),
 		// but the rendered item text is "Reactions in app". Offsets must not be
@@ -281,25 +292,25 @@ describe("a resolved view decides WHICH occurrence is highlighted", () => {
 			resolved: false,
 			createdAt: "2026-09-19T00:00:00.000Z",
 			turns: [],
-			textAnchor: { start: 0, end: 6, selectedText: "quick " },
+			textAnchor: { start: 0, end: 5, selectedText: "quick" },
 		};
 	}
 
 	test("picks the occurrence the view points at, not the first", () => {
 		const doc = paragraphs(SENTENCE);
-		const secondAt = SENTENCE.indexOf("quick ", SENTENCE.indexOf("quick ") + 1);
+		const secondAt = SENTENCE.indexOf("quick", SENTENCE.indexOf("quick") + 1);
 		const set = buildCommentDecorations(
 			doc as never,
 			blocksFor(doc),
 			[comment()] as never,
 			null,
-			{ cc1: { ref: "blk0", offset: secondAt, length: 6, status: "moved" } },
+			{ cc1: { ref: "blk0", offset: secondAt, length: 5, status: "moved" } },
 		);
 		const ranges = set.find();
 		assert.equal(ranges.length, 1);
-		assert.equal(doc.textBetween(ranges[0].from, ranges[0].to), "quick ");
+		assert.equal(doc.textBetween(ranges[0].from, ranges[0].to), "quick");
 		assert.ok(
-			ranges[0].from > SENTENCE.indexOf("quick ") + 4,
+			ranges[0].from > SENTENCE.indexOf("quick") + 4,
 			`expected the SECOND occurrence, got offset ${ranges[0].from}`,
 		);
 	});
@@ -311,7 +322,7 @@ describe("a resolved view decides WHICH occurrence is highlighted", () => {
 			blocksFor(doc),
 			[comment()] as never,
 			null,
-			{ cc1: { ref: "blk0", offset: SENTENCE.indexOf("quick "), length: 6, status: "exact" } },
+			{ cc1: { ref: "blk0", offset: SENTENCE.indexOf("quick"), length: 5, status: "exact" } },
 		);
 		const ranges = set.find();
 		assert.equal(ranges.length, 1);

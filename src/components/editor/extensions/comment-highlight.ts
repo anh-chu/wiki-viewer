@@ -269,22 +269,30 @@ function findInRuns(
 	 */
 	hint?: number,
 ): { from: number; to: number } | null {
+	// The needle is the user's captured selection. A selection that ran to the end
+	// of a line was stored with its trailing newline; rendered text runs have no
+	// `\n` (newlines are block structure, not content), so an untrimmed needle
+	// never matched and the highlight silently vanished. Trimming at the point of
+	// SEARCH also repairs every already-saved anchor without a data migration.
+	const trimmed = needle.trim();
+	if (!trimmed) return null;
+
 	// Pass 1: a single run containing the whole phrase. Every occurrence is collected so
 	// the hint can pick between them; the first match used to win unconditionally, which
 	// put a repeated phrase's highlight on the wrong copy.
 	let best: { from: number; to: number } | null = null;
 	let bestDistance = Number.POSITIVE_INFINITY;
 	for (const run of runs) {
-		let at = run.text.indexOf(needle);
+		let at = run.text.indexOf(trimmed);
 		while (at !== -1) {
-			const candidate = { from: run.from + at, to: run.from + at + needle.length };
+			const candidate = { from: run.from + at, to: run.from + at + trimmed.length };
 			if (hint === undefined) return candidate;
 			const distance = Math.abs(at - hint);
 			if (distance < bestDistance) {
 				best = candidate;
 				bestDistance = distance;
 			}
-			at = run.text.indexOf(needle, at + 1);
+			at = run.text.indexOf(trimmed, at + 1);
 		}
 	}
 	if (best) return best;
@@ -293,13 +301,13 @@ function findInRuns(
 	for (const group of groupContiguousRuns(runs)) {
 		if (group.length < 2) continue;
 		const joined = group.map((r) => r.text).join("");
-		const at = joined.indexOf(needle);
+		const at = joined.indexOf(trimmed);
 		if (at === -1) continue;
 
 		let consumed = 0;
 		let from = -1;
 		let to = -1;
-		let remaining = needle.length;
+		let remaining = trimmed.length;
 		for (const run of group) {
 			const runEnd = consumed + run.text.length;
 			if (runEnd <= at) {

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
 	buildPromptFromAnnotations,
+	extractTaggedElement,
 	mapAnnotationsToPromptItems,
 	mapMarkSuggestionsToPromptItems,
 	type PromptItem,
@@ -23,6 +24,17 @@ function suggestion(
 	};
 }
 
+/** Pull the JSON payload out of a built prompt, so tests assert on data, not prose. */
+function payloadOf(prompt: string): { file: string; annotations: Array<Record<string, unknown>> } {
+	const start = prompt.indexOf("\n{");
+	assert.ok(start >= 0, "prompt carries a JSON payload");
+	// The payload is pretty-printed, so its matching close brace is the one at
+	// column 0. The mark legend, when present, follows it.
+	const end = prompt.indexOf("\n}", start);
+	assert.ok(end >= 0, "payload is closed");
+	return JSON.parse(prompt.slice(start + 1, end + 2)) as { file: string; annotations: Array<Record<string, unknown>> };
+}
+
 const resolver = (annotation: { ref?: string; lineAnchor?: { lineStart: number; lineEnd: number } }) =>
 	annotation.lineAnchor
 		? { text: "The anchored paragraph text", lineStart: annotation.lineAnchor.lineStart, lineEnd: annotation.lineAnchor.lineEnd }
@@ -30,39 +42,26 @@ const resolver = (annotation: { ref?: string; lineAnchor?: { lineStart: number; 
 			? { text: "The current paragraph text", lineStart: 7, lineEnd: 7 }
 			: { text: "The original paragraph text", lineStart: 42, lineEnd: 42 };
 
-test("builds a locatable prompt and numbers items from one", () => {
-	const items: PromptItem[] = [
-		{
-			kind: "comment",
-			blockText: "The paragraph being discussed",
-			lineStart: 42,
-			text: "Clarify this paragraph",
-			turns: [
-				{ by: "human", text: "Clarify this paragraph" },
-				{ by: "ai:claude", text: "I need more context" },
-			],
-		},
+test("names the file and the exact replacements an agent must make", () => {
+	const prompt = buildPromptFromAnnotations("notes/readme.md", [
+		{ kind: "comment", blockText: "The paragraph being discussed", text: "Clarify this paragraph" },
 		{
 			kind: "suggestion",
 			blockText: "The current paragraph",
-			lineStart: 7,
-			suggestionKind: "replace",
-			proposed: "A clearer paragraph.",
+			suggestionKind: "remove",
+			proposed: "unclear",
+			sourceMatch: '<del data-id="2">unclear</del>',
 		},
-	];
+	]);
 
-	assert.equal(
-		buildPromptFromAnnotations("notes/readme.md", items),
-		[
-			"Edit the file `notes/readme.md` (a Markdown document). Apply these changes:",
-			"",
-			"1. Comment on paragraph \"The paragraph being discussed\" (line 42):",
-			'   "Clarify this paragraph"',
-			"   - ai:claude: I need more context",
-			"2. Suggestion on \"The current paragraph\" (line 7): replace with",
-			'   "A clearer paragraph."',
-		].join("\n"),
-	);
+	assert.match(prompt, /^Edit the file `notes\/readme\.md` using the annotations below\./);
+	const { file, annotations } = payloadOf(prompt);
+	assert.equal(file, "notes/readme.md");
+	assert.equal(annotations.length, 2);
+	assert.equal(annotations[1].operation, "delete");
+	assert.equal(annotations[1].text, "unclear");
+	assert.equal(annotations[1].source_match, '<del data-id="2">unclear</del>');
+	assert.equal(annotations[1].replacement, "", "a deletion replaces its element with nothing");
 });
 
 test("serializes every reply, preserving by prefixes", () => {
@@ -76,76 +75,73 @@ test("serializes every reply, preserving by prefixes", () => {
 			],
 		},
 	], [], resolver);
-	assert.equal(
-		buildPromptFromAnnotations("doc.md", items),
-		[
-			"Edit the file `doc.md` (a Markdown document). Apply these changes:",
-			"",
-			"1. Comment on paragraph \"The original paragraph text\" (line 42):",
-			'   "Original ask"',
-			"   - ai:claude: First reply",
-			"   - human: Follow-up",
-		].join("\n"),
-	);
+	const { annotations } = payloadOf(buildPromptFromAnnotations("doc.md", items));
+	assert.equal(annotations[0].comment, "Original ask");
+	assert.deepEqual(annotations[0].replies, [
+		{ by: "ai:claude", text: "First reply" },
+		{ by: "human", text: "Follow-up" },
+	]);
 });
 
-test("caps long block text with an ellipsis", () => {
+test("a comment without a selection quotes its block verbatim, uncapped", () => {
+	// The block is the comment's only locator when nothing was selected: capping it
+	// would name a window an agent cannot match against the file.
 	const longText = "a".repeat(240);
 	const [item] = mapAnnotationsToPromptItems([{ ref: "long", text: "note" }], [], () => ({ text: longText }));
 	assert.equal(item.blockText, longText);
 	assert.equal(item.text, "note");
-	assert.equal(buildPromptFromAnnotations("doc.md", [item]).includes(`${longText.slice(0, 199)}…`), true);
+	const { annotations } = payloadOf(buildPromptFromAnnotations("doc.md", [item]));
+	assert.equal(annotations[0].block, longText, "no cap, no ellipsis");
+	assert.equal(annotations[0].selected_text, undefined);
 });
 
-test("uses kind-appropriate suggestion phrasing and current text", () => {
+test("a comment with a selection locates by selected_text, block becomes context", () => {
+	// `selected_text` is the comment's counterpart of a suggestion's `source_match`:
+	// the exact commented words, searchable in the file. The block is then context
+	// only and gets capped — a 5 KB block must not repeat per comment.
+	const longBlock = `${"context ".repeat(40)}TARGET ${"more ".repeat(40)}`;
+	const [item] = mapAnnotationsToPromptItems(
+		[{ ref: "b1", text: "what about this?", textAnchor: { start: 300, end: 306, selectedText: "TARGET" } }],
+		[],
+		() => ({ text: longBlock }),
+	);
+	const { annotations } = payloadOf(buildPromptFromAnnotations("doc.md", [item]));
+	assert.equal(annotations[0].selected_text, "TARGET");
+	assert.equal(annotations[0].block, `${capPrefix(longBlock)}…`, "capped context, not the whole block");
+	assert.ok((annotations[0].block as string).length < longBlock.length);
+});
+
+// Mirrors capBlockText's 200-char rule; kept here so the test states its expectation
+// without reaching into the module's private helper.
+function capPrefix(text: string): string {
+	const normalized = text.replace(/\s+/g, " ").trim();
+	return normalized.slice(0, 199).trimEnd();
+}
+
+test("keeps non-mark suggestion kinds expressed in the record", () => {
 	const items = mapAnnotationsToPromptItems([], [
 		suggestion("replace", "pending", "replacement", "old text"),
-		suggestion("insertAfter", "pending", "after"),
-		suggestion("insertBefore", "pending", "before"),
 		suggestion("delete"),
 	], resolver);
-
-	assert.deepEqual(items[0], {
-		blockText: "The current paragraph text",
-		lineStart: 7,
-		lineEnd: 7,
-		kind: "suggestion",
-		proposed: "replacement",
-		currentText: "old text",
-		suggestionKind: "replace",
-	});
-	assert.match(buildPromptFromAnnotations("doc.md", items), /replace with/);
-	assert.match(buildPromptFromAnnotations("doc.md", items), /insert after/);
-	assert.match(buildPromptFromAnnotations("doc.md", items), /insert before/);
-	assert.match(buildPromptFromAnnotations("doc.md", items), /delete this block/);
+	const { annotations } = payloadOf(buildPromptFromAnnotations("doc.md", items));
+	assert.equal(annotations[0].operation, "replace");
+	assert.equal(annotations[0].text, "replacement");
+	assert.equal(annotations[1].operation, "delete");
 });
 
 test("maps open comments and pending suggestions only", () => {
 	const items = mapAnnotationsToPromptItems(
 		[
 			{ ref: "b123", resolved: false, text: "Keep this request" },
-			{ ref: "b234", resolved: true, text: "Already resolved" },
-			{
-				lineAnchor: { lineStart: 4, lineEnd: 6, textHash: "abc123" },
-				resolved: false,
-				turns: [{ by: "human", text: "Use the line anchor" }],
-			},
+			{ ref: "b999", resolved: true, text: "Resolved" },
+			// A lost anchor has no text to quote, so it is not actionable.
+			{ ref: "b111", text: "Lost anchor", anchorStatus: "lost" },
 		],
-		[
-			suggestion("replace", "pending", "keep this"),
-			suggestion("delete", "accepted"),
-			suggestion("delete", "rejected"),
-		],
+		[suggestion("replace", "pending", "replacement"), suggestion("replace", "accepted", "done")],
+		resolver,
 	);
-
-	assert.equal(items.length, 3);
-	assert.equal(items[0].text, "Keep this request");
-	assert.equal(items[0].blockText, undefined);
-	assert.equal(items[1].snippet, "lines 4-6");
-	assert.equal(items[1].lineStart, 4);
-	assert.equal(items[1].lineEnd, 6);
-	assert.equal(items[1].text, "Use the line anchor");
-	assert.deepEqual(items[1].turns, [{ by: "human", text: "Use the line anchor" }]);
+	assert.deepEqual(items.map((item) => item.text), ["Keep this request", undefined]);
+	assert.deepEqual(items.map((item) => item.kind), ["comment", "suggestion"]);
 });
 
 test("excludes routed instructions and resolved plain comments", () => {
@@ -160,44 +156,62 @@ test("excludes routed instructions and resolved plain comments", () => {
 	assert.deepEqual(items.map((item) => item.kind), ["instruction", "comment"]);
 });
 
-test("serializes empty item sets with no numbered changes", () => {
-	assert.equal(
-		buildPromptFromAnnotations("empty.md", []),
-		"Edit the file `empty.md` (a Markdown document). Apply these changes:\n",
-	);
+test("still serializes an empty set as a usable instruction", () => {
+	const prompt = buildPromptFromAnnotations("empty.md", []);
+	assert.match(prompt, /^Edit the file `empty\.md` using the annotations below\./);
+	assert.deepEqual(payloadOf(prompt).annotations, []);
 	assert.deepEqual(mapAnnotationsToPromptItems([], []), []);
 });
 
-test("maps tracked marks into suggestions with an ending mark legend", () => {
+test("maps tracked marks into records naming the payload and the file element", () => {
 	const items = mapMarkSuggestionsToPromptItems([
-		// Saved: the tag lives in the anchor, so the item stays bare.
-		{ kind: "insert", text: "Added words", blockText: 'Kept <ins data-id="7">Added words</ins>', embedded: true },
-		{ kind: "remove", text: "Gone words", blockText: 'Kept <del data-id="3">Gone words</del>', embedded: true },
-		// Unsaved: the file has no tag yet, so the item quotes the words instead.
-		{ kind: "insert", text: "Fresh words", blockText: "The block on disk" },
+		{
+			kind: "insert",
+			text: "Added words",
+			blockText: 'Kept <ins data-id="7">Added words</ins>',
+			sourceMatch: '<ins data-id="7">Added words</ins>',
+		},
+		{
+			kind: "remove",
+			text: "Gone words",
+			blockText: 'Kept <del data-id="3">Gone words</del>',
+			sourceMatch: '<del data-id="3">Gone words</del>',
+		},
+	]);
+
+	const { annotations } = payloadOf(buildPromptFromAnnotations("doc.md", items));
+	// No `block` on these: `source_match` is the locator, so the truncated block
+	// would be repeated noise.
+	assert.deepEqual(annotations[0], {
+		id: 1,
+		kind: "suggestion",
+		operation: "insert",
+		text: "Added words",
+		source_match: '<ins data-id="7">Added words</ins>',
+		replacement: "Added words",
+	});
+	assert.deepEqual(annotations[1], {
+		id: 2,
+		kind: "suggestion",
+		operation: "delete",
+		text: "Gone words",
+		source_match: '<del data-id="3">Gone words</del>',
+		replacement: "",
+	});
+});
+
+test("describes attribute modifications with their before and after", () => {
+	const items = mapMarkSuggestionsToPromptItems([
 		{ kind: "modify", text: "", blockText: "A heading", attrName: "level", previousValue: 2, newValue: 3 },
 		{ kind: "modify", text: "", attrName: "language", previousValue: null, newValue: "ts" },
 	]);
-
-	const prompt = buildPromptFromAnnotations("doc.md", items);
-	assert.match(prompt, /1\. Suggestion on "Kept <ins data-id="7">Added words<\/ins>": apply this suggested insertion\n/);
-	assert.match(prompt, /2\. Suggestion on "Kept <del data-id="3">Gone words<\/del>": apply this suggested deletion\n/);
-	assert.match(prompt, /3\. Suggestion on "The block on disk": insert this text\n\s+"Fresh words"/);
-	assert.match(prompt, /4\. Suggestion on "A heading": change level from 2 to 3/);
-	// Attribute values render bare for numbers, quoted for strings, "(none)" for null.
-	assert.match(prompt, /5\. Suggestion on "document": change language from \(none\) to "ts"/);
-	assert.match(
-		prompt,
-		/Mark legend — the quoted anchors may contain tracked-change tags:\n\s+<ins data-id="N">text<\/ins> — a suggested insertion[^\n]*\n\s+<del data-id="N">text<\/del> — a suggested deletion[^\n]*\n\s+<span data-type="modification"/,
-	);
-	assert.deepEqual(items.map((item) => item.kind), ["suggestion", "suggestion", "suggestion", "suggestion", "suggestion"]);
-	assert.deepEqual(items[0], {
-		kind: "suggestion",
-		blockText: 'Kept <ins data-id="7">Added words</ins>',
-		embedded: true,
-		suggestionKind: "insert",
-		proposed: "Added words",
-	});
+	const { annotations } = payloadOf(buildPromptFromAnnotations("doc.md", items));
+	assert.equal(annotations[0].operation, "modify");
+	assert.equal(annotations[0].block, "A heading");
+	assert.equal(annotations[0].from, 2);
+	assert.equal(annotations[0].to, 3);
+	assert.equal(annotations[1].from, null);
+	assert.equal(annotations[1].to, "ts");
 });
 
 test("omits the mark legend when no mark-based suggestion is present", () => {
@@ -205,4 +219,93 @@ test("omits the mark legend when no mark-based suggestion is present", () => {
 	assert.equal(comment.includes("Mark legend"), false);
 	const legacy = buildPromptFromAnnotations("doc.md", mapAnnotationsToPromptItems([], [suggestion("replace", "pending", "replacement")]));
 	assert.equal(legacy.includes("Mark legend"), false);
+});
+
+test("extractTaggedElement returns the file's exact element for an id", () => {
+	// The live shape: one block carrying several suggestions. The whole point of
+	// source_match is that each record quotes ITS OWN element, so an agent replaces
+	// the right one without parsing tags to work out which is its target.
+	const block =
+		'1. Non-product surveys 2. Reactions in <del data-id="6">app</del> 2. Input - w<del data-id="1">hat\'s</del> r<del data-id="2">eal</del>? 3. School<ins data-id="5">asd</ins>';
+	assert.equal(extractTaggedElement(block, "del", 6), '<del data-id="6">app</del>');
+	assert.equal(extractTaggedElement(block, "del", 1), '<del data-id="1">hat\'s</del>');
+	assert.equal(extractTaggedElement(block, "del", 2), '<del data-id="2">eal</del>');
+	assert.equal(extractTaggedElement(block, "ins", 5), '<ins data-id="5">asd</ins>');
+	// A mark the file does not carry cannot be exported.
+	assert.equal(extractTaggedElement(block, "del", 99), undefined);
+});
+
+test("every saved mark in one block gets a distinct, self-identifying record", () => {
+	// The regression this whole format exists for: six suggestions in one block used
+	// to produce six near-identical truncated anchors, each saying only "apply this
+	// suggested deletion" — no way to tell which tag was the target.
+	const block =
+		'1. Non-product surveys 2. Reactions in <del data-id="6">app</del> 2. Input - w<del data-id="1">hat\'s</del> r<del data-id="2">eal</del>? 3. Collect <del data-id="3">info:</del> 1. Maj<del data-id="4">ors?</del> 2. School<ins data-id="5">asd</ins> 3. Job 4. LLM to test';
+	const marks = [6, 1, 2, 3, 4].map((id) => ({
+		kind: "remove" as const,
+		text: "x",
+		blockText: block,
+		sourceMatch: extractTaggedElement(block, "del", id),
+	}));
+	marks.push({
+		kind: "insert" as const,
+		text: "asd",
+		blockText: block,
+		sourceMatch: extractTaggedElement(block, "ins", 5),
+	} as never);
+
+	const { annotations } = payloadOf(buildPromptFromAnnotations("test.md", mapMarkSuggestionsToPromptItems(marks)));
+	assert.equal(annotations.length, 6);
+	const matches = annotations.map((a) => a.source_match);
+	assert.equal(new Set(matches).size, 6, "no two records share a source_match");
+	for (const a of annotations) {
+		assert.ok(typeof a.source_match === "string" && a.source_match.length > 0, "record names its own element");
+	}
+	assert.deepEqual(matches, [
+		'<del data-id="6">app</del>',
+		'<del data-id="1">hat\'s</del>',
+		'<del data-id="2">eal</del>',
+		'<del data-id="3">info:</del>',
+		'<del data-id="4">ors?</del>',
+		'<ins data-id="5">asd</ins>',
+	]);
+});
+
+test("excludes suggestions that are not in the saved file", () => {
+	// Copy-as-prompt exports the SAVED file. An unsaved mark has no element on disk,
+	// so exporting it would hand the agent an instruction with no target.
+	const items: PromptItem[] = [
+		// Mark-derived, but its tag was not found in the saved file: editor-only state.
+		{ kind: "suggestion", suggestionKind: "insert", blockText: "The block on disk", proposed: "Fresh words", embedded: false },
+		{
+			kind: "suggestion",
+			suggestionKind: "insert",
+			blockText: 'Kept <ins data-id="7">Saved</ins>',
+			proposed: "Saved",
+			sourceMatch: '<ins data-id="7">Saved</ins>',
+			embedded: true,
+		},
+	];
+	const { annotations } = payloadOf(buildPromptFromAnnotations("doc.md", items));
+	assert.equal(annotations.length, 1);
+	assert.equal(annotations[0].source_match, '<ins data-id="7">Saved</ins>');
+});
+
+test("escapes quotes and angle brackets so the payload stays valid JSON", () => {
+	// The payloads are document text, so they contain the same characters as the
+	// markup. JSON's own escaping is what keeps this unambiguous.
+	const items: PromptItem[] = [
+		{
+			kind: "suggestion",
+			suggestionKind: "insert",
+			blockText: 'before <ins data-id="9">he said "hi"</ins>',
+			proposed: 'he said "hi"',
+			sourceMatch: '<ins data-id="9">he said "hi"</ins>',
+		},
+	];
+	const prompt = buildPromptFromAnnotations("doc.md", items);
+	const { annotations } = payloadOf(prompt);
+	assert.equal(annotations[0].text, 'he said "hi"');
+	assert.equal(annotations[0].source_match, '<ins data-id="9">he said "hi"</ins>');
+	assert.ok(prompt.includes('\\"hi\\"'), "quotes are escaped in the serialized text");
 });

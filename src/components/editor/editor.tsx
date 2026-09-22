@@ -60,6 +60,7 @@ import {
 	type BlockPosition,
 } from "@/lib/proof/pip-alignment";
 import { shouldRerenderDocument } from "@/lib/proof/render-guard";
+import { extractTaggedElement } from "@/lib/proof/prompt-serialize";
 import { commentHighlightExtension, refreshCommentHighlights } from "./extensions/comment-highlight";
 import {
 	applySuggestion,
@@ -451,13 +452,16 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 	const promptComments = useMemo(() => comments, [comments]);
 	const resolvePromptSnippet = useMemo(() => {
 		const byRef = new Map(snapshotBlocks.map((b) => [b.ref, b.markdown]));
-		// Full canonical block markdown: the receiving agent locates the anchor
-		// by its actual text (the serializer caps the quoted length). Line
-		// ranges are unavailable for ref anchors here, so they are omitted —
-		// line-anchored comments carry their own LineAnchor.
+		// Full canonical block markdown, VERBATIM including newlines.
+		//
+		// A comment's block text is its only locator: a suggestion carries an exact
+		// `source_match`, but a comment has no marker in the file at all, so this
+		// quote is what tells an agent where to look. Collapsing whitespace made the
+		// quote unmatchable against the file — a list whose bullets are separated by
+		// blank lines became one line that appears nowhere on disk.
 		return (annotation: { ref?: string }) => {
 			const md = annotation.ref ? byRef.get(annotation.ref) : undefined;
-			const text = md?.replace(/\s+/g, " ").trim();
+			const text = md?.trim();
 			return text ? { text } : undefined;
 		};
 	}, [snapshotBlocks]);
@@ -671,13 +675,17 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		if (from !== to && view.state.doc.resolve(to).index(0) === topIndex) {
 			// Edit mode: ProseMirror owns the selection.
 			const raw = view.state.doc.textBetween(from, to, "\n");
-			selectionText = raw.length > 0 ? raw : null;
+			// Trimmed: a selection that ran to the end of a line captures the line's
+			// trailing newline, and a needle with a trailing `\n` never matches the
+			// rendered runs (newlines are block structure, not text), which silently
+			// killed the highlight. Observed live as "Non-product surveys\n".
+			selectionText = raw.trim().length > 0 ? raw.trim() : null;
 		} else if (nativeActive) {
 			// View mode: the native browser selection is authoritative. Keep it
 			// only if it lies within the resolved block element.
 			const range = nativeSel.getRangeAt(0);
 			if (blockEl.contains(range.commonAncestorContainer)) {
-				const raw = nativeSel.toString();
+				const raw = nativeSel.toString().trim();
 				selectionText = raw.length > 0 ? raw : null;
 			}
 		}
@@ -1365,6 +1373,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 		() =>
 			trackedMarks.map((mark) => {
 				let blockText: string | undefined;
+				let sourceMatch: string | undefined;
 				let embedded = false;
 				if (editor) {
 					try {
@@ -1372,12 +1381,23 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 						const index = $pos.depth > 0 ? $pos.index(0) : 0;
 						const markdown = suggestionBlocks[index]?.markdown;
 						if (markdown) {
+							// The snapshot IS the file. Copy-as-prompt exports the saved
+							// state only, so a mark absent from this text is editor-only
+							// and is dropped by the serializer rather than exported with
+							// no target. A modification is attribute-only: it has no
+							// element to look for, so it counts as present.
+							const tag = mark.kind === "remove" ? "del" : "ins";
+							embedded =
+								mark.kind === "modify" || markdown.includes(`data-id="${mark.id}"`);
 							blockText = markdown.replace(/\s+/g, " ").trim() || undefined;
-							// The snapshot is the FILE: when it already carries this
-							// mark's tag the suggestion was saved, and the prompt
-							// item can lean on the legend instead of re-quoting the
-							// words. An unsaved mark is not in the file yet.
-							embedded = markdown.includes(`data-id="${mark.id}"`);
+							// The exact element the file holds, quoted verbatim so the
+							// receiving agent does a literal replacement instead of
+							// parsing tags to work out which `<del>` is its target —
+							// ambiguous when one block carries several suggestions.
+							sourceMatch =
+								mark.kind !== "modify" && embedded
+									? extractTaggedElement(markdown, tag, mark.id)
+									: undefined;
 						}
 					} catch {
 						blockText = undefined;
@@ -1390,6 +1410,7 @@ export function KBEditor({ mode }: KBEditorProps = {}) {
 							? ""
 							: editor?.state.doc.textBetween(mark.from, mark.to, " ") ?? "",
 					blockText,
+					sourceMatch,
 					embedded,
 					attrName: mark.attrName,
 					previousValue: mark.previousValue,

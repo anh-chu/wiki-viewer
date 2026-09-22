@@ -23,22 +23,61 @@ export interface PromptItem {
 	suggestionKind?: SuggestionKind;
 	/** modify suggestions: the node attribute the change targets. */
 	attrName?: string;
+	/** modify suggestions: the attribute's new value, raw (not display-rendered). */
+	newValue?: unknown;
 	/**
-	 * The payload is already embedded in the anchor as a tracked-change tag
-	 * (`<ins data-id>` / `<del data-id>` from the saved file), so the item
-	 * needs no quoted copy of the words.
+	 * The saved file's exact text for this annotation's target — the whole
+	 * `<del data-id="2">eal</del>` element as the file writes it. Quoted verbatim
+	 * into the prompt as `source_match`, so the receiving agent performs a literal
+	 * replacement instead of parsing tracked-change tags. Undefined when the mark
+	 * is not in the saved file; such an item is excluded (see `buildPromptFromAnnotations`).
 	 */
+	sourceMatch?: string;
+	/** alter suggestions: the attribute's old value, as the file has it. */
+	baseValue?: unknown;
+	/** True when `blockText` already contains the mark's tag. */
 	embedded?: boolean;
 	blockText?: string;
+	/**
+	 * The exact words the user commented on, when the comment recorded a selection.
+	 *
+	 * This is the comment's precise locator — the counterpart of a suggestion's
+	 * `source_match` — and it stays exact where `blockText` may be a 5 KB block.
+	 */
+	selectedText?: string;
 	currentText?: string;
 	lineStart?: number;
 	lineEnd?: number;
+}
+
+/**
+ * The exact `<ins>`/`<del>` element the file holds for one suggestion id.
+ *
+ * This is what makes an exported edit executable: the agent replaces these bytes
+ * with their content (insertion) or with nothing (deletion), matched uniquely in
+ * the file, instead of interpreting tag semantics to discover which of several
+ * tags in a block is its target.
+ *
+ * Returns undefined when the element is not found — a mark the file does not
+ * carry cannot be exported, and the caller omits the annotation rather than
+ * inventing a target.
+ */
+export function extractTaggedElement(markdown: string, tag: string, id: unknown): string | undefined {
+	const open = `<${tag} data-id="${String(id)}">`;
+	const at = markdown.indexOf(open);
+	if (at < 0) return undefined;
+	const close = `</${tag}>`;
+	const end = markdown.indexOf(close, at + open.length);
+	if (end < 0) return undefined;
+	return markdown.slice(at, end + close.length);
 }
 
 /** Minimal comment shape accepted by the mapper, including legacy snapshots. */
 export type PromptComment = {
 	ref?: Comment["ref"];
 	lineAnchor?: Comment["lineAnchor"];
+	/** Exact words the user selected. The comment's real locator in the file. */
+	textAnchor?: Comment["textAnchor"];
 	id?: Comment["id"];
 	resolved?: boolean;
 	/** `"lost"` excludes the comment: its text is gone, so no snippet is honest. */
@@ -73,6 +112,14 @@ function commentText(comment: PromptComment): string {
 	return commentTurns(comment)[0]?.text ?? "";
 }
 
+/**
+ * Shorten a quoted block for a suggestion, where the block is supporting context
+ * rather than the locator — `source_match` carries the precision.
+ *
+ * NOT applied to a comment's block: that quote is the comment's only locator, so
+ * truncating it (or flattening its newlines) would leave an agent with a string it
+ * cannot match against the file.
+ */
 function capBlockText(text: string): string {
 	const normalized = text.replace(/\s+/g, " ").trim();
 	return normalized.length > 200 ? `${normalized.slice(0, 199).trimEnd()}…` : normalized;
@@ -93,6 +140,40 @@ function quoteIndented(value: string): string {
 	return lines.map((line) => `   "${line}"`).join("\n");
 }
 
+/**
+ * The operation a suggestion asks for, in imperative terms.
+ *
+ * Deliberately separate from `sourceMatch`: the operation says WHAT to do, the
+ * match says WHERE. An agent that reads only the operation still knows the edit;
+ * one that reads both can do it by literal replacement without parsing tags.
+ */
+function operationOf(item: PromptItem): string {
+	switch (item.suggestionKind) {
+		case "insert":
+			return "insert";
+		case "remove":
+		case "delete":
+			return "delete";
+		case "modify":
+			return "modify";
+		default:
+			return "replace";
+	}
+}
+
+/**
+ * The words this annotation concerns.
+ *
+ * For an insertion that is the text added; for a deletion it is the text removed —
+ * naming it is the whole point, because "apply this suggested deletion" left the
+ * agent to find its target among every tag in the block. A `modify` carries
+ * attribute values instead, so it has no payload here.
+ */
+function payloadOf(item: PromptItem): string | undefined {
+	if (item.suggestionKind === "modify") return undefined;
+	return item.proposed;
+}
+
 /** Convert one prompt item to its numbered-item body, without its number. */
 export function formatPromptItem(item: PromptItem): string {
 	const anchor = `"${readableText(item)}"${lineSuffix(item)}`;
@@ -109,19 +190,18 @@ export function formatPromptItem(item: PromptItem): string {
 	switch (item.suggestionKind) {
 		case "delete":
 			return `Suggestion on ${anchor}: delete this block`;
-		// Tracked-mark suggestions cover a run of text INSIDE a block, so the prompt
-		// names the words rather than the block: "delete this block" on a mark that
-		// covers three words would direct the agent to erase the paragraph. When the
-		// saved file's anchor already embeds the mark tag, the words need no second
-		// quote — the legend at the end of the prompt explains the tag syntax.
 		case "remove":
-			return item.embedded
-				? `Suggestion on ${anchor}: apply this suggested deletion`
-				: `Suggestion on ${anchor}: delete this text\n${quoteIndented(item.proposed ?? "")}`;
+			// The payload — the words to delete — is named explicitly. The old form
+			// ("apply this suggested deletion") left the agent to find its target
+			// among every tag in the anchor, which is unanswerable when a block
+			// carries several. Quote it when the file holds a mark with no tag yet.
+			return item.proposed === undefined
+				? `Suggestion on ${anchor}: delete this text`
+				: `Suggestion on ${anchor}: delete the text ${JSON.stringify(item.proposed)}`;
 		case "insert":
-			return item.embedded
-				? `Suggestion on ${anchor}: apply this suggested insertion`
-				: `Suggestion on ${anchor}: insert this text\n${quoteIndented(item.proposed ?? "")}`;
+			return item.proposed === undefined
+				? `Suggestion on ${anchor}: insert this text`
+				: `Suggestion on ${anchor}: insert the text ${JSON.stringify(item.proposed)}`;
 		case "modify":
 			// The library only creates modifications over node attributes (heading
 			// level, code fence language, …) — never over plain text.
@@ -137,13 +217,12 @@ export function formatPromptItem(item: PromptItem): string {
 }
 
 /**
- * Syntax legend for tracked-change tags the quoted anchors may contain, appended
- * when the prompt includes mark-based suggestions. The saved file stores pending
- * suggestions as raw HTML (`to-markdown.ts` preserves them), so the receiving
- * agent needs to know what the tags mean and what applying them does.
+ * Syntax legend for tracked-change tags. Kept because `source_match` values are
+ * quoted verbatim from the file, so an agent that reads them benefits from knowing
+ * what the tags mean — but it is no longer the ONLY way to identify a target.
  */
 const MARK_LEGEND = [
-	"Mark legend — the quoted anchors may contain tracked-change tags:",
+	"Mark legend — `source_match` values are quoted verbatim from the file:",
 	`  <ins data-id="N">text</ins> — a suggested insertion, not yet applied: replace the tag with its text.`,
 	`  <del data-id="N">text</del> — a suggested deletion, not yet applied: remove the tag and its text.`,
 	`  <span data-type="modification" ...>...</span> — a suggested block-attribute change (e.g. heading level, code fence language); apply the change the item describes.`,
@@ -155,12 +234,130 @@ const isMarkSuggestion = (item: PromptItem) =>
 		item.suggestionKind === "remove" ||
 		item.suggestionKind === "modify");
 
-/** Serialize existing annotations into a prompt. This function has no side effects. */
+/**
+ * Whether this item can be exported at all.
+ *
+ * Copy-as-prompt exports the SAVED file. A tracked mark is actionable only when
+ * its element is in that file, so an unsaved mark is dropped: it has no
+ * `source_match`, and an instruction with no target is worse than none. Marks and
+ * legacy record-shaped suggestions are distinguished by `sourceMatch` being
+ * present/absent vs. `embedded` never having been set — a legacy item has no tag
+ * to look for and is exported on its quoted block instead, as it always was.
+ */
+function isExportable(item: PromptItem): boolean {
+	if (item.kind === "comment" || item.kind === "instruction") return true;
+	// The mark path sets `embedded` and looks for the element in the file: a mark
+	// whose tag is NOT there is editor-only state, so it is dropped. A legacy
+	// record-shaped suggestion leaves `embedded` undefined (it has no tag to look
+	// for) and exports on its quoted block, exactly as it always did.
+	return item.embedded !== false;
+}
+/**
+ * One JSON record per annotation: the operation, the payload, and the exact
+ * file text to replace.
+ *
+ * The payload is named in its own field rather than left implicit in a quoted
+ * anchor. `source_match` is what makes the edit executable without tag parsing —
+ * it is the file's own bytes, so the agent does a literal unique replacement.
+ */
+interface PromptRecord {
+	id: number;
+	kind: PromptItemKind;
+	operation: string;
+	/** The words the operation adds (insertions/replacements). */
+	text?: string;
+	/** The saved file's exact element for this annotation. */
+	source_match?: string;
+	/** What `source_match` becomes; empty string for a deletion. */
+	replacement?: string;
+	/** The file's current attribute value (modify only). */
+	from?: unknown;
+	/** The requested attribute value (modify only). */
+	to?: unknown;
+	/** The block the annotation sits in, as the file has it. */
+	block?: string;
+	/** The exact words a comment covers, when the user selected text. */
+	selected_text?: string;
+	comment?: string;
+	replies?: ReadonlyArray<{ by?: string; text: string }>;
+}
+
+function toRecord(item: PromptItem, id: number): PromptRecord {
+	const base: PromptRecord = { id, kind: item.kind, operation: item.kind === "suggestion" ? operationOf(item) : "comment" };
+	if (item.kind === "comment" || item.kind === "instruction") {
+		const turns = item.turns ?? [{ text: item.text ?? "" }];
+		const [first, ...replies] = turns;
+		base.comment = first?.text ?? "";
+		if (replies.length > 0) base.replies = replies.map((turn) => ({ by: turn.by, text: turn.text }));
+		// `selected_text` is the comment's precise locator when the user selected
+		// words — the counterpart of a suggestion's `source_match`. With it, the
+		// block is mere context and gets capped. Without a selection the block is
+		// the comment's ONLY locator, so it goes verbatim and uncapped: flattening
+		// or truncating it would produce a string an agent cannot match against
+		// the file, which defeats the comment entirely.
+		if (item.selectedText) {
+			base.selected_text = item.selectedText;
+			if (item.blockText) base.block = capBlockText(item.blockText);
+		} else if (item.blockText) {
+			base.block = item.blockText;
+		}
+		return base;
+	}
+
+	const block = item.blockText ? capBlockText(item.blockText) : undefined;
+	const payload = payloadOf(item);
+	if (payload !== undefined) base.text = payload;
+
+	if (item.suggestionKind === "modify") {
+		// Raw values, not the display strings the prose path used: JSON carries
+		// `"ts"` as a string and `2` as a number, so an agent reads the actual
+		// attribute value instead of a pre-quoted rendering of it.
+		if (block) base.block = block;
+		base.from = item.baseValue;
+		base.to = item.newValue;
+		return base;
+	}
+	if (item.sourceMatch) {
+		// No `block` here: `source_match` locates the edit uniquely, and repeating a
+		// truncated block on every record of a busy list is noise, not context.
+		base.source_match = item.sourceMatch;
+		base.replacement = item.suggestionKind === "remove" ? "" : (payload ?? "");
+		return base;
+	}
+	// A legacy record-shaped suggestion has no element to match, so its block is
+	// the only locator it has.
+	if (block) base.block = block;
+	return base;
+}
+
+/**
+ * Serialize existing annotations into a prompt. This function has no side effects.
+ *
+ * Shape: a short prose instruction, then the annotations as JSON. Prose alone
+ * could not express this reliably — it has no way to bind an operation to its
+ * target except by quoting, and a block carrying several suggestions makes every
+ * quote ambiguous. JSON gives each annotation its own record, so the operation,
+ * the payload, and the exact file text are named rather than inferred.
+ *
+ * Annotations whose mark is not in the saved file are EXCLUDED: the prompt edits
+ * the file on disk, and an unsaved mark has no `source_match` to replace, so
+ * including it would hand the agent an instruction it cannot carry out.
+ */
 export function buildPromptFromAnnotations(path: string, items: PromptItem[]): string {
-	const header = `Edit the file \`${path}\` (a Markdown document). Apply these changes:`;
-	const body = items.map((item, index) => `${index + 1}. ${formatPromptItem(item)}`);
-	if (items.some(isMarkSuggestion)) body.push("", MARK_LEGEND);
-	return [header, "", ...body].join("\n");
+	const included = items.filter(isExportable);
+	const records = included.map((item, index) => toRecord(item, index + 1));
+	const lines = [
+		`Edit the file \`${path}\` using the annotations below.`,
+		"",
+		"Each annotation names its operation and target. Apply every suggestion; comments are",
+		"feedback, not replacement text. For a record with `source_match`, replace that exact",
+		"text with `replacement`, matched uniquely in the file. Do not reformat or rewrite",
+		"unrelated content, and do not carry out a change that is already applied.",
+		"",
+		JSON.stringify({ file: path, annotations: records }, null, 2),
+	];
+	if (included.some(isMarkSuggestion)) lines.push("", MARK_LEGEND);
+	return lines.join("\n");
 }
 
 /** Resolve an annotation to full readable text and, when available, its line range. */
@@ -254,6 +451,7 @@ export function mapAnnotationsToPromptItems(
 				kind: comment.kind === "instruction" ? ("instruction" as const) : ("comment" as const),
 				text: commentText(comment),
 				turns: commentTurns(comment),
+				selectedText: comment.textAnchor?.selectedText || undefined,
 			};
 		});
 
@@ -294,12 +492,12 @@ export interface PromptMarkSuggestion {
 	 */
 	blockText?: string;
 	/**
-	 * True when `blockText` already contains this mark's tag (the suggestion was
-	 * saved, so the file carries `<ins data-id>` / `<del data-id>`): the item
-	 * then says "apply this suggested …" without quoting the words again.
-	 * False — e.g. an unsaved mark — falls back to quoting the payload.
+	 * The exact tagged element the saved FILE holds for this mark
+	 * (`<del data-id="2">eal</del>`), quoted verbatim so the receiving agent can
+	 * replace it literally. Undefined for an unsaved mark — editor-only state,
+	 * which Copy-as-prompt excludes.
 	 */
-	embedded?: boolean;
+	sourceMatch?: string;
 	/** modify only: the node attribute that changed. */
 	attrName?: string | null;
 	previousValue?: unknown;
@@ -325,13 +523,16 @@ export function mapMarkSuggestionsToPromptItems(
 		const base = {
 			blockText: mark.blockText ?? "document",
 			kind: "suggestion" as const,
-			// Only meaningful for insert/remove: a modification is described by its
-			// attribute values, which never embed in the anchor.
-			embedded: mark.embedded ?? false,
+			sourceMatch: mark.sourceMatch,
+			// Marks always carry this, so `isExportable` can tell a mark that was not
+			// found in the saved file from a legacy record-shaped suggestion that has
+			// no tag to look for. A `modify` is attribute-only — no element to match —
+			// and the mapper sees it as present.
+			embedded: mark.sourceMatch !== undefined || mark.kind === "modify",
 		};
 		if (mark.kind === "remove") {
 			// The mark keeps the deleted words visible, so `text` IS the payload:
-			// the agent removes exactly those words from the anchored block.
+			// the prompt names exactly those words to delete.
 			return { ...base, suggestionKind: "remove" as const, proposed: mark.text };
 		}
 		if (mark.kind === "insert") {
@@ -341,6 +542,8 @@ export function mapMarkSuggestionsToPromptItems(
 			...base,
 			suggestionKind: "modify" as const,
 			attrName: mark.attrName ?? undefined,
+			baseValue: mark.previousValue,
+			newValue: mark.newValue,
 			currentText: describeAttrValue(mark.previousValue),
 			proposed: describeAttrValue(mark.newValue),
 		};

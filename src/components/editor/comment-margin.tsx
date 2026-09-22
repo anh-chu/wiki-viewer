@@ -31,7 +31,7 @@
  * the scroll container, then pushed down if it would overlap the card above it.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ListChecks } from "lucide-react";
 import type { Comment } from "@/lib/proof/types";
 import type { MarkId } from "@/lib/proof/suggestion-mark";
@@ -161,25 +161,42 @@ export function CommentMargin({
 	// COLLAPSED height. The expanded card then overlapped the cards below it:
 	// measured live, an expanded card spanning 45-230px had the next two sitting
 	// at 108-163 and 171-226, i.e. printed on top of its body.
-	const visibleThreads = showComments ? threads : [];
-	const visibleSuggestions = showSuggestions ? suggestions : [];
+	// Memoized identities: a bare `[]` literal here is a NEW array every render, and
+	// these feed the measuring effect's dependency array — the fresh identity made
+	// the effect fire after every render, and since `setHeights` always produced a
+	// new object, render → effect → setState looped until React killed it with
+	// "Maximum update depth exceeded" (observed live by clicking a comment on a
+	// document whose suggestion list had just emptied).
+	const visibleThreads = useMemo(() => (showComments ? threads : []), [showComments, threads]);
+	const visibleSuggestions = useMemo(() => (showSuggestions ? suggestions : []), [showSuggestions, suggestions]);
 
 	useEffect(() => {
 		setHeights((prev) => {
 			const next = { ...prev };
+			let changed = false;
 			for (const t of visibleThreads) {
 				const el = document.querySelector<HTMLElement>(
 					`[data-margin-card="${t.blockRef}"]`,
 				);
-				if (el) next[t.blockRef] = el.offsetHeight;
+				// Assign only on a real change: returning the PREVIOUS object when
+				// nothing moved lets React bail out of the re-render, which is what
+				// breaks the measure → render → measure cycle this effect sits in.
+				if (el && next[t.blockRef] !== el.offsetHeight) {
+					next[t.blockRef] = el.offsetHeight;
+					changed = true;
+				}
 			}
 			for (const sg of visibleSuggestions) {
 				const el = document.querySelector<HTMLElement>(
 					`[data-margin-card="suggestion:${String(sg.id)}"]`,
 				);
-				if (el) next[`suggestion:${String(sg.id)}`] = el.offsetHeight;
+				const key = `suggestion:${String(sg.id)}`;
+				if (el && next[key] !== el.offsetHeight) {
+					next[key] = el.offsetHeight;
+					changed = true;
+				}
 			}
-			return next;
+			return changed ? next : prev;
 		});
 	}, [visibleThreads, visibleSuggestions, activeRef]);
 
@@ -268,7 +285,15 @@ export function CommentMargin({
 								path={path}
 								anchorKey={card.thread.blockRef}
 								anchorRef={card.thread.blockRef}
-								anchorLabel={card.thread.blockRef}
+								// The words the comment is about, not the opaque ref: the
+								// block ref says WHERE the thread lives but not WHAT it
+								// discusses, and a text-anchored comment has the exact
+								// words available — hiding them made the card read as
+								// block-scoped even when the anchor was precise.
+								anchorLabel={
+									card.thread.comments.find((c) => c.textAnchor?.selectedText)
+										?.textAnchor?.selectedText ?? card.thread.blockRef
+								}
 								comments={card.thread.comments}
 								anchorEl={null}
 								variant="margin"

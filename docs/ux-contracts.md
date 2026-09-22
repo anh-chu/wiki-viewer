@@ -796,6 +796,10 @@ comment is still excluded, because an anchor-lost comment has nothing to point a
 The gutter pips are removed: a comment's only surfaces are its margin card and
 the selection-comment popover. Thread surfaces carry turn timestamps (relative time), a
 `⌘↵ send` reply box, and buttons "Turn into an instruction", Resolve/Reopen.
+The expanded thread's header shows the **commented words** when the thread holds a
+text-anchored comment (`textAnchor.selectedText`), falling back to the block ref
+otherwise — the ref says where the thread lives but not what it discusses, and
+hiding the words made a precisely anchored comment read as block-scoped.
 Send uses `comment.reply` (open thread) or `comment.add`; Escalate creates an
 `instruction` comment with all turns joined and a `fromCommentId` backlink.
 The thread also exposes **Edit** and **Delete** for the comment body: Edit
@@ -812,6 +816,14 @@ carry `{start, end, selectedText, baseMarkdown}` naming the words it applies to.
 The highlight covers **only those words** — a comment on "brown fox" marks those
 two words, not the paragraph. Comments without an anchor stay block-granular
 (legacy) and render no text highlight.
+
+The captured selection is **trimmed** when the anchor is recorded, and the search
+needle is trimmed again at highlight time: a selection that ran to the end of a
+line used to store its trailing newline, and rendered text runs contain no `\n`
+(newlines are block structure, not content), so the exact-match search failed and
+the comment highlighted nothing — observed live as `"Non-product surveys\n"`.
+Trimming at search time also repairs already-saved anchors without a data
+migration.
 
 Positions are found by **searching the commented block's text runs** for
 `selectedText`. Offset arithmetic against block markdown is explicitly NOT used to
@@ -1550,32 +1562,55 @@ surface)
 
 **Contract:** A floating **Copy as prompt** dock pill is fixed bottom-center with a theme-token elevated rounded surface (`bg-popover`, `border-border`, `shadow-lg`), count badge, and integrated `✎ N suggestions` review button. It is rendered in **both view and edit mode** (comments remain annotation-only; suggestion marks are document content; the save hint and save-status chip are the edit-only parts of the annotation bar). Shown only when the document has ≥1 open comment or suggestion mark; a count badge shows how many. It opens a popover listing those items and serializes
 them into a prompt the user can paste into their own agent, without creating or
-writing anything. Format, numbered from 1:
-`Edit the file \`<path>\` (a Markdown document). Apply these changes:` then a
-blank line, then per item:
-`N. Comment on "<FULL BLOCK TEXT>" (lines X-Y): "<original ask>"` followed by
-each reply as an indented `- <by>: <text>` line. Suggestion marks are described
-from the live document marks, anchored on the mark's block as the SNAPSHOT (file)
-has it. A saved mark's tag is already embedded in that anchor, so its item stays
-bare — `N. Suggestion on "<BLOCK TEXT with <ins data-id>…</ins>>": apply this
-suggested insertion` (deletions: `apply this suggested deletion`) — and the
-prompt ends with a **Mark legend** explaining the three tag syntaxes (`<ins
+writing anything. **Copy-as-prompt exports the SAVED file state only.** Format: a
+prose instruction naming the file —
+`Edit the file \`<path>\` using the annotations below.` — then a short statement of
+the rules (apply every suggestion; comments are feedback, not replacement text;
+replace `source_match` with `replacement`, matched uniquely; do not reformat
+unrelated content; do not re-apply a change already made), then the annotations as
+pretty-printed JSON:
+
+```json
+{ "file": "<path>", "annotations": [ … ] }
+```
+
+Each annotation is one record with `id`, `kind` (`comment` | `suggestion`),
+`operation` (`insert` | `delete` | `modify` | `replace` | `comment`), and:
+- **suggestion marks** carry `text` (the words the change concerns — the payload for
+  an insertion, the words removed for a deletion), plus `source_match` (the file's
+  exact `<ins data-id="N">…</ins>` / `<del data-id="N">…</del>` element, quoted
+  verbatim) and `replacement` (its content for an insertion, `""` for a deletion).
+  `source_match` is what makes an edit executable without tag parsing: it is the
+  file's own bytes, so six suggestions inside one block produce six distinct
+  `source_match` values instead of six near-identical truncated anchors that each
+  said only "apply this suggested deletion". A saved mark's record deliberately
+  omits `block` — the match already locates it, and repeating a truncated block on
+  every record is noise.
+- **modification marks** (attribute changes) carry `block`, `from`, and `to` with
+  RAW values (`2`, `"ts"`, `null`), not display-rendered strings.
+- **comments** carry `comment` (the ask) and, when present, `replies` as
+  `[{ by, text }]`. A comment made on a text selection also carries
+  `selected_text` — the exact commented words, the comment's counterpart of a
+  suggestion's `source_match` and its precise locator in the file; with it,
+  `block` is context only and is capped at ~200 chars. A comment WITHOUT a
+  selection has no other locator, so its `block` is the block's verbatim,
+  uncapped markdown — flattening or truncating it would produce a string that
+  appears nowhere in the file.
+
+The prompt ends with a **Mark legend** explaining the three tag syntaxes (`<ins
 data-id="N">text</ins>` = replace the tag with its text; `<del data-id="N">text</del>`
 = remove the tag and its text; `<span data-type="modification" …>` = apply the
-described block-attribute change). An unsaved mark (no tag in the snapshot yet)
-falls back to quoting its words: `… insert this text` / `… delete this text` +
-the quoted marked text. Modification marks (attribute changes) read
-`… change <attrName> from <old> to <new>`. The legend appears only when at least
-one mark-based suggestion is in the prompt. The quoted
-anchor is the block's full canonical markdown (resolved from the snapshot,
-capped at ~200 chars with `…`), never the ref id; ref-anchored comments omit
-the line range when no line metadata is available, while line-anchored
-comments use `line N` / `lines N-M`. Per-item ⎘ copies one item; **Copy all** copies the
+described block-attribute change) whenever at least one mark-based suggestion is
+present. A quoted `block` is the block's canonical markdown as the file has it,
+capped at ~200 chars with `…`. Per-item ⎘ copies one item; **Copy all** copies the
 whole prompt; each shows a ~1500ms copied flip. When the clipboard is
 unavailable (non-secure context) a **Show text** read-only textarea is the
 manual-copy fallback. Instructions that already entered the agent route
 (`queued` / `sent` / `answered`) and resolved/accepted/rejected items are
-excluded; **draft** instructions are collected like ordinary comments.
+excluded; **draft** instructions are collected like ordinary comments. A
+suggestion mark whose tag is NOT in the saved file is excluded: it is editor-only
+state with no element on disk, so exporting it would hand the agent an instruction
+with no target.
 `esc` / outside-click closes; empty set renders no control.
 
 **Why it matters:** It is the no-agent escape hatch — the same durable comments
