@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { resolveWorkspaceForUser } from "@/lib/workspace-context";
 import { resolveWorkspacePath } from "@/lib/fs/workspace-path";
 import { contentTypeForPath } from "@/lib/mime";
+import { verifyPreviewToken, withinPreviewPrefix, type PreviewScope } from "@/lib/preview-token";
 
 import { DENIED_SEGMENTS } from "@/lib/fs/denied-segments";
 
@@ -32,9 +33,19 @@ export async function GET(
 	// assetPreviewUrl in workspace-client.ts). Translate it back into the query
 	// param resolveWorkspaceForUser already understands, preserving the ?root=
 	// api-key gate and workspace ACL checks.
+	//
+	// `_p/<token>` is the cookie-free variant: a preview's transient-origin
+	// frames send no cookies, so the token itself carries the authorization
+	// (directory-scoped, short-lived — see src/lib/preview-token.ts).
 	let effReq: Request = request;
 	let pathSegments = segments;
-	if (segments.length >= 2 && segments[0] === "_ws") {
+	let previewScope: PreviewScope | null = null;
+	if (segments.length >= 3 && segments[0] === "_p") {
+		const scope = verifyPreviewToken(segments[1]);
+		if (!scope) return NextResponse.json({ error: "PREVIEW_TOKEN_INVALID" }, { status: 403 });
+		previewScope = scope;
+		pathSegments = segments.slice(2);
+	} else if (segments.length >= 2 && segments[0] === "_ws") {
 		effReq = withInjectedParam(request, "ws", segments[1]);
 		pathSegments = segments.slice(2);
 	} else if (segments.length >= 2 && segments[0] === "_root") {
@@ -42,9 +53,16 @@ export async function GET(
 		pathSegments = segments.slice(2);
 	}
 
-	const wsx = await resolveWorkspaceForUser(effReq);
-	if (!wsx.ok) return NextResponse.json({ error: wsx.code }, { status: wsx.status });
-	const { rootDir } = wsx;
+	// A tokenized request is authorized BY the token and must not consult the
+	// cookies a transient-origin frame cannot send.
+	let rootDir: string;
+	if (previewScope) {
+		rootDir = previewScope.rootDir;
+	} else {
+		const wsx = await resolveWorkspaceForUser(effReq);
+		if (!wsx.ok) return NextResponse.json({ error: wsx.code }, { status: wsx.status });
+		rootDir = wsx.rootDir;
+	}
 
 	const rel = pathSegments.join("/");
 
@@ -53,6 +71,9 @@ export async function GET(
 	});
 	if (!resolved) {
 		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+	}
+	if (previewScope && !withinPreviewPrefix(previewScope.prefix, resolved.relPath)) {
+		return NextResponse.json({ error: "OUTSIDE_PREVIEW_SCOPE" }, { status: 403 });
 	}
 
 	try {
@@ -63,10 +84,25 @@ export async function GET(
 		const contentType = contentTypeForPath(resolved.absolutePath);
 		const buffer = await readFile(resolved.absolutePath);
 		return new Response(buffer, {
-			headers: {
-				"Content-Type": contentType,
-				"Cache-Control": "private, max-age=60",
-			},
+			headers: previewScope
+				? {
+						"Content-Type": contentType,
+						// Tokenized URLs are capabilities: keep them out of shared
+						// caches, and out of the Referer a previewed page sends to
+						// whatever external origin it loads.
+						"Cache-Control": "private, no-store",
+						"Referrer-Policy": "no-referrer",
+						// A preview's scripts can fetch siblings, and from its
+						// transient origin that fetch is cross-origin: without CORS
+						// it fails as "Failed to fetch". The URL's token is the
+						// authorization, so the wildcard grants no reach beyond
+						// what its holder already has; no cookies are involved.
+						"Access-Control-Allow-Origin": "*",
+					}
+				: {
+						"Content-Type": contentType,
+						"Cache-Control": "private, max-age=60",
+					},
 		});
 	} catch {
 		return NextResponse.json({ error: "File not found" }, { status: 404 });

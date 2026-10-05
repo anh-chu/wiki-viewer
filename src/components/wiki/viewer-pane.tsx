@@ -30,7 +30,6 @@ import {
 	DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { assetPreviewUrl } from "@/lib/workspace-client";
 import type { OpenFile } from "@/types/wiki";
 import {
 	VIEW_ALIGN_CLASS,
@@ -262,13 +261,9 @@ export function ViewerPane({
 
 	const isScratch = openFile.path.startsWith(".scratch/");
 
-	const websiteSrc = openFile.externalUrl
-		? openFile.externalUrl
-		: viewerKind === "html"
-			? assetPreviewUrl(openFile.path)
-			: viewerKind === "app"
-				? assetPreviewUrl(`${openFile.path}/index.html`)
-				: undefined;
+	// The path the preview token is scoped to; WebsiteViewer tokenizes it itself.
+	const websiteRel =
+		viewerKind === "app" ? `${openFile.path}/index.html` : openFile.path;
 
 	if (viewerKind === "app" || viewerKind === "html") {
 		if (appFullscreen) {
@@ -278,7 +273,8 @@ export function ViewerPane({
 					onToggleScripts={() => setScriptsEnabled((s) => !s)}
 					path={openFile.path}
 					title={openFile.name}
-					src={websiteSrc}
+					previewRel={websiteRel}
+					externalUrl={openFile.externalUrl}
 					fullscreen
 					onExit={() => setAppFullscreen(false)}
 				/>
@@ -426,7 +422,8 @@ export function ViewerPane({
 								onToggleScripts={() => setScriptsEnabled((s) => !s)}
 								path={openFile.path}
 								title={openFile.name}
-								src={websiteSrc}
+								previewRel={websiteRel}
+								externalUrl={openFile.externalUrl}
 							/>
 						</ViewerToolbarSlotContext.Provider>
 					</ViewerToolbarBadgeSlotContext.Provider>

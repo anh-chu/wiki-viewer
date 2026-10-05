@@ -296,27 +296,36 @@ visible regression.
 
 ### 3.2 HTML / app preview
 
-**Contract:** HTML previews sandbox an iframe with
-`allow-same-origin allow-forms allow-popups
+**Contract:** HTML previews sandbox an iframe with `allow-forms allow-popups
 allow-top-navigation-by-user-activation` (no scripts by default); "Enable scripts"
-swaps to `allow-scripts` in the same token set (dropping `allow-same-origin`).
-A "Show source"/"Show preview" toggle and an editable HTML
+adds `allow-scripts`. A "Show source"/"Show preview" toggle and an editable HTML
 source textarea exist. Fullscreen mode ("App") hides the breadcrumb and offers an
 "Exit app" button. The scripts toggle resets on file/external-URL change; Refresh
 remounts the iframe. Toggling scripts remounts the iframe (via a
 `scriptsEnabled`-keyed element) so the new sandbox takes effect without a
 manual Refresh. Sandbox never combines `allow-scripts` with
-`allow-same-origin`.
+`allow-same-origin`, in either toggle state, so a preview always has a
+transient (opaque) origin.
 
-Scripts-off keeps `allow-same-origin` on purpose: a script-free preview is inert,
-and a same-origin (non-transient) document is what lets a previewed HTML embed
-another local HTML (`<iframe src="sibling.html">`) survive
-`X-Frame-Options: SAMEORIGIN` on `/api/assets` and carry workspace cookies; in
-scripts-off nested local files render in place. With scripts on the preview
-returns to a transient (opaque) origin, so the same ancestor chain breaks and
-script-injected nested frames show "refused to connect" (or `forbidden` behind
-the DSH proxy, whose grant cookie is withheld from transient-origin requests).
-This is the accepted tradeoff of the invariant below, not a regression.
+Nested local files work in **both** toggle states: a previewed HTML that embeds
+another local HTML (`<iframe src="sibling.html">`), and the CSS/JS/images of
+either page, load and render. Two mechanisms make that possible, because the
+transient origin both hides cookies from subrequests and cannot satisfy a
+same-origin framing check:
+
+1. `/api/assets` is the ONE route without the `X-Frame-Options: SAMEORIGIN`
+   header (see `next.config.ts`). No framing header can express "allow a
+   transient ancestor"; sending SAMEORIGIN rejects one outright, and the nested
+   frame then renders as "refused to connect".
+2. The preview URL carries a **directory-scoped capability token** —
+   `/api/assets/_p/<token>/<path>` — minted by `GET /api/wiki/preview-token`
+   from the caller's session. It authorizes reads under the previewed file's own
+   directory subtree (never the whole workspace), expires after 10 minutes, and
+   travels in the path because relative URLs drop the query string. Tokenized
+   responses add `Referrer-Policy: no-referrer` and `Cache-Control: private,
+   no-store`. This is what keeps a nested frame authorized where the session
+   cookie is withheld (behind the DSH proxy the older failure was `403
+   forbidden`).
 
 The preview iframe carries the workspace scope in the URL *path*
 (`/api/assets/_ws/<id>/<path>`, or `/api/assets/_root/<base64url-root>/<path>`
@@ -324,20 +333,27 @@ for host-supplied ephemeral roots) rather than a `?ws=`/`?root=` query string.
 This is what lets a previewed page follow its own relative links (e.g. a site's
 `Journal` nav pointing at `blog.html`): the browser drops the query string on
 relative navigation but preserves the path prefix, so workspace context survives
-and the linked page resolves instead of 404-ing. Root-absolute links
-(`/favicon.ico`) still resolve against the origin, not the asset route.
+and the linked page resolves instead of 404-ing. When a token cannot be minted
+the preview falls back to the cookie-scoped `_ws`/`_root` URL, which still opens
+the top-level document (and its same-directory subresources fail if the session
+cookie is withheld). Root-absolute links (`/favicon.ico`) still resolve against
+the origin, not the asset route.
 
 **Why it matters:** The sandbox composition is the HTML-preview security
-boundary: content either runs scripts (transient origin, no same-origin DOM or
-cookie access) or shares the app's origin (no scripts, so no scripted cookie
-or DOM reads). The path-encoded scope keeps in-page relative navigation working without
-reopening the `?root=` api-key gate (the sentinel is translated back into the
-same query param `resolveWorkspaceForUser` already validates).
+boundary: a preview never shares the app's origin while running scripts, so it
+can never script its way to the session or the app's DOM. The capability token
+must stay directory-scoped and short-lived — a token scoped to the workspace
+root, or one without expiry, would let any previewed HTML read unrelated
+workspace files (including secrets) by fetching its own URL prefix. The
+path-encoded scope keeps in-page relative navigation working without reopening
+the `?root=` api-key gate (the sentinel is translated back into the same query
+param `resolveWorkspaceForUser` already validates).
 
 **Verification pointer:** `src/components/editor/website-viewer.tsx`,
-`src/components/wiki/viewer-pane.tsx`,
-`src/lib/workspace-client.ts` (`assetPreviewUrl`),
-`src/app/api/assets/[...path]/route.ts`
+`src/components/wiki/viewer-pane.tsx`, `src/lib/preview-token.ts`,
+`src/app/api/wiki/preview-token/route.ts`, `src/lib/workspace-client.ts`
+(`assetPreviewUrl`, `previewAssetUrl`), `src/app/api/assets/[...path]/route.ts`,
+`src/tests/proof/preview-token.test.ts`, `next.config.ts`
 
 ### 3.3 CSV viewer
 

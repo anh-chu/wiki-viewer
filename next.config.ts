@@ -29,12 +29,16 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: process.env.NEXT_ALLOWED_DEV_ORIGINS
     ? process.env.NEXT_ALLOWED_DEV_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean)
     : ["localhost"],
-  // Block framing on all routes by default. Same-origin framing for nested
-  // /api/assets and /api/app-proxy iframes still works because the host is now
-  // same-origin (X-Frame-Options: SAMEORIGIN permits same-origin ancestors).
+  // Block framing on every route except the asset route. An HTML preview runs
+  // sandboxed WITHOUT allow-same-origin (the security invariant), so it has a
+  // transient origin; no framing header can express "allow a transient
+  // ancestor", and SAMEORIGIN rejects one outright. Nested local files
+  // (<iframe src="sibling.html">) would therefore never load. Asset reads stay
+  // gated by cookie scope or the directory-scoped preview token in the path
+  // (src/lib/preview-token.ts), which is what a hostile framer cannot present.
   headers: async () => [
     {
-      source: "/(.*)",
+      source: "/((?!api/assets).*)",
       headers: [{ key: "X-Frame-Options", value: "SAMEORIGIN" }],
     },
   ],

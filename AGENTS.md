@@ -50,7 +50,12 @@ Published to npm as `wiki-viewer`. CLI entry: `bin/wiki-viewer.js`.
   accepted or logged in the URL.
 - **HTML previews.** Shared HTML and local HTML previews are sandboxed without combining
   `allow-scripts` with `allow-same-origin`. Trusted executable apps belong in the privileged
-  node-app runner, not in arbitrary HTML previews.
+  node-app runner, not in arbitrary HTML previews. A preview therefore has a transient
+  origin: its nested frames and subresources carry no cookies, so local previews mint a
+  short-lived, directory-scoped capability token (`/api/assets/_p/<token>/<path>`,
+  `src/lib/preview-token.ts`) and `/api/assets` is the one route without
+  `X-Frame-Options` — otherwise no nested local file could ever load. Never widen that
+  token's scope to the workspace root, and never remove its expiry.
 - **No process-global root.** The process-global `root-dir` module, the legacy
   root-mutation routes, and the lexical path guard were removed. `ROOT_DIR` and
   legacy `lastOpenedPath` still seed a real workspace on startup, but no live route

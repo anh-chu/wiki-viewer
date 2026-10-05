@@ -166,3 +166,44 @@ export function assetPreviewUrl(relPath: string): string {
 	// No explicit scope in the page URL: let the server pick the default.
 	return apiUrl(`/api/assets/${encodedPath}`);
 }
+
+/** Cached preview tokens, keyed by scope + directory prefix. */
+const previewTokens = new Map<string, { token: string; expiresAt: number }>();
+
+/**
+ * Build the iframe src for an HTML/app preview, carrying a capability token so
+ * that frames *inside* the preview stay authorized.
+ *
+ * `assetPreviewUrl` above relies on cookies, which the browser sends for the
+ * preview document itself (the app initiates it) but withholds from everything
+ * that document then loads — a nested `<iframe src="sibling.html">`, its CSS,
+ * its images. The preview has a transient origin (sandbox without
+ * allow-same-origin), making those requests cross-site. The token travels in
+ * the path for the same reason the scope does: relative URLs drop the query.
+ *
+ * Falls back to `assetPreviewUrl` when the token cannot be minted, so a preview
+ * still opens (with the old cookie-scoped behavior) instead of failing.
+ */
+export async function previewAssetUrl(relPath: string): Promise<string> {
+	const encodedPath = relPath
+		.split("/")
+		.map((seg) => encodeURIComponent(seg))
+		.join("/");
+	const slash = relPath.lastIndexOf("/");
+	const prefix = slash <= 0 ? "" : relPath.slice(0, slash);
+	const cacheKey = `${getEphemeralRoot() ?? getActiveWorkspaceId() ?? ""}:${prefix}`;
+	const cached = previewTokens.get(cacheKey);
+	const usable = cached && cached.expiresAt - Date.now() > 30_000 ? cached.token : null;
+	if (usable) return apiUrl(`/api/assets/_p/${usable}/${encodedPath}`);
+
+	try {
+		const res = await wsFetch(`/api/wiki/preview-token?path=${encodeURIComponent(relPath)}`);
+		if (!res.ok) return assetPreviewUrl(relPath);
+		const body: { token?: string; expiresAt?: number } = await res.json();
+		if (!body.token || typeof body.expiresAt !== "number") return assetPreviewUrl(relPath);
+		previewTokens.set(cacheKey, { token: body.token, expiresAt: body.expiresAt });
+		return apiUrl(`/api/assets/_p/${body.token}/${encodedPath}`);
+	} catch {
+		return assetPreviewUrl(relPath);
+	}
+}

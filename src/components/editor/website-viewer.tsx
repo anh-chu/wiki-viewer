@@ -1,17 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowLeft, ExternalLink, Play, Ban, Server } from "lucide-react";
 import { ViewerToolbar } from "@/components/layout/viewer-toolbar";
 import { Button } from "@/components/ui/button";
-import { assetPreviewUrl } from "@/lib/workspace-client";
+import { assetPreviewUrl, previewAssetUrl } from "@/lib/workspace-client";
 import { kebabCase, useHostedAppsStore } from "@/stores/hosted-apps-store";
 
 interface WebsiteViewerProps {
 	path: string;
 	title: string;
-	/** Override iframe src. Defaults to `/api/assets/{path}/index.html`. */
-	src?: string;
+	/**
+	 * Root-relative file to preview. Defaults to `${path}/index.html`, which is
+	 * what a directory-backed app serves.
+	 */
+	previewRel?: string;
+	/** Absolute external URL (scratch view). Takes precedence over previewRel. */
+	externalUrl?: string;
 	fullscreen?: boolean;
 	onExit?: () => void;
 	/**
@@ -27,7 +32,8 @@ interface WebsiteViewerProps {
 export function WebsiteViewer({
 	path,
 	title,
-	src,
+	previewRel,
+	externalUrl,
 	fullscreen,
 	onExit,
 	scriptsEnabled: scriptsEnabledProp,
@@ -36,18 +42,36 @@ export function WebsiteViewer({
 	const [scriptsEnabledState, setScriptsEnabledState] = useState(false);
 	const scriptsEnabled = scriptsEnabledProp ?? scriptsEnabledState;
 	const toggleScripts = onToggleScripts ?? (() => setScriptsEnabledState((s) => !s));
-	const iframeSrc = src ?? assetPreviewUrl(`${path}/index.html`);
 
-	// Scripts-off keeps allow-same-origin: a script-free preview is inert, and a
-	// same-origin document lengthens the ancestor chain instead of ending it at a
-	// transient origin, so nested local files (an HTML embedding another HTML via
-	// <iframe src="sibling.html">) frame, pass X-Frame-Options SAMEORIGIN, and
-	// carry workspace cookies. With allow-same-origin the nested upload/move CSRF
-	// surface is click-gated anyway (no JS runs). Scripts-on must drop it — the
-	// security invariant, per docs/ux-contracts.md 3.2 — which re-breaks nesting.
+	// The preview gets a capability token so the frames and assets the previewed
+	// document loads stay authorized from its transient origin (see
+	// previewAssetUrl). Start from the cookie-scoped URL so a preview is never
+	// blank while the token is minted, or when minting fails.
+	const rel = previewRel ?? `${path}/index.html`;
+	const [iframeSrc, setIframeSrc] = useState(externalUrl ?? assetPreviewUrl(rel));
+	useEffect(() => {
+		if (externalUrl) {
+			setIframeSrc(externalUrl);
+			return;
+		}
+		let live = true;
+		void previewAssetUrl(rel).then((url) => {
+			if (live) setIframeSrc(url);
+		});
+		return () => {
+			live = false;
+		};
+	}, [rel, externalUrl]);
+
+	// The sandbox never combines allow-scripts with allow-same-origin. The
+	// preview therefore always has a transient origin; nested local files load
+	// because /api/assets omits X-Frame-Options and their URLs carry the
+	// directory-scoped preview token (src/lib/preview-token.ts). Neither toggle
+	// state may add allow-same-origin — that is the security boundary in
+	// docs/ux-contracts.md 3.2.
 	const sandbox = scriptsEnabled
 		? "allow-scripts allow-forms allow-popups allow-top-navigation-by-user-activation"
-		: "allow-same-origin allow-forms allow-popups allow-top-navigation-by-user-activation";
+		: "allow-forms allow-popups allow-top-navigation-by-user-activation";
 
 	const exitButton =
 		fullscreen && onExit ? (
