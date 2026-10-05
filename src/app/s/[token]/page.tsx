@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { ThemeProvider } from "@/components/theme-provider";
-import { ReaderOptionsMenu, type ReaderMode } from "@/components/reader-options-menu";
+import { ReaderOptionsMenu } from "@/components/reader-options-menu";
 import { SharedContentViewer, sharedFileKind } from "@/components/share/shared-content-viewer";
 import { ShareTree, type ShareEntry } from "@/components/share/share-tree";
 import { useIsMobile } from "@/hooks/use-is-mobile";
@@ -91,13 +91,6 @@ export default function SharedPage({ params }: { params: Promise<{ token: string
 	const isTextBased = ["markdown", "source", "text", "csv", "html"].includes(fileKind);
 	/** Reader preferences: the same stored values the app's own toolbar uses. */
 	const readerClass = cn(VIEW_ALIGN_CLASS[viewAlign], VIEW_WIDTH_CLASS[viewWidth]);
-	// Only offer the options that can affect what is on screen.
-	const readerMode: ReaderMode =
-		state.kind === "dir"
-			? "listing"
-			: state.kind === "file" && ["markdown", "source", "text", "csv"].includes(fileKind)
-				? "document"
-				: "media";
 
 	const flashCopied = (key: string) => {
 		setCopied(key);
@@ -418,7 +411,7 @@ export default function SharedPage({ params }: { params: Promise<{ token: string
 											Raw
 										</Button>
 									)}
-									<ReaderOptionsMenu mode={readerMode} />
+									<ReaderOptionsMenu />
 									<span className="text-xs text-muted-foreground ml-2">
 										{state.kind === "file" || state.kind === "dir"
 											? `${state.viewCount} view${state.viewCount !== 1 ? "s" : ""}`
@@ -494,7 +487,7 @@ export default function SharedPage({ params }: { params: Promise<{ token: string
 
 				{state.kind === "dir" && (
 					<div className="flex-1 overflow-auto">
-					<div className={cn("w-full px-4 py-6", readerClass)}>
+					<div className={cn("w-full px-4 py-6 share-reader-text", readerClass)}>
 							<nav
 								className="mb-3 flex flex-wrap items-center gap-1 text-xs text-muted-foreground"
 								aria-label="Breadcrumb"
@@ -535,7 +528,7 @@ export default function SharedPage({ params }: { params: Promise<{ token: string
 											onClick={() => navigate(parentOf(state.path))}
 										>
 											<ArrowLeft className="h-3.5 w-3.5 text-muted-foreground" />
-											<span className="text-sm text-muted-foreground">Parent folder</span>
+											<span className="text-muted-foreground">Parent folder</span>
 										</button>
 									</li>
 								)}
@@ -551,7 +544,7 @@ export default function SharedPage({ params }: { params: Promise<{ token: string
 											) : (
 												<FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
 											)}
-											<span className="min-w-0 flex-1 truncate text-sm">{entry.name}</span>
+											<span className="min-w-0 flex-1 truncate">{entry.name}</span>
 											{!entry.isDir && (
 												<span className="shrink-0 text-xs text-muted-foreground">
 													{formatSize(entry.size)}
@@ -561,7 +554,7 @@ export default function SharedPage({ params }: { params: Promise<{ token: string
 									</li>
 								))}
 								{state.entries.length === 0 && (
-									<li className="px-3 py-8 text-center text-sm text-muted-foreground">
+									<li className="px-3 py-8 text-center text-muted-foreground">
 										This folder is empty.
 									</li>
 								)}

@@ -114,9 +114,12 @@ is (a listing or a file).
 ### Reading options
 
 - `ReaderOptionsMenu` (renamed from `ViewWidthToggle`, which only the share page used) carries
-  the reader's choices, and offers only what can affect the current view: a text document gets
-  width, alignment, text size, and font; a folder listing gets width, alignment, and theme; an
-  image, PDF, canvas, or media file gets theme alone.
+  the reader's choices. It offers the same set on every view — font presets, text size, width,
+  alignment, theme, in that order — so a reader can find a preference before opening the document
+  it applies to. Hiding the type options on a folder listing made the font control invisible on a
+  folder share's landing view, which is where a reader looks first.
+- Shared content is set in the reader's typography, so the Font and Text size options act on what
+  is on screen: a document through `.share-prose`, a folder listing through `.share-reader-text`.
 - Width and alignment come from `view-width-store` (`VIEW_WIDTH_CLASS`, `VIEW_ALIGN_CLASS`). The
   share page passes the resulting class names into `SharedContentViewer`, which applies them to the
   markdown, source, text, and CSV wrappers in place of the hardcoded `max-w-4xl` and `max-w-6xl`.

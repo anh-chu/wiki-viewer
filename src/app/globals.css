@@ -380,11 +380,13 @@
   color: #f87171;
 }
 
-/* Share reader typography. A shared document is prose in the body font, its
-   headings use the heading font, and both scale with the stored body size. The
+/* Share reader typography. Shared content is set in the body font at the stored
+   body size: .share-prose on a document and .share-reader-text on a folder
+   listing, so the reader's Font and Text size choices act on either. The document
    rule carries the .prose prefix so it wins against Tailwind Typography's own
-   absolute font-size no matter which stylesheet order the build produces. This
-   is the public counterpart of the .tiptap rules the editor uses. */
+   absolute font-size no matter which stylesheet order the build produces. This is
+   the public counterpart of the .tiptap rules the editor uses. */
+.share-reader-text,
 .prose.share-prose {
   font-family: var(--font-family-body);
   font-size: calc(1rem * var(--font-scale-body, 1));

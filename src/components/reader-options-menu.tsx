@@ -34,33 +34,20 @@ const THEME_LABEL: Record<string, string> = {
 };
 const THEME_ORDER = ["system", "light", "dark"];
 
-/** What the reader is looking at, which decides the options that can affect it. */
-export type ReaderMode =
-	/** A text document: every option applies. */
-	| "document"
-	/** A folder listing: width and alignment apply, type settings do not. */
-	| "listing"
-	/** An image, PDF, canvas, or media file: only the theme applies. */
-	| "media";
-
 interface ReaderOptionsMenuProps {
 	className?: string;
-	mode?: ReaderMode;
 }
 
 /**
- * Reading options for a public share page.
+ * Reading options for a public share page: width, alignment, text size, font, and
+ * theme. The full set is always offered, so a reader can find and set a
+ * preference before opening the document it applies to.
  *
- * Only the options that can affect what is on screen are offered: a reader who
- * picks "Larger" on an image sees nothing happen. Everything but the theme comes
- * from the same stores the authenticated toolbar and settings sheet use, so a
- * reader's choice applies to the app for that browser too. Text size and font
- * also write the origin-wide `wiki-fonts` value.
+ * Everything but the theme comes from the same stores the authenticated toolbar
+ * and settings sheet use, so a reader's choice applies to the app for that browser
+ * too. Text size and font also write the origin-wide `wiki-fonts` value.
  */
-export function ReaderOptionsMenu({
-	className,
-	mode = "document",
-}: ReaderOptionsMenuProps) {
+export function ReaderOptionsMenu({ className }: ReaderOptionsMenuProps) {
 	const width = useViewWidthStore((s) => s.width);
 	const setWidth = useViewWidthStore((s) => s.setWidth);
 	const align = useViewWidthStore((s) => s.align);
@@ -82,8 +69,6 @@ export function ReaderOptionsMenu({
 		code: codeFont,
 	});
 	const activeTheme = theme ?? "system";
-	const showLayout = mode === "document" || mode === "listing";
-	const showType = mode === "document";
 
 	return (
 		<DropdownMenu>
@@ -98,88 +83,80 @@ export function ReaderOptionsMenu({
 				</Button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="end" className="w-52">
-				{showLayout && (
-					<>
-						<DropdownMenuLabel className="text-[11px] text-muted-foreground">
-							Width
-						</DropdownMenuLabel>
-						{VIEW_WIDTH_ORDER.map((w) => (
-							<DropdownMenuItem
-								key={w}
-								onClick={() => setWidth(w)}
-								className="flex items-center justify-between text-xs"
-							>
-								{VIEW_WIDTH_LABEL[w]}
-								{w === width && <Check className="h-3.5 w-3.5" />}
-							</DropdownMenuItem>
-						))}
-						<DropdownMenuSeparator />
-						<DropdownMenuLabel className="text-[11px] text-muted-foreground">
-							Alignment
-						</DropdownMenuLabel>
-						{VIEW_ALIGN_ORDER.map((a) => (
-							<DropdownMenuItem
-								key={a}
-								onClick={() => setAlign(a)}
-								className="flex items-center justify-between text-xs"
-							>
-								{VIEW_ALIGN_LABEL[a]}
-								{a === align && <Check className="h-3.5 w-3.5" />}
-							</DropdownMenuItem>
-						))}
-						<DropdownMenuSeparator />
-					</>
-				)}
-				{showType && (
-					<>
-						<DropdownMenuLabel className="text-[11px] text-muted-foreground">
-							Text size — {Math.round(bodyScale * 100)}%
-						</DropdownMenuLabel>
-						{/* Steppers keep the menu open, so a reader can step more than once. */}
-						<DropdownMenuItem
-							disabled={bodyIndex <= 0}
-							onSelect={(event) => {
-								event.preventDefault();
-								setScale("body", FONT_SCALE_STEPS[bodyIndex - 1]);
-							}}
-							className="flex items-center justify-between text-xs"
-						>
-							Smaller
-							<Minus className="h-3.5 w-3.5" />
-						</DropdownMenuItem>
-						<DropdownMenuItem
-							disabled={bodyIndex >= FONT_SCALE_STEPS.length - 1}
-							onSelect={(event) => {
-								event.preventDefault();
-								setScale("body", FONT_SCALE_STEPS[bodyIndex + 1]);
-							}}
-							className="flex items-center justify-between text-xs"
-						>
-							Larger
-							<Plus className="h-3.5 w-3.5" />
-						</DropdownMenuItem>
-						<DropdownMenuSeparator />
-						<DropdownMenuLabel className="text-[11px] text-muted-foreground">
-							Font
-						</DropdownMenuLabel>
-						{FONT_PRESET_IDS.map((id) => (
-							<DropdownMenuItem
-								key={id}
-								onClick={() => applyPreset(id)}
-								className="flex flex-col items-start gap-0.5 text-xs"
-							>
-								<span className="flex w-full items-center justify-between">
-									{FONT_PRESETS[id].label}
-									{id === activePreset && <Check className="h-3.5 w-3.5" />}
-								</span>
-								<span className="w-full truncate text-[10px] text-muted-foreground">
-									{FONT_PRESETS[id].description}
-								</span>
-							</DropdownMenuItem>
-						))}
-						<DropdownMenuSeparator />
-					</>
-				)}
+				<DropdownMenuLabel className="text-[11px] text-muted-foreground">
+					Font
+				</DropdownMenuLabel>
+				{FONT_PRESET_IDS.map((id) => (
+					<DropdownMenuItem
+						key={id}
+						onClick={() => applyPreset(id)}
+						className="flex flex-col items-start gap-0.5 text-xs"
+					>
+						<span className="flex w-full items-center justify-between">
+							{FONT_PRESETS[id].label}
+							{id === activePreset && <Check className="h-3.5 w-3.5" />}
+						</span>
+						<span className="w-full truncate text-[10px] text-muted-foreground">
+							{FONT_PRESETS[id].description}
+						</span>
+					</DropdownMenuItem>
+				))}
+				<DropdownMenuSeparator />
+				<DropdownMenuLabel className="text-[11px] text-muted-foreground">
+					Text size — {Math.round(bodyScale * 100)}%
+				</DropdownMenuLabel>
+				{/* Steppers keep the menu open, so a reader can step more than once. */}
+				<DropdownMenuItem
+					disabled={bodyIndex <= 0}
+					onSelect={(event) => {
+						event.preventDefault();
+						setScale("body", FONT_SCALE_STEPS[bodyIndex - 1]);
+					}}
+					className="flex items-center justify-between text-xs"
+				>
+					Smaller
+					<Minus className="h-3.5 w-3.5" />
+				</DropdownMenuItem>
+				<DropdownMenuItem
+					disabled={bodyIndex >= FONT_SCALE_STEPS.length - 1}
+					onSelect={(event) => {
+						event.preventDefault();
+						setScale("body", FONT_SCALE_STEPS[bodyIndex + 1]);
+					}}
+					className="flex items-center justify-between text-xs"
+				>
+					Larger
+					<Plus className="h-3.5 w-3.5" />
+				</DropdownMenuItem>
+				<DropdownMenuSeparator />
+				<DropdownMenuLabel className="text-[11px] text-muted-foreground">
+					Width
+				</DropdownMenuLabel>
+				{VIEW_WIDTH_ORDER.map((w) => (
+					<DropdownMenuItem
+						key={w}
+						onClick={() => setWidth(w)}
+						className="flex items-center justify-between text-xs"
+					>
+						{VIEW_WIDTH_LABEL[w]}
+						{w === width && <Check className="h-3.5 w-3.5" />}
+					</DropdownMenuItem>
+				))}
+				<DropdownMenuSeparator />
+				<DropdownMenuLabel className="text-[11px] text-muted-foreground">
+					Alignment
+				</DropdownMenuLabel>
+				{VIEW_ALIGN_ORDER.map((a) => (
+					<DropdownMenuItem
+						key={a}
+						onClick={() => setAlign(a)}
+						className="flex items-center justify-between text-xs"
+					>
+						{VIEW_ALIGN_LABEL[a]}
+						{a === align && <Check className="h-3.5 w-3.5" />}
+					</DropdownMenuItem>
+				))}
+				<DropdownMenuSeparator />
 				<DropdownMenuLabel className="text-[11px] text-muted-foreground">
 					Theme
 				</DropdownMenuLabel>
