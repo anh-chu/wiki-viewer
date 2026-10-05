@@ -85,17 +85,68 @@ option the existing `/api/assets/*` behavior is unchanged.
   file loads it in the existing viewers. `?path=` stays in the URL so a file link is copyable.
 - The content viewer builds asset URLs with the share-relative path.
 
+## Reader sidebar and reading options (v2)
+
+A folder share should read like a docs site: persistent navigation plus controls that change the
+text being read.
+
+### Server
+
+Every share view response gains `shareKind: "file" | "dir"`, so the client knows whether to render
+navigation without guessing from the current view. `kind` keeps its meaning: what *this* response
+is (a listing or a file).
+
+### Browsing sidebar
+
+- New `src/components/share/share-tree.tsx`, rendered only when `shareKind === "dir"`.
+- Lazy: one `GET /api/share/<token>?path=<folder>` per expanded folder, cached in component state.
+  Expanding a tree costs one request per folder.
+- A folder row expands that folder and opens its index listing; a file row opens the file. The
+  open file is marked `aria-current="page"`.
+- Ancestors of the current path expand automatically, so a deep link opens with its context shown.
+- Semantics are nested lists of buttons with `aria-expanded` on folder rows. Full arrow-key tree
+  navigation is a follow-up.
+- The collapsed state persists in `localStorage` (`wiki-share-nav`). On a narrow viewport the
+  sidebar starts collapsed and opens as an overlay.
+- Requests share the `share:<token>` bucket, which is keyed by token and therefore shared by every
+  visitor of one link. A busy link can therefore rate-limit its own visitors. Follow-up.
+
+### Reading options
+
+- `ViewWidthToggle` gains an optional `showTextSize` prop, default false, so the authenticated
+  toolbar is unchanged. With it, the menu also offers **Text size**, using `FONT_SCALE_STEPS` and
+  `useFontStore.setScale("body", …)`.
+- Width and alignment come from `view-width-store` (`VIEW_WIDTH_CLASS`, `VIEW_ALIGN_CLASS`). The
+  share page passes the resulting class names into `SharedContentViewer`, which applies them to the
+  markdown, source, text, and CSV wrappers in place of the hardcoded `max-w-4xl` and `max-w-6xl`.
+- Body size applies to the markdown reader: its prose wrapper gets an inline
+  `font-size: calc(1rem * var(--font-scale-body, 1))`. Tailwind Typography sets an absolute
+  font-size on `.prose`, which a plain class of equal specificity would not reliably beat; the
+  authenticated editor already consumes the same variable through `.tiptap`.
+- Theme keeps the existing `ThemeToggle`.
+- Text size writes the origin-wide `wiki-fonts` value, so the same person's editor body size
+  changes too. That is the intended trade: one preference for one person on one origin.
+- Before v2 the width control was rendered in share mode but nothing consumed it, so it did
+  nothing.
+- The navigation stays mounted while a view loads. Deriving its visibility from the loading
+  state unmounted it on every step, which dropped its cache, refetched every ancestor folder,
+  and counted each root refetch as another view.
+
 ## Acceptance gates
 
 - **G1** `pnpm typecheck` — clean.
 - **G2** `pnpm test` — pass count does not drop below `.test-floor`. New tests cover: folder
   share creation; a directory listing; nested file content; nested bytes; rejected `?path=`
   traversal (`..`, absolute, dotfile, symlink out of the share); the password gate on nested
-  paths, including the cookie grant.
+  paths, including the cookie grant; `shareKind` on a folder share and on a file share.
 - **G3** `pnpm lint` — clean.
 - **G4** Manual — create a folder share on a real workspace, open `/s/<token>`, browse into a
   subfolder, load a markdown file that embeds a relative image, and confirm the image renders.
-  Confirm no response contains a path above the share root.
+  Confirm no response contains a path above the share root. Then: expand the tree and open a file
+  from it, confirm the open file is highlighted; switch width narrow to wide and confirm the text
+  measure changes; raise the text size and confirm the rendered prose font size grows; reload and
+  confirm the sidebar's collapsed state survives.
+
 
 ## Along the way
 

@@ -11,9 +11,11 @@ import {
 	Folder,
 	Loader2,
 	Lock,
+	PanelLeft,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { apiUrl } from "@/lib/url-prefix";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -21,13 +23,14 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { ViewWidthToggle } from "@/components/view-width-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { SharedContentViewer, sharedFileKind } from "@/components/share/shared-content-viewer";
+import { ShareTree, type ShareEntry } from "@/components/share/share-tree";
+import { useIsMobile } from "@/hooks/use-is-mobile";
+import {
+	useViewWidthStore,
+	VIEW_ALIGN_CLASS,
+	VIEW_WIDTH_CLASS,
+} from "@/stores/view-width-store";
 
-interface ShareEntry {
-	name: string;
-	path: string;
-	isDir: boolean;
-	size: number;
-}
 
 type ShareState =
 	| { kind: "loading" }
@@ -76,9 +79,27 @@ export default function SharedPage({ params }: { params: Promise<{ token: string
 	const [verifying, setVerifying] = useState(false);
 	const [pwdError, setPwdError] = useState(false);
 	const [copied, setCopied] = useState<string | null>(null);
+	/** What the share itself is, as opposed to what this view shows. */
+	const [shareKind, setShareKind] = useState<"file" | "dir" | null>(null);
+	const [shareName, setShareName] = useState("");
+	/** null until the stored preference is read, then the visitor's choice. */
+	const [navOpen, setNavOpen] = useState<boolean | null>(null);
+	const isMobile = useIsMobile();
+	const viewWidth = useViewWidthStore((s) => s.width);
+	const viewAlign = useViewWidthStore((s) => s.align);
 
 	const fileKind = state.kind === "file" ? sharedFileKind(state.filename) : "markdown";
 	const isTextBased = ["markdown", "source", "text", "csv", "html"].includes(fileKind);
+	/** Reader preferences: the same stored values the app's own toolbar uses. */
+	const readerClass = cn(VIEW_ALIGN_CLASS[viewAlign], VIEW_WIDTH_CLASS[viewWidth]);
+	/**
+	 * Tailwind Typography sets an absolute font-size on `.prose`, so the chosen
+	 * body size and font go on that element as an inline style, which wins.
+	 */
+	const readerStyle: CSSProperties = {
+		fontFamily: "var(--font-family-body)",
+		fontSize: "calc(1rem * var(--font-scale-body, 1))",
+	};
 
 	const flashCopied = (key: string) => {
 		setCopied(key);
@@ -103,6 +124,10 @@ export default function SharedPage({ params }: { params: Promise<{ token: string
 	};
 
 	const applyView = (data: Record<string, unknown>, requested: string): ShareState | null => {
+		if (data.shareKind === "file" || data.shareKind === "dir") {
+			setShareKind(data.shareKind);
+		}
+		if (typeof data.shareName === "string" && data.shareName) setShareName(data.shareName);
 		const viewCount = typeof data.viewCount === "number" ? data.viewCount : 0;
 
 		if (data.kind === "dir") {
@@ -203,14 +228,53 @@ export default function SharedPage({ params }: { params: Promise<{ token: string
 		if (token) void load(relPath);
 	}, [token, relPath, load]);
 
-	/** Move to a path inside the share and keep it in the URL, so it is copyable. */
-	const navigate = (target: string) => {
+	/**
+	 * Move to a path inside the share and keep it in the URL, so it is copyable
+	 * and Back returns to the previous view instead of leaving the share.
+	 */
+	const navigate = useCallback((target: string) => {
 		const url = new URL(window.location.href);
 		if (target) url.searchParams.set("path", target);
 		else url.searchParams.delete("path");
-		window.history.replaceState(null, "", url.toString());
+		window.history.pushState(null, "", url.toString());
 		setRelPath(target);
+	}, []);
+
+	useEffect(() => {
+		const onPopState = () =>
+			setRelPath(new URLSearchParams(window.location.search).get("path") ?? "");
+		window.addEventListener("popstate", onPopState);
+		return () => window.removeEventListener("popstate", onPopState);
+	}, []);
+
+	const showNav = navOpen ?? !isMobile;
+
+	const toggleNav = () => {
+		const next = !showNav;
+		setNavOpen(next);
+		try {
+			window.localStorage.setItem("wiki-share-nav", next ? "open" : "closed");
+		} catch {
+			/* private mode: keep the in-memory choice */
+		}
 	};
+
+	useEffect(() => {
+		try {
+			const saved = window.localStorage.getItem("wiki-share-nav");
+			if (saved === "open" || saved === "closed") setNavOpen(saved === "open");
+		} catch {
+			/* private mode */
+		}
+	}, []);
+
+	// The listing the reader already has, so the tree does not fetch it again
+	// (which would also count as a second view of the share).
+	const treeSeed = useMemo(
+		() =>
+			state.kind === "dir" ? { path: state.path, entries: state.entries } : undefined,
+		[state],
+	);
 
 	const handleSubmitPassword = async (e: React.FormEvent) => {
 		e.preventDefault();
@@ -255,12 +319,65 @@ export default function SharedPage({ params }: { params: Promise<{ token: string
 			: state.kind === "dir"
 				? state.name || "Shared folder"
 				: "";
+	// Keep navigation mounted while a view loads: unmounting it on the loading
+	// state would drop the tree's cache and refetch every folder on each step,
+	// and each root refetch counts as another view of the share.
+	const navVisible = shareKind === "dir";
+	const navTree = token && navVisible ? (
+		<ShareTree
+			token={token}
+			rootName={shareName || "Shared folder"}
+			currentPath={
+				state.kind === "file"
+					? state.relPath
+					: state.kind === "dir"
+						? state.path
+						: ""
+			}
+			currentIsDir={state.kind === "dir"}
+			seed={treeSeed}
+			onNavigate={navigate}
+		/>
+	) : null;
 
 	return (
 		<ThemeProvider>
-			<div className="min-h-screen flex flex-col bg-background text-foreground">
+			<div className="flex min-h-screen bg-background text-foreground">
+				{navTree && !isMobile && showNav && (
+					<nav
+						aria-label="Shared folder"
+						className="hidden w-64 shrink-0 border-r border-border bg-muted/20 md:flex md:flex-col"
+					>
+						<div className="flex-1 overflow-auto p-2">{navTree}</div>
+					</nav>
+				)}
+				{navTree && isMobile && showNav && (
+					<div className="fixed inset-0 z-40 flex md:hidden">
+						<div className="flex w-72 max-w-[85%] flex-col border-r border-border bg-background">
+							<div className="flex-1 overflow-auto p-2">{navTree}</div>
+						</div>
+						<button
+							type="button"
+							aria-label="Close navigation"
+							className="flex-1 bg-black/40"
+							onClick={toggleNav}
+						/>
+					</div>
+				)}
+				<div className="flex min-w-0 flex-1 flex-col">
 				<header className="border-b border-border bg-muted/50">
-					<div className="mx-auto flex max-w-4xl items-center gap-2 px-4 py-2">
+					<div className="flex w-full items-center gap-2 px-4 py-2">
+						{navVisible && (
+							<Button
+								size="sm"
+								variant="ghost"
+								className="h-7 w-7 shrink-0 p-0"
+								title={showNav ? "Hide navigation" : "Show navigation"}
+								onClick={toggleNav}
+							>
+								<PanelLeft className="h-3.5 w-3.5" />
+							</Button>
+						)}
 						{showTitle ? (
 							<>
 								<div className="flex items-center gap-2 min-w-0 flex-1">
@@ -303,7 +420,11 @@ export default function SharedPage({ params }: { params: Promise<{ token: string
 											Raw
 										</Button>
 									)}
-									{state.kind === "file" && fileKind === "markdown" && <ViewWidthToggle />}
+									{(state.kind === "dir" ||
+										(state.kind === "file" &&
+											["markdown", "source", "text", "csv"].includes(fileKind))) && (
+										<ViewWidthToggle />
+									)}
 									<ThemeToggle />
 									<span className="text-xs text-muted-foreground ml-2">
 										{state.kind === "file" || state.kind === "dir"
@@ -380,7 +501,7 @@ export default function SharedPage({ params }: { params: Promise<{ token: string
 
 				{state.kind === "dir" && (
 					<div className="flex-1 overflow-auto">
-						<div className="mx-auto max-w-4xl px-4 py-6">
+					<div className={cn("w-full px-4 py-6", readerClass)}>
 							<nav
 								className="mb-3 flex flex-wrap items-center gap-1 text-xs text-muted-foreground"
 								aria-label="Breadcrumb"
@@ -469,17 +590,21 @@ export default function SharedPage({ params }: { params: Promise<{ token: string
 						filePath={state.filePath}
 						token={token!}
 						relPath={state.relPath}
+						readerClass={readerClass}
+						readerStyle={readerStyle}
+						onNavigate={navigate}
 					/>
 				)}
 
 				{state.kind === "file" && (
 					<footer className="border-t border-border bg-muted/30">
-						<div className="mx-auto flex max-w-4xl items-center gap-2 px-4 py-2">
+						<div className={cn("flex w-full items-center gap-2 px-4 py-2", readerClass)}>
 							<FileText className="h-3 w-3 text-muted-foreground" />
 							<span className="text-xs text-muted-foreground">{state.filename}</span>
 						</div>
 					</footer>
 				)}
+				</div>
 			</div>
 		</ThemeProvider>
 	);

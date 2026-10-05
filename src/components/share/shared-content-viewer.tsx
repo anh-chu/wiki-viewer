@@ -1,10 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {
+	useEffect,
+	useMemo,
+	useState,
+	type CSSProperties,
+	type MouseEvent,
+} from "react";
 import dynamic from "next/dynamic";
 import { Download, FileText, Play, Ban } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { apiUrl } from "@/lib/url-prefix";
+import { cn } from "@/lib/utils";
 import { markdownToHtml } from "@/lib/markdown/to-html";
 
 // Loaded on demand: @excalidraw/excalidraw touches `window` at module scope in
@@ -65,6 +72,12 @@ interface SharedContentViewerProps {
 	 * Undefined for a file share, whose root is the file itself.
 	 */
 	relPath?: string;
+	/** Width and alignment classes from the reader's view-width preference. */
+	readerClass?: string;
+	/** Inline style carrying the reader's chosen body font and size. */
+	readerStyle?: CSSProperties;
+	/** Open a path inside the share without a full page reload. */
+	onNavigate?: (path: string) => void;
 }
 
 /** Asset URL for one file in a share. No `path` means the share's root file. */
@@ -80,12 +93,24 @@ export function SharedContentViewer({
 	filePath,
 	token,
 	relPath,
+	readerClass,
+	readerStyle,
+	onNavigate,
 }: SharedContentViewerProps) {
 	const kind = sharedFileKind(filename);
 
 	switch (kind) {
 		case "markdown":
-			return <SharedMarkdownViewer content={content} token={token} relPath={relPath} />;
+			return (
+				<SharedMarkdownViewer
+					content={content}
+					token={token}
+					relPath={relPath}
+					readerClass={readerClass}
+					readerStyle={readerStyle}
+					onNavigate={onNavigate}
+				/>
+			);
 		case "canvas":
 			return (
 				<CanvasViewer
@@ -105,10 +130,16 @@ export function SharedContentViewer({
 		case "html":
 			return <SharedHtmlViewer content={content} filename={filename} />;
 		case "csv":
-			return <SharedCsvViewer content={content} />;
+			return <SharedCsvViewer content={content} readerClass={readerClass} />;
 		case "source":
 		case "text":
-			return <SharedSourceViewer content={content} filename={filename} />;
+			return (
+				<SharedSourceViewer
+					content={content}
+					filename={filename}
+					readerClass={readerClass}
+				/>
+			);
 		case "binary":
 			return <SharedBinaryViewer filename={filename} token={token} relPath={relPath} />;
 	}
@@ -118,10 +149,16 @@ function SharedMarkdownViewer({
 	content,
 	token,
 	relPath,
+	readerClass,
+	readerStyle,
+	onNavigate,
 }: {
 	content: string;
 	token: string;
 	relPath?: string;
+	readerClass?: string;
+	readerStyle?: CSSProperties;
+	onNavigate?: (path: string) => void;
 }) {
 	const [html, setHtml] = useState<string>("");
 
@@ -144,9 +181,51 @@ function SharedMarkdownViewer({
 		};
 	}, [content, token, relPath]);
 
+	/**
+	 * Document links point back at this share page. Open them in place so the
+	 * navigation tree keeps its expanded state instead of the browser doing a
+	 * full reload. Modified clicks and all other links keep their default.
+	 */
+	const handleClick = (event: MouseEvent<HTMLDivElement>) => {
+		if (!onNavigate || event.defaultPrevented) return;
+		if (
+			event.button !== 0 ||
+			event.metaKey ||
+			event.ctrlKey ||
+			event.shiftKey ||
+			event.altKey
+		) {
+			return;
+		}
+		const anchor = (event.target as HTMLElement).closest("a");
+		const href = anchor?.getAttribute("href");
+		if (!href) return;
+
+		const page = apiUrl(`/s/${token}`);
+		if (!href.startsWith(`${page}?`)) return;
+
+		let target: string | null;
+		try {
+			target = new URL(href, window.location.origin).searchParams.get("path");
+		} catch {
+			return;
+		}
+		if (target === null) return;
+
+		event.preventDefault();
+		onNavigate(target);
+	};
+
 	return (
 		<div className="flex-1 overflow-auto">
-			<div className="mx-auto max-w-4xl px-4 py-8 prose prose-neutral dark:prose-invert">
+			<div
+				className={cn(
+					"w-full px-4 py-8 prose prose-neutral dark:prose-invert",
+					readerClass,
+				)}
+				style={readerStyle}
+				onClick={handleClick}
+			>
 				<div dangerouslySetInnerHTML={{ __html: html }} />
 			</div>
 		</div>
@@ -264,7 +343,15 @@ function SharedHtmlViewer({ content, filename }: { content: string; filename: st
 	);
 }
 
-function SharedSourceViewer({ content, filename }: { content: string; filename: string }) {
+function SharedSourceViewer({
+	content,
+	filename,
+	readerClass,
+}: {
+	content: string;
+	filename: string;
+	readerClass?: string;
+}) {
 	const lines = content.split("\n");
 	const lineCount = lines.length;
 	const [showAll, setShowAll] = useState(lineCount <= 500);
@@ -272,7 +359,7 @@ function SharedSourceViewer({ content, filename }: { content: string; filename: 
 
 	return (
 		<div className="flex-1 overflow-auto">
-			<div className="mx-auto max-w-4xl">
+			<div className={cn("w-full", readerClass)}>
 				<div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
 					<span className="text-xs text-muted-foreground">{filename}</span>
 					<span className="text-xs text-muted-foreground">
@@ -307,7 +394,13 @@ function SharedSourceViewer({ content, filename }: { content: string; filename: 
 	);
 }
 
-function SharedCsvViewer({ content }: { content: string }) {
+function SharedCsvViewer({
+	content,
+	readerClass,
+}: {
+	content: string;
+	readerClass?: string;
+}) {
 	const rows = useMemo(() => {
 		return content
 			.split("\n")
@@ -338,7 +431,7 @@ function SharedCsvViewer({ content }: { content: string }) {
 
 	return (
 		<div className="flex-1 overflow-auto">
-			<div className="mx-auto max-w-6xl p-4">
+			<div className={cn("w-full p-4", readerClass)}>
 				<table className="w-full text-sm border-collapse">
 					<thead>
 						<tr>

@@ -75,6 +75,7 @@ down turns "did we regress the loop?" into a diff against this file.
   - [10.1 Create, list, revoke](#101-create-list-revoke)
   - [10.2 Read and unlock](#102-read-and-unlock)
   - [10.3 Folder shares](#103-folder-shares)
+  - [10.4 Share reader](#104-share-reader)
 - [11. Authentication](#11-authentication)
   - [11.1 Sign-in](#111-sign-in)
   - [11.2 Session gate and CSRF](#112-session-gate-and-csrf)
@@ -1852,6 +1853,37 @@ session. Hidden names stay out because a visitor cannot see them to avoid them.
 `src/app/api/share/[token]/route.ts`, `src/app/api/share/[token]/asset/route.ts`,
 `src/app/s/[token]/page.tsx`, `src/lib/markdown/to-html.ts`,
 `src/tests/proof/share-folder.test.ts`
+
+### 10.4 Share reader
+
+**Contract:** Every share view response carries `shareKind` (`"file"` or `"dir"`) and
+`shareName` (the share root's own name), so the reader labels and navigates without guessing
+from the current view. A folder share renders a navigation sidebar: one folder listing per
+expansion, cached for the session, with the listing the reader already holds adopted instead of
+refetched (so a root view counts once). Ancestors of the open path expand automatically, the
+open file is marked `aria-current="page"`, a folder row opens that folder's index, and a file
+row opens the file. The collapsed state persists in `localStorage` under `wiki-share-nav`;
+below `md` the sidebar starts collapsed and opens as an overlay. A file share renders no
+sidebar at all. The header's reader menu (`ViewWidthToggle`) offers width (narrow, normal,
+wide), alignment (center, left), and text size over the `FONT_SCALE_STEPS` ladder applied to the
+body role. Width and alignment reach the markdown, source, text, and CSV readers; text size
+reaches markdown as an inline `font-size: calc(1rem * var(--font-scale-body, 1))` together with
+`font-family: var(--font-family-body)`, because Tailwind Typography sets an absolute font-size
+on `.prose` that an equal-specificity class would not reliably beat. In-document links that point
+back at the share page open in place, and navigation pushes history entries, so Back returns to
+the previous view instead of leaving the share. If a tree request answers `401`, navigation
+hides itself instead of retrying.
+
+**Why it matters:** A deep link must open with its context visible, and the view count must mean
+page loads rather than tree fetches. The reader's width, alignment, and text size are the same
+stored preferences the authenticated toolbar uses, so a choice carries across share pages and
+into the app; text size writes the origin-wide `wiki-fonts` value, which is one person's
+preference on one origin. Keeping navigation mounted across a view change is what protects both
+its cache and the view count.
+
+**Verification pointer:** `src/components/share/share-tree.tsx`,
+`src/app/s/[token]/page.tsx`, `src/components/view-width-toggle.tsx`,
+`src/components/share/shared-content-viewer.tsx`, `src/app/api/share/[token]/route.ts`
 
 ## 11. Authentication
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, AlignJustify } from "lucide-react";
+import { Check, AlignJustify, Minus, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
 	DropdownMenu,
@@ -17,12 +17,18 @@ import {
 	VIEW_ALIGN_LABEL,
 	VIEW_ALIGN_ORDER,
 } from "@/stores/view-width-store";
+import { useFontStore } from "@/stores/font-store";
+import { FONT_SCALE_STEPS } from "@/lib/fonts";
 
 export function ViewWidthToggle({ className }: { className?: string }) {
 	const width = useViewWidthStore((s) => s.width);
 	const setWidth = useViewWidthStore((s) => s.setWidth);
 	const align = useViewWidthStore((s) => s.align);
 	const setAlign = useViewWidthStore((s) => s.setAlign);
+	// Body text size is the reader setting the share page applies to prose.
+	const bodyScale = useFontStore((s) => s.bodyScale);
+	const setScale = useFontStore((s) => s.setScale);
+	const bodyIndex = Math.max(0, FONT_SCALE_STEPS.indexOf(bodyScale));
 
 	return (
 		<DropdownMenu>
@@ -64,6 +70,33 @@ export function ViewWidthToggle({ className }: { className?: string }) {
 						{a === align && <Check className="h-3.5 w-3.5" />}
 					</DropdownMenuItem>
 				))}
+				<DropdownMenuSeparator />
+				<DropdownMenuLabel className="text-[11px] text-muted-foreground">
+					Text size — {Math.round(bodyScale * 100)}%
+				</DropdownMenuLabel>
+				{/* Steppers keep the menu open, so a reader can step more than once. */}
+				<DropdownMenuItem
+					disabled={bodyIndex <= 0}
+					onSelect={(event) => {
+						event.preventDefault();
+						setScale("body", FONT_SCALE_STEPS[bodyIndex - 1]);
+					}}
+					className="flex items-center justify-between text-xs"
+				>
+					Smaller
+					<Minus className="h-3.5 w-3.5" />
+				</DropdownMenuItem>
+				<DropdownMenuItem
+					disabled={bodyIndex >= FONT_SCALE_STEPS.length - 1}
+					onSelect={(event) => {
+						event.preventDefault();
+						setScale("body", FONT_SCALE_STEPS[bodyIndex + 1]);
+					}}
+					className="flex items-center justify-between text-xs"
+				>
+					Larger
+					<Plus className="h-3.5 w-3.5" />
+				</DropdownMenuItem>
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);

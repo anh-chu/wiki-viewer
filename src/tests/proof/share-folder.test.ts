@@ -163,12 +163,14 @@ test("GET a folder share returns a listing with directories first", async () => 
 	assert.equal(res.status, 200);
 	const body = (await res.json()) as {
 		kind: string;
+		shareKind: string;
 		name: string;
 		path: string;
 		entries: Array<{ name: string; path: string; isDir: boolean }>;
 		truncated: boolean;
 	};
 	assert.equal(body.kind, "dir");
+	assert.equal(body.shareKind, "dir");
 	assert.equal(body.name, "docs");
 	assert.equal(body.path, "");
 	assert.equal(body.truncated, false);
@@ -207,12 +209,16 @@ test("GET a file inside the share returns its content and a share-relative path"
 	assert.equal(res.status, 200);
 	const body = (await res.json()) as {
 		kind: string;
+		shareKind: string;
+		shareName: string;
 		content: string;
 		filename: string;
 		path: string;
 		filePath: string;
 	};
 	assert.equal(body.kind, "file");
+	assert.equal(body.shareKind, "dir", "a file inside a folder share keeps shareKind dir");
+	assert.equal(body.shareName, "docs", "a nested file still names the share root");
 	assert.ok(body.content.includes("# Intro"));
 	assert.equal(body.filename, "intro.md");
 	assert.equal(body.path, "guide/intro.md");
@@ -307,8 +313,16 @@ test("a file share without a path still serves its file", async () => {
 		ctx(fileShare.token),
 	);
 	assert.equal(res.status, 200);
-	const body = (await res.json()) as { kind: string; content: string; filePath: string };
+	const body = (await res.json()) as {
+		kind: string;
+		shareKind: string;
+		shareName: string;
+		content: string;
+		filePath: string;
+	};
 	assert.equal(body.kind, "file");
+	assert.equal(body.shareKind, "file");
+	assert.equal(body.shareName, "index.md", "a file share is named after its file");
 	assert.ok(body.content.includes("# Index"));
 	assert.equal(body.filePath, "docs/index.md");
 });

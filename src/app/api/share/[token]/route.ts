@@ -153,6 +153,8 @@ async function buildShareView(
 		return NextResponse.json(
 			{
 				kind: "dir",
+				shareKind: share.kind,
+				shareName: rootName,
 				name: rootName,
 				path: rel,
 				entries,
@@ -174,6 +176,13 @@ async function buildShareView(
 	return NextResponse.json(
 		{
 			kind: "file",
+			// The share's own kind, not this view's: a file share and a folder
+			// share can both serve a file, and the client needs to know which it
+			// is to decide whether to render navigation.
+			shareKind: share.kind,
+			// The share root's name, so navigation can label itself even when the
+			// reader is showing a nested file.
+			shareName: rootName,
 			content,
 			filename: path.basename(target.absolutePath),
 			path: rel,
