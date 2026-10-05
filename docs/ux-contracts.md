@@ -296,15 +296,27 @@ visible regression.
 
 ### 3.2 HTML / app preview
 
-**Contract:** HTML previews sandbox an iframe with `allow-forms allow-popups
+**Contract:** HTML previews sandbox an iframe with
+`allow-same-origin allow-forms allow-popups
 allow-top-navigation-by-user-activation` (no scripts by default); "Enable scripts"
-adds `allow-scripts`. A "Show source"/"Show preview" toggle and an editable HTML
+swaps to `allow-scripts` in the same token set (dropping `allow-same-origin`).
+A "Show source"/"Show preview" toggle and an editable HTML
 source textarea exist. Fullscreen mode ("App") hides the breadcrumb and offers an
 "Exit app" button. The scripts toggle resets on file/external-URL change; Refresh
 remounts the iframe. Toggling scripts remounts the iframe (via a
 `scriptsEnabled`-keyed element) so the new sandbox takes effect without a
 manual Refresh. Sandbox never combines `allow-scripts` with
 `allow-same-origin`.
+
+Scripts-off keeps `allow-same-origin` on purpose: a script-free preview is inert,
+and a same-origin (non-transient) document is what lets a previewed HTML embed
+another local HTML (`<iframe src="sibling.html">`) survive
+`X-Frame-Options: SAMEORIGIN` on `/api/assets` and carry workspace cookies; in
+scripts-off nested local files render in place. With scripts on the preview
+returns to a transient (opaque) origin, so the same ancestor chain breaks and
+script-injected nested frames show "refused to connect" (or `forbidden` behind
+the DSH proxy, whose grant cookie is withheld from transient-origin requests).
+This is the accepted tradeoff of the invariant below, not a regression.
 
 The preview iframe carries the workspace scope in the URL *path*
 (`/api/assets/_ws/<id>/<path>`, or `/api/assets/_root/<base64url-root>/<path>`
@@ -315,9 +327,10 @@ relative navigation but preserves the path prefix, so workspace context survives
 and the linked page resolves instead of 404-ing. Root-absolute links
 (`/favicon.ico`) still resolve against the origin, not the asset route.
 
-**Why it matters:** The scripts-off default and the no-same-origin rule are the
-HTML-preview security boundary; either one relaxed lets arbitrary page JS escape.
-The path-encoded scope keeps in-page relative navigation working without
+**Why it matters:** The sandbox composition is the HTML-preview security
+boundary: content either runs scripts (transient origin, no same-origin DOM or
+cookie access) or shares the app's origin (no scripts, so no scripted cookie
+or DOM reads). The path-encoded scope keeps in-page relative navigation working without
 reopening the `?root=` api-key gate (the sentinel is translated back into the
 same query param `resolveWorkspaceForUser` already validates).
 

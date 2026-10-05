@@ -38,9 +38,16 @@ export function WebsiteViewer({
 	const toggleScripts = onToggleScripts ?? (() => setScriptsEnabledState((s) => !s));
 	const iframeSrc = src ?? assetPreviewUrl(`${path}/index.html`);
 
+	// Scripts-off keeps allow-same-origin: a script-free preview is inert, and a
+	// same-origin document lengthens the ancestor chain instead of ending it at a
+	// transient origin, so nested local files (an HTML embedding another HTML via
+	// <iframe src="sibling.html">) frame, pass X-Frame-Options SAMEORIGIN, and
+	// carry workspace cookies. With allow-same-origin the nested upload/move CSRF
+	// surface is click-gated anyway (no JS runs). Scripts-on must drop it — the
+	// security invariant, per docs/ux-contracts.md 3.2 — which re-breaks nesting.
 	const sandbox = scriptsEnabled
 		? "allow-scripts allow-forms allow-popups allow-top-navigation-by-user-activation"
-		: "allow-forms allow-popups allow-top-navigation-by-user-activation";
+		: "allow-same-origin allow-forms allow-popups allow-top-navigation-by-user-activation";
 
 	const exitButton =
 		fullscreen && onExit ? (
