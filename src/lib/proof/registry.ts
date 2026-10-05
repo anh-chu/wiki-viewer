@@ -183,6 +183,11 @@ export async function updateLastSeen(id: string): Promise<void> {
 	const last = lastSeenWriteAt.get(id) ?? 0;
 	if (now - last < LAST_SEEN_THROTTLE_MS) return;
 
+	// Best effort. The only production caller does not await this (auth.ts:
+	// `void updateLastSeen(id)`), so a rejection escapes as an unhandled
+	// rejection — which ends the process by default, and makes a test file fail
+	// as stray async activity when HOME is torn down mid-write. A missing,
+	// unwritable, or locked registry dir must not have either consequence.
 	await withFileMutex(REGISTRY_MUTEX_KEY, async () => {
 		const r = await readRegistry();
 		if (!r) return;
@@ -191,5 +196,5 @@ export async function updateLastSeen(id: string): Promise<void> {
 		agent.lastSeen = new Date().toISOString();
 		lastSeenWriteAt.set(id, Date.now());
 		await _writeRegistryUnsafe(r);
-	});
+	}).catch(() => {});
 }

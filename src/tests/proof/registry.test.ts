@@ -1,6 +1,6 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHash, randomBytes } from "node:crypto";
@@ -166,4 +166,23 @@ test("updateLastSeen updates lastSeen timestamp", async () => {
 	const found = await lookupAgentById("ai:lastseen-test");
 	assert.ok(found);
 	assert.notEqual(found.lastSeen, "2020-01-01T00:00:00.000Z");
+});
+
+test("updateLastSeen resolves when the registry dir is unusable", async () => {
+	// The production caller does not await this (auth.ts), so a rejection here
+	// becomes an unhandled rejection: it ends the process, and it failed
+	// agent-workspace-scope.test.ts as stray async activity whenever HOME was
+	// removed while a write was in flight. A regular file in the HOME path makes
+	// the lock dir impossible to create (ENOTDIR) — deterministic, unlike the
+	// teardown race this guards against.
+	const blocker = path.join(tmpHome, "not-a-dir");
+	await writeFile(blocker, "x");
+	const previousHome = process.env.HOME;
+	try {
+		process.env.HOME = path.join(blocker, "sub");
+		// Fresh id: the 30s throttle must not turn this into a no-op.
+		await updateLastSeen(`ai:tolerance-${randomBytes(4).toString("hex")}`);
+	} finally {
+		process.env.HOME = previousHome;
+	}
 });
