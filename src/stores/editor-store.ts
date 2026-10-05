@@ -55,7 +55,12 @@ async function savePageToApi(
 	baseRevision: number | null,
 ): Promise<SaveResult> {
 	const body: Record<string, unknown> = { path, content };
-	if (baseRevision !== null) body.baseRevision = baseRevision;
+	// Always send a number. `null` means the content GET carried no
+	// X-Wiki-Revision header because the file has no sidecar yet, and a missing
+	// sidecar is revision 0 server-side — so omitting the field (the old
+	// behaviour) was refused BASE_REVISION_REQUIRED and the first save of every
+	// sidecar-less markdown file never reached disk.
+	body.baseRevision = baseRevision ?? 0;
 	const res = await wsFetch("/api/wiki/content", {
 		method: "PUT",
 		headers: { "Content-Type": "application/json" },
