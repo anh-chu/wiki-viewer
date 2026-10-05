@@ -379,3 +379,17 @@
 .dark .track-deletion {
   color: #f87171;
 }
+
+/* Share reader typography. A shared document is prose in the body font, its
+   headings use the heading font, and both scale with the stored body size. The
+   rule carries the .prose prefix so it wins against Tailwind Typography's own
+   absolute font-size no matter which stylesheet order the build produces. This
+   is the public counterpart of the .tiptap rules the editor uses. */
+.prose.share-prose {
+  font-family: var(--font-family-body);
+  font-size: calc(1rem * var(--font-scale-body, 1));
+}
+
+.prose.share-prose :is(h1, h2, h3, h4, h5, h6) {
+  font-family: var(--font-family-heading);
+}

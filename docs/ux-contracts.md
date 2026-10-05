@@ -1864,26 +1864,31 @@ refetched (so a root view counts once). Ancestors of the open path expand automa
 open file is marked `aria-current="page"`, a folder row opens that folder's index, and a file
 row opens the file. The collapsed state persists in `localStorage` under `wiki-share-nav`;
 below `md` the sidebar starts collapsed and opens as an overlay. A file share renders no
-sidebar at all. The header's reader menu (`ViewWidthToggle`) offers width (narrow, normal,
-wide), alignment (center, left), and text size over the `FONT_SCALE_STEPS` ladder applied to the
-body role. Width and alignment reach the markdown, source, text, and CSV readers; text size
-reaches markdown as an inline `font-size: calc(1rem * var(--font-scale-body, 1))` together with
-`font-family: var(--font-family-body)`, because Tailwind Typography sets an absolute font-size
-on `.prose` that an equal-specificity class would not reliably beat. In-document links that point
+sidebar at all. The header's reader menu (`ReaderOptionsMenu`) is offered on every view and shows
+only what can affect what is on screen: a text document gets width (narrow, normal, wide),
+alignment (center, left), text size over the `FONT_SCALE_STEPS` ladder applied to the body role,
+and the six font presets; a folder listing gets width, alignment, and theme; an image, PDF,
+canvas, or media file gets theme alone. Width and alignment reach the markdown,
+source, text, and CSV readers; text size and font reach markdown through the `share-prose` rule:
+prose takes the body font at `calc(1rem * var(--font-scale-body, 1))`, and h1–h6 take the
+heading font. That rule carries the `.prose` prefix so it beats Tailwind Typography's own
+absolute `.prose` font-size whatever order the build emits. In-document links that point
 back at the share page open in place, and navigation pushes history entries, so Back returns to
 the previous view instead of leaving the share. If a tree request answers `401`, navigation
 hides itself instead of retrying.
 
 **Why it matters:** A deep link must open with its context visible, and the view count must mean
-page loads rather than tree fetches. The reader's width, alignment, and text size are the same
-stored preferences the authenticated toolbar uses, so a choice carries across share pages and
-into the app; text size writes the origin-wide `wiki-fonts` value, which is one person's
-preference on one origin. Keeping navigation mounted across a view change is what protects both
-its cache and the view count.
+page loads rather than tree fetches. The reader's width, alignment, text size, and font are the
+same stored preferences the authenticated toolbar and settings sheet use, so a choice carries
+across share pages and into the app; text size and font write the origin-wide `wiki-fonts`
+value, which is one person's preference on one origin. A font preset sets all four roles, as it
+does in the app, so the reader's chrome changes with the reading font. Keeping navigation
+mounted across a view change is what protects both its cache and the view count.
 
 **Verification pointer:** `src/components/share/share-tree.tsx`,
-`src/app/s/[token]/page.tsx`, `src/components/view-width-toggle.tsx`,
-`src/components/share/shared-content-viewer.tsx`, `src/app/api/share/[token]/route.ts`
+`src/app/s/[token]/page.tsx`, `src/components/reader-options-menu.tsx`,
+`src/components/share/shared-content-viewer.tsx`, `src/app/api/share/[token]/route.ts`,
+`src/tests/proof/font-preset.test.ts`
 
 ## 11. Authentication
 

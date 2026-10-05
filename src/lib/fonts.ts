@@ -321,6 +321,25 @@ export const FONT_PRESETS: Record<FontPresetId, FontPresetDef> = {
 export const FONT_PRESET_IDS: FontPresetId[] = ["classic", "modern", "literary", "legible", "warm", "stack"];
 
 /**
+ * The preset whose four roles exactly match `fonts`, or null when the roles are a
+ * custom mix. Used to mark which preset a reader is currently on.
+ */
+export function matchFontPreset(fonts: Record<FontRole, FontId>): FontPresetId | null {
+  for (const id of FONT_PRESET_IDS) {
+    const preset = FONT_PRESETS[id].fonts;
+    if (
+      preset.ui === fonts.ui &&
+      preset.body === fonts.body &&
+      preset.heading === fonts.heading &&
+      preset.code === fonts.code
+    ) {
+      return id;
+    }
+  }
+  return null;
+}
+
+/**
  * Per-role font SIZE control, expressed as a percentage multiplier rather than an
  * absolute px value. Each role (ui, body, heading) spans many different underlying
  * px sizes across the app (e.g. the "ui" role alone covers text-xs buttons through

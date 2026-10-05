@@ -13,15 +13,14 @@ import {
 	Lock,
 	PanelLeft,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiUrl } from "@/lib/url-prefix";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { ThemeProvider } from "@/components/theme-provider";
-import { ViewWidthToggle } from "@/components/view-width-toggle";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { ReaderOptionsMenu, type ReaderMode } from "@/components/reader-options-menu";
 import { SharedContentViewer, sharedFileKind } from "@/components/share/shared-content-viewer";
 import { ShareTree, type ShareEntry } from "@/components/share/share-tree";
 import { useIsMobile } from "@/hooks/use-is-mobile";
@@ -92,14 +91,13 @@ export default function SharedPage({ params }: { params: Promise<{ token: string
 	const isTextBased = ["markdown", "source", "text", "csv", "html"].includes(fileKind);
 	/** Reader preferences: the same stored values the app's own toolbar uses. */
 	const readerClass = cn(VIEW_ALIGN_CLASS[viewAlign], VIEW_WIDTH_CLASS[viewWidth]);
-	/**
-	 * Tailwind Typography sets an absolute font-size on `.prose`, so the chosen
-	 * body size and font go on that element as an inline style, which wins.
-	 */
-	const readerStyle: CSSProperties = {
-		fontFamily: "var(--font-family-body)",
-		fontSize: "calc(1rem * var(--font-scale-body, 1))",
-	};
+	// Only offer the options that can affect what is on screen.
+	const readerMode: ReaderMode =
+		state.kind === "dir"
+			? "listing"
+			: state.kind === "file" && ["markdown", "source", "text", "csv"].includes(fileKind)
+				? "document"
+				: "media";
 
 	const flashCopied = (key: string) => {
 		setCopied(key);
@@ -420,12 +418,7 @@ export default function SharedPage({ params }: { params: Promise<{ token: string
 											Raw
 										</Button>
 									)}
-									{(state.kind === "dir" ||
-										(state.kind === "file" &&
-											["markdown", "source", "text", "csv"].includes(fileKind))) && (
-										<ViewWidthToggle />
-									)}
-									<ThemeToggle />
+									<ReaderOptionsMenu mode={readerMode} />
 									<span className="text-xs text-muted-foreground ml-2">
 										{state.kind === "file" || state.kind === "dir"
 											? `${state.viewCount} view${state.viewCount !== 1 ? "s" : ""}`
@@ -591,7 +584,6 @@ export default function SharedPage({ params }: { params: Promise<{ token: string
 						token={token!}
 						relPath={state.relPath}
 						readerClass={readerClass}
-						readerStyle={readerStyle}
 						onNavigate={navigate}
 					/>
 				)}

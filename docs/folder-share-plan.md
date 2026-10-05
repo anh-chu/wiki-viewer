@@ -113,19 +113,24 @@ is (a listing or a file).
 
 ### Reading options
 
-- `ViewWidthToggle` gains an optional `showTextSize` prop, default false, so the authenticated
-  toolbar is unchanged. With it, the menu also offers **Text size**, using `FONT_SCALE_STEPS` and
-  `useFontStore.setScale("body", …)`.
+- `ReaderOptionsMenu` (renamed from `ViewWidthToggle`, which only the share page used) carries
+  the reader's choices, and offers only what can affect the current view: a text document gets
+  width, alignment, text size, and font; a folder listing gets width, alignment, and theme; an
+  image, PDF, canvas, or media file gets theme alone.
 - Width and alignment come from `view-width-store` (`VIEW_WIDTH_CLASS`, `VIEW_ALIGN_CLASS`). The
   share page passes the resulting class names into `SharedContentViewer`, which applies them to the
   markdown, source, text, and CSV wrappers in place of the hardcoded `max-w-4xl` and `max-w-6xl`.
-- Body size applies to the markdown reader: its prose wrapper gets an inline
-  `font-size: calc(1rem * var(--font-scale-body, 1))`. Tailwind Typography sets an absolute
-  font-size on `.prose`, which a plain class of equal specificity would not reliably beat; the
-  authenticated editor already consumes the same variable through `.tiptap`.
-- Theme keeps the existing `ThemeToggle`.
-- Text size writes the origin-wide `wiki-fonts` value, so the same person's editor body size
-  changes too. That is the intended trade: one preference for one person on one origin.
+- Text size uses `FONT_SCALE_STEPS` over the body role. Font uses the six `FONT_PRESETS`
+  (`matchFontPreset` marks the active one); a preset sets all four roles, as it does in the app.
+- Body size and font apply to the markdown reader through one `share-prose` rule in `globals.css`:
+  prose takes `--font-family-body` at `calc(1rem * var(--font-scale-body, 1))`, and h1–h6 take
+  `--font-family-heading`. The rule carries the `.prose` prefix so it beats Tailwind
+  Typography's own absolute `.prose` font-size whatever order the build emits. The authenticated
+  editor consumes the same variables through `.tiptap`.
+- Theme is the three-way `next-themes` value (system, light, dark) instead of a light/dark flip,
+  and it replaces the standalone theme button in the share header.
+- Text size and font write the origin-wide `wiki-fonts` value, so the same person's editor body
+  size changes too. That is the intended trade: one preference for one person on one origin.
 - Before v2 the width control was rendered in share mode but nothing consumed it, so it did
   nothing.
 - The navigation stays mounted while a view loads. Deriving its visibility from the loading

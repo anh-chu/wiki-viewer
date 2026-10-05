@@ -4,7 +4,6 @@ import {
 	useEffect,
 	useMemo,
 	useState,
-	type CSSProperties,
 	type MouseEvent,
 } from "react";
 import dynamic from "next/dynamic";
@@ -74,8 +73,6 @@ interface SharedContentViewerProps {
 	relPath?: string;
 	/** Width and alignment classes from the reader's view-width preference. */
 	readerClass?: string;
-	/** Inline style carrying the reader's chosen body font and size. */
-	readerStyle?: CSSProperties;
 	/** Open a path inside the share without a full page reload. */
 	onNavigate?: (path: string) => void;
 }
@@ -94,7 +91,6 @@ export function SharedContentViewer({
 	token,
 	relPath,
 	readerClass,
-	readerStyle,
 	onNavigate,
 }: SharedContentViewerProps) {
 	const kind = sharedFileKind(filename);
@@ -107,7 +103,6 @@ export function SharedContentViewer({
 					token={token}
 					relPath={relPath}
 					readerClass={readerClass}
-					readerStyle={readerStyle}
 					onNavigate={onNavigate}
 				/>
 			);
@@ -150,14 +145,12 @@ function SharedMarkdownViewer({
 	token,
 	relPath,
 	readerClass,
-	readerStyle,
 	onNavigate,
 }: {
 	content: string;
 	token: string;
 	relPath?: string;
 	readerClass?: string;
-	readerStyle?: CSSProperties;
 	onNavigate?: (path: string) => void;
 }) {
 	const [html, setHtml] = useState<string>("");
@@ -220,10 +213,9 @@ function SharedMarkdownViewer({
 		<div className="flex-1 overflow-auto">
 			<div
 				className={cn(
-					"w-full px-4 py-8 prose prose-neutral dark:prose-invert",
+					"w-full px-4 py-8 prose prose-neutral dark:prose-invert share-prose",
 					readerClass,
 				)}
-				style={readerStyle}
 				onClick={handleClick}
 			>
 				<div dangerouslySetInnerHTML={{ __html: html }} />
