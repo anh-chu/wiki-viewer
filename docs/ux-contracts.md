@@ -327,6 +327,12 @@ same-origin framing check:
    cookie is withheld (behind the DSH proxy the older failure was `403
    forbidden`).
 
+   Any reverse proxy in front of all of this (the DSH sidebar's `/__dsh/wiki`
+   gateway, for example) must let the `_p/` asset paths past its own
+   auth/CSRF fence: a transient-origin frame cannot present that proxy's cookies
+   or same-origin markers either, and the wiki's token — not the proxy — is what
+   authorizes the read.
+
 The preview iframe carries the workspace scope in the URL *path*
 (`/api/assets/_ws/<id>/<path>`, or `/api/assets/_root/<base64url-root>/<path>`
 for host-supplied ephemeral roots) rather than a `?ws=`/`?root=` query string.
