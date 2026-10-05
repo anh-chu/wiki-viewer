@@ -38,6 +38,7 @@ import { useUpload } from "@/hooks/use-upload";
 import { useWorkspaces } from "@/hooks/use-workspaces";
 import { useFileTree } from "@/hooks/use-file-tree";
 import { withWs } from "@/lib/workspace-client";
+import type { WorkbenchDialogs } from "@/types/dialogs";
 import { useAIPanelStore } from "@/stores/ai-panel-store";
 import { useEditorStore, prefetchPage } from "@/stores/editor-store";
 import { useFavoriteStore } from "@/stores/favorite-store";
@@ -82,9 +83,10 @@ export default function Page() {
 	const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 	const sidebarCollapsedSetterRef = useRef<(v: boolean) => void>(() => {});
 	sidebarCollapsedSetterRef.current = setSidebarCollapsed;
-	const [dialogs, setDialogs] = useState({
+	const [dialogs, setDialogs] = useState<WorkbenchDialogs>({
 		settingsOpen: false,
 		shareDialogOpen: false,
+		shareTarget: null,
 	});
 	const [hideChrome, setHideChrome] = useState(false);
 	const [deleting, setDeleting] = useState({
@@ -435,6 +437,9 @@ export default function Page() {
 									setDialogs((d) => ({
 										...d,
 										shareDialogOpen: true,
+										shareTarget: doc.openFile
+											? { path: doc.openFile.path, type: "file" as const }
+											: null,
 									}))
 								}
 								onClose={() => {
@@ -507,7 +512,8 @@ export default function Page() {
 						onOpenChange={(open) =>
 							setDialogs((d) => ({ ...d, shareDialogOpen: open }))
 						}
-						filePath={doc.openFile?.path ?? ""}
+						filePath={dialogs.shareTarget?.path ?? doc.openFile?.path ?? ""}
+						targetType={dialogs.shareTarget?.type ?? "file"}
 					/>
 					<AuthSettingsSheet
 						open={dialogs.settingsOpen}

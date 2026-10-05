@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import path from "node:path";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { checkOrigin } from "@/lib/auth/csrf";
 import { requireUser } from "@/lib/auth/server";
 
@@ -10,8 +11,9 @@ import {
 	revokeShare,
 	incrementViewCount,
 	isExpired,
+	type SharedDoc,
 } from "@/lib/shared-docs/db";
-import { resolveShareTarget } from "@/lib/shared-docs/share-target";
+import { resolveShareRoot, resolveInShare } from "@/lib/shared-docs/share-target";
 import {
 	isUnlocked,
 	serializeUnlockCookie,
@@ -19,10 +21,18 @@ import {
 
 const MAX_DISPLAY_SIZE = 1 * 1024 * 1024; // 1MB
 const MAX_CANVAS_DISPLAY_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_LIST_ENTRIES = 2000;
 const PRIVATE_NO_STORE = { "Cache-Control": "private, no-store" };
 
+interface ShareEntry {
+	name: string;
+	/** Path relative to the share root, so no ancestor path ever leaves here. */
+	path: string;
+	isDir: boolean;
+	size: number;
+}
+
 async function readShareContent(absPath: string): Promise<string | null> {
-	const { readFile, stat } = await import("node:fs/promises");
 	try {
 		const info = await stat(absPath);
 		const maxSize = path.extname(absPath).toLowerCase() === ".excalidraw"
@@ -36,6 +46,145 @@ async function readShareContent(absPath: string): Promise<string | null> {
 		console.error("[share] readFile(%s) %s", absPath, detail);
 		return null;
 	}
+}
+
+/**
+ * List one level of a shared folder. Names a visitor can never open — hidden
+ * names, symlinks that leave the share, denied segments — are omitted, so the
+ * listing can never advertise something the content route would refuse.
+ */
+async function listShareDir(
+	realRoot: string,
+	rel: string,
+	absDir: string,
+): Promise<{ entries: ShareEntry[]; truncated: boolean }> {
+	const dirents = await readdir(absDir, { withFileTypes: true });
+	const entries: ShareEntry[] = [];
+
+	for (const dirent of dirents) {
+		if (dirent.name.startsWith(".")) continue;
+		const childRel = rel ? `${rel}/${dirent.name}` : dirent.name;
+		const child = await resolveInShare(realRoot, childRel);
+		if (!child) continue;
+		let info: Awaited<ReturnType<typeof stat>>;
+		try {
+			info = await stat(child.absolutePath);
+		} catch {
+			continue;
+		}
+		const isDir = info.isDirectory();
+		if (!isDir && !info.isFile()) continue;
+		entries.push({
+			name: dirent.name,
+			path: childRel,
+			isDir,
+			size: isDir ? 0 : info.size,
+		});
+	}
+
+	entries.sort((a, b) =>
+		a.isDir === b.isDir
+			? a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
+			: a.isDir
+				? -1
+				: 1,
+	);
+
+	const truncated = entries.length > MAX_LIST_ENTRIES;
+	return { entries: truncated ? entries.slice(0, MAX_LIST_ENTRIES) : entries, truncated };
+}
+
+/**
+ * Build the response for a share view: a folder listing, or a file's content.
+ * `rel` is relative to the share root. The view count moves only for a root
+ * view, so one page of images does not count as one view per image.
+ */
+async function buildShareView(
+	share: SharedDoc,
+	token: string,
+	rel: string,
+): Promise<NextResponse> {
+	const resolved = await resolveShareRoot(token);
+	if (!resolved.ok) return resolved.response;
+	const { realRoot, absPath: shareRootPath } = resolved.target;
+	// The share root's own name labels the listing at every depth, so a visitor
+	// always sees where the share starts.
+	const rootName = path.basename(shareRootPath);
+
+	// A file share has exactly one readable path: its root.
+	if (share.kind === "file" && rel !== "") {
+		return NextResponse.json(
+			{ error: "path_invalid", message: "Invalid path" },
+			{ status: 400, headers: PRIVATE_NO_STORE },
+		);
+	}
+
+	const target = await resolveInShare(realRoot, rel);
+	if (!target) {
+		return NextResponse.json(
+			{ error: "path_invalid", message: "Invalid path" },
+			{ status: 400, headers: PRIVATE_NO_STORE },
+		);
+	}
+
+	let info: Awaited<ReturnType<typeof stat>>;
+	try {
+		info = await stat(target.absolutePath);
+	} catch {
+		return NextResponse.json(
+			{ error: "file_gone", message: "File no longer exists" },
+			{ status: 410, headers: PRIVATE_NO_STORE },
+		);
+	}
+
+	const isRootView = rel === "";
+	if (isRootView) incrementViewCount(token);
+	const viewCount = share.viewCount + (isRootView ? 1 : 0);
+	const headers = share.passwordHash ? PRIVATE_NO_STORE : undefined;
+
+	if (info.isDirectory()) {
+		if (share.kind !== "dir") {
+			return NextResponse.json(
+				{ error: "path_invalid", message: "Directories cannot be shared" },
+				{ status: 400, headers: PRIVATE_NO_STORE },
+			);
+		}
+		const { entries, truncated } = await listShareDir(realRoot, rel, target.absolutePath);
+		return NextResponse.json(
+			{
+				kind: "dir",
+				name: rootName,
+				path: rel,
+				entries,
+				truncated,
+				viewCount,
+			},
+			{ headers },
+		);
+	}
+
+	const content = await readShareContent(target.absolutePath);
+	if (content === null) {
+		return NextResponse.json(
+			{ error: "read_error", message: "Failed to read file" },
+			{ status: 500, headers: PRIVATE_NO_STORE },
+		);
+	}
+
+	return NextResponse.json(
+		{
+			kind: "file",
+			content,
+			filename: path.basename(target.absolutePath),
+			path: rel,
+			// File shares keep the workspace-relative path they always reported;
+			// a folder share reports the path inside the share instead, so no
+			// path above the share root is ever disclosed.
+			filePath: share.kind === "file" ? share.filePath : rel,
+			viewCount,
+		},
+		{ headers },
+	);
 }
 
 // ── GET: Resolve a share link (public) ───────────────────────────────────────
@@ -84,28 +233,8 @@ export async function GET(
 		);
 	}
 
-	const resolved = await resolveShareTarget(token);
-	if (!resolved.ok) return resolved.response;
-
-	const content = await readShareContent(resolved.target.absPath);
-	if (content === null) {
-		return NextResponse.json(
-			{ error: "read_error", message: "Failed to read file" },
-			{ status: 500, headers: PRIVATE_NO_STORE },
-		);
-	}
-
-	incrementViewCount(token);
-
-	return NextResponse.json(
-		{
-			content,
-			filename: resolved.target.filename,
-			filePath: resolved.target.share.filePath,
-			viewCount: resolved.target.share.viewCount + 1,
-		},
-		{ headers: share.passwordHash ? PRIVATE_NO_STORE : undefined },
-	);
+	const rel = new URL(request.url).searchParams.get("path") ?? "";
+	return buildShareView(share, token, rel);
 }
 
 // ── POST: Unlock a password-protected share ───────────────────────────────────
@@ -153,34 +282,14 @@ export async function POST(
 		);
 	}
 
-	const resolved = await resolveShareTarget(token);
-	if (!resolved.ok) return resolved.response;
-
-	const content = await readShareContent(resolved.target.absPath);
-	if (content === null) {
-		return NextResponse.json(
-			{ error: "read_error", message: "Failed to read file" },
-			{ status: 500, headers: PRIVATE_NO_STORE },
-		);
-	}
-
-	incrementViewCount(token);
+	const rel = new URL(request.url).searchParams.get("path") ?? "";
+	const view = await buildShareView(share, token, rel);
+	if (!view.ok) return view;
 
 	const setCookie = serializeUnlockCookie(request, token, share.passwordHash);
-	return NextResponse.json(
-		{
-			content,
-			filename: resolved.target.filename,
-			filePath: resolved.target.share.filePath,
-			viewCount: resolved.target.share.viewCount + 1,
-		},
-		{
-			headers: {
-				...PRIVATE_NO_STORE,
-				"Set-Cookie": setCookie,
-			},
-		},
-	);
+	view.headers.set("Set-Cookie", setCookie);
+	view.headers.set("Cache-Control", "private, no-store");
+	return view;
 }
 
 // ── DELETE: Revoke a share link (auth required) ───────────────────────────────

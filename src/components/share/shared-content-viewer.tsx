@@ -1,11 +1,18 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { Download, FileText, Play, Ban } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { CanvasViewer } from "@/components/editor/canvas-viewer";
 import { apiUrl } from "@/lib/url-prefix";
 import { markdownToHtml } from "@/lib/markdown/to-html";
+
+// Loaded on demand: @excalidraw/excalidraw touches `window` at module scope in
+// its development bundle, which crashes a server render of this public page.
+const CanvasViewer = dynamic(
+	() => import("@/components/editor/canvas-viewer").then((m) => m.CanvasViewer),
+	{ ssr: false },
+);
 
 type SharedFileKind =
 	| "markdown"
@@ -52,6 +59,19 @@ interface SharedContentViewerProps {
 	filename: string;
 	filePath: string;
 	token: string;
+	/**
+	 * Path of this file relative to the share root. Set for folder shares, so
+	 * nested assets and relative links resolve through the share's own routes.
+	 * Undefined for a file share, whose root is the file itself.
+	 */
+	relPath?: string;
+}
+
+/** Asset URL for one file in a share. No `path` means the share's root file. */
+function shareAssetUrl(token: string, relPath?: string): string {
+	const base = apiUrl(`/api/share/${token}/asset`);
+	if (!relPath) return base;
+	return `${base}?path=${encodeURIComponent(relPath)}`;
 }
 
 export function SharedContentViewer({
@@ -59,28 +79,29 @@ export function SharedContentViewer({
 	filename,
 	filePath,
 	token,
+	relPath,
 }: SharedContentViewerProps) {
 	const kind = sharedFileKind(filename);
 
 	switch (kind) {
 		case "markdown":
-			return <SharedMarkdownViewer content={content} />;
+			return <SharedMarkdownViewer content={content} token={token} relPath={relPath} />;
 		case "canvas":
 			return (
 				<CanvasViewer
 					content={content}
 					initialSha={null}
-					path={filePath}
+					path={relPath ?? filePath}
 					title={filename}
 					readOnly
 				/>
 			);
 		case "image":
-			return <SharedImageViewer filename={filename} token={token} />;
+			return <SharedImageViewer filename={filename} token={token} relPath={relPath} />;
 		case "pdf":
-			return <SharedPdfViewer filename={filename} token={token} />;
+			return <SharedPdfViewer filename={filename} token={token} relPath={relPath} />;
 		case "media":
-			return <SharedMediaViewer filename={filename} token={token} />;
+			return <SharedMediaViewer filename={filename} token={token} relPath={relPath} />;
 		case "html":
 			return <SharedHtmlViewer content={content} filename={filename} />;
 		case "csv":
@@ -89,22 +110,39 @@ export function SharedContentViewer({
 		case "text":
 			return <SharedSourceViewer content={content} filename={filename} />;
 		case "binary":
-			return <SharedBinaryViewer filename={filename} token={token} />;
+			return <SharedBinaryViewer filename={filename} token={token} relPath={relPath} />;
 	}
 }
 
-function SharedMarkdownViewer({ content }: { content: string }) {
+function SharedMarkdownViewer({
+	content,
+	token,
+	relPath,
+}: {
+	content: string;
+	token: string;
+	relPath?: string;
+}) {
 	const [html, setHtml] = useState<string>("");
 
 	useEffect(() => {
 		let cancelled = false;
-		void markdownToHtml(content, { sanitize: true }).then((h) => {
+		// A folder share rewrites relative links onto its own token routes: an
+		// anonymous visitor has no session, so /api/assets would refuse them.
+		void markdownToHtml(content, {
+			sanitize: true,
+			pagePath: relPath ?? "",
+			relativeBases: {
+				asset: apiUrl(`/api/share/${token}/asset`),
+				page: apiUrl(`/s/${token}`),
+			},
+		}).then((h) => {
 			if (!cancelled) setHtml(h);
 		});
 		return () => {
 			cancelled = true;
 		};
-	}, [content]);
+	}, [content, token, relPath]);
 
 	return (
 		<div className="flex-1 overflow-auto">
@@ -115,8 +153,16 @@ function SharedMarkdownViewer({ content }: { content: string }) {
 	);
 }
 
-function SharedImageViewer({ filename, token }: { filename: string; token: string }) {
-	const assetUrl = apiUrl(`/api/share/${token}/asset`);
+function SharedImageViewer({
+	filename,
+	token,
+	relPath,
+}: {
+	filename: string;
+	token: string;
+	relPath?: string;
+}) {
+	const assetUrl = shareAssetUrl(token, relPath);
 	return (
 		<div className="flex-1 flex items-center justify-center p-8 bg-[repeating-conic-gradient(hsl(var(--muted))_0%_25%,transparent_0%_50%)] bg-[length:20px_20px]">
 			{/* eslint-disable-next-line @next/next/no-img-element */}
@@ -129,8 +175,16 @@ function SharedImageViewer({ filename, token }: { filename: string; token: strin
 	);
 }
 
-function SharedPdfViewer({ filename, token }: { filename: string; token: string }) {
-	const assetUrl = apiUrl(`/api/share/${token}/asset`);
+function SharedPdfViewer({
+	filename,
+	token,
+	relPath,
+}: {
+	filename: string;
+	token: string;
+	relPath?: string;
+}) {
+	const assetUrl = shareAssetUrl(token, relPath);
 	return (
 		<div className="flex-1 flex flex-col min-h-0">
 			<iframe
@@ -143,8 +197,16 @@ function SharedPdfViewer({ filename, token }: { filename: string; token: string 
 	);
 }
 
-function SharedMediaViewer({ filename, token }: { filename: string; token: string }) {
-	const assetUrl = apiUrl(`/api/share/${token}/asset`);
+function SharedMediaViewer({
+	filename,
+	token,
+	relPath,
+}: {
+	filename: string;
+	token: string;
+	relPath?: string;
+}) {
+	const assetUrl = shareAssetUrl(token, relPath);
 	const e = fileExt(filename);
 	const isVideo = ["mp4", "webm", "mov", "m4v"].includes(e);
 	return (
@@ -310,8 +372,16 @@ function SharedCsvViewer({ content }: { content: string }) {
 	);
 }
 
-function SharedBinaryViewer({ filename, token }: { filename: string; token: string }) {
-	const assetUrl = apiUrl(`/api/share/${token}/asset`);
+function SharedBinaryViewer({
+	filename,
+	token,
+	relPath,
+}: {
+	filename: string;
+	token: string;
+	relPath?: string;
+}) {
+	const assetUrl = shareAssetUrl(token, relPath);
 	return (
 		<div className="flex-1 flex flex-col items-center justify-center gap-4 p-8">
 			<FileText className="h-12 w-12 text-muted-foreground" />

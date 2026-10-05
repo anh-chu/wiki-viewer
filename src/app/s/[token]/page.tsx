@@ -1,6 +1,17 @@
 "use client";
 
-import { AlertCircle, Eye, Lock, Loader2, FileText, Copy, Check } from "lucide-react";
+import {
+	AlertCircle,
+	ArrowLeft,
+	Check,
+	ChevronRight,
+	Copy,
+	Eye,
+	FileText,
+	Folder,
+	Loader2,
+	Lock,
+} from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { apiUrl } from "@/lib/url-prefix";
 import { Button } from "@/components/ui/button";
@@ -11,36 +22,78 @@ import { ViewWidthToggle } from "@/components/view-width-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { SharedContentViewer, sharedFileKind } from "@/components/share/shared-content-viewer";
 
+interface ShareEntry {
+	name: string;
+	path: string;
+	isDir: boolean;
+	size: number;
+}
+
 type ShareState =
 	| { kind: "loading" }
 	| { kind: "password"; message: string }
 	| { kind: "error"; title: string; message: string }
-	| { kind: "content"; content: string; filename: string; filePath: string; viewCount: number };
+	| {
+			kind: "file";
+			content: string;
+			filename: string;
+			filePath: string;
+			relPath: string;
+			viewCount: number;
+	  }
+	| {
+			kind: "dir";
+			name: string;
+			path: string;
+			entries: ShareEntry[];
+			truncated: boolean;
+			viewCount: number;
+	  };
+
+/**
+ * Kinds rendered from their raw bytes through the asset route. A file of one of
+ * these kinds still opens when the content request fails, which happens for a
+ * file larger than the display cap.
+ */
+const ASSET_KINDS = new Set(["image", "pdf", "media", "binary"]);
+
+function formatSize(bytes: number): string {
+	if (bytes < 1024) return `${bytes} B`;
+	if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function parentOf(rel: string): string {
+	const slash = rel.lastIndexOf("/");
+	return slash === -1 ? "" : rel.slice(0, slash);
+}
 
 export default function SharedPage({ params }: { params: Promise<{ token: string }> }) {
 	const [token, setToken] = useState<string | null>(null);
+	const [relPath, setRelPath] = useState("");
 	const [state, setState] = useState<ShareState>({ kind: "loading" });
 	const [password, setPassword] = useState("");
 	const [verifying, setVerifying] = useState(false);
 	const [pwdError, setPwdError] = useState(false);
 	const [copied, setCopied] = useState<string | null>(null);
 
-	const kind = state.kind === "content" ? sharedFileKind(state.filename) : "markdown";
-	const isTextBased = ["markdown", "source", "text", "csv", "html"].includes(kind);
+	const fileKind = state.kind === "file" ? sharedFileKind(state.filename) : "markdown";
+	const isTextBased = ["markdown", "source", "text", "csv", "html"].includes(fileKind);
 
 	const flashCopied = (key: string) => {
 		setCopied(key);
 		setTimeout(() => setCopied(null), 2000);
 	};
 
+	// Copy the current view URL: for a file inside a shared folder that is the
+	// link to that file, not just to the share root.
 	const copyShareLink = () => {
-		if (!token) return;
-		void navigator.clipboard.writeText(`${window.location.origin}/s/${token}`);
+		void navigator.clipboard.writeText(window.location.href);
 		flashCopied("link");
 	};
 
 	const copyRawContent = async () => {
-		if (state.kind !== "content") return;
+		if (state.kind !== "file") return;
 		try {
 			await navigator.clipboard.writeText(state.content);
 			flashCopied("raw");
@@ -49,50 +102,115 @@ export default function SharedPage({ params }: { params: Promise<{ token: string
 		}
 	};
 
-	const fetchShare = useCallback(async () => {
-		if (!token) return;
-		setState({ kind: "loading" });
-		try {
-			const res = await fetch(apiUrl(`/api/share/${token}`));
-			const data = (await res.json()) as Record<string, unknown>;
+	const applyView = (data: Record<string, unknown>, requested: string): ShareState | null => {
+		const viewCount = typeof data.viewCount === "number" ? data.viewCount : 0;
 
-			if (res.ok && typeof data.content === "string") {
-				setState({
-					kind: "content",
-					content: data.content,
-					filename: String(data.filename ?? "document"),
-					filePath: String(data.filePath ?? data.filename ?? "document"),
-					viewCount: typeof data.viewCount === "number" ? data.viewCount : 0,
-				});
-			} else if (res.status === 401 && data.protected) {
-				setState({ kind: "password", message: String(data.message ?? "") });
-			} else if (res.status === 410) {
+		if (data.kind === "dir") {
+			return {
+				kind: "dir",
+				name: String(data.name ?? ""),
+				path: String(data.path ?? requested),
+				entries: Array.isArray(data.entries) ? (data.entries as ShareEntry[]) : [],
+				truncated: data.truncated === true,
+				viewCount,
+			};
+		}
+
+		if (typeof data.content === "string") {
+			return {
+				kind: "file",
+				content: data.content,
+				filename: String(data.filename ?? "document"),
+				filePath: String(data.filePath ?? "document"),
+				relPath: String(data.path ?? requested),
+				viewCount,
+			};
+		}
+
+		return null;
+	};
+
+	const load = useCallback(
+		async (target: string) => {
+			if (!token) return;
+			setState({ kind: "loading" });
+			try {
+				const query = target ? `?path=${encodeURIComponent(target)}` : "";
+				const res = await fetch(apiUrl(`/api/share/${token}${query}`));
+				const data = (await res.json()) as Record<string, unknown>;
+
+				const view = res.ok ? applyView(data, target) : null;
+				if (view) {
+					setState(view);
+					return;
+				}
+
+				// A bytes-rendered file needs no content, so an oversized one still
+				// opens through the asset route instead of showing a read error.
+				const name = target.split("/").pop() ?? "";
+				if (target && ASSET_KINDS.has(sharedFileKind(name))) {
+					setState({
+						kind: "file",
+						content: "",
+						filename: name,
+						filePath: target,
+						relPath: target,
+						viewCount: 0,
+					});
+					return;
+				}
+
+				if (res.status === 401 && data.protected) {
+					setState({ kind: "password", message: String(data.message ?? "") });
+				} else if (res.status === 410) {
+					setState({
+						kind: "error",
+						title: "Link unavailable",
+						message: String(data.message ?? "This share link is no longer available."),
+					});
+				} else if (res.status === 404) {
+					setState({
+						kind: "error",
+						title: "Not found",
+						message: "This share link does not exist.",
+					});
+				} else {
+					setState({
+						kind: "error",
+						title: "Error",
+						message: String(data.message ?? "Something went wrong. Try again later."),
+					});
+				}
+			} catch {
 				setState({
 					kind: "error",
-					title: "Link unavailable",
-					message: String(data.message ?? "This share link is no longer available."),
-				});
-			} else if (res.status === 404) {
-				setState({ kind: "error", title: "Not found", message: "This share link does not exist." });
-			} else {
-				setState({
-					kind: "error",
-					title: "Error",
-					message: String(data.message ?? "Something went wrong. Try again later."),
+					title: "Connection error",
+					message: "Could not reach the server. Check your connection.",
 				});
 			}
-		} catch {
-			setState({ kind: "error", title: "Connection error", message: "Could not reach the server. Check your connection." });
-		}
-	}, [token]);
+		},
+		[token],
+	);
 
 	useEffect(() => {
-		void params.then((p) => setToken(p.token));
+		void params.then((p) => {
+			setToken(p.token);
+			setRelPath(new URLSearchParams(window.location.search).get("path") ?? "");
+		});
 	}, [params]);
 
 	useEffect(() => {
-		if (token) void fetchShare();
-	}, [token, fetchShare]);
+		if (token) void load(relPath);
+	}, [token, relPath, load]);
+
+	/** Move to a path inside the share and keep it in the URL, so it is copyable. */
+	const navigate = (target: string) => {
+		const url = new URL(window.location.href);
+		if (target) url.searchParams.set("path", target);
+		else url.searchParams.delete("path");
+		window.history.replaceState(null, "", url.toString());
+		setRelPath(target);
+	};
 
 	const handleSubmitPassword = async (e: React.FormEvent) => {
 		e.preventDefault();
@@ -105,23 +223,24 @@ export default function SharedPage({ params }: { params: Promise<{ token: string
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ password: password.trim() }),
 			});
-			const data = (await res.json()) as Record<string, unknown>;
 
-			if (res.ok && typeof data.content === "string") {
-				setState({
-					kind: "content",
-					content: data.content,
-					filename: String(data.filename ?? "document"),
-					filePath: String(data.filePath ?? data.filename ?? "document"),
-					viewCount: typeof data.viewCount === "number" ? data.viewCount : 0,
-				});
+			if (res.ok) {
+				// The unlock cookie now covers the whole share, so reload the
+				// requested view through the normal path.
+				setPassword("");
+				await load(relPath);
 			} else if (res.status === 403) {
 				setPwdError(true);
 				setState({ kind: "password", message: "Incorrect password" });
 			} else if (res.status === 429) {
 				setState({ kind: "password", message: "Too many attempts. Try again later." });
 			} else {
-				setState({ kind: "error", title: "Error", message: String(data.message ?? "Something went wrong.") });
+				const data = (await res.json()) as Record<string, unknown>;
+				setState({
+					kind: "error",
+					title: "Error",
+					message: String(data.message ?? "Something went wrong."),
+				});
 			}
 		} catch {
 			setState({ kind: "error", title: "Connection error", message: "Could not reach the server." });
@@ -129,17 +248,28 @@ export default function SharedPage({ params }: { params: Promise<{ token: string
 		setVerifying(false);
 	};
 
+	const showTitle = state.kind === "file" || state.kind === "dir";
+	const title =
+		state.kind === "file"
+			? state.filename
+			: state.kind === "dir"
+				? state.name || "Shared folder"
+				: "";
+
 	return (
 		<ThemeProvider>
 			<div className="min-h-screen flex flex-col bg-background text-foreground">
 				<header className="border-b border-border bg-muted/50">
 					<div className="mx-auto flex max-w-4xl items-center gap-2 px-4 py-2">
-						{state.kind === "content" ? (
+						{showTitle ? (
 							<>
 								<div className="flex items-center gap-2 min-w-0 flex-1">
 									<span className="h-2 w-2 rounded-full bg-success shrink-0" />
-									<span className="text-sm truncate" title={state.filename}>
-										{state.filename}
+									{state.kind === "dir" && (
+										<Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+									)}
+									<span className="text-sm truncate" title={title}>
+										{title}
 									</span>
 								</div>
 								<div className="flex items-center gap-1 shrink-0">
@@ -157,7 +287,7 @@ export default function SharedPage({ params }: { params: Promise<{ token: string
 										)}
 										Link
 									</Button>
-									{isTextBased && (
+									{state.kind === "file" && isTextBased && (
 										<Button
 											size="sm"
 											variant="ghost"
@@ -173,10 +303,12 @@ export default function SharedPage({ params }: { params: Promise<{ token: string
 											Raw
 										</Button>
 									)}
-									{kind === "markdown" && <ViewWidthToggle />}
+									{state.kind === "file" && fileKind === "markdown" && <ViewWidthToggle />}
 									<ThemeToggle />
 									<span className="text-xs text-muted-foreground ml-2">
-										{state.viewCount} view{state.viewCount !== 1 ? "s" : ""}
+										{state.kind === "file" || state.kind === "dir"
+											? `${state.viewCount} view${state.viewCount !== 1 ? "s" : ""}`
+											: ""}
 									</span>
 								</div>
 							</>
@@ -246,16 +378,101 @@ export default function SharedPage({ params }: { params: Promise<{ token: string
 					</div>
 				)}
 
-				{state.kind === "content" && (
+				{state.kind === "dir" && (
+					<div className="flex-1 overflow-auto">
+						<div className="mx-auto max-w-4xl px-4 py-6">
+							<nav
+								className="mb-3 flex flex-wrap items-center gap-1 text-xs text-muted-foreground"
+								aria-label="Breadcrumb"
+							>
+								<button
+									type="button"
+									className="rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground"
+									onClick={() => navigate("")}
+								>
+									{state.name || "Shared folder"}
+								</button>
+								{state.path
+									.split("/")
+									.filter(Boolean)
+									.map((segment, i, parts) => {
+										const target = parts.slice(0, i + 1).join("/");
+										return (
+											<span key={target} className="flex items-center gap-1">
+												<ChevronRight className="h-3 w-3" />
+												<button
+													type="button"
+													className="rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground"
+													onClick={() => navigate(target)}
+												>
+													{segment}
+												</button>
+											</span>
+										);
+									})}
+							</nav>
+
+							<ul className="divide-y overflow-hidden rounded-md border border-border">
+								{state.path !== "" && (
+									<li>
+										<button
+											type="button"
+											className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
+											onClick={() => navigate(parentOf(state.path))}
+										>
+											<ArrowLeft className="h-3.5 w-3.5 text-muted-foreground" />
+											<span className="text-sm text-muted-foreground">Parent folder</span>
+										</button>
+									</li>
+								)}
+								{state.entries.map((entry) => (
+									<li key={entry.path}>
+										<button
+											type="button"
+											className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
+											onClick={() => navigate(entry.path)}
+										>
+											{entry.isDir ? (
+												<Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
+											) : (
+												<FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+											)}
+											<span className="min-w-0 flex-1 truncate text-sm">{entry.name}</span>
+											{!entry.isDir && (
+												<span className="shrink-0 text-xs text-muted-foreground">
+													{formatSize(entry.size)}
+												</span>
+											)}
+										</button>
+									</li>
+								))}
+								{state.entries.length === 0 && (
+									<li className="px-3 py-8 text-center text-sm text-muted-foreground">
+										This folder is empty.
+									</li>
+								)}
+							</ul>
+
+							{state.truncated && (
+								<p className="mt-2 text-xs text-muted-foreground">
+									Showing the first 2000 entries.
+								</p>
+							)}
+						</div>
+					</div>
+				)}
+
+				{state.kind === "file" && (
 					<SharedContentViewer
 						content={state.content}
 						filename={state.filename}
 						filePath={state.filePath}
 						token={token!}
+						relPath={state.relPath}
 					/>
 				)}
 
-				{state.kind === "content" && (
+				{state.kind === "file" && (
 					<footer className="border-t border-border bg-muted/30">
 						<div className="mx-auto flex max-w-4xl items-center gap-2 px-4 py-2">
 							<FileText className="h-3 w-3 text-muted-foreground" />

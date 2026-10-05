@@ -108,13 +108,22 @@ function upgradeProviderVideos(html: string): string {
  * where {dir} is the page's directory (dirname of pagePath), and convert PDF
  * links to inline embedded viewers.
  * Applies to href, src, and data-src attributes (the last is used by embed blocks).
+ *
+ * With `bases` (public share views) links point at the share's own routes —
+ * `bases.page` for href, `bases.asset` for src and data-src — each carrying the
+ * target as `?path=`. An anonymous visitor has no session, so /api/assets would
+ * refuse them. `pagePath` must then be relative to the share root.
  */
-function resolveRelativeUrls(html: string, pagePath: string): string {
+function resolveRelativeUrls(
+	html: string,
+	pagePath: string,
+	bases?: { asset: string; page: string },
+): string {
 	// Base directory is the page's parent dir, not the page file itself.
 	const slash = pagePath.lastIndexOf("/");
 	const dirPath = slash === -1 ? "" : pagePath.slice(0, slash);
 
-	const toAbs = (file: string): string => {
+	const join = (file: string): string => {
 		const parts = (dirPath ? dirPath.split("/") : []).concat(file.split("/"));
 		const out: string[] = [];
 		for (const seg of parts) {
@@ -122,11 +131,33 @@ function resolveRelativeUrls(html: string, pagePath: string): string {
 			if (seg === "..") out.pop();
 			else out.push(seg);
 		}
+		return out.join("/");
+	};
+
+	if (bases) {
+		const target = (file: string, base: string): string =>
+			`${base}?path=${encodeURIComponent(join(file))}`;
+		html = html.replace(
+			/href="(\.\.?\/[^"]+)"/g,
+			(_match, file: string) => `href="${target(file, bases.page)}"`,
+		);
+		html = html.replace(
+			/src="(\.\.?\/[^"]+)"/g,
+			(_match, file: string) => `src="${target(file, bases.asset)}"`,
+		);
+		html = html.replace(
+			/data-src="(\.\.?\/[^"]+)"/g,
+			(_match, file: string) => `data-src="${target(file, bases.asset)}"`,
+		);
+		return html;
+	}
+
+	const toAbs = (file: string): string => {
 		// Deliberately unprefixed. The workspace-scoping pass below matches on a
 		// bare /api/assets/ prefix and calls withWs(), which applies the URL
 		// prefix itself. Prefixing here would stop that regex matching, so the
 		// asset would ship without ?root= and fail to resolve behind the proxy.
-		return `/api/assets/${out.join("/")}`;
+		return `/api/assets/${join(file)}`;
 	};
 
 	html = html.replace(
@@ -204,6 +235,12 @@ function hashStr(s: string): string {
 export interface MarkdownToHtmlOptions {
 	/** File path used to resolve relative URLs (./image.png etc.). */
 	pagePath?: string;
+	/**
+	 * Rewrite relative URLs against these public-share bases instead of
+	 * /api/assets. `asset` serves src/data-src bytes, `page` opens href targets
+	 * in the share viewer. Both receive the target as `?path=`.
+	 */
+	relativeBases?: { asset: string; page: string };
 	/** Run rehype-sanitize on output. Use true for read-only viewer. Default false. */
 	sanitize?: boolean;
 }
@@ -222,7 +259,10 @@ export function renderCacheKeyFor(
 	optsOrPagePath?: string | MarkdownToHtmlOptions,
 ): string {
 	const opts = normalizeOpts(optsOrPagePath);
-	return `${opts.sanitize ? 1 : 0}:${opts.pagePath ?? ""}:${markdown.length}:${hashStr(markdown)}`;
+	const bases = opts.relativeBases;
+	return `${opts.sanitize ? 1 : 0}:${opts.pagePath ?? ""}:${
+		bases ? `${bases.asset}|${bases.page}` : ""
+	}:${markdown.length}:${hashStr(markdown)}`;
 }
 
 /** Look up a previously rendered result (LRU-refreshed). */
@@ -272,7 +312,7 @@ export async function renderMarkdownUncached(
 	// Resolve relative URLs if page path is provided.
 	// Must run before sanitize so interpolated paths are covered.
 	if (opts.pagePath) {
-		html = resolveRelativeUrls(html, opts.pagePath);
+		html = resolveRelativeUrls(html, opts.pagePath, opts.relativeBases);
 	}
 
 	// Workspace-scope every /api/assets URL so the browser <img>/<a> request

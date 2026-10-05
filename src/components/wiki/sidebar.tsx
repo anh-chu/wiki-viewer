@@ -74,6 +74,7 @@ import { useTheme } from "next-themes";
 import type { FavoriteEntry } from "@/stores/favorite-store";
 import type { RecentEntry } from "@/stores/recent-store";
 import type { FileTreeNode } from "@/types/wiki";
+import type { WorkbenchDialogs } from "@/types/dialogs";
 
 type TreeNodeAlias = FileTreeNode;
 
@@ -121,9 +122,7 @@ export interface SidebarProps {
 	favorites: FavoriteEntry[];
 	recents: RecentEntry[];
 	activePaths: Set<string>;
-	setDialogs: Dispatch<
-		SetStateAction<{ settingsOpen: boolean; shareDialogOpen: boolean }>
-	>;
+	setDialogs: Dispatch<SetStateAction<WorkbenchDialogs>>;
 	handleRefreshWorkspace: (id: string) => void;
 }
 

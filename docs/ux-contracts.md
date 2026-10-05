@@ -74,6 +74,7 @@ down turns "did we regress the loop?" into a diff against this file.
 - [10. Public share links](#10-public-share-links)
   - [10.1 Create, list, revoke](#101-create-list-revoke)
   - [10.2 Read and unlock](#102-read-and-unlock)
+  - [10.3 Folder shares](#103-folder-shares)
 - [11. Authentication](#11-authentication)
   - [11.1 Sign-in](#111-sign-in)
   - [11.2 Session gate and CSRF](#112-session-gate-and-csrf)
@@ -1780,16 +1781,22 @@ paths) promotes via `POST /api/wiki/move`.
 ### 10.1 Create, list, revoke
 
 **Contract:** `POST /api/share` (signed-in, workspace-scoped) validates path and
-optional password/expiry, returning `{token, url:"/s/<token>", hasPassword,
-expiresAt, createdAt}`. `GET /api/share?path=` lists non-revoked shares with view
-counts and expiry. `DELETE /api/share/[token]` revokes (creator or admin). The
-ShareDialog offers password protection and expiration (1–365 days, default 7).
+optional password/expiry, returning `{token, url:"/s/<token>", kind, hasPassword,
+expiresAt, createdAt}`. The share kind is inferred from `stat`: a directory makes a
+folder share (`kind:"dir"`), anything else a file share (`kind:"file"`). A folder
+whose own path contains a hidden segment is refused `400`, because everything below
+it would hang off a name a visitor can never see. `GET /api/share?path=` lists
+non-revoked shares with view counts and expiry. `DELETE /api/share/[token]` revokes
+(creator or admin). The ShareDialog offers password protection and expiration
+(1–365 days, default 7). The viewer toolbar Share button publishes the open file;
+the file-tree context menu offers **Share folder** on a directory row.
 
 **Why it matters:** Shares are public-read links scoped to a workspace+path;
 revocation and expiry are the only lifetime controls.
 
 **Verification pointer:** `src/app/api/share/route.ts`,
-`src/app/api/share/[token]/route.ts`, `src/components/share-dialog.tsx`
+`src/app/api/share/[token]/route.ts`, `src/components/share-dialog.tsx`,
+`src/components/wiki/file-tree.tsx`
 
 ### 10.2 Read and unlock
 
@@ -1811,6 +1818,40 @@ a URL or log.
 **Verification pointer:** `src/lib/shared-docs/access-grant.ts`,
 `src/lib/shared-docs/db.ts`, `src/app/api/share/[token]/route.ts`,
 `src/app/s/[token]/page.tsx`, `src/components/share/shared-content-viewer.tsx`
+
+### 10.3 Folder shares
+
+**Contract:** For a `kind:"dir"` share, `GET /api/share/[token]` returns
+`{kind:"dir", name, path, entries, truncated, viewCount}`, where `name` is the share
+root's own name at every depth; `?path=<rel>` selects a
+path inside the share and returns either another listing or
+`{kind:"file", content, filename, path, filePath, viewCount}`. `entries[]` is
+`{name, path, isDir, size}`, directories first then case-insensitive name, hidden
+names and escaping symlinks omitted, capped at 2000 entries (`truncated: true`).
+`GET /api/share/[token]/asset?path=<rel>` serves raw bytes. Every `path` in a
+response is relative to the share root. A file share refuses any `?path=` with
+`400`; an asset request for a folder is `400`. The visitor page `/s/[token]` shows
+a breadcrumb, an entry list, and a Parent folder row, keeps `?path=` in the URL so
+a file link is copyable, and renders each file with the same per-kind viewers.
+Markdown inside a folder share rewrites relative `src` to the share asset route and
+relative `href` to the share page, because `/api/assets/*` needs a session.
+Directory containment roots at the shared folder, not the workspace: a path is
+resolved with `resolveWorkspacePath(shareRoot, rel)`, then any segment of the
+resolved path that starts with `.` is refused. A symlink is followed and refused
+when its realpath leaves the share or lands on a hidden name. The view count moves
+only for a root view, not for nested files or assets. Nested asset requests use a
+600-per-minute bucket instead of the 60 default, since one folder page can load
+many files.
+
+**Why it matters:** The share root is the security boundary. Rooting containment at
+the workspace root instead would let one `?path=` read a sibling of the shared
+folder, and anonymous access makes that leak worse than the same bug behind a
+session. Hidden names stay out because a visitor cannot see them to avoid them.
+
+**Verification pointer:** `src/lib/shared-docs/share-target.ts`,
+`src/app/api/share/[token]/route.ts`, `src/app/api/share/[token]/asset/route.ts`,
+`src/app/s/[token]/page.tsx`, `src/lib/markdown/to-html.ts`,
+`src/tests/proof/share-folder.test.ts`
 
 ## 11. Authentication
 

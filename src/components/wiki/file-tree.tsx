@@ -21,6 +21,7 @@ import {
 	Star,
 	RefreshCw,
 	Server,
+	Share2,
 	Terminal,
 	Trash2,
 	Upload,
@@ -212,6 +213,8 @@ export interface TreeCtx {
 	handleDropOnFolder: (e: React.DragEvent, targetDirPath: string) => void;
 	handleGitPull: (nodePath: string, parentDir: string) => void;
 	handleCheckout: (nodePath: string, branch: string, parentDir: string) => void;
+	/** Open the share dialog for a path. `type` drives the dialog wording only. */
+	sharePath: (path: string, type: "file" | "dir") => void;
 	loadBranches: (nodePath: string) => void;
 	prefetch: (node: TreeNode) => void;
 	toggleFavorite: (node: TreeNode, wsId: string | null) => void;
@@ -326,6 +329,10 @@ export function FileContextMenuItems({
 					>
 						<Server className="mr-2 h-3.5 w-3.5" />
 						Host this app
+					</ContextMenuItem>
+					<ContextMenuItem onSelect={() => ctx.sharePath(node.path, "dir")}>
+						<Share2 className="mr-2 h-3.5 w-3.5" />
+						Share folder
 					</ContextMenuItem>
 					<ContextMenuItem
 						onSelect={() => {

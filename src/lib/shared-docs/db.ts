@@ -2,7 +2,9 @@
  * Shared docs DB — stores share links for public read-only access.
  *
  * Each share link references a (workspaceId, filePath) pair. The link
- * can optionally be password-protected and/or time-limited.
+ * can optionally be password-protected and/or time-limited. A share is
+ * either a single file (`kind = "file"`) or a folder and everything
+ * under it (`kind = "dir"`).
  *
  * DB: ~/.wiki-viewer/shared.db (WAL mode, separate from auth.db and search.db).
  */
@@ -12,10 +14,14 @@ import os from "node:os";
 import { mkdirSync } from "node:fs";
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 
+/** A share covers one file, or one folder and its descendants. */
+export type ShareKind = "file" | "dir";
+
 export interface SharedDoc {
 	id: string;
 	workspaceId: string;
 	filePath: string;
+	kind: ShareKind;
 	token: string;
 	passwordHash: string | null;
 	expiresAt: string | null;
@@ -28,6 +34,8 @@ export interface SharedDoc {
 export interface CreateSharedDocInput {
 	workspaceId: string;
 	filePath: string;
+	/** Defaults to "file". */
+	kind?: ShareKind;
 	password?: string;
 	expiresAt?: string; // ISO date string, e.g. "2026-07-10T00:00:00Z"
 	createdBy: string;
@@ -62,7 +70,18 @@ function getDb(): InstanceType<typeof Database> {
 		CREATE INDEX IF NOT EXISTS shared_docs_token_idx ON shared_docs(token);
 		CREATE INDEX IF NOT EXISTS shared_docs_file_idx ON shared_docs(workspace_id, file_path);
 	`);
+	// Databases created before folder shares existed have no `kind` column.
+	migrateKindColumn(_db);
 	return _db;
+}
+
+/** Add the `kind` column in place. Existing rows become file shares. */
+function migrateKindColumn(db: InstanceType<typeof Database>): void {
+	const columns = db.prepare("PRAGMA table_info(shared_docs)").all() as Array<{
+		name?: string;
+	}>;
+	if (columns.some((c) => c.name === "kind")) return;
+	db.exec("ALTER TABLE shared_docs ADD COLUMN kind TEXT NOT NULL DEFAULT 'file'");
 }
 
 export function createShare(input: CreateSharedDocInput): SharedDoc {
@@ -75,6 +94,7 @@ export function createShare(input: CreateSharedDocInput): SharedDoc {
 		id,
 		workspaceId: input.workspaceId,
 		filePath: input.filePath,
+		kind: input.kind ?? "file",
 		token,
 		passwordHash,
 		expiresAt: input.expiresAt ?? null,
@@ -91,8 +111,8 @@ export function createShare(input: CreateSharedDocInput): SharedDoc {
 
 	db.prepare(
 		`INSERT INTO shared_docs
-		 (id, workspace_id, file_path, token, password_hash, expires_at, created_by, created_at, view_count, is_revoked)
-		 VALUES (@id, @workspaceId, @filePath, @token, @passwordHash, @expiresAt, @createdBy, @createdAt, @viewCount, @isRevoked)`,
+		 (id, workspace_id, file_path, kind, token, password_hash, expires_at, created_by, created_at, view_count, is_revoked)
+		 VALUES (@id, @workspaceId, @filePath, @kind, @token, @passwordHash, @expiresAt, @createdBy, @createdAt, @viewCount, @isRevoked)`,
 	).run(dbValues);
 	return shared;
 }
@@ -104,6 +124,7 @@ function rowToShare(row: DbRow): SharedDoc {
 		id: row.id as string,
 		workspaceId: row.workspace_id as string,
 		filePath: row.file_path as string,
+		kind: (row.kind as ShareKind | undefined) ?? "file",
 		token: row.token as string,
 		passwordHash: (row.password_hash as string | null) ?? null,
 		expiresAt: (row.expires_at as string | null) ?? null,

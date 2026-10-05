@@ -70,3 +70,35 @@ test("pdf links stay marked with no url prefix", async () => {
 	assert.ok(html.includes('href="/api/assets/notes/spec-plain.pdf"'), "asset url should be bare");
 	assert.ok(html.includes('data-pdf-link="true"'), "pdf marker must still apply");
 });
+
+// A public folder share has no session, so relative links must point at the
+// share's own token routes: /api/assets would refuse an anonymous visitor.
+test("relativeBases rewrites relative links onto the share routes", async () => {
+	const html = await markdownToHtml(
+		"![shot](./images/shot.png)\n\n[guide](./guide/intro.md)\n\n[up](../top.md)",
+		{
+			sanitize: true,
+			pagePath: "notes/page.md",
+			relativeBases: { asset: "/api/share/tok/asset", page: "/s/tok" },
+		},
+	);
+	assert.ok(
+		html.includes('src="/api/share/tok/asset?path=notes%2Fimages%2Fshot.png"'),
+		"images must load through the share asset route",
+	);
+	assert.ok(
+		html.includes('href="/s/tok?path=notes%2Fguide%2Fintro.md"'),
+		"links must open in the share viewer",
+	);
+	assert.ok(html.includes('href="/s/tok?path=top.md"'), "parent paths must resolve");
+	assert.ok(!html.includes("/api/assets/"), "no session-gated asset URL may remain");
+});
+
+test("relativeBases leaves absolute URLs alone", async () => {
+	const html = await markdownToHtml("[site](https://example.com/x.png)", {
+		sanitize: true,
+		pagePath: "page.md",
+		relativeBases: { asset: "/api/share/tok/asset", page: "/s/tok" },
+	});
+	assert.ok(html.includes("https://example.com/x.png"), "absolute URLs pass through");
+});

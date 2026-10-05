@@ -43,14 +43,20 @@ export async function POST(request: Request) {
 	}
 
 	const { stat } = await import("node:fs/promises");
+	let isDir: boolean;
 	try {
-		const info = await stat(absPath);
-		if (info.isDirectory()) {
-			return NextResponse.json({ error: "Invalid path" }, { status: 400 });
-		}
+		isDir = (await stat(absPath)).isDirectory();
 	} catch {
 		return NextResponse.json({ error: "File not found" }, { status: 404 });
 	}
+
+	// A folder share publishes everything below it, so refuse one whose own path
+	// contains a hidden segment: the whole subtree would hang off a name the
+	// visitor can never see. File shares keep their existing behavior.
+	if (isDir && relPath.split("/").some((segment) => segment.startsWith("."))) {
+		return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+	}
+	const kind = isDir ? "dir" : "file";
 
 	// Validate optional params
 	if (body.password !== undefined && typeof body.password !== "string") {
@@ -77,6 +83,7 @@ export async function POST(request: Request) {
 	const share = createShare({
 		workspaceId: ctx.ws.id,
 		filePath: relPath,
+		kind,
 		password: body.password && body.password.length > 0 ? body.password : undefined,
 		expiresAt: body.expiresAt || undefined,
 		createdBy: auth.user.id,
@@ -85,6 +92,7 @@ export async function POST(request: Request) {
 	return NextResponse.json({
 		token: share.token,
 		url: `/s/${share.token}`,
+		kind: share.kind,
 		hasPassword: !!share.passwordHash,
 		expiresAt: share.expiresAt,
 		createdAt: share.createdAt,

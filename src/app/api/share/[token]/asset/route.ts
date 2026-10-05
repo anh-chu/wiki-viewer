@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
+import path from "node:path";
 import { readFile, stat } from "node:fs/promises";
 import { checkAndConsume } from "@/lib/proof/rate-limit";
 import { mimeByExt } from "@/lib/proof/raw-fs";
-import { resolveShareTarget } from "@/lib/shared-docs/share-target";
+import { resolveShareRoot, resolveInShare } from "@/lib/shared-docs/share-target";
 import {
 	isUnlocked,
 	inlineContentDisposition,
@@ -10,6 +11,11 @@ import {
 import { incrementViewCount } from "@/lib/shared-docs/db";
 
 const MAX_ASSET_SIZE = 10 * 1024 * 1024; // 10MB
+
+// One folder page can load many images and other files, so asset requests need
+// a far larger allowance than the 60/min default. The bucket keeps the size it
+// is first created with, so every caller for this key must pass the same value.
+const ASSET_BUCKET = 600;
 
 // ── GET: Serve raw file bytes for a public share ─────────────────────────────
 
@@ -19,7 +25,7 @@ export async function GET(
 ) {
 	const { token } = await params;
 
-	const rl = checkAndConsume(`share-asset:${token}`, 1);
+	const rl = checkAndConsume(`share-asset:${token}`, 1, ASSET_BUCKET);
 	if (!rl.ok) {
 		return NextResponse.json(
 			{ error: "rate_limited" },
@@ -30,9 +36,11 @@ export async function GET(
 		);
 	}
 
-	const resolved = await resolveShareTarget(token);
+	const rel = new URL(request.url).searchParams.get("path") ?? "";
+
+	const resolved = await resolveShareRoot(token);
 	if (!resolved.ok) return resolved.response;
-	const { share, absPath, filename } = resolved.target;
+	const { share, realRoot } = resolved.target;
 
 	if (share.passwordHash && !isUnlocked(request, token, share.passwordHash)) {
 		return NextResponse.json(
@@ -44,13 +52,35 @@ export async function GET(
 		);
 	}
 
+	// A file share serves exactly one file, at its root.
+	if (share.kind === "file" && rel !== "") {
+		return NextResponse.json(
+			{ error: "path_invalid", message: "Invalid path" },
+			{ status: 400, headers: { "Cache-Control": "private, no-store" } },
+		);
+	}
+
+	const target = await resolveInShare(realRoot, rel);
+	if (!target) {
+		return NextResponse.json(
+			{ error: "path_invalid", message: "Invalid path" },
+			{ status: 400, headers: { "Cache-Control": "private, no-store" } },
+		);
+	}
+
 	let info;
 	try {
-		info = await stat(absPath);
+		info = await stat(target.absolutePath);
 	} catch {
 		return NextResponse.json(
 			{ error: "file_gone" },
 			{ status: 410, headers: { "Cache-Control": "private, no-store" } },
+		);
+	}
+	if (info.isDirectory()) {
+		return NextResponse.json(
+			{ error: "path_invalid", message: "Invalid path" },
+			{ status: 400, headers: { "Cache-Control": "private, no-store" } },
 		);
 	}
 	if (info.size > MAX_ASSET_SIZE) {
@@ -60,10 +90,12 @@ export async function GET(
 		);
 	}
 
-	const buffer = await readFile(absPath);
-	const mime = mimeByExt(absPath);
+	const buffer = await readFile(target.absolutePath);
+	const mime = mimeByExt(target.absolutePath);
+	const filename = path.basename(target.absolutePath);
 
-	incrementViewCount(token);
+	// Only a root view counts. A folder page may request dozens of assets.
+	if (rel === "") incrementViewCount(token);
 
 	const isProtected = !!share.passwordHash;
 	return new NextResponse(buffer, {

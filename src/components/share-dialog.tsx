@@ -40,13 +40,20 @@ interface ShareDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	filePath: string;
+	/**
+	 * What the path points at. Used for wording only: the server decides the
+	 * share kind from `stat` on the target path.
+	 */
+	targetType?: "file" | "dir";
 }
 
 export function ShareDialog({
 	open,
 	onOpenChange,
 	filePath,
+	targetType = "file",
 }: ShareDialogProps) {
+	const noun = targetType === "dir" ? "folder" : "document";
 	const [shares, setShares] = useState<Share[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [creating, setCreating] = useState(false);
@@ -140,9 +147,11 @@ export function ShareDialog({
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent className="sm:max-w-md">
 				<DialogHeader>
-					<DialogTitle>Share document</DialogTitle>
+					<DialogTitle>Share {noun}</DialogTitle>
 					<DialogDescription>
-						Create a public link to share this document as read-only.
+						{targetType === "dir"
+							? "Create a public link to share this folder as read-only. Anyone with the link can browse its files; hidden names, .git, and .proof are never served."
+							: "Create a public link to share this document as read-only."}
 					</DialogDescription>
 				</DialogHeader>
 

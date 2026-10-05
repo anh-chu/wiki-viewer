@@ -16,6 +16,7 @@ import { useFavoriteStore, type FavoriteEntry } from "@/stores/favorite-store";
 import type { RecentEntry } from "@/stores/recent-store";
 import { useSidebarWidthStore } from "@/stores/sidebar-width-store";
 import type { FileTreeNode } from "@/types/wiki";
+import type { WorkbenchDialogs } from "@/types/dialogs";
 
 type TreeNodeAlias = FileTreeNode;
 
@@ -34,9 +35,7 @@ export interface SidebarShellProps {
 	setDeleting: Dispatch<
 		SetStateAction<{ path: string | null; isDir: boolean }>
 	>;
-	setDialogs: Dispatch<
-		SetStateAction<{ settingsOpen: boolean; shareDialogOpen: boolean }>
-	>;
+	setDialogs: Dispatch<SetStateAction<WorkbenchDialogs>>;
 }
 
 export function SidebarShell({
@@ -295,8 +294,15 @@ export function SidebarShell({
 			})),
 		setDeletingPath: (p) => setDeleting((prev) => ({ ...prev, path: p })),
 		setDeletingIsDir: (b) => setDeleting((prev) => ({ ...prev, isDir: b })),
+		sharePath: (p, t) =>
+			setDialogs((d) => ({
+				...d,
+				shareDialogOpen: true,
+				shareTarget: { path: p, type: t },
+			})),
 	} as TreeCtx;
 	const treeCtx = useMemo<TreeCtx>(() => ({
+		sharePath: (p, t) => treeHandlersRef.current!.sharePath(p, t),
 		toggleFolder: (n) => treeHandlersRef.current!.toggleFolder(n),
 		openViewer: (n) => treeHandlersRef.current!.openViewer(n),
 		copyPath: (p) => treeHandlersRef.current!.copyPath(p),
