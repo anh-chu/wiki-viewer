@@ -86,6 +86,8 @@ test("buildSshfsArgs: agent auth, default options", () => {
 	assert.match(o, /BatchMode=yes/);
 	assert.doesNotMatch(o, /password_stdin/);
 	assert.doesNotMatch(o, /\bro\b/);
+	// kernel_cache served stale file contents after remote edits.
+	assert.doesNotMatch(o, /kernel_cache/);
 });
 
 test("buildSshfsArgs: port flag", () => {

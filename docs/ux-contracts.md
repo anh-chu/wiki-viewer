@@ -2161,7 +2161,9 @@ from the always-mounted sidebar.
 `GET /api/system/browse` (dirs only, `$HOME` default, shortcuts Home/Root/
 Desktop/Documents/Downloads). Local select POSTs a workspace; Git clones
 https-only, read-only (token dropped from memory); SSH mounts via sshfs with
-agent/keyfile/password auth and an optional read-only flag. Pins favorite/
+agent/keyfile/password auth and an optional read-only flag. The mount caches
+attributes and listings (`cache=yes`) but never file contents across opens (no
+`kernel_cache`), so an edit made on the remote host is read on the next open. Pins favorite/
 unfavorite directories (`POST /api/system/pins`). Reveal (`POST
 /api/system/reveal`) opens the OS file manager (denies `.proof`/`.git`).
 

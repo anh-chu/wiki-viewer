@@ -128,8 +128,10 @@ export function buildSshfsArgs(opts) {
 		"ServerAliveInterval=15",
 		"ServerAliveCountMax=3",
 		"compression=yes",
+		// cache=yes caches attributes and listings only. Never add kernel_cache:
+		// it keeps file contents in the page cache after the remote file changes,
+		// so edits made on the host stay invisible here (stale app code).
 		"cache=yes",
-		"kernel_cache",
 		"StrictHostKeyChecking=accept-new",
 		"BatchMode=yes",
 	];
