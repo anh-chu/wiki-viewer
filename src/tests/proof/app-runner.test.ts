@@ -133,6 +133,7 @@ after(async () => {
 	stopApp(wsApp.workspace.id, "appCrash");
 	stopApp(wsApp.workspace.id, "appInstall");
 	stopApp(wsRoot.workspace.id, "");
+	stopApp(wsApp.workspace.id, "appBuild");
 	await rm(tmpHome, { recursive: true, force: true });
 	await rm(appDirA, { recursive: true, force: true });
 	await rm(appDirB, { recursive: true, force: true });
@@ -236,4 +237,70 @@ test("install output is drained into the app log buffer", async () => {
 		"install stdout/stderr must be captured in the app log buffer",
 	);
 	stopApp(wsApp.workspace.id, "appInstall");
+});
+
+// A `start` script that serves a build output, as `next start` or `vite preview`
+// do. The server reads dist/ once at boot, so only a rebuild + restart can serve
+// edited source.
+async function writeBuiltApp(dir: string, version: string) {
+	await mkdir(path.join(dir, "node_modules"), { recursive: true });
+	await writeFile(
+		path.join(dir, "package.json"),
+		JSON.stringify({
+			name: "fixture-built-app",
+			scripts: { build: "node build.js", start: "node server.js" },
+		}),
+	);
+	await writeFile(path.join(dir, "src.txt"), version);
+	await writeFile(
+		path.join(dir, "build.js"),
+		`const fs = require('fs');
+fs.mkdirSync('dist', { recursive: true });
+fs.writeFileSync('dist/out.txt', fs.readFileSync('src.txt', 'utf8'));
+console.log('BUILD-DONE');`,
+	);
+	await writeFile(
+		path.join(dir, "server.js"),
+		`const fs = require('fs');
+const http = require('http');
+const portIdx = process.argv.indexOf('--port');
+const port = portIdx >= 0 ? Number(process.argv[portIdx + 1]) : process.env.PORT;
+const body = fs.readFileSync('dist/out.txt', 'utf8');
+http.createServer((req, res) => { res.writeHead(200); res.end(body); }).listen(port, '127.0.0.1');`,
+	);
+}
+
+test("rebuild runs the build script, then serves the new output", async () => {
+	const dir = await mkdtemp(path.join(tmpdir(), "wiki-app-build-"));
+	try {
+		await writeBuiltApp(dir, "v1");
+		await startApp(wsApp.workspace.id, "appBuild", dir, undefined, { build: true });
+		await waitForRunning(wsApp.workspace.id, "appBuild");
+		let { port } = getStatus(wsApp.workspace.id, "appBuild");
+		assert.equal(await (await fetch(`http://127.0.0.1:${port}/`)).text(), "v1");
+
+		await writeFile(path.join(dir, "src.txt"), "v2");
+		await startApp(wsApp.workspace.id, "appBuild", dir, undefined, { build: true });
+		await waitForRunning(wsApp.workspace.id, "appBuild");
+		const status = getStatus(wsApp.workspace.id, "appBuild");
+		const oldPort = port;
+		port = status.port;
+		assert.equal(await (await fetch(`http://127.0.0.1:${port}/`)).text(), "v2");
+		// `npm run start` hides the server one level down; it must die with npm.
+		const oldServerGone = await fetch(`http://127.0.0.1:${oldPort}/`, { headers: { connection: "close" } })
+			.then(() => false, () => true);
+		assert.ok(oldServerGone, "the replaced server must not outlive its npm parent");
+		assert.ok(status.logs.join("\n").includes("BUILD-DONE"), "build output must reach the log buffer");
+	} finally {
+		stopApp(wsApp.workspace.id, "appBuild");
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test("rebuild of an app without a build script is an error", async () => {
+	await assert.rejects(
+		startApp(wsApp.workspace.id, "appAdmin", appDirA, undefined, { build: true }),
+		/No "build" script/,
+	);
+	stopApp(wsApp.workspace.id, "appAdmin");
 });

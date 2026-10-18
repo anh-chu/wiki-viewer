@@ -1986,8 +1986,13 @@ boundary; breaking it leaks tokens to `ps`.
 ### 13.1 Node-app viewer
 
 **Contract:** The node-app viewer proxies `withWs(/api/app-proxy/{path}/)` and
-polls every 800 ms while `installing`/`starting`; statuses are `stopped |
-installing | starting | running | error` with a mono log panel. Its iframe
+polls every 800 ms while `installing`/`building`/`starting`; statuses are `stopped |
+installing | building | starting | running | error` with a mono log panel. When
+`package.json` has a `build` script, **Rebuild & restart** shows next to Restart
+(and on the error screen). It runs `<pm> run build`, then starts the app again with
+the same script and pin state; a failed build is an `error` with the build log
+kept. The runner never builds on its own: a `start`/`preview` script serves the
+last build, so frontend edits show only after a rebuild. Its iframe
 sandbox is `allow-scripts allow-same-origin …` (a trusted app, unlike HTML
 previews). The viewer toolbar offers **Host this app**, opening the hosted-app
 dialog in node mode so a directory can receive a short slug and selected npm
@@ -2019,7 +2024,10 @@ resolves the workspace-root app (relPath `""`) and streams via undici, stripping
 identity-encoded and patched (`<base href>`, fetch/XHR rewrite); SPA 404s
 re-fetch `/`. App lifecycle: install if `node_modules` missing (logs capped
 200 lines), spawn with `--port` + `PORT`/`VITE_PORT`, readiness wait **30 s**
-(400 ms probe), stop = SIGTERM then **SIGKILL after 2 s**. In authenticated mode
+(400 ms probe), stop = SIGTERM then **SIGKILL after 2 s**, sent to the child's
+whole process tree (`pgrep -P`), because `npm run start` does not pass SIGTERM to
+the server under it. `POST /api/wiki/app {rebuild:true}` runs the `build` step
+after install and before spawn (`No "build" script` error if absent). In authenticated mode
 only admins may start/stop apps (`WIKI_ALLOW_APP_RUNNER=1` widens this).
 
 **Why it matters:** The proxy's header-strip is what keeps wiki-viewer

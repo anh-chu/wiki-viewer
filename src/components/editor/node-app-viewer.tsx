@@ -4,6 +4,7 @@ import {
 	AlertCircle,
 	ChevronDown,
 	ExternalLink,
+	Hammer,
 	Loader2,
 	Play,
 	RefreshCw,
@@ -44,6 +45,7 @@ interface StatusResponse {
 const STATUS_LABEL: Record<AppStatus, string> = {
 	stopped: "Stopped",
 	installing: "Installing dependencies…",
+	building: "Building…",
 	starting: "Starting…",
 	running: "Running",
 	error: "Error",
@@ -95,7 +97,7 @@ export function NodeAppViewer({ path, title }: Props) {
 
 	// Poll while in transient states
 	useEffect(() => {
-		if (status === "installing" || status === "starting") {
+		if (status === "installing" || status === "building" || status === "starting") {
 			if (!pollRef.current) {
 				pollRef.current = setInterval(fetchStatus, 800);
 			}
@@ -115,15 +117,16 @@ export function NodeAppViewer({ path, title }: Props) {
 		fetchStatus();
 	}, [fetchStatus]);
 
-	const handleLaunch = async (script?: string) => {
+	// rebuild: the server runs the `build` script, then (re)starts the app.
+	const handleLaunch = async (script?: string, rebuild = false) => {
 		setError(null);
 		setLogs([]);
-		setStatus("starting");
+		setStatus(rebuild ? "building" : "starting");
 		try {
 			const res = await wsFetch("/api/wiki/app", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ path, script }),
+				body: JSON.stringify({ path, script, rebuild }),
 			});
 			const data: { port?: number; error?: string } = await res.json();
 			if (!res.ok || data.error) {
@@ -156,7 +159,13 @@ export function NodeAppViewer({ path, title }: Props) {
 		setIframeKey((k) => k + 1);
 	};
 
-	const isTransient = status === "installing" || status === "starting";
+	const handleRebuild = async () => {
+		await handleLaunch(undefined, true);
+		setIframeKey((k) => k + 1);
+	};
+
+	const isTransient = status === "installing" || status === "building" || status === "starting";
+	const canBuild = scripts.includes("build");
 	// Scripts other than the default — offered in the combo dropdown.
 	const altScripts = scripts.filter((s) => s !== defaultScript);
 
@@ -209,6 +218,17 @@ export function NodeAppViewer({ path, title }: Props) {
 							<RefreshCw className="h-3.5 w-3.5" />
 							Restart
 						</Button>
+						{canBuild && (
+							<Button
+								variant="ghost"
+								size="sm"
+								className="h-7 gap-1.5 text-xs"
+								onClick={handleRebuild}
+							>
+								<Hammer className="h-3.5 w-3.5" />
+								Rebuild &amp; restart
+							</Button>
+						)}
 						<Button
 							variant="ghost"
 							size="sm"
@@ -344,6 +364,12 @@ export function NodeAppViewer({ path, title }: Props) {
 								<RefreshCw className="h-4 w-4" />
 								Try again
 							</Button>
+							{canBuild && (
+								<Button onClick={handleRebuild} variant="outline" className="gap-2">
+									<Hammer className="h-4 w-4" />
+									Rebuild &amp; restart
+								</Button>
+							)}
 						</div>
 					</div>
 				)}

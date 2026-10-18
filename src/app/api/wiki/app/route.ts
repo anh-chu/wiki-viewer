@@ -30,7 +30,8 @@ export async function GET(request: Request) {
 	return NextResponse.json({ ...status, ...scripts, isNodeApp: nodeApp });
 }
 
-// POST /api/wiki/app  { path: "relative/path" }
+// POST /api/wiki/app  { path: "relative/path", script?, rebuild? }
+// rebuild: run the `build` script, then (re)start the app.
 export async function POST(request: Request) {
 	const csrf = checkOrigin(request);
 	if (csrf) return csrf;
@@ -42,7 +43,7 @@ export async function POST(request: Request) {
 		return NextResponse.json({ error: "ADMIN_REQUIRED" }, { status: 403 });
 	}
 
-	const body: { path?: string; script?: string } = await request.json();
+	const body: { path?: string; script?: string; rebuild?: boolean } = await request.json();
 	const rel = body.path;
 	// "" is valid: it targets the workspace root itself as a node app.
 	if (typeof rel !== "string")
@@ -55,7 +56,7 @@ export async function POST(request: Request) {
 	const script = typeof body.script === "string" ? body.script : undefined;
 
 	try {
-		const result = await startApp(ctx.ws.id, rel, abs, script);
+		const result = await startApp(ctx.ws.id, rel, abs, script, { build: body.rebuild === true });
 		return NextResponse.json(result);
 	} catch (e) {
 		return NextResponse.json({ error: String(e) }, { status: 500 });

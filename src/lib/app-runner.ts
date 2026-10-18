@@ -3,7 +3,7 @@
  * Lives as a module-level Map so it persists across requests in both dev and
  * the Next.js standalone production server.
  */
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { watch, type FSWatcher } from "chokidar";
 import { createConnection, createServer } from "node:net";
@@ -17,7 +17,7 @@ import {
 import { listHostedApps } from "./hosted-apps";
 import { getWorkspace, safeWorkspacePath } from "./workspaces";
 
-export type AppStatus = "stopped" | "installing" | "starting" | "running" | "error";
+export type AppStatus = "stopped" | "installing" | "building" | "starting" | "running" | "error";
 type RunnerStatus = AppStatus | "restarting" | "missing";
 
 interface AppKey {
@@ -66,18 +66,34 @@ function closeWatcher(entry: RunningApp): void {
 	if (watcher) void watcher.close();
 }
 
+/**
+ * `pid` and all its descendants, deepest first. `npm run start` does not pass
+ * SIGTERM on to the server it spawned, so killing only the npm pid orphans the
+ * real server. Collected once, before any kill, because orphans get reparented.
+ * ponytail: relies on `pgrep -P` (Linux/macOS); without it only `pid` is returned.
+ */
+function processTree(pid: number): number[] {
+	let children: number[] = [];
+	try {
+		children = execFileSync("pgrep", ["-P", String(pid)], { encoding: "utf8" })
+			.split("\n").filter(Boolean).map(Number);
+	} catch {}
+	return [...children.flatMap(processTree), pid];
+}
+
+function killTree(pids: number[], signal: NodeJS.Signals): void {
+	for (const pid of pids) {
+		try { process.kill(pid, signal); } catch {}
+	}
+}
+
 function stopChild(entry: RunningApp): void {
 	const child = entry.process;
 	entry.process = null;
-	if (!child) return;
-	try {
-		if (!child.killed && child.pid) child.kill("SIGTERM");
-	} catch {}
-	const killLater = setTimeout(() => {
-		try {
-			if (!child.killed && child.pid) child.kill("SIGKILL");
-		} catch {}
-	}, 2000);
+	if (!child?.pid || child.exitCode !== null) return;
+	const pids = processTree(child.pid);
+	killTree(pids, "SIGTERM");
+	const killLater = setTimeout(() => killTree(pids, "SIGKILL"), 2000);
 	child.once("exit", () => clearTimeout(killLater));
 }
 
@@ -246,15 +262,18 @@ function spawnPath(): string {
 		: `${nodeBin}${path.delimiter}${existing}`;
 }
 
-function runInstall(
+/** Run `<pm> <args>` in `dir` to completion, draining its output into the app log. */
+function runStep(
 	dir: string,
 	pm: PM,
+	args: string[],
 	pushLog: (line: string) => void,
 	signal: AbortSignal,
 ): Promise<void> {
+	const label = `${pm} ${args.join(" ")}`;
 	return new Promise((resolve, reject) => {
 		if (signal.aborted) {
-			reject(new Error("Install aborted"));
+			reject(new Error(`${label} aborted`));
 			return;
 		}
 
@@ -264,14 +283,14 @@ function runInstall(
 			local.push(line);
 		};
 
-		const child = spawn(pm, ["install"], {
+		const child = spawn(pm, args, {
 			cwd: dir,
 			stdio: "pipe",
 			env: { ...process.env, PATH: spawnPath() },
 		});
 
 		const onAbort = () => {
-			try { child.kill("SIGTERM"); } catch {}
+			if (child.pid) killTree(processTree(child.pid), "SIGTERM");
 		};
 		signal.addEventListener("abort", onAbort, { once: true });
 
@@ -295,7 +314,7 @@ function runInstall(
 				resolve();
 			} else {
 				const tail = local.slice(-20).join("\n");
-				reject(new Error(`${pm} install failed (exit ${code}):\n${tail}`));
+				reject(new Error(`${label} failed (exit ${code}):\n${tail}`));
 			}
 		});
 	});
@@ -366,13 +385,22 @@ export async function startApp(
 	relPath: string,
 	absPath: string,
 	script?: string,
-	options?: { persist?: boolean },
+	options?: { persist?: boolean; build?: boolean },
 ): Promise<{ port: number }> {
 	const key = keyOf({ workspaceId, relPath });
 	const persist = options?.persist === true;
+	const build = options?.build === true;
 
 	const existing = apps.get(key);
-	if (existing && existing.status !== "stopped" && existing.status !== "error" && existing.status !== "missing" && existing.process) {
+	// A rebuild replaces a running app with the same script and pin state.
+	if (build) {
+		if (!hasScript(readPkg(absPath)?.scripts ?? {}, "build")) {
+			throw new Error('No "build" script in package.json');
+		}
+		script ??= existing?.script;
+	}
+	const keepPersist = build && existing?.persist === true;
+	if (!build && existing && existing.status !== "stopped" && existing.status !== "error" && existing.status !== "missing" && existing.process) {
 		if (persist) existing.persist = true;
 		return { port: existing.port };
 	}
@@ -403,7 +431,7 @@ export async function startApp(
 		logs: [],
 		generation: 1,
 		abort: new AbortController(),
-		persist: false,
+		persist: keepPersist,
 		supervision: priorSupervision ?? initialSupervisionState(),
 		watcher: null,
 		restartTimer: null,
@@ -418,7 +446,13 @@ export async function startApp(
 	try {
 		if (needsInstall(absPath)) {
 			pushLog(`[wiki-viewer] Running ${pm} install…`);
-			await runInstall(absPath, pm, pushLog, entry.abort.signal);
+			await runStep(absPath, pm, ["install"], pushLog, entry.abort.signal);
+		}
+
+		if (build) {
+			entry.status = "building";
+			pushLog(`[wiki-viewer] Running ${pm} run build…`);
+			await runStep(absPath, pm, ["run", "build"], pushLog, entry.abort.signal);
 		}
 
 		entry.status = "starting";
