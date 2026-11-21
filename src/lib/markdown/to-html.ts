@@ -123,6 +123,12 @@ function resolveRelativeUrls(
 	const slash = pagePath.lastIndexOf("/");
 	const dirPath = slash === -1 ? "" : pagePath.slice(0, slash);
 
+	// Any relative URL, with or without a leading ./ — "img/x.svg" as well as
+	// "./img/x.svg" and "../x.pdf". Not absolute paths, not URLs with a scheme
+	// (http:, data:, mailto:), not fragments or queries.
+	const REL = '((?![a-zA-Z][a-zA-Z0-9+.-]*:|/|#|\\?)[^"]+)';
+	const relAttr = (attr: string) => new RegExp(`(?<![-\\w])${attr}="${REL}"`, "g");
+
 	const join = (file: string): string => {
 		const parts = (dirPath ? dirPath.split("/") : []).concat(file.split("/"));
 		const out: string[] = [];
@@ -138,15 +144,15 @@ function resolveRelativeUrls(
 		const target = (file: string, base: string): string =>
 			`${base}?path=${encodeURIComponent(join(file))}`;
 		html = html.replace(
-			/href="(\.\.?\/[^"]+)"/g,
+			relAttr("href"),
 			(_match, file: string) => `href="${target(file, bases.page)}"`,
 		);
 		html = html.replace(
-			/src="(\.\.?\/[^"]+)"/g,
+			relAttr("src"),
 			(_match, file: string) => `src="${target(file, bases.asset)}"`,
 		);
 		html = html.replace(
-			/data-src="(\.\.?\/[^"]+)"/g,
+			relAttr("data-src"),
 			(_match, file: string) => `data-src="${target(file, bases.asset)}"`,
 		);
 		return html;
@@ -161,17 +167,17 @@ function resolveRelativeUrls(
 	};
 
 	html = html.replace(
-		/href="(\.\.?\/[^"]+)"/g,
+		relAttr("href"),
 		(_match, file: string) => `href="${toAbs(file)}"`,
 	);
 
 	html = html.replace(
-		/src="(\.\.?\/[^"]+)"/g,
+		relAttr("src"),
 		(_match, file: string) => `src="${toAbs(file)}"`,
 	);
 
 	html = html.replace(
-		/data-src="(\.\.?\/[^"]+)"/g,
+		relAttr("data-src"),
 		(_match, file: string) => `data-src="${toAbs(file)}"`,
 	);
 
