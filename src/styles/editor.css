@@ -269,6 +269,37 @@
   text-decoration: line-through;
 }
 
+/* GitHub alert kinds (> [!NOTE] etc.), with the kind as a label. */
+.tiptap .callout-note,
+.tiptap .callout-important {
+  border-left: 2px solid var(--accent-foreground);
+  background: color-mix(in srgb, var(--accent-foreground) 10%, transparent);
+}
+.tiptap .callout-tip {
+  border-left: 2px solid var(--success);
+  background: var(--success-soft);
+}
+.tiptap .callout-caution {
+  border-left: 2px solid var(--destructive);
+  background: var(--destructive-soft);
+}
+.tiptap :is(.callout-note, .callout-tip, .callout-important, .callout-warning, .callout-caution)::before {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.75;
+}
+.tiptap .callout-note::before { content: "Note"; }
+.tiptap .callout-tip::before { content: "Tip"; }
+.tiptap .callout-important::before { content: "Important"; }
+.tiptap .callout-warning::before { content: "Warning"; }
+.tiptap .callout-caution::before { content: "Caution"; }
+.tiptap .html-preview-block { margin: 0.75rem 0; }
+.tiptap iframe.html-preview { width: 100%; min-height: 160px; border: 1px solid var(--border); border-radius: 6px; background: white; }
+.tiptap div[data-type="block-math"] { text-align: center; margin: 0.75rem 0; overflow-x: auto; }
+
 .tiptap .callout-info {
   border-left: 2px solid var(--accent-foreground);
   background: color-mix(in srgb, var(--accent-foreground) 10%, transparent);

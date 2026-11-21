@@ -24,9 +24,11 @@ import typescript from "highlight.js/lib/languages/typescript";
 import xml from "highlight.js/lib/languages/xml";
 import yaml from "highlight.js/lib/languages/yaml";
 import { createLowlight } from "lowlight";
+import Mathematics from "@tiptap/extension-mathematics";
 import { CalloutExtension } from "./callout-extension";
 import { DragHandle } from "./extensions/drag-handle";
 import { HeadingAnchors } from "./extensions/heading-anchors";
+import { HtmlPreview } from "./extensions/html-preview";
 import { MermaidCodeBlock } from "./extensions/mermaid-code-block";
 import { ResizableImage } from "./extensions/resizable-image";
 import { WikiLink } from "./wiki-link-extension";
@@ -141,6 +143,9 @@ export const editorExtensions = [
 		},
 	}),
 	CalloutExtension,
+	// $…$ and $$…$$ from Markdown, rendered with KaTeX.
+	Mathematics.configure({ katexOptions: { throwOnError: false } }),
+	HtmlPreview,
 	// Suggesting mode. The marks let a suggestion live IN the document, and the
 	// plugin rewrites each transaction so typing and deleting produce suggestions
 	// rather than applied edits. Vendored; see extensions/suggest-changes.ts.

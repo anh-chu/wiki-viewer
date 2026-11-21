@@ -3,6 +3,7 @@ import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import rehypeStringify from "rehype-stringify";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
 import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import { unified } from "unified";
@@ -186,6 +187,69 @@ function resolveRelativeUrls(
 	return html;
 }
 
+// GitHub alerts: a blockquote whose first line is [!NOTE], [!TIP], [!IMPORTANT],
+// [!WARNING] or [!CAUTION] becomes the editor's callout node
+// (div[data-callout] with data-callout-type = the lowercased kind).
+const ALERT_RE = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*(?:\r?\n)?/i;
+type MdNode = { type: string; value?: string; children?: MdNode[]; data?: Record<string, unknown> };
+function remarkGithubAlerts() {
+	const walk = (node: MdNode): void => {
+		for (const child of node.children ?? []) walk(child);
+		if (node.type !== "blockquote") return;
+		const first = node.children?.[0];
+		const text = first?.type === "paragraph" ? first.children?.[0] : undefined;
+		if (!text || text.type !== "text" || typeof text.value !== "string") return;
+		const m = ALERT_RE.exec(text.value);
+		if (!m) return;
+		text.value = text.value.slice(m[0].length);
+		if (text.value === "") first!.children!.shift();
+		if (first!.children!.length === 0) node.children!.shift();
+		const kind = m[1]!.toLowerCase();
+		node.data = {
+			...(node.data ?? {}),
+			hName: "div",
+			hProperties: { dataCallout: "true", dataCalloutType: kind },
+		};
+	};
+	return (tree: MdNode) => walk(tree);
+}
+
+// ```html preview fences become the HtmlPreview node (a sandboxed iframe).
+function remarkHtmlPreview() {
+	const walk = (node: MdNode & { lang?: string; meta?: string }): void => {
+		const kids = node.children ?? [];
+		for (let i = 0; i < kids.length; i++) {
+			const c = kids[i] as MdNode & { lang?: string; meta?: string };
+			if (c.type === "code" && c.lang === "html" && (c.meta ?? "").trim() === "preview") {
+				kids[i] = {
+					type: "htmlPreview",
+					data: {
+						hName: "div",
+						hProperties: { dataHtmlPreview: "true", dataSrcdoc: c.value ?? "" },
+					},
+				};
+			} else walk(c);
+		}
+	};
+	return (tree: MdNode) => walk(tree);
+}
+
+// $…$ and $$…$$ become the Mathematics extension's nodes, which render KaTeX.
+const mathHandlers = {
+	math: (_state: unknown, node: { value: string }) => ({
+		type: "element" as const,
+		tagName: "div",
+		properties: { dataType: "block-math", dataLatex: node.value },
+		children: [],
+	}),
+	inlineMath: (_state: unknown, node: { value: string }) => ({
+		type: "element" as const,
+		tagName: "span",
+		properties: { dataType: "inline-math", dataLatex: node.value },
+		children: [],
+	}),
+};
+
 // Unified's plugin resolution + processor freeze runs on every `unified()`
 // call. Reuse single frozen pipelines across every page render so
 // navigation doesn't pay that cost on the hot path.
@@ -195,7 +259,10 @@ function resolveRelativeUrls(
 const processor = unified()
 	.use(remarkParse)
 	.use(remarkGfm)
-	.use(remarkRehype, { allowDangerousHtml: true })
+	.use(remarkMath)
+	.use(remarkGithubAlerts)
+	.use(remarkHtmlPreview)
+	.use(remarkRehype, { allowDangerousHtml: true, handlers: mathHandlers as any })
 	.use(rehypeStringify, { allowDangerousHtml: true })
 	.freeze();
 
