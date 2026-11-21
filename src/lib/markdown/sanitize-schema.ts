@@ -94,6 +94,13 @@ export const previewSanitizeSchema: SanitizeOptions = {
 			"dataModAttrName",
 			"dataModPrevVal",
 			"dataModNewVal",
+			// GitHub-style callouts (> [!NOTE]) and display math ($$ … $$).
+			["dataCallout", "true"],
+			"dataCalloutType",
+			"dataLatex",
+			// ```html preview fences: the source for the sandboxed frame.
+			["dataHtmlPreview", "true"],
+			"dataSrcdoc",
 		],
 		// Task-list list items.
 		li: [
@@ -131,6 +138,7 @@ export const previewSanitizeSchema: SanitizeOptions = {
 		span: [
 			...(defaultSchema.attributes?.span ?? []),
 			"className",
+			"dataLatex",
 			"dataId",
 			"dataType",
 			"dataModType",

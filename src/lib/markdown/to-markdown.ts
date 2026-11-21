@@ -263,6 +263,73 @@ turndown.addRule("resizableImageWrapper", {
 	replacement: (content) => content,
 });
 
+// Callouts back to GitHub alerts. Editor-made callouts (info/success/error)
+// map to the nearest GitHub kind so the saved Markdown renders on GitHub too.
+const CALLOUT_TO_ALERT: Record<string, string> = {
+	note: "NOTE", info: "NOTE", tip: "TIP", success: "TIP", important: "IMPORTANT",
+	warning: "WARNING", caution: "CAUTION", error: "CAUTION",
+};
+turndown.addRule("callout", {
+	filter: (node) =>
+		node.nodeName === "DIV" && (node as HTMLElement).getAttribute("data-callout") === "true",
+	replacement: (content, node) => {
+		const type = (node as HTMLElement).getAttribute("data-callout-type") ?? "note";
+		const kind = CALLOUT_TO_ALERT[type] ?? "NOTE";
+		const body = content.trim().split("\n").map((l) => (l ? `> ${l}` : ">")).join("\n");
+		return `\n\n> [!${kind}]\n${body}\n\n`;
+	},
+});
+
+turndown.addRule("htmlPreview", {
+	filter: (node) =>
+		node.nodeName === "DIV" && (node as HTMLElement).getAttribute("data-html-preview") === "true",
+	replacement: (_content, node) => {
+		const src = (node as HTMLElement).getAttribute("data-srcdoc") ?? "";
+		return `\n\n\`\`\`html preview\n${src.replace(/\n$/, "")}\n\`\`\`\n\n`;
+	},
+});
+
+turndown.addRule("blockMath", {
+	filter: (node) => {
+		const el = node as HTMLElement;
+		const t = el.getAttribute?.("data-type");
+		return el.nodeName === "DIV" && (t === "block-math" || t === "blockMath");
+	},
+	replacement: (_content, node) => {
+		const latex = (node as HTMLElement).getAttribute("data-latex") ?? "";
+		return `\n\n$$\n${latex}\n$$\n\n`;
+	},
+});
+
+// Maths and preview nodes carry their content in attributes and have no child
+// text, so turndown counts them as blank and hands them to its blank rule
+// before any of the rules below can match. Write them out from there.
+// (Turndown captures blankReplacement when the instance is built, so the
+// captured rule is patched rather than the option.)
+function emptyNodeMarkdown(el: HTMLElement): string | null {
+	if (el.nodeType !== 1) return null;
+	const type = el.getAttribute("data-type");
+	if (type === "inline-math" || type === "inlineMath") {
+		return `$${el.getAttribute("data-latex") ?? ""}$`;
+	}
+	if (type === "block-math" || type === "blockMath") {
+		return `\n\n$$\n${el.getAttribute("data-latex") ?? ""}\n$$\n\n`;
+	}
+	if (el.getAttribute("data-html-preview") === "true") {
+		const src = (el.getAttribute("data-srcdoc") ?? "").replace(/\n$/, "");
+		return `\n\n\`\`\`html preview\n${src}\n\`\`\`\n\n`;
+	}
+	return null;
+}
+const blankRule = (
+	turndown as unknown as {
+		rules: { blankRule: { replacement: TurndownService.ReplacementFunction } };
+	}
+).rules.blankRule;
+const defaultBlank = blankRule.replacement;
+blankRule.replacement = (content, node, options) =>
+	emptyNodeMarkdown(node as HTMLElement) ?? defaultBlank(content, node, options);
+
 // Math extension renders <span data-type="inlineMath" data-latex="..."> etc.
 turndown.addRule("inlineMath", {
 	filter: (node) => {

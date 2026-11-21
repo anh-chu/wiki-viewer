@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, Fraunces, Newsreader, IBM_Plex_Mono, Roboto, Open_Sans, Lexend, Atkinson_Hyperlegible, Merriweather, Libre_Baskerville, JetBrains_Mono, Fira_Code, Roboto_Mono, Space_Mono, Source_Code_Pro } from "next/font/google";
 import localFont from "next/font/local";
+import "katex/dist/katex.min.css";
 import "./globals.css";
 import { Toaster } from "sonner";
 import { ThemeProvider } from "@/components/theme-provider";
