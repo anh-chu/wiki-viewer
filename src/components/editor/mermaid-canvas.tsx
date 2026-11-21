@@ -41,6 +41,18 @@ function Stage({
 	const panStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
 	const contentRef = useRef<HTMLDivElement>(null);
 
+	// Fit the diagram to the frame's width: scale down, never crop, never scale
+	// up past Mermaid's own max-width. A flex item's min-width defaults to its
+	// content width, which is what let a wide flowchart overflow and get cut.
+	useLayoutEffect(() => {
+		const svgEl = contentRef.current?.querySelector("svg");
+		if (!svgEl) return;
+		svgEl.style.width = "100%";
+		svgEl.style.height = "auto";
+		svgEl.style.minWidth = "0";
+		svgEl.style.flex = "0 1 auto";
+	}, [svg]);
+
 	// Size the block to the diagram's rendered height (width-fit), capped at maxHeight.
 	useLayoutEffect(() => {
 		if (maxHeight == null) return;
@@ -48,7 +60,7 @@ function Stage({
 		if (!svgEl) return;
 		const h = svgEl.getBoundingClientRect().height;
 		if (!h) return;
-		setHeight(Math.min(Math.round(h) + 32, maxHeight)); // +32 for p-4
+		setHeight(Math.min(Math.round(h) + 56, maxHeight)); // +56 for pt-10 pb-4: the zoom controls sit above the diagram, not on it
 	}, [svg, maxHeight]);
 
 	const zoomIn = () => setZoom((z) => Math.min(z + ZOOM_STEP, ZOOM_MAX));
@@ -110,7 +122,7 @@ function Stage({
 		>
 			<div
 				ref={contentRef}
-				className="flex items-center justify-center w-full h-full min-h-full p-4 [&_svg]:max-w-full origin-center select-none"
+				className="flex items-center justify-center w-full h-full min-h-full px-4 pb-4 pt-10 [&_svg]:max-w-full origin-center select-none"
 				style={{
 					transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
 				}}
