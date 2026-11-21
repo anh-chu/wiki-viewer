@@ -43,8 +43,24 @@ function fmt(v: unknown): string {
 
 export function FrontmatterHeader({ data }: Props) {
 	const [showRaw, setShowRaw] = useState(false);
+	// Frontmatter is metadata, not content: collapsed by default so the page
+	// reads the same as on the site, with the panel one click away for editing.
+	const [open, setOpen] = useState(false);
 	const keys = Object.keys(data);
 	if (keys.length === 0) return null;
+	if (!open) {
+		return (
+			<button
+				type="button"
+				onClick={() => setOpen(true)}
+				className="mb-3 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+				title="Show the page's frontmatter"
+			>
+				<ChevronRight className="h-3 w-3" />
+				Properties ({keys.length})
+			</button>
+		);
+	}
 
 	const title = typeof data.title === "string" ? data.title : null;
 	const type = typeof data.type === "string" ? data.type : null;
@@ -61,6 +77,15 @@ export function FrontmatterHeader({ data }: Props) {
 
 	return (
 		<div className="mb-6 rounded-sm border bg-card/40 px-4 py-3 text-xs">
+			<button
+				type="button"
+				onClick={() => setOpen(false)}
+				className="mb-2 inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
+				title="Hide the page's frontmatter"
+			>
+				<ChevronDown className="h-3 w-3" />
+				Properties
+			</button>
 			{title && (
 				<div className="mb-2 text-base font-normal text-foreground">
 					{title}
