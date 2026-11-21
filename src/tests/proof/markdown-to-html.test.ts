@@ -102,3 +102,18 @@ test("relativeBases leaves absolute URLs alone", async () => {
 	});
 	assert.ok(html.includes("https://example.com/x.png"), "absolute URLs pass through");
 });
+
+test("relative image and link paths resolve with or without a leading ./", async () => {
+	const md = `![a](img/a.svg) ![b](./img/b.svg) ![c](../c.png) [d](notes/d.pdf)
+
+![abs](/x.png) ![web](https://example.com/e.png) [frag](#top) ![data](data:image/png;base64,AA==)`;
+	const html = await markdownToHtml(md, { pagePath: "docs/page.md" });
+	assert.ok(html.includes('src="/api/assets/docs/img/a.svg'), "bare relative src resolves");
+	assert.ok(html.includes('src="/api/assets/docs/img/b.svg'), "./ src still resolves");
+	assert.ok(html.includes('src="/api/assets/c.png'), "../ src still resolves");
+	assert.ok(html.includes('href="/api/assets/docs/notes/d.pdf'), "bare relative href resolves");
+	assert.ok(html.includes('src="/x.png"'), "absolute path untouched");
+	assert.ok(html.includes('src="https://example.com/e.png"'), "URL with a scheme untouched");
+	assert.ok(html.includes('href="#top"'), "fragment untouched");
+	assert.ok(html.includes('src="data:image/png'), "data: URL untouched");
+});
