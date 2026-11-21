@@ -22,7 +22,7 @@
 //    tarball extracts to a tree where `require("next")` fails. Flatten the
 //    store into a real hoisted tree (step 6).
 
-import { cpSync, mkdirSync, rmSync, existsSync, readdirSync, statSync, lstatSync, renameSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, rmSync, existsSync, readdirSync, statSync, lstatSync, renameSync, unlinkSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -248,7 +248,7 @@ if (existsSync(pnpmStore)) {
     if (present) {
       // A real directory here was placed deliberately (step 5's rg binary).
       if (!present.isSymbolicLink()) continue;
-      rmSync(dst);
+      unlinkSync(dst); // a symlink: unlink it (rmSync follows it to the directory on Node 24)
     }
 
     mkdirSync(path.dirname(dst), { recursive: true });
